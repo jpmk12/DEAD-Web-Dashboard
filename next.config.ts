@@ -1,11 +1,14 @@
 import type { NextConfig } from "next";
 
-// Static export so the built `out/` directory is plain HTML/CSS/JS
-// and can be uploaded to GoDaddy cPanel (no Node runtime required).
+// Deployed as a Node.js app on GoDaddy Node.js Hosting:
+// the platform runs `npm install && npm start` (which calls `next start`)
+// and injects PORT, which `next start` honors automatically.
 const nextConfig: NextConfig = {
-  output: "export",
-  images: { unoptimized: true },
-  trailingSlash: true,
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "**" },
+    ],
+  },
 };
 
 export default nextConfig;
