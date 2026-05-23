@@ -9,10 +9,16 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@auth/core": "^0.37.4",
     "date-fns": "^4.1.0",
+    "googleapis": "^148.0.0",
+    "mysql2": "^3.11.5",
     "next": "^15.3.2",
+    "next-auth": "^5.0.0-beta.28",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "rss-parser": "^3.13.0"
   },
   "overrides": {
     "postcss": "^8.5.10"

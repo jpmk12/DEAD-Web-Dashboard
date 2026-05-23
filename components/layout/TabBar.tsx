@@ -1,4 +1,4 @@
-export type Tab = "news";
+export type Tab = "news" | "calendar" | "email" | "markets" | "weather";
 
 interface TabBarProps {
   activeTab: Tab;
@@ -6,7 +6,11 @@ interface TabBarProps {
 }
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "news", label: "News", icon: "◉" },
+  { id: "news",     label: "News",         icon: "◉" },
+  { id: "calendar", label: "Calendar & AI", icon: "◈" },
+  { id: "email",    label: "Email",         icon: "◎" },
+  { id: "markets",  label: "Markets",       icon: "◈" },
+  { id: "weather",  label: "Weather",       icon: "〜" },
 ];
 
 export default function TabBar({ activeTab, onTabChange }: TabBarProps) {
@@ -29,6 +33,7 @@ export default function TabBar({ activeTab, onTabChange }: TabBarProps) {
               {tab.icon}
             </span>
             {tab.label}
+            {/* Active indicator bar */}
             {activeTab === tab.id && (
               <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-emerald-500 rounded-full" />
             )}

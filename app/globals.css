@@ -12,19 +12,287 @@
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: var(--scrollbar, #334155);
     border-radius: 2px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #475569;
+    background: var(--scrollbar-hover, #475569);
   }
 }
 
 @layer utilities {
-  .glow-green { box-shadow: 0 0 12px -2px rgb(34 197 94 / 0.3); }
-  .card-hover { transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease; }
+  .glow-green  { box-shadow: 0 0 12px -2px var(--glow-accent, rgb(34 197 94 / 0.3)); }
+  .glow-amber  { box-shadow: 0 0 12px -2px rgb(245 158 11 / 0.3); }
+  .glow-red    { box-shadow: 0 0 12px -2px rgb(239 68 68 / 0.25); }
+  .card-hover  { transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease; }
   .card-hover:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 20px -4px rgb(0 0 0 / 0.5);
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   NIGHTWATCH (default) — deep slate / emerald
+   No overrides needed; Tailwind defaults match this palette.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="nightwatch"] {
+  --scrollbar:       #334155;
+  --scrollbar-hover: #475569;
+  --glow-accent:     rgb(34 197 94 / 0.3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   AMBER — dark tactical terminal / phosphor amber
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-theme="amber"] {
+  --scrollbar:       #3d2a00;
+  --scrollbar-hover: #5c4000;
+  --glow-accent:     rgb(245 158 11 / 0.35);
+}
+
+/* — Backgrounds — */
+[data-theme="amber"] .bg-slate-950   { background-color: #0c0800; }
+[data-theme="amber"] .bg-slate-900   { background-color: #160f00; }
+[data-theme="amber"] .bg-slate-800   { background-color: #221800; }
+[data-theme="amber"] .bg-slate-700   { background-color: #2e2100; }
+
+[data-theme="amber"] .bg-slate-950\/95 { background-color: rgb(12 8 0 / 0.95); }
+[data-theme="amber"] .bg-slate-800\/70 { background-color: rgb(34 24 0 / 0.70); }
+[data-theme="amber"] .bg-slate-800\/60 { background-color: rgb(34 24 0 / 0.60); }
+[data-theme="amber"] .bg-slate-800\/50 { background-color: rgb(34 24 0 / 0.50); }
+[data-theme="amber"] .bg-slate-800\/40 { background-color: rgb(34 24 0 / 0.40); }
+[data-theme="amber"] .bg-slate-800\/30 { background-color: rgb(34 24 0 / 0.30); }
+[data-theme="amber"] .bg-slate-800\/20 { background-color: rgb(34 24 0 / 0.20); }
+
+/* — Text — */
+[data-theme="amber"] .text-slate-100 { color: #fef3c7; }
+[data-theme="amber"] .text-slate-200 { color: #fde68a; }
+[data-theme="amber"] .text-slate-300 { color: #d4a017; }
+[data-theme="amber"] .text-slate-400 { color: #92400e; }
+[data-theme="amber"] .text-slate-500 { color: #6b3300; }
+[data-theme="amber"] .text-slate-600 { color: #3d1e00; }
+[data-theme="amber"] .text-slate-700 { color: #2a1400; }
+
+/* — Borders — */
+[data-theme="amber"] .border-slate-800    { border-color: #2e2100; }
+[data-theme="amber"] .border-slate-700    { border-color: #3d2d00; }
+[data-theme="amber"] .border-slate-700\/60 { border-color: rgb(61 45 0 / 0.60); }
+[data-theme="amber"] .border-slate-700\/80 { border-color: rgb(61 45 0 / 0.80); }
+[data-theme="amber"] .border-slate-800\/60 { border-color: rgb(46 33 0 / 0.60); }
+[data-theme="amber"] .border-slate-800\/40 { border-color: rgb(46 33 0 / 0.40); }
+
+/* — Divide — */
+[data-theme="amber"] .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #2e2100;
+}
+[data-theme="amber"] .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(46 33 0 / 0.60);
+}
+
+/* — Accent: emerald → amber — */
+[data-theme="amber"] .text-emerald-400 { color: #fbbf24; }
+[data-theme="amber"] .text-emerald-500 { color: #f59e0b; }
+[data-theme="amber"] .text-emerald-600 { color: #d97706; }
+
+[data-theme="amber"] .bg-emerald-500  { background-color: #f59e0b; }
+[data-theme="amber"] .bg-emerald-600  { background-color: #d97706; }
+[data-theme="amber"] .bg-emerald-400  { background-color: #fbbf24; }
+
+[data-theme="amber"] .bg-emerald-500\/15 { background-color: rgb(245 158 11 / 0.15); }
+[data-theme="amber"] .bg-emerald-500\/10 { background-color: rgb(245 158 11 / 0.10); }
+[data-theme="amber"] .bg-emerald-500\/8  { background-color: rgb(245 158 11 / 0.08); }
+[data-theme="amber"] .bg-emerald-500\/5  { background-color: rgb(245 158 11 / 0.05); }
+
+[data-theme="amber"] .border-emerald-500    { border-color: #f59e0b; }
+[data-theme="amber"] .border-emerald-500\/40 { border-color: rgb(245 158 11 / 0.40); }
+[data-theme="amber"] .border-emerald-500\/30 { border-color: rgb(245 158 11 / 0.30); }
+[data-theme="amber"] .border-emerald-500\/20 { border-color: rgb(245 158 11 / 0.20); }
+
+/* — Hover variants — */
+[data-theme="amber"] .hover\:text-emerald-400:hover  { color: #fbbf24; }
+[data-theme="amber"] .hover\:bg-emerald-400:hover    { background-color: #fbbf24; }
+[data-theme="amber"] .hover\:border-slate-600:hover  { border-color: #5c4000; }
+[data-theme="amber"] .hover\:border-slate-700:hover  { border-color: #3d2d00; }
+[data-theme="amber"] .hover\:bg-slate-800\/50:hover  { background-color: rgb(34 24 0 / 0.50); }
+[data-theme="amber"] .hover\:bg-slate-800\/60:hover  { background-color: rgb(34 24 0 / 0.60); }
+[data-theme="amber"] .hover\:text-slate-300:hover    { color: #d4a017; }
+[data-theme="amber"] .hover\:text-slate-200:hover    { color: #fde68a; }
+[data-theme="amber"] .focus\:border-slate-500:focus  { border-color: #5c4000; }
+
+/* gradient that transitions through emerald */
+[data-theme="amber"] .from-emerald-400  { --tw-gradient-from: #fbbf24; }
+[data-theme="amber"] .via-emerald-500   { --tw-gradient-via:  #f59e0b; }
+[data-theme="amber"] .to-transparent    {}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ARCTIC — midnight navy / ice-blue
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-theme="arctic"] {
+  --scrollbar:       #1a2d4d;
+  --scrollbar-hover: #26405e;
+  --glow-accent:     rgb(14 165 233 / 0.35);
+}
+
+/* — Backgrounds — */
+[data-theme="arctic"] .bg-slate-950   { background-color: #03091a; }
+[data-theme="arctic"] .bg-slate-900   { background-color: #07112a; }
+[data-theme="arctic"] .bg-slate-800   { background-color: #0e1e3d; }
+[data-theme="arctic"] .bg-slate-700   { background-color: #162b52; }
+
+[data-theme="arctic"] .bg-slate-950\/95 { background-color: rgb(3 9 26 / 0.95); }
+[data-theme="arctic"] .bg-slate-800\/70 { background-color: rgb(14 30 61 / 0.70); }
+[data-theme="arctic"] .bg-slate-800\/60 { background-color: rgb(14 30 61 / 0.60); }
+[data-theme="arctic"] .bg-slate-800\/50 { background-color: rgb(14 30 61 / 0.50); }
+[data-theme="arctic"] .bg-slate-800\/40 { background-color: rgb(14 30 61 / 0.40); }
+[data-theme="arctic"] .bg-slate-800\/30 { background-color: rgb(14 30 61 / 0.30); }
+[data-theme="arctic"] .bg-slate-800\/20 { background-color: rgb(14 30 61 / 0.20); }
+
+/* — Text — */
+[data-theme="arctic"] .text-slate-100 { color: #dbeafe; }
+[data-theme="arctic"] .text-slate-200 { color: #bfdbf7; }
+[data-theme="arctic"] .text-slate-300 { color: #8ab4d4; }
+[data-theme="arctic"] .text-slate-400 { color: #4a7090; }
+[data-theme="arctic"] .text-slate-500 { color: #2d4a65; }
+[data-theme="arctic"] .text-slate-600 { color: #1a2f45; }
+[data-theme="arctic"] .text-slate-700 { color: #0f1e30; }
+
+/* — Borders — */
+[data-theme="arctic"] .border-slate-800    { border-color: #162b52; }
+[data-theme="arctic"] .border-slate-700    { border-color: #1e3d6b; }
+[data-theme="arctic"] .border-slate-700\/60 { border-color: rgb(30 61 107 / 0.60); }
+[data-theme="arctic"] .border-slate-700\/80 { border-color: rgb(30 61 107 / 0.80); }
+[data-theme="arctic"] .border-slate-800\/60 { border-color: rgb(22 43 82 / 0.60); }
+[data-theme="arctic"] .border-slate-800\/40 { border-color: rgb(22 43 82 / 0.40); }
+
+/* — Divide — */
+[data-theme="arctic"] .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #162b52;
+}
+[data-theme="arctic"] .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(22 43 82 / 0.60);
+}
+
+/* — Accent: emerald → sky-blue — */
+[data-theme="arctic"] .text-emerald-400 { color: #38bdf8; }
+[data-theme="arctic"] .text-emerald-500 { color: #0ea5e9; }
+[data-theme="arctic"] .text-emerald-600 { color: #0284c7; }
+
+[data-theme="arctic"] .bg-emerald-500  { background-color: #0ea5e9; }
+[data-theme="arctic"] .bg-emerald-600  { background-color: #0284c7; }
+[data-theme="arctic"] .bg-emerald-400  { background-color: #38bdf8; }
+
+[data-theme="arctic"] .bg-emerald-500\/15 { background-color: rgb(14 165 233 / 0.15); }
+[data-theme="arctic"] .bg-emerald-500\/10 { background-color: rgb(14 165 233 / 0.10); }
+[data-theme="arctic"] .bg-emerald-500\/8  { background-color: rgb(14 165 233 / 0.08); }
+[data-theme="arctic"] .bg-emerald-500\/5  { background-color: rgb(14 165 233 / 0.05); }
+
+[data-theme="arctic"] .border-emerald-500    { border-color: #0ea5e9; }
+[data-theme="arctic"] .border-emerald-500\/40 { border-color: rgb(14 165 233 / 0.40); }
+[data-theme="arctic"] .border-emerald-500\/30 { border-color: rgb(14 165 233 / 0.30); }
+[data-theme="arctic"] .border-emerald-500\/20 { border-color: rgb(14 165 233 / 0.20); }
+
+/* — Hover variants — */
+[data-theme="arctic"] .hover\:text-emerald-400:hover  { color: #38bdf8; }
+[data-theme="arctic"] .hover\:bg-emerald-400:hover    { background-color: #38bdf8; }
+[data-theme="arctic"] .hover\:border-slate-600:hover  { border-color: #26405e; }
+[data-theme="arctic"] .hover\:border-slate-700:hover  { border-color: #1e3d6b; }
+[data-theme="arctic"] .hover\:bg-slate-800\/50:hover  { background-color: rgb(14 30 61 / 0.50); }
+[data-theme="arctic"] .hover\:bg-slate-800\/60:hover  { background-color: rgb(14 30 61 / 0.60); }
+[data-theme="arctic"] .hover\:text-slate-300:hover    { color: #8ab4d4; }
+[data-theme="arctic"] .hover\:text-slate-200:hover    { color: #bfdbf7; }
+[data-theme="arctic"] .focus\:border-slate-500:focus  { border-color: #26405e; }
+
+[data-theme="arctic"] .from-emerald-400 { --tw-gradient-from: #38bdf8; }
+[data-theme="arctic"] .via-emerald-500  { --tw-gradient-via:  #0ea5e9; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   MISSION BRIEF — warm parchment / DoD aviation blue
+   Light theme inspired by official aviation mission check documents.
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-theme="mission"] {
+  --scrollbar:       #d3d1c7;
+  --scrollbar-hover: #b0afa6;
+  --glow-accent:     rgb(24 95 165 / 0.25);
+}
+
+/* — Backgrounds (light inversion) — */
+[data-theme="mission"] .bg-slate-950   { background-color: #f5f4f0; }
+[data-theme="mission"] .bg-slate-900   { background-color: #ffffff; }
+[data-theme="mission"] .bg-slate-800   { background-color: #f1efe8; }
+[data-theme="mission"] .bg-slate-700   { background-color: #eeedea; }
+
+[data-theme="mission"] .bg-slate-950\/95 { background-color: rgb(245 244 240 / 0.95); }
+[data-theme="mission"] .bg-slate-800\/70 { background-color: rgb(241 239 232 / 0.70); }
+[data-theme="mission"] .bg-slate-800\/60 { background-color: rgb(241 239 232 / 0.60); }
+[data-theme="mission"] .bg-slate-800\/50 { background-color: rgb(241 239 232 / 0.50); }
+[data-theme="mission"] .bg-slate-800\/40 { background-color: rgb(241 239 232 / 0.40); }
+[data-theme="mission"] .bg-slate-800\/30 { background-color: rgb(241 239 232 / 0.30); }
+[data-theme="mission"] .bg-slate-800\/20 { background-color: rgb(241 239 232 / 0.20); }
+
+/* — Text (dark on light) — */
+[data-theme="mission"] .text-slate-100  { color: #1a1a19; }
+[data-theme="mission"] .text-slate-200  { color: #3a3a38; }
+[data-theme="mission"] .text-slate-300  { color: #5f5e5a; }
+[data-theme="mission"] .text-slate-400  { color: #888780; }
+[data-theme="mission"] .text-slate-500  { color: #b0afa6; }
+[data-theme="mission"] .text-slate-600  { color: #d3d1c7; }
+[data-theme="mission"] .text-slate-700  { color: #e3e2dc; }
+/* text-slate-950 is used for text on coloured buttons — white reads better on blue */
+[data-theme="mission"] .text-slate-950  { color: #ffffff; }
+
+/* — Borders — */
+[data-theme="mission"] .border-slate-800    { border-color: #d3d1c7; }
+[data-theme="mission"] .border-slate-700    { border-color: #b0afa6; }
+[data-theme="mission"] .border-slate-700\/60 { border-color: rgb(176 175 166 / 0.60); }
+[data-theme="mission"] .border-slate-700\/80 { border-color: rgb(176 175 166 / 0.80); }
+[data-theme="mission"] .border-slate-800\/60 { border-color: rgb(211 209 199 / 0.60); }
+[data-theme="mission"] .border-slate-800\/40 { border-color: rgb(211 209 199 / 0.40); }
+
+/* — Divide — */
+[data-theme="mission"] .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #d3d1c7;
+}
+[data-theme="mission"] .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(211 209 199 / 0.60);
+}
+
+/* — Accent: emerald → DoD aviation blue — */
+[data-theme="mission"] .text-emerald-400 { color: #378ADD; }
+[data-theme="mission"] .text-emerald-500 { color: #185FA5; }
+[data-theme="mission"] .text-emerald-600 { color: #0C447C; }
+
+[data-theme="mission"] .bg-emerald-500  { background-color: #185FA5; }
+[data-theme="mission"] .bg-emerald-600  { background-color: #0C447C; }
+[data-theme="mission"] .bg-emerald-400  { background-color: #378ADD; }
+
+[data-theme="mission"] .bg-emerald-500\/15 { background-color: #E6F1FB; }
+[data-theme="mission"] .bg-emerald-500\/10 { background-color: rgb(24 95 165 / 0.10); }
+[data-theme="mission"] .bg-emerald-500\/8  { background-color: rgb(24 95 165 / 0.08); }
+[data-theme="mission"] .bg-emerald-500\/5  { background-color: rgb(24 95 165 / 0.05); }
+
+[data-theme="mission"] .border-emerald-500    { border-color: #185FA5; }
+[data-theme="mission"] .border-emerald-500\/40 { border-color: rgb(24 95 165 / 0.40); }
+[data-theme="mission"] .border-emerald-500\/30 { border-color: rgb(24 95 165 / 0.30); }
+[data-theme="mission"] .border-emerald-500\/20 { border-color: rgb(24 95 165 / 0.20); }
+
+/* — Hover and focus variants — */
+[data-theme="mission"] .hover\:text-emerald-400:hover  { color: #378ADD; }
+[data-theme="mission"] .hover\:bg-emerald-400:hover    { background-color: #378ADD; }
+[data-theme="mission"] .hover\:border-slate-600:hover  { border-color: #888780; }
+[data-theme="mission"] .hover\:border-slate-700:hover  { border-color: #b0afa6; }
+[data-theme="mission"] .hover\:bg-slate-800\/50:hover  { background-color: rgb(241 239 232 / 0.50); }
+[data-theme="mission"] .hover\:bg-slate-800\/60:hover  { background-color: rgb(241 239 232 / 0.60); }
+[data-theme="mission"] .hover\:text-slate-300:hover    { color: #5f5e5a; }
+[data-theme="mission"] .hover\:text-slate-200:hover    { color: #3a3a38; }
+[data-theme="mission"] .focus\:border-slate-500:focus  { border-color: #888780; }
+
+/* shadow adjustments — dark shadows look heavy on parchment */
+[data-theme="mission"] .shadow-2xl { box-shadow: 0 25px 50px -12px rgb(26 26 25 / 0.15); }
+
+[data-theme="mission"] .from-emerald-400 { --tw-gradient-from: #378ADD; }
+[data-theme="mission"] .via-emerald-500  { --tw-gradient-via:  #185FA5; }
