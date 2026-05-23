@@ -1,0 +1,14 @@
+<svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer ring -->
+  <circle cx="50" cy="50" r="46" fill="#CC0000" />
+  <!-- Inner black mask -->
+  <circle cx="50" cy="50" r="36" fill="#111111" />
+  <!-- Center vertical bar -->
+  <rect x="46" y="4" width="8" height="92" rx="4" fill="#CC0000" />
+  <!-- Left eye — slants up toward center -->
+  <ellipse cx="30" cy="52" rx="12" ry="8" fill="#ffffff" transform="rotate(20 30 52)" />
+  <ellipse cx="30" cy="52" rx="6" ry="4" fill="#111111" transform="rotate(20 30 52)" />
+  <!-- Right eye — slants up toward center -->
+  <ellipse cx="70" cy="52" rx="12" ry="8" fill="#ffffff" transform="rotate(-20 70 52)" />
+  <ellipse cx="70" cy="52" rx="6" ry="4" fill="#111111" transform="rotate(-20 70 52)" />
+</svg>

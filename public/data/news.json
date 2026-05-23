@@ -1,0 +1,58 @@
+{
+  "items": [
+    {
+      "id": "sample-overview-1",
+      "title": "Sample headline — top of the morning brief",
+      "source": "Example Wire",
+      "category": "overview",
+      "pubDate": "2026-05-23T07:00:00.000Z",
+      "summary": "Edit public/data/news.json to control which articles appear on the page. Each item needs an id, title, source, category, pubDate (ISO 8601), summary, and link.",
+      "link": "https://example.com/overview-1"
+    },
+    {
+      "id": "sample-defense-1",
+      "title": "Defense-category card sample",
+      "source": "Mil Sample",
+      "category": "defense",
+      "pubDate": "2026-05-23T05:30:00.000Z",
+      "summary": "Cards are colour-coded by category. Valid categories: overview, defense, strategic, domestic, space, local.",
+      "link": "https://example.com/defense-1"
+    },
+    {
+      "id": "sample-strategic-1",
+      "title": "Strategic-category card sample",
+      "source": "Strat Sample",
+      "category": "strategic",
+      "pubDate": "2026-05-22T22:15:00.000Z",
+      "summary": "The card layout grid is responsive: 1 column on mobile, 2 on tablet, 3 on desktop.",
+      "link": "https://example.com/strategic-1"
+    },
+    {
+      "id": "sample-domestic-1",
+      "title": "Domestic-category card sample",
+      "source": "Home Sample",
+      "category": "domestic",
+      "pubDate": "2026-05-22T18:00:00.000Z",
+      "summary": "Timestamps use ISO 8601 (e.g. 2026-05-22T18:00:00.000Z) and render as relative time on the card.",
+      "link": "https://example.com/domestic-1"
+    },
+    {
+      "id": "sample-space-1",
+      "title": "Space-category card sample",
+      "source": "Orbit Sample",
+      "category": "space",
+      "pubDate": "2026-05-22T14:45:00.000Z",
+      "summary": "To swap the data source later, replace the fetch call in components/news/NewsFeed.tsx — it currently fetches /data/news.json from the public/ directory.",
+      "link": "https://example.com/space-1"
+    },
+    {
+      "id": "sample-local-1",
+      "title": "Local-category card sample",
+      "source": "Local Sample",
+      "category": "local",
+      "pubDate": "2026-05-22T11:00:00.000Z",
+      "summary": "The Refresh button re-fetches this JSON with a cache-buster query string, so changes you upload to GoDaddy show up immediately.",
+      "link": "https://example.com/local-1"
+    }
+  ]
+}
