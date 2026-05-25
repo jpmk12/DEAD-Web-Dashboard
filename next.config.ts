@@ -4,6 +4,10 @@ import type { NextConfig } from "next";
 // the platform runs `npm install && npm start` (which calls `next start`)
 // and injects PORT, which `next start` honors automatically.
 const nextConfig: NextConfig = {
+  // ESLint is a dev-only dependency; the platform installs with
+  // `npm install --production`, so eslint isn't present at build time.
+  // Skip lint during build (run `npm run lint` locally instead).
+  eslint: { ignoreDuringBuilds: true },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**" },
