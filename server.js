@@ -18,6 +18,10 @@ const { parse } = require("url");
 const next = require("next");
 
 const port = process.env.PORT || 3000;
+// Bind to 0.0.0.0 (all IPv4 interfaces) so the platform's proxy can reach the
+// app. Without an explicit host, Node binds to IPv6 "::" which a proxy that
+// connects over IPv4 127.0.0.1 may not reach — the app runs but appears "down".
+const host = process.env.HOST || "0.0.0.0";
 const app = next({ dev: false });
 const handle = app.getRequestHandler();
 
@@ -26,8 +30,8 @@ app
   .then(() => {
     createServer((req, res) => {
       handle(req, res, parse(req.url, true));
-    }).listen(port, () => {
-      console.log(`> Ready on port ${port}`);
+    }).listen(port, host, () => {
+      console.log(`> Ready on http://${host}:${port}`);
     });
   })
   .catch((err) => {
