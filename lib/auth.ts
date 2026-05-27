@@ -2,9 +2,9 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
 async function refreshAccessToken(refreshToken: string) {
-  // Dynamic import keeps googleapis out of the Edge/middleware bundle
-  const { google } = await import("googleapis");
-  const oauth2Client = new google.auth.OAuth2(
+  // Dynamic import keeps the Google client out of the Edge/middleware bundle
+  const { OAuth2Client } = await import("google-auth-library");
+  const oauth2Client = new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );

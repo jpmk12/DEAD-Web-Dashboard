@@ -1,5 +1,5 @@
-import { google } from "googleapis";
-import type { tasks_v1 } from "googleapis";
+import { tasks as tasksApi, tasks_v1 } from "@googleapis/tasks";
+import { OAuth2Client } from "google-auth-library";
 import { GoogleTask } from "./types";
 
 function normalize(t: tasks_v1.Schema$Task): GoogleTask {
@@ -15,9 +15,9 @@ function normalize(t: tasks_v1.Schema$Task): GoogleTask {
 }
 
 function makeClient(accessToken: string) {
-  const auth = new google.auth.OAuth2();
+  const auth = new OAuth2Client();
   auth.setCredentials({ access_token: accessToken });
-  return google.tasks({ version: "v1", auth });
+  return tasksApi({ version: "v1", auth });
 }
 
 export async function listTasks(accessToken: string): Promise<GoogleTask[]> {

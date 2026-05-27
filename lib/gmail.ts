@@ -1,10 +1,11 @@
-import { google, gmail_v1 } from "googleapis";
+import { gmail as gmailApi, gmail_v1 } from "@googleapis/gmail";
+import { OAuth2Client } from "google-auth-library";
 import { EmailMessage } from "./types";
 
 function buildClient(accessToken: string) {
-  const oauth2Client = new google.auth.OAuth2();
+  const oauth2Client = new OAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
-  return google.gmail({ version: "v1", auth: oauth2Client });
+  return gmailApi({ version: "v1", auth: oauth2Client });
 }
 
 function decodeBase64url(s: string): string {

@@ -1,4 +1,5 @@
-import { google } from "googleapis";
+import { calendar as calendarApi } from "@googleapis/calendar";
+import { OAuth2Client } from "google-auth-library";
 import { CalendarEvent } from "./types";
 
 export interface CreateEventParams {
@@ -14,10 +15,10 @@ export async function getUpcomingEvents(
   accessToken: string,
   accountEmail?: string
 ): Promise<CalendarEvent[]> {
-  const oauth2Client = new google.auth.OAuth2();
+  const oauth2Client = new OAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
-  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+  const calendar = calendarApi({ version: "v3", auth: oauth2Client });
   const timeMin = new Date().toISOString();
 
   // List all calendars for this account
@@ -77,9 +78,9 @@ export async function getUpcomingEvents(
 }
 
 export async function createEvent(accessToken: string, params: CreateEventParams): Promise<CalendarEvent> {
-  const oauth2Client = new google.auth.OAuth2();
+  const oauth2Client = new OAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
-  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+  const calendar = calendarApi({ version: "v3", auth: oauth2Client });
 
   const isAllDay = !params.start.includes("T");
   // Google Calendar requires timeZone on dateTime fields unless the string already

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import { gmail as gmailApi } from "@googleapis/gmail";
+import { OAuth2Client } from "google-auth-library";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { COOKIE_NAME, encryptToken, decryptToken } from "@/lib/secondaryAuth";
@@ -10,7 +11,7 @@ const REDIRECT_URI =
   "http://localhost:3000/api/auth/gmail-secondary?step=callback";
 
 function buildOAuth2Client() {
-  return new google.auth.OAuth2(
+  return new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     REDIRECT_URI
@@ -21,9 +22,9 @@ function buildOAuth2Client() {
 // The userinfo/tokeninfo endpoints require the openid+email scope which we don't request.
 async function getEmailFromToken(accessToken: string): Promise<string> {
   try {
-    const auth = new google.auth.OAuth2();
+    const auth = new OAuth2Client();
     auth.setCredentials({ access_token: accessToken });
-    const gmail = google.gmail({ version: "v1", auth });
+    const gmail = gmailApi({ version: "v1", auth });
     const profile = await gmail.users.getProfile({ userId: "me" });
     return profile.data.emailAddress ?? "";
   } catch {
