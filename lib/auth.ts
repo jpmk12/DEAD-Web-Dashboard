@@ -21,6 +21,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   // Required in production behind a managed proxy (GoDaddy): Auth.js otherwise
   // rejects the forwarded host with UntrustedHost and 500s every auth route.
   trustHost: true,
+  // Custom App Router sign-in page (next-auth's built-in page 404s on this host).
+  pages: { signIn: "/login" },
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
