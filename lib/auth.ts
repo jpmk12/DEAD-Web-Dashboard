@@ -18,6 +18,9 @@ async function refreshAccessToken(refreshToken: string) {
 }
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
+  // Required in production behind a managed proxy (GoDaddy): Auth.js otherwise
+  // rejects the forwarded host with UntrustedHost and 500s every auth route.
+  trustHost: true,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
