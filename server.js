@@ -8,6 +8,11 @@
 //
 // In cPanel → Setup Node.js App, set "Application startup file" to: server.js
 
+// The platform may inject a non-standard NODE_ENV, which makes Next/React use
+// their development runtimes. Force production so the served app uses the
+// production runtime (and so NODE_ENV-based flags like secure cookies are correct).
+if (process.env.NODE_ENV !== "production") process.env.NODE_ENV = "production";
+
 const { createServer } = require("http");
 const { parse } = require("url");
 const next = require("next");
