@@ -32,6 +32,8 @@ export default function EmailTab() {
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [actionsLoading, setActionsLoading] = useState(false);
   const [actionsChecked, setActionsChecked] = useState<Set<string>>(new Set());
+  // key → "pending" while POST is in flight, "added" once Google Tasks accepted it
+  const [taskStatus, setTaskStatus] = useState<Map<string, "pending" | "added" | "failed">>(new Map());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchEmails = async (forceRefresh = false) => {
@@ -143,6 +145,28 @@ export default function EmailTab() {
   const handleMarkRead = () => markEmailsRead(emails.filter((e) => selected.has(e.id)));
   const handleMarkAllVisibleRead = () => markEmailsRead(visible);
 
+  const addActionToTasks = async (key: string, action: ActionItem) => {
+    if (taskStatus.get(key) === "added" || taskStatus.get(key) === "pending") return;
+    setTaskStatus((prev) => new Map(prev).set(key, "pending"));
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: action.action,
+          due: action.dueDate || undefined,
+          notes: `From: ${action.from}\nRe: ${action.subject}`,
+        }),
+      });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      setTaskStatus((prev) => new Map(prev).set(key, "added"));
+      // Also mark the row's checkbox so the count decrements as a visual cue.
+      setActionsChecked((prev) => new Set(prev).add(key));
+    } catch {
+      setTaskStatus((prev) => new Map(prev).set(key, "failed"));
+    }
+  };
+
   const filters: Filter[] = ["All", "High", "Medium", "Low"];
   const visible = filter === "All" ? emails : emails.filter((e) => e.priority === filter);
 
@@ -207,6 +231,7 @@ export default function EmailTab() {
               {actions.map((action, i) => {
                 const key = `${action.emailId}-${i}`;
                 const checked = actionsChecked.has(key);
+                const status = taskStatus.get(key);
                 return (
                   <li
                     key={key}
@@ -231,6 +256,28 @@ export default function EmailTab() {
                         {action.dueDate && <span className="text-amber-500 ml-2 font-bold">{action.dueDate}</span>}
                       </p>
                     </div>
+                    <button
+                      onClick={() => addActionToTasks(key, action)}
+                      disabled={status === "pending" || status === "added"}
+                      title={
+                        status === "added"
+                          ? "Added to Google Tasks"
+                          : status === "failed"
+                          ? "Failed — click to retry"
+                          : "Add to Google Tasks"
+                      }
+                      className={`flex-shrink-0 self-center text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border transition-all ${
+                        status === "added"
+                          ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 cursor-default"
+                          : status === "pending"
+                          ? "bg-slate-800 border-slate-700 text-slate-500 cursor-wait"
+                          : status === "failed"
+                          ? "bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20"
+                          : "bg-slate-800/80 border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300"
+                      }`}
+                    >
+                      {status === "added" ? "✓ Added" : status === "pending" ? "…" : status === "failed" ? "Retry" : "+ Task"}
+                    </button>
                   </li>
                 );
               })}
