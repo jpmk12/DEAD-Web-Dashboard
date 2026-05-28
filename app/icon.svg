@@ -1,14 +1,15 @@
-<svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <!-- Outer ring -->
-  <circle cx="50" cy="50" r="46" fill="#CC0000" />
-  <!-- Inner black mask -->
-  <circle cx="50" cy="50" r="36" fill="#111111" />
-  <!-- Center vertical bar -->
-  <rect x="46" y="4" width="8" height="92" rx="4" fill="#CC0000" />
-  <!-- Left eye — slants up toward center -->
-  <ellipse cx="30" cy="52" rx="12" ry="8" fill="#ffffff" transform="rotate(20 30 52)" />
-  <ellipse cx="30" cy="52" rx="6" ry="4" fill="#111111" transform="rotate(20 30 52)" />
-  <!-- Right eye — slants up toward center -->
-  <ellipse cx="70" cy="52" rx="12" ry="8" fill="#ffffff" transform="rotate(-20 70 52)" />
-  <ellipse cx="70" cy="52" rx="6" ry="4" fill="#111111" transform="rotate(-20 70 52)" />
+<svg width="32" height="32" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="50" cy="50" r="48" fill="#020617"/>
+  <circle cx="50" cy="50" r="44" fill="none" stroke="#dc2626" stroke-width="3"/>
+  <line x1="50" y1="4" x2="50" y2="14" stroke="#dc2626" stroke-width="3.5"/>
+  <line x1="50" y1="86" x2="50" y2="96" stroke="#dc2626" stroke-width="3.5"/>
+  <line x1="4" y1="50" x2="14" y2="50" stroke="#dc2626" stroke-width="3.5"/>
+  <line x1="86" y1="50" x2="96" y2="50" stroke="#dc2626" stroke-width="3.5"/>
+  <path d="M 30 38 Q 30 22 50 22 Q 70 22 70 38 L 70 55 Q 70 60 65 62 L 62 70 L 56 70 L 56 64 L 50 64 L 50 70 L 44 70 L 38 70 L 35 62 Q 30 60 30 55 Z" fill="#e5e7eb"/>
+  <circle cx="40" cy="44" r="5" fill="#020617"/>
+  <circle cx="60" cy="44" r="5" fill="#020617"/>
+  <path d="M 47 54 L 50 50 L 53 54 L 50 58 Z" fill="#020617"/>
+  <line x1="44" y1="64" x2="44" y2="70" stroke="#020617" stroke-width="1.5"/>
+  <line x1="50" y1="64" x2="50" y2="70" stroke="#020617" stroke-width="1.5"/>
+  <line x1="56" y1="64" x2="56" y2="70" stroke="#020617" stroke-width="1.5"/>
 </svg>
