@@ -43,4 +43,5 @@ export const CACHE_TTL = {
   NEWSLETTERS: 30 * 60 * 1000, // 30 min — email changes less frequently
   CALENDAR:    15 * 60 * 1000, // 15 min
   EMAIL:       10 * 60 * 1000, // 10 min — most time-sensitive
+  DIGEST:      30 * 60 * 1000, // 30 min — weekly digest changes slowly
 } as const;

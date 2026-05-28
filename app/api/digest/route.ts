@@ -65,7 +65,9 @@ export async function GET() {
 
   try {
     const response = await anthropic.messages.create({
-      model: "claude-opus-4-7",
+      // Sonnet handles structured JSON from already-scored data well and
+      // is materially cheaper than Opus for this task.
+      model: "claude-sonnet-4-6",
       max_tokens: 1024,
       system: [
         { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },

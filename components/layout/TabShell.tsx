@@ -12,6 +12,7 @@ import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import { CalendarEvent, NewsItem, NewsletterSummary } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
+import { prefetchDigest } from "@/lib/digestPrefetch";
 
 const VALID_TABS: Tab[] = ["news", "calendar", "email", "markets", "weather"];
 
@@ -39,6 +40,11 @@ export default function TabShell() {
   }, []);
 
   useEffect(() => { loadWatchlist(); }, [loadWatchlist]);
+
+  // Kick off the weekly digest fetch on mount — it only needs the user's
+  // pref history (already on the server), not loaded articles. The result
+  // sits in clientCache so the Digest modal opens instantly.
+  useEffect(() => { prefetchDigest(); }, []);
 
   // Start brief generation in background once both articles and newsletters are loaded.
   // prefetchBriefing guards against duplicates internally (isFresh + inflight checks).

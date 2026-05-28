@@ -120,7 +120,16 @@ export async function POST(request: Request) {
     model: "claude-opus-4-7",
     max_tokens: 2048,
     stream: true,
-    system: buildSystemPrompt(safeArticles, safeNewsletters, safeThreads, userContext),
+    // Wrap the (large, stable-per-session) system prompt with ephemeral
+    // prompt caching — multi-turn news chats reuse the 4–12K token prefix
+    // after the first message, cutting per-turn input cost dramatically.
+    system: [
+      {
+        type: "text" as const,
+        text: buildSystemPrompt(safeArticles, safeNewsletters, safeThreads, userContext),
+        cache_control: { type: "ephemeral" as const },
+      },
+    ],
     messages: sanitised.map((m) => ({ role: m.role, content: m.content })),
   }).catch((err: unknown) => {
     if (isOverloaded(err)) return null;

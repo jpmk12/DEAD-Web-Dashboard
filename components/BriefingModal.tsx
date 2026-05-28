@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPrefetch";
+import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
 
 interface Briefing {
   headline: string;
@@ -94,19 +95,38 @@ export default function BriefingModal({
         .finally(() => { if (!cancelled) setLoading(false); });
     } else {
       setBriefing(null);
-      setLoading(true);
-      fetch("/api/digest", { signal: controller.signal })
-        .then((r) => r.json())
-        .then((data) => {
-          if (cancelled) return;
-          if (data.error) throw new Error(data.error);
-          setDigest(data.digest);
-        })
-        .catch((e) => {
-          if (cancelled || e.name === "AbortError") return;
-          setError(e.message ?? "Failed to generate digest");
-        })
-        .finally(() => { if (!cancelled) setLoading(false); });
+      // Reuse the prefetched digest if it's available; otherwise join an
+      // in-flight prefetch or fall back to a fresh fetch.
+      const cached = clientCache.peek<Digest>(DIGEST_CACHE_KEY);
+      if (cached) {
+        setDigest(cached);
+        setLoading(false);
+      } else if (getDigestInflight()) {
+        setLoading(true);
+        getDigestInflight()!
+          .then(() => {
+            if (cancelled) return;
+            const result = clientCache.peek<Digest>(DIGEST_CACHE_KEY);
+            if (result) setDigest(result);
+            else setError("Digest prefetch did not produce a result");
+          })
+          .finally(() => { if (!cancelled) setLoading(false); });
+      } else {
+        setLoading(true);
+        fetch("/api/digest", { signal: controller.signal })
+          .then((r) => r.json())
+          .then((data) => {
+            if (cancelled) return;
+            if (data.error) throw new Error(data.error);
+            setDigest(data.digest);
+            clientCache.set(DIGEST_CACHE_KEY, data.digest, 30 * 60 * 1000);
+          })
+          .catch((e) => {
+            if (cancelled || e.name === "AbortError") return;
+            setError(e.message ?? "Failed to generate digest");
+          })
+          .finally(() => { if (!cancelled) setLoading(false); });
+      }
     }
 
     return () => { cancelled = true; controller.abort(); };
