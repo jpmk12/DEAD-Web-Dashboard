@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (contentLength > 10_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  if (contentLength > 60_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -37,6 +37,12 @@ export async function POST(request: Request) {
       .slice(0, 20).map((t) => String(t).slice(0, 100)),
     watchlist: (Array.isArray(raw.watchlist) ? raw.watchlist : [])
       .slice(0, 50).map((t) => String(t).slice(0, 100)),
+    vipSenders: (Array.isArray(raw.vipSenders) ? raw.vipSenders : [])
+      .slice(0, 100).map((t) => String(t).trim().slice(0, 254))
+      .filter((t) => t.length > 0),
+    muteSenders: (Array.isArray(raw.muteSenders) ? raw.muteSenders : [])
+      .slice(0, 100).map((t) => String(t).trim().slice(0, 254))
+      .filter((t) => t.length > 0),
     localFeedKey: VALID_FEED_KEYS.has(String(raw.localFeedKey ?? "")) ? String(raw.localFeedKey) : "colorado",
     localZipcode: String(raw.localZipcode ?? "").replace(/[^0-9a-zA-Z]/g, "").slice(0, 10),
     localCity: String(raw.localCity ?? "").slice(0, 100),

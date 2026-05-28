@@ -67,6 +67,12 @@ export interface UserPrefs {
   priorityTopics: string[];
   deprioritizeTopics: string[];
   watchlist: string[];
+  // Email triage overrides. Each entry is either a full email
+  // (`john@example.com`) or a bare domain (`example.com`); domain rules
+  // also match subdomains. Applied deterministically after Claude
+  // classification — see app/api/gmail/route.ts.
+  vipSenders: string[];   // force priority = High
+  muteSenders: string[];  // force priority = Low
   localFeedKey: string;   // determines which RSS feeds show in "local" tab
   localZipcode: string;   // raw zipcode entered by user (5-digit US or OCONUS key)
   localCity: string;      // resolved display name e.g. "Colorado Springs, CO"
@@ -75,6 +81,14 @@ export interface UserPrefs {
   theme: AppTheme;
   timezone: string;  // IANA timezone e.g. "America/Chicago"
   lastUpdated: string;
+}
+
+export interface CachedEmailClassification {
+  id: string;
+  accountEmail: string;
+  priority: EmailPriority;
+  summary: string;
+  promptHash: string;
 }
 
 export interface ActionItem {

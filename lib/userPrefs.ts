@@ -7,6 +7,8 @@ const DEFAULT_PREFS: UserPrefs = {
   priorityTopics: [],
   deprioritizeTopics: [],
   watchlist: [],
+  vipSenders: [],
+  muteSenders: [],
   localFeedKey: "colorado",
   localZipcode: "",
   localCity: "",
@@ -22,6 +24,8 @@ interface PrefsRow extends RowDataPacket {
   priority_topics: string[] | null;
   deprioritize_topics: string[] | null;
   watchlist: string[] | null;
+  vip_senders: string[] | null;
+  mute_senders: string[] | null;
   local_feed_key: string;
   local_zipcode: string;
   local_city: string;
@@ -40,7 +44,7 @@ function asStringArray(v: unknown): string[] {
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -50,6 +54,8 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     priorityTopics: asStringArray(r.priority_topics),
     deprioritizeTopics: asStringArray(r.deprioritize_topics),
     watchlist: asStringArray(r.watchlist),
+    vipSenders: asStringArray(r.vip_senders),
+    muteSenders: asStringArray(r.mute_senders),
     localFeedKey: r.local_feed_key,
     localZipcode: r.local_zipcode,
     localCity: r.local_city,
@@ -69,15 +75,19 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
   await pool.execute(
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
+        vip_senders, mute_senders,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        role                = VALUES(role),
        priority_topics     = VALUES(priority_topics),
        deprioritize_topics = VALUES(deprioritize_topics),
        watchlist           = VALUES(watchlist),
+       vip_senders         = VALUES(vip_senders),
+       mute_senders        = VALUES(mute_senders),
        local_feed_key      = VALUES(local_feed_key),
        local_zipcode       = VALUES(local_zipcode),
        local_city          = VALUES(local_city),
@@ -91,6 +101,8 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.priorityTopics),
       JSON.stringify(prefs.deprioritizeTopics),
       JSON.stringify(prefs.watchlist),
+      JSON.stringify(prefs.vipSenders),
+      JSON.stringify(prefs.muteSenders),
       prefs.localFeedKey,
       prefs.localZipcode,
       prefs.localCity,
@@ -101,6 +113,36 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       now,
     ]
   );
+}
+
+// ─── Sender-rule matching (VIP / mute lists) ─────────────────────────────────
+// A rule is either a full email (`john@example.com`) or a bare domain
+// (`example.com`). Domain rules match the domain and any subdomain.
+
+function extractSenderEmail(from: string): { email: string; domain: string } | null {
+  const m = from.match(/<([^>]+)>/);
+  const raw = (m ? m[1] : from).trim().toLowerCase();
+  if (!raw.includes("@")) return null;
+  const at = raw.lastIndexOf("@");
+  return { email: raw, domain: raw.slice(at + 1) };
+}
+
+export function senderMatches(from: string, rules: string[]): boolean {
+  if (!rules.length) return false;
+  const s = extractSenderEmail(from);
+  if (!s) return false;
+  for (const raw of rules) {
+    const norm = raw.trim().toLowerCase().replace(/^@/, "");
+    if (!norm) continue;
+    if (norm.includes("@")) {
+      if (s.email === norm) return true;
+      continue;
+    }
+    // Bare domain rule
+    if (s.domain === norm) return true;
+    if (s.domain.endsWith("." + norm)) return true;
+  }
+  return false;
 }
 
 function q(s: string): string {

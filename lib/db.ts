@@ -61,6 +61,18 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_cached_at (cached_at)
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS email_classification_cache (
+    id             VARCHAR(255) NOT NULL,
+    account_email  VARCHAR(255) NOT NULL,
+    priority       VARCHAR(8)   NOT NULL,
+    summary        TEXT         NOT NULL,
+    prompt_hash    VARCHAR(32)  NOT NULL,
+    cached_at      BIGINT       NOT NULL,
+    PRIMARY KEY (id, account_email),
+    INDEX idx_email_cache_cached_at   (cached_at),
+    INDEX idx_email_cache_prompt_hash (prompt_hash)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,
@@ -87,11 +99,27 @@ const SCHEMA_STATEMENTS = [
   ) ENGINE=InnoDB`,
 ];
 
+// Additive column migrations for already-existing tables. MySQL < 8.0.29 has
+// no `ADD COLUMN IF NOT EXISTS`, so we ignore "duplicate column" errors and
+// let everything else surface.
+const COLUMN_MIGRATIONS: string[] = [
+  "ALTER TABLE user_prefs ADD COLUMN vip_senders  JSON NULL",
+  "ALTER TABLE user_prefs ADD COLUMN mute_senders JSON NULL",
+];
+
 let initPromise: Promise<mysql.Pool> | null = null;
 
 async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
   for (const stmt of SCHEMA_STATEMENTS) {
     await pool.query(stmt);
+  }
+  for (const stmt of COLUMN_MIGRATIONS) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code !== "ER_DUP_FIELDNAME") throw err;
+    }
   }
   return pool;
 }

@@ -269,6 +269,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [priorityTopics, setPriorityTopics] = useState<string[]>([]);
   const [deprioritizeTopics, setDeprioritizeTopics] = useState<string[]>([]);
   const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [vipSenders, setVipSenders] = useState<string[]>([]);
+  const [muteSenders, setMuteSenders] = useState<string[]>([]);
   const [localFeedKey, setLocalFeedKey] = useState("colorado");
   const [localLat, setLocalLat] = useState<number | null>(null);
   const [localLon, setLocalLon] = useState<number | null>(null);
@@ -290,6 +292,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setPriorityTopics(prefs.priorityTopics ?? []);
         setDeprioritizeTopics(prefs.deprioritizeTopics ?? []);
         setWatchlist(prefs.watchlist ?? []);
+        setVipSenders(prefs.vipSenders ?? []);
+        setMuteSenders(prefs.muteSenders ?? []);
         setLocalFeedKey(prefs.localFeedKey ?? "colorado");
         setLocalLat(prefs.localLat ?? null);
         setLocalLon(prefs.localLon ?? null);
@@ -338,6 +342,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           role, priorityTopics, deprioritizeTopics, watchlist,
+          vipSenders, muteSenders,
           localFeedKey,
           localZipcode: "", localCity: "",
           localLat, localLon,
@@ -554,6 +559,37 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             onChange={setWatchlist}
             placeholder="hypersonic, AUKUS, INDOPACOM…"
             accent="orange"
+          />
+
+          <div className="border-t border-slate-800 my-5" />
+
+          <div className="mb-1">
+            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+              Email Triage Overrides
+            </label>
+            <p className="text-[10px] text-slate-600 mb-3">
+              Force a sender to High or Low priority — bypasses the AI classifier.
+              Use a full address (jane@example.com) or a bare domain (example.com,
+              also matches subdomains).
+            </p>
+          </div>
+
+          <TagInput
+            label="Always High — VIP Senders"
+            description="Inbound mail from these senders is always treated as High priority"
+            tags={vipSenders}
+            onChange={setVipSenders}
+            placeholder="boss@company.com, whitehouse.gov…"
+            accent="emerald"
+          />
+
+          <TagInput
+            label="Always Low — Muted Senders"
+            description="Inbound mail from these senders is always pushed to Low (still shown, just demoted)"
+            tags={muteSenders}
+            onChange={setMuteSenders}
+            placeholder="noreply@marketing.com, mailchimp.com…"
+            accent="red"
           />
         </div>
 
