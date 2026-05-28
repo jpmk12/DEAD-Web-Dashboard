@@ -136,8 +136,35 @@ export default function ThreadsView({ result, articles, newsletters: _newsletter
   // Extract labels for topic pills
   const pills = threads.map((t, i) => ({ label: t.label, color: PALETTE[i % PALETTE.length], trend: t.trend, count: t.articleIds.length }));
 
+  const exportPdf = async () => {
+    const { buildThreadsHTML, openPrintWindow } = await import("@/lib/exports");
+    openPrintWindow(buildThreadsHTML(result, true));
+  };
+  const exportHtml = async () => {
+    const { buildThreadsHTML, downloadHTML } = await import("@/lib/exports");
+    downloadHTML(buildThreadsHTML(result, false), "threads");
+  };
+
   return (
     <div className="space-y-6">
+      {/* Export buttons row */}
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={exportPdf}
+          title="Open print-ready PDF view"
+          className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 px-2 py-0.5 rounded-md transition-all"
+        >
+          PDF
+        </button>
+        <button
+          onClick={exportHtml}
+          title="Download a standalone HTML copy"
+          className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 px-2 py-0.5 rounded-md transition-all"
+        >
+          HTML
+        </button>
+      </div>
+
       {/* Topic pills row */}
       {pills.length > 0 && (
         <div className="flex flex-wrap gap-2 items-center">

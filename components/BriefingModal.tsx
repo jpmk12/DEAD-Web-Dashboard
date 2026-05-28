@@ -5,6 +5,7 @@ import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPrefetch";
 import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
+import { buildBriefingHTML, buildDigestHTML, openPrintWindow, downloadHTML } from "@/lib/exports";
 
 interface Briefing {
   headline: string;
@@ -159,12 +160,37 @@ export default function BriefingModal({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-2">
+            {((isBriefing && briefing) || (!isBriefing && digest)) && (
+              <>
+                <button
+                  onClick={() => openPrintWindow(
+                    isBriefing ? buildBriefingHTML(briefing!, true) : buildDigestHTML(digest!, true)
+                  )}
+                  title="Open print-ready PDF view"
+                  className="text-[11px] font-mono text-slate-400 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 px-2.5 py-1.5 rounded-md transition-all"
+                >
+                  PDF
+                </button>
+                <button
+                  onClick={() => downloadHTML(
+                    isBriefing ? buildBriefingHTML(briefing!, false) : buildDigestHTML(digest!, false),
+                    isBriefing ? "morning-brief" : "weekly-digest"
+                  )}
+                  title="Download a standalone HTML copy"
+                  className="text-[11px] font-mono text-slate-400 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 px-2.5 py-1.5 rounded-md transition-all"
+                >
+                  HTML
+                </button>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Body */}
