@@ -73,6 +73,12 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_email_cache_prompt_hash (prompt_hash)
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS user_memory (
+    id           TINYINT     NOT NULL PRIMARY KEY DEFAULT 1,
+    content      MEDIUMTEXT  NOT NULL,
+    last_updated DATETIME(3) NOT NULL
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,

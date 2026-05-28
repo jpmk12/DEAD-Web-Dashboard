@@ -2,6 +2,7 @@ import { anthropic } from "@/lib/claude";
 import { auth } from "@/lib/auth";
 import { CalendarEvent, ChatMessage, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
+import { getMemory, buildMemoryContext, updateMemoryFromChat } from "@/lib/userMemory";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { format, parseISO } from "date-fns";
 
@@ -94,8 +95,9 @@ export async function POST(request: Request) {
   const safeArticles = Array.isArray(articles) ? (articles as NewsItem[]).slice(0, 20) : [];
   const safeNewsletters = Array.isArray(newsletters) ? (newsletters as NewsletterSummary[]).slice(0, 10) : [];
 
-  const userPrefs = await getUserPrefs();
+  const [userPrefs, memory] = await Promise.all([getUserPrefs(), getMemory().catch(() => null)]);
   const userContext = buildUserContext(userPrefs);
+  const memoryContext = memory ? buildMemoryContext(memory) : "";
 
   const newsContext = safeArticles.length
     ? "\n\nRecent news the user has been reading:\n" +
@@ -110,7 +112,7 @@ export async function POST(request: Request) {
   const tz = userPrefs.timezone || "America/Chicago";
   const today = format(new Date(), "EEEE, MMMM d, yyyy");
 
-  const systemPrompt = `You are a personal scheduling and productivity assistant. Today is ${today}. User's timezone: ${tz}.${userContext}
+  const systemPrompt = `You are a personal scheduling and productivity assistant. Today is ${today}. User's timezone: ${tz}.${userContext}${memoryContext}
 
 USER'S UPCOMING CALENDAR:
 ${formatEvents(sanitizedContext)}
@@ -154,13 +156,16 @@ Rules:
   const readableStream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
+      let assistantText = "";
       try {
         for await (const chunk of stream) {
           if (
             chunk.type === "content_block_delta" &&
             chunk.delta.type === "text_delta"
           ) {
-            controller.enqueue(enc.encode(chunk.delta.text));
+            const text = chunk.delta.text;
+            assistantText += text;
+            controller.enqueue(enc.encode(text));
           }
         }
         controller.close();
@@ -171,6 +176,15 @@ Rules:
           : "Something went wrong. Please try again.";
         try { controller.enqueue(enc.encode(msg)); } catch { /* already closed */ }
         controller.close();
+      }
+
+      // Background memory consolidation. Runs after the response is delivered;
+      // failures are logged but never surfaced to the user. Skipped when the
+      // assistant reply is empty (overload path).
+      if (assistantText.trim()) {
+        updateMemoryFromChat(sanitizedMessages, assistantText).catch((err) =>
+          console.error("Memory update failed:", err)
+        );
       }
     },
   });
