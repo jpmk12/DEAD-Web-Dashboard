@@ -8,7 +8,7 @@ export const authConfig = {
   trustHost: true,
   // Use our own App Router sign-in page instead of next-auth's built-in
   // /api/auth/signin page (which renders "NOT FOUND" on this platform).
-  pages: { signIn: "/login" },
+  pages: { signIn: "/login", error: "/login" },
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,

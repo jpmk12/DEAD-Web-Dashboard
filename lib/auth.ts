@@ -22,7 +22,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   // rejects the forwarded host with UntrustedHost and 500s every auth route.
   trustHost: true,
   // Custom App Router sign-in page (next-auth's built-in page 404s on this host).
-  pages: { signIn: "/login" },
+  // Route errors there too so the error code is shown on-screen (logs aren't reliable here).
+  pages: { signIn: "/login", error: "/login" },
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,

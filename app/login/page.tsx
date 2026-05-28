@@ -23,9 +23,19 @@ function LoginContent() {
       </p>
 
       {error && (
-        <p className="text-red-400 text-xs max-w-sm">
-          Sign-in failed{error === "AccessDenied" ? " — this account isn’t authorized." : "."} Please try again.
-        </p>
+        <div className="text-red-400 text-xs max-w-sm space-y-1 border border-red-500/30 bg-red-500/5 rounded-md px-4 py-3">
+          <p className="font-bold">Sign-in failed</p>
+          <p className="font-mono text-red-300">Error: {error}</p>
+          {error === "AccessDenied" && (
+            <p>This Google account isn’t the authorized OWNER_EMAIL.</p>
+          )}
+          {error === "Configuration" && (
+            <p>Server is missing an auth setting (secret or Google credentials), or NEXTAUTH_URL is wrong.</p>
+          )}
+          {error === "OAuthCallback" && (
+            <p>The OAuth callback failed — usually a redirect-URI mismatch in Google Cloud Console.</p>
+          )}
+        </div>
       )}
 
       <button
