@@ -108,7 +108,10 @@ export async function GET() {
 
     try {
       const response = await anthropic.messages.create({
-        model: "claude-haiku-4-5",
+        // Sonnet handles long batched JSON outputs more reliably than Haiku.
+        // Haiku occasionally drops items from large arrays, leaving newsletters
+        // with empty bullets that surface as "No key facts extracted."
+        model: "claude-sonnet-4-6",
         max_tokens: 4096,
         system: [
           { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
