@@ -33,9 +33,16 @@ for (const [name, val] of Object.entries(checks)) {
 const port = String(process.env.PORT || 3000);
 const nextBin = require.resolve("next/dist/bin/next");
 
+// The platform's proxy hands the app an internal host (e.g. 0.0.0.0:PORT).
+// Auth.js builds OAuth redirect URLs from AUTH_URL/NEXTAUTH_URL when set, and
+// only falls back to that broken host when neither is set. Default them to the
+// public domain so sign-in always uses the right origin. Override by setting
+// NEXTAUTH_URL in the platform env if the domain changes.
+const siteUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL || "https://justinpoole.com";
+
 const child = spawn(process.execPath, [nextBin, "start", "-H", "0.0.0.0", "-p", port], {
   stdio: "inherit",
-  env: { ...process.env, NODE_ENV: "production" },
+  env: { ...process.env, NODE_ENV: "production", NEXTAUTH_URL: siteUrl, AUTH_URL: siteUrl },
 });
 
 child.on("exit", (code) => process.exit(code ?? 0));
