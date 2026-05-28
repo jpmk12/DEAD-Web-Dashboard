@@ -17,9 +17,11 @@ export const authConfig = {
   ],
   callbacks: {
     authorized({ auth, request }) {
-      // Always allow the login page through, otherwise unauthenticated users
-      // get redirected to /login on /login → infinite loop.
-      if (request.nextUrl.pathname === "/login") return true;
+      const path = request.nextUrl.pathname;
+      // Always allow the root (so the platform health check on / sees 200, not
+      // a 307 redirect) and the login page (avoids an unauth redirect loop).
+      // The root page itself renders the sign-in UI when there's no session.
+      if (path === "/" || path === "/login") return true;
       return !!auth?.user;
     },
   },
