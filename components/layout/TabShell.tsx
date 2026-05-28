@@ -10,6 +10,7 @@ import MarketsTab from "@/components/markets/MarketsTab";
 import WeatherTab from "@/components/weather/WeatherTab";
 import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
+import QuickCaptureModal from "@/components/QuickCaptureModal";
 import { CalendarEvent, NewsItem, NewsletterSummary } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
@@ -25,7 +26,20 @@ export default function TabShell() {
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [briefingOpen, setBriefingOpen] = useState(false);
   const [briefingMode, setBriefingMode] = useState<"briefing" | "digest">("briefing");
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [watchlist, setWatchlist] = useState<string[]>([]);
+
+  // Global ⌘K / Ctrl+K opens quick capture from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCaptureOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get("tab");
@@ -99,6 +113,16 @@ export default function TabShell() {
               <span className="hidden sm:inline">Digest</span>
             </button>
 
+            {/* Quick capture (⌘K / Ctrl+K) */}
+            <button
+              onClick={() => setCaptureOpen(true)}
+              title="Quick capture (⌘K) — task, event, or note"
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-400 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all"
+            >
+              <span className="text-base leading-none">⚡</span>
+              <span className="hidden sm:inline">Capture</span>
+            </button>
+
             {/* Preferences & account management */}
             <button
               onClick={() => setPrefsOpen(true)}
@@ -164,6 +188,16 @@ export default function TabShell() {
         articles={articles}
         newsletters={newsletters}
         calendarEvents={calendarEvents}
+      />
+
+      <QuickCaptureModal
+        open={captureOpen}
+        onClose={() => setCaptureOpen(false)}
+        onCaptured={(kind) => {
+          // Refresh the tasks rail when a new task lands; calendar refresh
+          // happens on tab switch.
+          if (kind === "task") setTasksRefreshKey((k) => k + 1);
+        }}
       />
     </div>
   );
