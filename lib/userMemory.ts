@@ -5,6 +5,12 @@ import { ChatMessage } from "./types";
 
 const MAX_MEMORY_CHARS = 12_000; // ~3k tokens; safety cap before storage
 
+// Throttle memory consolidation. Updates fire after each chat turn that has
+// an assistant reply, but at most once per MIN_UPDATE_GAP_MS. Bursty
+// back-and-forth in a single sitting collapses to a single update at the end
+// of the burst (next turn after the gap elapses).
+const MIN_UPDATE_GAP_MS = 5 * 60 * 1000; // 5 minutes
+
 interface MemoryRow extends RowDataPacket {
   content: string;
   last_updated: Date;
@@ -70,6 +76,13 @@ export async function updateMemoryFromChat(
   if (userTurns.length === 0) return;
 
   const current = await getMemory();
+
+  // Throttle: skip if we updated recently. The information isn't lost — the
+  // next turn after the gap will pick it up via the conversation context.
+  const lastUpdatedMs = new Date(current.lastUpdated).getTime();
+  if (Number.isFinite(lastUpdatedMs) && Date.now() - lastUpdatedMs < MIN_UPDATE_GAP_MS) {
+    return;
+  }
 
   // Keep the prompt input small: last 6 turns max + the reply.
   const recent = recentMessages.slice(-6);

@@ -13,6 +13,39 @@ type Result =
   | { kind: "event"; summary: string; start: string; end: string }
   | { kind: "note"; content: string };
 
+// What the server returns from the classify (preview) call. Mirrors the
+// `Captured` shape in /api/quick-capture/route.ts.
+type Plan =
+  | { kind: "task"; title: string; due?: string; notes?: string }
+  | { kind: "event"; summary: string; start: string; end: string; description?: string; location?: string }
+  | { kind: "note"; content: string };
+
+function summarisePlan(p: Plan): string {
+  if (p.kind === "task") return p.due ? `${p.title} — due ${p.due.slice(0, 10)}` : p.title;
+  if (p.kind === "event") {
+    try {
+      const start = new Date(p.start);
+      const end = new Date(p.end);
+      const sameDay = start.toDateString() === end.toDateString();
+      const startStr = start.toLocaleString([], {
+        weekday: "short", month: "short", day: "numeric",
+        hour: "numeric", minute: "2-digit",
+      });
+      const endStr = sameDay
+        ? end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+        : end.toLocaleString([], {
+            weekday: "short", month: "short", day: "numeric",
+            hour: "numeric", minute: "2-digit",
+          });
+      const loc = p.location ? ` @ ${p.location}` : "";
+      return `${p.summary} — ${startStr} → ${endStr}${loc}`;
+    } catch {
+      return p.summary;
+    }
+  }
+  return p.content;
+}
+
 const KIND_LABEL: Record<Result["kind"], string> = {
   task: "Task",
   event: "Calendar event",
@@ -50,6 +83,7 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -58,6 +92,7 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
     if (open) {
       setInput("");
       setError(null);
+      setPlan(null);
       setResult(null);
       setBusy(false);
       // tick so the textarea exists when we focus
@@ -75,7 +110,8 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const submit = async () => {
+  // Step 1: classify the user's input into a plan (no side effects yet).
+  const preview = async () => {
     const text = input.trim();
     if (!text || busy) return;
     setBusy(true);
@@ -89,8 +125,31 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
+      if (!data.plan) throw new Error("No plan returned");
+      setPlan(data.plan as Plan);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Step 2: execute the plan after the user confirms.
+  const commit = async () => {
+    if (!plan || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/quick-capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commit: plan }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
       setResult(data as Result);
       onCaptured?.(data.kind);
+      setPlan(null);
       setInput("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -99,13 +158,33 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
     }
   };
 
+  const cancelPreview = () => {
+    setPlan(null);
+    setError(null);
+    setTimeout(() => taRef.current?.focus(), 0);
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Cmd/Ctrl+Enter to submit
+    // Cmd/Ctrl+Enter from the input goes through preview, never directly commits.
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      submit();
+      preview();
     }
   };
+
+  // Cmd/Ctrl+Enter while previewing → confirm.
+  useEffect(() => {
+    if (!open || !plan) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        commit();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, plan, busy]);
 
   if (!open) return null;
 
@@ -139,31 +218,75 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
         </div>
 
         <div className="p-4">
-          <textarea
-            ref={taRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={busy}
-            rows={4}
-            placeholder='"remind me to email RAND about the panel next Thursday at 2"  ·  "save that the Q3 brief is due 12 Aug"  ·  "team sync tomorrow 0900-0930"'
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-emerald-500/50 transition-colors resize-none leading-relaxed"
-          />
+          {!plan && (
+            <>
+              <textarea
+                ref={taRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                disabled={busy}
+                rows={4}
+                placeholder='"remind me to email RAND about the panel next Thursday at 2"  ·  "save that the Q3 brief is due 12 Aug"  ·  "team sync tomorrow 0900-0930"'
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-emerald-500/50 transition-colors resize-none leading-relaxed"
+              />
 
-          <div className="flex items-center justify-between gap-2 mt-3">
-            <p className="text-[10px] text-slate-600 font-mono">
-              <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">⌘/Ctrl</kbd>+
-              <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">Enter</kbd> to submit
-              · <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">Esc</kbd> to close
-            </p>
-            <button
-              onClick={submit}
-              disabled={busy || !input.trim()}
-              className="text-xs font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-md transition-all glow-green disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500 disabled:glow-none"
-            >
-              {busy ? "Routing…" : "Capture"}
-            </button>
-          </div>
+              <div className="flex items-center justify-between gap-2 mt-3">
+                <p className="text-[10px] text-slate-600 font-mono">
+                  <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">⌘/Ctrl</kbd>+
+                  <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">Enter</kbd> to preview
+                  · <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">Esc</kbd> to close
+                </p>
+                <button
+                  onClick={preview}
+                  disabled={busy || !input.trim()}
+                  className="text-xs font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-md transition-all glow-green disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500 disabled:glow-none"
+                >
+                  {busy ? "Routing…" : "Preview"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {plan && (
+            <>
+              <div className={`border rounded-lg px-3 py-3 ${KIND_COLOR[plan.kind]}`}>
+                <p className="font-bold uppercase tracking-wider text-[10px] mb-1">
+                  About to add · {KIND_LABEL[plan.kind]}
+                </p>
+                <p className="text-sm text-slate-100 leading-snug break-words">{summarisePlan(plan)}</p>
+                {plan.kind === "event" && plan.description && (
+                  <p className="text-[11px] text-slate-400 mt-1.5 leading-snug break-words">{plan.description}</p>
+                )}
+                {plan.kind === "task" && plan.notes && (
+                  <p className="text-[11px] text-slate-400 mt-1.5 leading-snug break-words">{plan.notes}</p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 mt-3">
+                <p className="text-[10px] text-slate-600 font-mono">
+                  <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">⌘/Ctrl</kbd>+
+                  <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700">Enter</kbd> to confirm
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={cancelPreview}
+                    disabled={busy}
+                    className="text-xs font-bold uppercase tracking-wider bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-300 px-3.5 py-2 rounded-md transition-all disabled:opacity-40"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={commit}
+                    disabled={busy}
+                    className="text-xs font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-md transition-all glow-green disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500 disabled:glow-none"
+                  >
+                    {busy ? "Saving…" : "Confirm"}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {error && (
             <p className="mt-3 text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">

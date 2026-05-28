@@ -67,7 +67,16 @@ export async function POST(request: Request) {
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
-  const raw = body as { input?: unknown };
+  const raw = body as { input?: unknown; commit?: unknown };
+
+  // Branch on body shape: { commit } = execute a previously-returned plan,
+  // { input } = classify the user's text and return a plan for confirmation.
+  if (raw.commit !== undefined) {
+    const plan = normalisePlan(raw.commit);
+    if (!plan) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    return executePlan(plan, session.accessToken as string);
+  }
+
   const input = typeof raw.input === "string" ? raw.input.trim().slice(0, MAX_INPUT) : "";
   if (!input) return NextResponse.json({ error: "input is required" }, { status: 400 });
 
@@ -94,31 +103,66 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Couldn't understand that input" }, { status: 422 });
   }
 
-  // Execute the chosen action
+  // Return the plan for the client to preview + confirm. No side effects yet.
+  return NextResponse.json({ plan: parsed });
+}
+
+// Re-validate the plan coming back from the client. Trust nothing — the
+// preview round trip is a UX nicety, not a security boundary.
+function normalisePlan(raw: unknown): Captured | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.kind === "task" && typeof r.title === "string" && r.title.trim()) {
+    return {
+      kind: "task",
+      title: r.title.slice(0, 200),
+      due: typeof r.due === "string" && r.due ? r.due.slice(0, 32) : undefined,
+      notes: typeof r.notes === "string" ? r.notes.slice(0, 1000) : undefined,
+    };
+  }
+  if (
+    r.kind === "event" &&
+    typeof r.summary === "string" && r.summary.trim() &&
+    typeof r.start === "string" && r.start &&
+    typeof r.end === "string" && r.end
+  ) {
+    return {
+      kind: "event",
+      summary: r.summary.slice(0, 200),
+      start: r.start.slice(0, 64),
+      end: r.end.slice(0, 64),
+      description: typeof r.description === "string" ? r.description.slice(0, 500) : undefined,
+      location: typeof r.location === "string" ? r.location.slice(0, 200) : undefined,
+    };
+  }
+  if (r.kind === "note" && typeof r.content === "string" && r.content.trim()) {
+    return { kind: "note", content: r.content.slice(0, 2000) };
+  }
+  return null;
+}
+
+async function executePlan(plan: Captured, accessToken: string): Promise<NextResponse> {
   try {
-    if (parsed.kind === "task") {
-      if (!parsed.title?.trim()) throw new Error("missing title");
+    const prefs = await getUserPrefs().catch(() => null);
+    const tz = prefs?.timezone || "America/Chicago";
+
+    if (plan.kind === "task") {
       const task = await createTask(
-        session.accessToken as string,
-        parsed.title.slice(0, 200),
-        parsed.due || undefined,
-        parsed.notes ? parsed.notes.slice(0, 1000) : undefined
+        accessToken,
+        plan.title,
+        plan.due || undefined,
+        plan.notes || undefined
       );
-      return NextResponse.json({
-        kind: "task",
-        title: task.title,
-        due: task.due ?? null,
-      });
+      return NextResponse.json({ kind: "task", title: task.title, due: task.due ?? null });
     }
 
-    if (parsed.kind === "event") {
-      if (!parsed.summary?.trim() || !parsed.start || !parsed.end) throw new Error("missing event fields");
-      const event = await createEvent(session.accessToken as string, {
-        summary: parsed.summary.slice(0, 200),
-        start: parsed.start,
-        end: parsed.end,
-        description: parsed.description?.slice(0, 500),
-        location: parsed.location?.slice(0, 200),
+    if (plan.kind === "event") {
+      const event = await createEvent(accessToken, {
+        summary: plan.summary,
+        start: plan.start,
+        end: plan.end,
+        description: plan.description,
+        location: plan.location,
         timeZone: tz,
       });
       return NextResponse.json({
@@ -129,25 +173,15 @@ export async function POST(request: Request) {
       });
     }
 
-    if (parsed.kind === "note") {
-      if (!parsed.content?.trim()) throw new Error("missing note content");
-      const memory = await getMemory();
-      const dateStr = format(new Date(), "yyyy-MM-dd");
-      const appended = (memory.content?.trim() ? memory.content.trim() + "\n" : "")
-        + "## Notes\n"
-        + `- (${dateStr}) ${parsed.content.trim()}`;
-      // If "## Notes" already exists in the doc, just append a bullet under the existing section
-      // instead of creating a duplicate heading.
-      const collapsed = appended
-        .replace(/(## Notes\n(?:- .+\n?)*)\n## Notes\n/g, "$1");
-      await saveMemory(collapsed);
-      return NextResponse.json({
-        kind: "note",
-        content: parsed.content.trim(),
-      });
-    }
-
-    return NextResponse.json({ error: "Unknown action kind" }, { status: 422 });
+    // note → append to memory under a single "## Notes" section
+    const memory = await getMemory();
+    const dateStr = format(new Date(), "yyyy-MM-dd");
+    const appended = (memory.content?.trim() ? memory.content.trim() + "\n" : "")
+      + "## Notes\n"
+      + `- (${dateStr}) ${plan.content.trim()}`;
+    const collapsed = appended.replace(/(## Notes\n(?:- .+\n?)*)\n## Notes\n/g, "$1");
+    await saveMemory(collapsed);
+    return NextResponse.json({ kind: "note", content: plan.content.trim() });
   } catch (err) {
     console.error("Quick-capture execute failed:", err);
     return NextResponse.json({ error: "Couldn't save that — try again" }, { status: 502 });
