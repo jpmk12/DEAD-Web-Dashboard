@@ -1,13 +1,13 @@
-import GoogleButton from "./google-button";
+"use client";
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ callbackUrl?: string; error?: string }>;
-}) {
-  const sp = await searchParams;
-  const callbackUrl = sp.callbackUrl ?? "/";
-  const error = sp.error;
+import { signIn } from "next-auth/react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+
+function LoginContent() {
+  const params = useSearchParams();
+  const callbackUrl = params.get("callbackUrl") ?? "/";
+  const error = params.get("error");
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-slate-950 text-slate-100 px-6 text-center">
@@ -28,7 +28,20 @@ export default async function LoginPage({
         </p>
       )}
 
-      <GoogleButton callbackUrl={callbackUrl} />
+      <button
+        onClick={() => signIn("google", { callbackUrl })}
+        className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-md transition-colors"
+      >
+        Sign in with Google
+      </button>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+      <LoginContent />
+    </Suspense>
   );
 }

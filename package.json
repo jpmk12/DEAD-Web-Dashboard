@@ -2,11 +2,11 @@
   "name": "dead-web-dashboard",
   "version": "1.0.0",
   "private": true,
-  "main": "server.js",
+  "main": "start.js",
   "scripts": {
     "dev": "next dev",
     "build": "node build.js",
-    "start": "node server.js",
+    "start": "node start.js",
     "lint": "next lint"
   },
   "dependencies": {
