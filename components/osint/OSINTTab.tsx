@@ -38,6 +38,38 @@ function timeAgo(s: string): string {
   } catch { return ""; }
 }
 
+// Embeddable map providers. The original implementation hardcoded ADS-B
+// Exchange and MarineTraffic, but both started enforcing X-Frame-Options /
+// referrer checks that prevent third-party embedding. The fix is a user-
+// selectable provider list — community ADS-B trackers (adsb.fi /
+// airplanes.live / adsb.lol descend from open-source tar1090 and explicitly
+// allow embedding) sit at the top of the aircraft list, with the now-
+// restricted commercial sites kept as fallbacks. Each entry's URL builder
+// takes the user's home coords; the iframe key is the provider id so
+// switching providers forces a clean remount.
+type ProviderDef = {
+  id: string;
+  label: string;
+  url: (lat: number, lon: number) => string;
+  note?: string;
+};
+
+const AIRCRAFT_PROVIDERS: ProviderDef[] = [
+  { id: "adsbfi",        label: "adsb.fi",         url: (lat, lon) => `https://globe.adsb.fi/?lat=${lat}&lon=${lon}&zoom=8&mil` },
+  { id: "airplaneslive", label: "airplanes.live",  url: (lat, lon) => `https://globe.airplanes.live/?lat=${lat}&lon=${lon}&zoom=8&mil` },
+  { id: "adsblol",       label: "adsb.lol",        url: (lat, lon) => `https://globe.adsb.lol/?lat=${lat}&lon=${lon}&zoom=8&mil` },
+  { id: "adsbex",        label: "ADS-B Exchange",  url: (lat, lon) => `https://globe.adsbexchange.com/?lat=${lat}&lon=${lon}&zoom=8&hideButtons&hideSidebar&mil`, note: "may block embed" },
+];
+
+const MARITIME_PROVIDERS: ProviderDef[] = [
+  { id: "vesselfinder",  label: "VesselFinder",    url: (lat, lon) => `https://www.vesselfinder.com/aismap?zoom=7&lat=${lat}&lon=${lon}&width=100%25&height=100%25&names=true`, note: "may block embed" },
+  { id: "marinetraffic", label: "MarineTraffic",   url: (lat, lon) => `https://www.marinetraffic.com/en/ais/embed/zoom:7/centery:${lat}/centerx:${lon}/maptype:4/shownames:false/mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:false`, note: "may block embed" },
+  { id: "openseamap",    label: "OpenSeaMap",      url: (lat, lon) => `https://map.openseamap.org/?zoom=7&lat=${lat}&lon=${lon}&mlat=${lat}&mlon=${lon}&layers=BFTFFFFFFFFFF`, note: "chart only, no live AIS" },
+];
+
+const LS_AIRCRAFT_PROVIDER = "osint-aircraft-provider";
+const LS_MARITIME_PROVIDER = "osint-maritime-provider";
+
 export default function OSINTTab() {
   const [items, setItems] = useState<OsintItem[]>([]);
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
@@ -45,8 +77,19 @@ export default function OSINTTab() {
   const [loading, setLoading] = useState(true);
   const [homeLat, setHomeLat] = useState<number>(38.85);
   const [homeLon, setHomeLon] = useState<number>(-104.8);
+  const [aircraftProvider, setAircraftProvider] = useState<string>(AIRCRAFT_PROVIDERS[0].id);
+  const [maritimeProvider, setMaritimeProvider] = useState<string>(MARITIME_PROVIDERS[0].id);
 
   useEffect(() => {
+    // Restore the user's previously chosen map providers. Validate against
+    // the current id list so a stale localStorage value (deleted provider)
+    // doesn't strand us on an unknown id.
+    try {
+      const a = localStorage.getItem(LS_AIRCRAFT_PROVIDER);
+      const m = localStorage.getItem(LS_MARITIME_PROVIDER);
+      if (a && AIRCRAFT_PROVIDERS.some((p) => p.id === a)) setAircraftProvider(a);
+      if (m && MARITIME_PROVIDERS.some((p) => p.id === m)) setMaritimeProvider(m);
+    } catch {}
     fetch("/api/user-prefs")
       .then((r) => r.json())
       .then(({ prefs }) => {
@@ -69,6 +112,18 @@ export default function OSINTTab() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const pickAircraft = (id: string) => {
+    setAircraftProvider(id);
+    try { localStorage.setItem(LS_AIRCRAFT_PROVIDER, id); } catch {}
+  };
+  const pickMaritime = (id: string) => {
+    setMaritimeProvider(id);
+    try { localStorage.setItem(LS_MARITIME_PROVIDER, id); } catch {}
+  };
+
+  const aircraftCfg = AIRCRAFT_PROVIDERS.find((p) => p.id === aircraftProvider) ?? AIRCRAFT_PROVIDERS[0];
+  const maritimeCfg = MARITIME_PROVIDERS.find((p) => p.id === maritimeProvider) ?? MARITIME_PROVIDERS[0];
 
   const filtered = useMemo(() => {
     if (pane === "all") return items;
@@ -127,31 +182,101 @@ export default function OSINTTab() {
         ))}
       </div>
 
-      {/* Aircraft pane — ADS-B Exchange iframe */}
+      {/* Aircraft pane — community ADS-B providers via user-selectable iframe */}
       {pane === "aircraft" && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
-          <iframe
-            src={`https://globe.adsbexchange.com/?lat=${homeLat}&lon=${homeLon}&zoom=8&hideButtons&hideSidebar&mil`}
-            width="100%"
-            height="100%"
-            frameBorder="0"
-            title="ADS-B Exchange — live aircraft (military filter)"
-            className="block"
-          />
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Provider</span>
+            {AIRCRAFT_PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => pickAircraft(p.id)}
+                title={p.note}
+                className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                  aircraftProvider === p.id
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                    : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+            <span className="flex-1" />
+            <a
+              href={aircraftCfg.url(homeLat, homeLon)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2 py-0.5 rounded font-bold uppercase tracking-wider border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40 transition-all"
+            >
+              Open ↗
+            </a>
+          </div>
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
+            <iframe
+              key={aircraftCfg.id}
+              src={aircraftCfg.url(homeLat, homeLon)}
+              width="100%"
+              height="100%"
+              frameBorder="0"
+              referrerPolicy="no-referrer"
+              title={`Live aircraft — ${aircraftCfg.label}`}
+              className="block"
+            />
+          </div>
+          <p className="text-[10px] text-slate-700 leading-relaxed">
+            Filter: military aircraft only. If the map is blank, the provider is refusing the embed —
+            try another provider above, or use <span className="text-slate-500">Open ↗</span>. Community
+            providers (adsb.fi / airplanes.live / adsb.lol) are the most reliable for embedding.
+          </p>
         </div>
       )}
 
-      {/* Maritime pane — MarineTraffic iframe */}
+      {/* Maritime pane — user-selectable AIS provider */}
       {pane === "maritime" && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
-          <iframe
-            src={`https://www.marinetraffic.com/en/ais/embed/zoom:7/centery:${homeLat}/centerx:${homeLon}/maptype:4/shownames:false/mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:false`}
-            width="100%"
-            height="100%"
-            frameBorder="0"
-            title="MarineTraffic — live maritime"
-            className="block"
-          />
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Provider</span>
+            {MARITIME_PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => pickMaritime(p.id)}
+                title={p.note}
+                className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                  maritimeProvider === p.id
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                    : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+            <span className="flex-1" />
+            <a
+              href={maritimeCfg.url(homeLat, homeLon)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2 py-0.5 rounded font-bold uppercase tracking-wider border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40 transition-all"
+            >
+              Open ↗
+            </a>
+          </div>
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
+            <iframe
+              key={maritimeCfg.id}
+              src={maritimeCfg.url(homeLat, homeLon)}
+              width="100%"
+              height="100%"
+              frameBorder="0"
+              referrerPolicy="no-referrer"
+              title={`Live maritime — ${maritimeCfg.label}`}
+              className="block"
+            />
+          </div>
+          <p className="text-[10px] text-slate-700 leading-relaxed">
+            Most commercial AIS sites block iframe embedding without a paid embed key. If the map is blank,
+            try a different provider, or use <span className="text-slate-500">Open ↗</span>. OpenSeaMap
+            always renders but shows only the base nautical chart (no live AIS).
+          </p>
         </div>
       )}
 
@@ -222,13 +347,7 @@ export default function OSINTTab() {
       )}
 
       <p className="text-[10px] text-slate-700 text-right">
-        Aircraft via{" "}
-        <a href="https://globe.adsbexchange.com" target="_blank" rel="noopener noreferrer"
-          className="text-slate-600 hover:text-slate-400 underline">ADS-B Exchange</a>
-        {" · maritime via "}
-        <a href="https://www.marinetraffic.com" target="_blank" rel="noopener noreferrer"
-          className="text-slate-600 hover:text-slate-400 underline">MarineTraffic</a>
-        {" · feeds bridged via user-configured RSS endpoints"}
+        Maps via user-selectable community providers · feeds bridged via user-configured RSS endpoints
       </p>
     </div>
   );
