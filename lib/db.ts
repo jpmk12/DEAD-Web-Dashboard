@@ -134,6 +134,9 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "vip_senders",               ddl: "ALTER TABLE user_prefs ADD COLUMN vip_senders                JSON NULL" },
   { table: "user_prefs",  column: "mute_senders",              ddl: "ALTER TABLE user_prefs ADD COLUMN mute_senders               JSON NULL" },
   { table: "user_prefs",  column: "dismissed_vip_suggestions", ddl: "ALTER TABLE user_prefs ADD COLUMN dismissed_vip_suggestions  JSON NULL" },
+  { table: "user_prefs",  column: "tracked_locations",         ddl: "ALTER TABLE user_prefs ADD COLUMN tracked_locations          JSON NULL" },
+  { table: "user_prefs",  column: "markets_watchlist",         ddl: "ALTER TABLE user_prefs ADD COLUMN markets_watchlist          JSON NULL" },
+  { table: "user_prefs",  column: "osint_feeds",               ddl: "ALTER TABLE user_prefs ADD COLUMN osint_feeds                JSON NULL" },
   { table: "user_memory", column: "pending_exchanges",         ddl: "ALTER TABLE user_memory ADD COLUMN pending_exchanges JSON NULL" },
   { table: "briefing_cache", column: "tz",                     ddl: "ALTER TABLE briefing_cache ADD COLUMN tz VARCHAR(64) NOT NULL DEFAULT 'UTC'" },
 ];

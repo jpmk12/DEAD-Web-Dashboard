@@ -1,9 +1,76 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
-import { UserPrefs, AppTheme } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed } from "@/lib/types";
 
 const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
+const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
+
+function sanitizeTrackedLocations(v: unknown): TrackedLocation[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): TrackedLocation[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const lat = Number(r.lat);
+    const lon = Number(r.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return [];
+    const label = String(r.label ?? "").trim().slice(0, 60);
+    if (!label) return [];
+    const id = String(r.id ?? "").slice(0, 60) || `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    return [{ id, label, lat, lon }];
+  }).slice(0, 10);
+}
+
+function sanitizeMarketsWatchlist(v: unknown): TickerEntry[] {
+  if (!Array.isArray(v)) return [];
+  // Symbol whitelist: alnum + a few exchange-separator chars only. TradingView
+  // accepts shapes like "NYSE:LMT" / "NASDAQ:NDX" / "NYMEX:CL1!" / "FX:USDJPY".
+  const SYMBOL = /^[A-Z0-9:_!.\-]{1,32}$/;
+  return v.flatMap((x): TickerEntry[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const symbol = String(r.symbol ?? "").trim().toUpperCase();
+    const label = String(r.label ?? "").trim().slice(0, 60);
+    if (!symbol || !SYMBOL.test(symbol) || !label) return [];
+    return [{ symbol, label }];
+  }).slice(0, 30);
+}
+
+// Block obvious SSRF targets when the OSINT feeds are later fetched
+// server-side. Public IP ranges + arbitrary HTTPS URLs are allowed; loopback,
+// link-local, and RFC-1918 private space are not.
+function isSafeHostname(h: string): boolean {
+  if (!h) return false;
+  if (h === "localhost" || h === "broadcasthost" || h === "ip6-localhost") return false;
+  if (/^127\./.test(h)) return false;
+  if (/^10\./.test(h)) return false;
+  if (/^192\.168\./.test(h)) return false;
+  if (/^169\.254\./.test(h)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
+  if (/^(::1|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i.test(h)) return false;
+  if (/^0\.0\.0\.0$/.test(h)) return false;
+  return true;
+}
+
+function sanitizeOsintFeeds(v: unknown): OsintFeed[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): OsintFeed[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const urlRaw = String(r.url ?? "").trim();
+    const label = String(r.label ?? "").trim().slice(0, 60);
+    if (!urlRaw || !label) return [];
+    let parsed: URL;
+    try { parsed = new URL(urlRaw); } catch { return []; }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return [];
+    if (parsed.username || parsed.password) return [];
+    if (!isSafeHostname(parsed.hostname.toLowerCase())) return [];
+    const id = String(r.id ?? "").slice(0, 60) || Buffer.from(urlRaw).toString("base64").slice(0, 16);
+    const kind = OSINT_KINDS.has(r.kind as OsintFeed["kind"]) ? (r.kind as OsintFeed["kind"]) : "other";
+    return [{ id, label, url: urlRaw.slice(0, 500), kind }];
+  }).slice(0, 20);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +113,9 @@ export async function POST(request: Request) {
     dismissedVipSuggestions: (Array.isArray(raw.dismissedVipSuggestions) ? raw.dismissedVipSuggestions : [])
       .slice(0, 500).map((t) => String(t).trim().slice(0, 254))
       .filter((t) => t.length > 0),
+    trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
+    marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
+    osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
     localFeedKey: VALID_FEED_KEYS.has(String(raw.localFeedKey ?? "")) ? String(raw.localFeedKey) : "colorado",
     localZipcode: String(raw.localZipcode ?? "").replace(/[^0-9a-zA-Z]/g, "").slice(0, 10),
     localCity: String(raw.localCity ?? "").slice(0, 100),

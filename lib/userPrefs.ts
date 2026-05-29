@@ -1,6 +1,14 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { UserPrefs } from "./types";
+import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed } from "./types";
+
+const DEFAULT_MARKETS_WATCHLIST: TickerEntry[] = [
+  { symbol: "NYSE:LMT",    label: "Lockheed Martin" },
+  { symbol: "NYSE:RTX",    label: "RTX Corp" },
+  { symbol: "NYSE:NOC",    label: "Northrop Grumman" },
+  { symbol: "NYSE:GD",     label: "General Dynamics" },
+  { symbol: "NYSE:BA",     label: "Boeing" },
+];
 
 const DEFAULT_PREFS: UserPrefs = {
   role: "",
@@ -10,6 +18,9 @@ const DEFAULT_PREFS: UserPrefs = {
   vipSenders: [],
   muteSenders: [],
   dismissedVipSuggestions: [],
+  trackedLocations: [],
+  marketsWatchlist: DEFAULT_MARKETS_WATCHLIST,
+  osintFeeds: [],
   localFeedKey: "colorado",
   localZipcode: "",
   localCity: "",
@@ -28,6 +39,9 @@ interface PrefsRow extends RowDataPacket {
   vip_senders: string[] | null;
   mute_senders: string[] | null;
   dismissed_vip_suggestions: string[] | null;
+  tracked_locations: TrackedLocation[] | null;
+  markets_watchlist: TickerEntry[] | null;
+  osint_feeds: OsintFeed[] | null;
   local_feed_key: string;
   local_zipcode: string;
   local_city: string;
@@ -43,10 +57,46 @@ function asStringArray(v: unknown): string[] {
   return [];
 }
 
+function asTrackedLocations(v: unknown): TrackedLocation[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): TrackedLocation[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const lat = Number(r.lat);
+    const lon = Number(r.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+    if (typeof r.id !== "string" || typeof r.label !== "string") return [];
+    return [{ id: r.id, label: r.label.slice(0, 60), lat, lon }];
+  });
+}
+
+function asTickerEntries(v: unknown): TickerEntry[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): TickerEntry[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    if (typeof r.symbol !== "string" || typeof r.label !== "string") return [];
+    return [{ symbol: r.symbol.slice(0, 32), label: r.label.slice(0, 60) }];
+  });
+}
+
+function asOsintFeeds(v: unknown): OsintFeed[] {
+  if (!Array.isArray(v)) return [];
+  const KINDS = new Set(["social", "telegram", "news", "other"]);
+  return v.flatMap((x): OsintFeed[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    if (typeof r.id !== "string" || typeof r.label !== "string" || typeof r.url !== "string") return [];
+    if (!/^https?:\/\//i.test(r.url)) return [];
+    const kind = typeof r.kind === "string" && KINDS.has(r.kind) ? (r.kind as OsintFeed["kind"]) : "other";
+    return [{ id: r.id, label: r.label.slice(0, 60), url: r.url.slice(0, 500), kind }];
+  });
+}
+
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -59,6 +109,10 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     vipSenders: asStringArray(r.vip_senders),
     muteSenders: asStringArray(r.mute_senders),
     dismissedVipSuggestions: asStringArray(r.dismissed_vip_suggestions),
+    trackedLocations: asTrackedLocations(r.tracked_locations),
+    // First-time users get the curated defense default until they edit.
+    marketsWatchlist: r.markets_watchlist ? asTickerEntries(r.markets_watchlist) : DEFAULT_MARKETS_WATCHLIST,
+    osintFeeds: asOsintFeeds(r.osint_feeds),
     localFeedKey: r.local_feed_key,
     localZipcode: r.local_zipcode,
     localCity: r.local_city,
@@ -79,9 +133,11 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
         vip_senders, mute_senders, dismissed_vip_suggestions,
+        tracked_locations, markets_watchlist, osint_feeds,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
@@ -92,6 +148,9 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        vip_senders                = VALUES(vip_senders),
        mute_senders               = VALUES(mute_senders),
        dismissed_vip_suggestions  = VALUES(dismissed_vip_suggestions),
+       tracked_locations          = VALUES(tracked_locations),
+       markets_watchlist          = VALUES(markets_watchlist),
+       osint_feeds                = VALUES(osint_feeds),
        local_feed_key             = VALUES(local_feed_key),
        local_zipcode              = VALUES(local_zipcode),
        local_city                 = VALUES(local_city),
@@ -108,6 +167,9 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.vipSenders),
       JSON.stringify(prefs.muteSenders),
       JSON.stringify(prefs.dismissedVipSuggestions),
+      JSON.stringify(prefs.trackedLocations),
+      JSON.stringify(prefs.marketsWatchlist),
+      JSON.stringify(prefs.osintFeeds),
       prefs.localFeedKey,
       prefs.localZipcode,
       prefs.localCity,

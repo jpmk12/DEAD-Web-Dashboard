@@ -76,6 +76,15 @@ export interface UserPrefs {
   muteSenders: string[];  // force priority = Low
   // Sender suggestions the user has explicitly dismissed; never re-suggest.
   dismissedVipSuggestions: string[];
+  // Weather tab — additional locations the user wants tracked alongside the
+  // home location. Each has a stable id + display label + coords.
+  trackedLocations: TrackedLocation[];
+  // Markets tab — custom ticker watchlist. TradingView symbol format,
+  // e.g. "NYSE:LMT", "NASDAQ:CACI", "NYMEX:CL1!".
+  marketsWatchlist: TickerEntry[];
+  // OSINT tab — configurable RSS feed sources (social media bridges, news,
+  // niche curated feeds). Each entry is a labelled URL.
+  osintFeeds: OsintFeed[];
   localFeedKey: string;   // determines which RSS feeds show in "local" tab
   localZipcode: string;   // raw zipcode entered by user (5-digit US or OCONUS key)
   localCity: string;      // resolved display name e.g. "Colorado Springs, CO"
@@ -84,6 +93,62 @@ export interface UserPrefs {
   theme: AppTheme;
   timezone: string;  // IANA timezone e.g. "America/Chicago"
   lastUpdated: string;
+}
+
+export interface TrackedLocation {
+  id: string;
+  label: string;
+  lat: number;
+  lon: number;
+}
+
+export interface TickerEntry {
+  symbol: string;  // e.g. "NYSE:LMT"
+  label: string;   // e.g. "Lockheed Martin"
+}
+
+export interface OsintFeed {
+  id: string;
+  label: string;
+  url: string;
+  kind: "social" | "telegram" | "news" | "other";
+}
+
+// Forecast / alerts / space-weather payloads returned by the weather APIs.
+export interface ForecastPeriod {
+  name: string;
+  startTime: string;
+  isDaytime: boolean;
+  tempF: number;
+  tempTrend?: string | null;
+  windSpeed: string;
+  windDirection: string;
+  shortForecast: string;
+  icon: string;
+  precipPercent?: number | null;
+}
+
+export interface WeatherAlert {
+  id: string;
+  event: string;
+  severity: "Extreme" | "Severe" | "Moderate" | "Minor" | "Unknown";
+  urgency: string;
+  headline: string;
+  effective: string;
+  expires: string;
+  areaDesc: string;
+}
+
+export interface SpaceWeather {
+  // Kp index — 0 quiet, 5 G1 storm, 9 G5 extreme.
+  currentKp: number | null;
+  kpHistory: { time: string; value: number }[];
+  // X-ray flare class string ("Quiet" / "A" / "B" / "C5.0" / "M2.3" / "X1.0").
+  currentFlareClass: string;
+  // NOAA scales (G/S/R) derived from current conditions.
+  geoStorm: string;        // G0..G5
+  radioBlackout: string;   // R0..R5
+  radiationStorm: string;  // S0..S5
 }
 
 export interface VipSuggestion {

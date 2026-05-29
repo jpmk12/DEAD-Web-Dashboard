@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { TrackedLocation } from "@/lib/types";
+import LocationCard from "./LocationCard";
+import AlertsPanel from "./AlertsPanel";
+import SpaceWeatherCard from "./SpaceWeatherCard";
 
 type Overlay = "wind" | "rain" | "temp" | "clouds" | "pressure";
 
@@ -10,17 +14,6 @@ const OVERLAYS: { id: Overlay; label: string; icon: string }[] = [
   { id: "temp",     label: "Temp",     icon: "◎" },
   { id: "clouds",   label: "Clouds",   icon: "◌" },
   { id: "pressure", label: "Pressure", icon: "◉" },
-];
-
-type LocationPreset = { label: string; lat: number; lon: number; zoom: number };
-
-const BASE_LOCATIONS: LocationPreset[] = [
-  { label: "CONUS",      lat: 38.5,   lon: -96.0,  zoom: 4 },
-  { label: "Colorado",   lat: 38.85,  lon: -104.8, zoom: 7 },
-  { label: "DC Metro",   lat: 38.9,   lon: -77.0,  zoom: 8 },
-  { label: "Gulf Coast", lat: 29.5,   lon: -90.0,  zoom: 6 },
-  { label: "Pacific",    lat: 25.0,   lon: -160.0, zoom: 4 },
-  { label: "Europe",     lat: 49.5,   lon: 8.0,    zoom: 5 },
 ];
 
 const METAR_LINKS = [
@@ -53,43 +46,48 @@ function formatUpdated(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+const FEED_LABELS: Record<string, string> = {
+  colorado: "Colorado", dc: "DC Metro", hampton_roads: "Hampton Roads",
+  illinois: "Illinois", new_jersey: "New Jersey", oklahoma: "Oklahoma",
+  san_antonio: "San Antonio", hawaii: "Hawaii", japan: "Okinawa", germany: "Ramstein",
+};
+
 export default function WeatherTab() {
   const [overlay, setOverlay] = useState<Overlay>("wind");
-  const [locations, setLocations] = useState<LocationPreset[]>(BASE_LOCATIONS);
-  const [loc, setLoc] = useState<LocationPreset>(BASE_LOCATIONS[0]);
-  const [src, setSrc] = useState("");
+  const [home, setHome] = useState<TrackedLocation | null>(null);
+  const [extras, setExtras] = useState<TrackedLocation[]>([]);
+  const [selectedIdx, setSelectedIdx] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
 
-  // Load user prefs — if lat/lon are stored (from dropdown selection), inject a Home preset
+  // Hydrate the location set from user prefs. Home is the localLat/localLon
+  // already there; extras are the trackedLocations field added this push.
   useEffect(() => {
     fetch("/api/user-prefs")
       .then((r) => r.json())
       .then(({ prefs }) => {
-        const lat = prefs?.localLat;
-        const lon = prefs?.localLon;
-        if (lat && lon) {
-          // Derive a label from the feed key
-          const FEED_LABELS: Record<string, string> = {
-            colorado: "Colorado", dc: "DC Metro", hampton_roads: "Hampton Roads",
-            illinois: "Illinois", new_jersey: "New Jersey", oklahoma: "Oklahoma",
-            san_antonio: "San Antonio", hawaii: "Hawaii", japan: "Okinawa", germany: "Ramstein",
-          };
-          const home: LocationPreset = {
+        if (prefs?.localLat && prefs?.localLon) {
+          setHome({
+            id: "home",
             label: FEED_LABELS[prefs.localFeedKey as string] ?? "Home",
-            lat, lon, zoom: 8,
-          };
-          setLocations([home, ...BASE_LOCATIONS]);
-          setLoc(home);
+            lat: prefs.localLat,
+            lon: prefs.localLon,
+          });
         }
+        if (Array.isArray(prefs?.trackedLocations)) setExtras(prefs.trackedLocations);
       })
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const base = buildWindyUrl(loc.lat, loc.lon, loc.zoom, overlay);
-    setSrc(refreshKey > 0 ? `${base}&_r=${refreshKey}` : base);
-  }, [loc, overlay, refreshKey]);
+  const allLocations = useMemo(
+    () => (home ? [home, ...extras] : extras),
+    [home, extras]
+  );
+
+  const selected = allLocations[selectedIdx] ?? home ?? null;
+  const mapSrc = selected
+    ? `${buildWindyUrl(selected.lat, selected.lon, 8, overlay)}${refreshKey > 0 ? `&_r=${refreshKey}` : ""}`
+    : "";
 
   return (
     <div className="space-y-4">
@@ -101,7 +99,9 @@ export default function WeatherTab() {
           </div>
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Weather</h2>
-            <p className="text-[10px] text-slate-600 font-mono">Meteorological overview — Windy ECMWF model</p>
+            <p className="text-[10px] text-slate-600 font-mono">
+              {allLocations.length} location{allLocations.length === 1 ? "" : "s"} · NWS · NOAA SWPC
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -116,62 +116,73 @@ export default function WeatherTab() {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Overlay selector */}
-        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-lg p-1">
-          {OVERLAYS.map((o) => (
-            <button
-              key={o.id}
-              onClick={() => setOverlay(o.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all ${
-                overlay === o.id
-                  ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              <span>{o.icon}</span>
-              <span className="hidden sm:inline">{o.label}</span>
-            </button>
+      {/* Multi-location grid */}
+      {allLocations.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+          {allLocations.map((loc, i) => (
+            <LocationCard
+              key={loc.id}
+              location={loc}
+              active={i === selectedIdx}
+              onSelect={() => setSelectedIdx(i)}
+            />
           ))}
         </div>
+      )}
 
-        {/* Location presets */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {locations.map((l) => (
-            <button
-              key={l.label}
-              onClick={() => setLoc(l)}
-              className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
-                loc.label === l.label
-                  ? "bg-slate-700 text-slate-200 border border-slate-600"
-                  : "text-slate-600 hover:text-slate-400 hover:bg-slate-800/50"
-              }`}
-            >
-              {l.label === locations[0].label && locations[0].label !== "CONUS" ? `⌂ ${l.label}` : l.label}
-            </button>
-          ))}
+      {allLocations.length === 0 && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 text-center">
+          <p className="text-xs text-slate-500 font-mono">
+            No locations configured. Set a home location in <span className="text-emerald-400">Preferences → Local Area</span> or
+            add tracked locations under <span className="text-emerald-400">Tracked Locations</span>.
+          </p>
         </div>
-      </div>
+      )}
 
-      {/* Windy embed */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 520 }}>
-        {src ? (
-          <iframe
-            src={src}
-            width="100%"
-            height="100%"
-            frameBorder="0"
-            allow="geolocation"
-            title="Windy weather map"
-            className="block"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <span className="text-slate-600 text-xs font-mono">Loading map…</span>
+      {/* Severe-weather alerts across all tracked locations */}
+      {allLocations.length > 0 && <AlertsPanel locations={allLocations} />}
+
+      {/* Space weather */}
+      <SpaceWeatherCard />
+
+      {/* Map controls + Windy embed centred on the selected location */}
+      {selected && (
+        <>
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-lg p-1">
+              {OVERLAYS.map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => setOverlay(o.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all ${
+                    overlay === o.id
+                      ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  <span>{o.icon}</span>
+                  <span className="hidden sm:inline">{o.label}</span>
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-slate-600 font-mono">
+              Map centred on <span className="text-slate-300">{selected.label}</span>
+            </span>
           </div>
-        )}
-      </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 480 }}>
+            <iframe
+              src={mapSrc}
+              width="100%"
+              height="100%"
+              frameBorder="0"
+              allow="geolocation"
+              title="Windy weather map"
+              className="block"
+            />
+          </div>
+        </>
+      )}
 
       {/* METAR quick links */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
@@ -201,16 +212,16 @@ export default function WeatherTab() {
         </div>
       </div>
 
-      {/* Attribution */}
       <p className="text-[10px] text-slate-700 text-right">
         Weather data by{" "}
+        <a href="https://www.weather.gov" target="_blank" rel="noopener noreferrer"
+          className="text-slate-600 hover:text-slate-400 underline">NWS</a>
+        {" · space weather by "}
+        <a href="https://www.swpc.noaa.gov" target="_blank" rel="noopener noreferrer"
+          className="text-slate-600 hover:text-slate-400 underline">NOAA SWPC</a>
+        {" · map by "}
         <a href="https://www.windy.com" target="_blank" rel="noopener noreferrer"
-          className="text-slate-600 hover:text-slate-400 underline transition-colors">Windy.com
-        </a>
-        {" / ECMWF · METAR via "}
-        <a href="https://metar-taf.com" target="_blank" rel="noopener noreferrer"
-          className="text-slate-600 hover:text-slate-400 underline transition-colors">metar-taf.com
-        </a>
+          className="text-slate-600 hover:text-slate-400 underline">Windy.com</a>
       </p>
     </div>
   );

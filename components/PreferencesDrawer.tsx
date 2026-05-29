@@ -2,7 +2,7 @@
 
 import { useEffect, useState, KeyboardEvent } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { UserPrefs, AppTheme } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed } from "@/lib/types";
 import { applyTheme } from "@/components/ThemeApplicator";
 
 interface PreferencesDrawerProps {
@@ -71,6 +71,236 @@ function TagInput({
         />
       </div>
       <p className="text-[10px] text-slate-700 mt-1">Enter or comma to add · Backspace to remove last</p>
+    </div>
+  );
+}
+
+// ─── Tracked locations editor (Weather tab) ──────────────────────────────────
+
+function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; }) {
+  const [label, setLabel] = useState("");
+  const [lat, setLat] = useState("");
+  const [lon, setLon] = useState("");
+
+  const add = () => {
+    const la = parseFloat(lat);
+    const lo = parseFloat(lon);
+    if (!label.trim() || !Number.isFinite(la) || !Number.isFinite(lo)) return;
+    if (Math.abs(la) > 90 || Math.abs(lo) > 180) return;
+    onChange([...value, { id: `${la.toFixed(2)},${lo.toFixed(2)}-${Date.now()}`, label: label.trim().slice(0, 60), lat: la, lon: lo }]);
+    setLabel(""); setLat(""); setLon("");
+  };
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        Tracked Locations
+      </label>
+      <p className="text-[10px] text-slate-600 mb-3">
+        Extra locations shown alongside your home on the Weather tab. Each gets a forecast card,
+        active NWS alerts, and feeds the alerts aggregator. Up to 10.
+      </p>
+
+      {value.length > 0 && (
+        <ul className="mb-2 space-y-1.5">
+          {value.map((loc) => (
+            <li key={loc.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+              <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{loc.label}</span>
+              <span className="text-[10px] text-slate-500 font-mono">{loc.lat.toFixed(2)}, {loc.lon.toFixed(2)}</span>
+              <button
+                onClick={() => onChange(value.filter((x) => x.id !== loc.id))}
+                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
+                title="Remove"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex gap-1.5">
+        <input
+          value={label} onChange={(e) => setLabel(e.target.value)}
+          placeholder="Label (e.g. Kadena AB)"
+          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <input
+          value={lat} onChange={(e) => setLat(e.target.value)}
+          placeholder="Lat"
+          className="w-16 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+        />
+        <input
+          value={lon} onChange={(e) => setLon(e.target.value)}
+          placeholder="Lon"
+          className="w-16 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+        />
+        <button
+          onClick={add}
+          disabled={!label.trim() || value.length >= 10}
+          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Markets watchlist editor (Markets tab) ──────────────────────────────────
+
+function MarketsWatchlistEditor({ value, onChange }: { value: TickerEntry[]; onChange: (v: TickerEntry[]) => void; }) {
+  const [symbol, setSymbol] = useState("");
+  const [label, setLabel] = useState("");
+  const add = () => {
+    const sym = symbol.trim().toUpperCase();
+    const lab = label.trim().slice(0, 60);
+    if (!sym || !lab) return;
+    if (!/^[A-Z0-9:_!.\-]{1,32}$/.test(sym)) return;
+    if (value.some((e) => e.symbol === sym)) return;
+    onChange([...value, { symbol: sym, label: lab }]);
+    setSymbol(""); setLabel("");
+  };
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        Markets Watchlist
+      </label>
+      <p className="text-[10px] text-slate-600 mb-3">
+        TradingView symbols shown on the Markets tab. Format: <code className="text-emerald-400">EXCHANGE:TICKER</code> (e.g.&nbsp;
+        <code className="text-emerald-400">NYSE:LMT</code>, <code className="text-emerald-400">NYMEX:CL1!</code>,
+        <code className="text-emerald-400">FX:USDJPY</code>). Up to 30.
+      </p>
+
+      {value.length > 0 && (
+        <ul className="mb-2 space-y-1.5 max-h-48 overflow-y-auto">
+          {value.map((t) => (
+            <li key={t.symbol} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+              <span className="text-[10px] font-mono text-emerald-400 flex-shrink-0">{t.symbol}</span>
+              <span className="text-xs text-slate-300 flex-1 min-w-0 truncate">{t.label}</span>
+              <button
+                onClick={() => onChange(value.filter((x) => x.symbol !== t.symbol))}
+                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex gap-1.5">
+        <input
+          value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+          placeholder="NYSE:KTOS"
+          className="w-32 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+        />
+        <input
+          value={label} onChange={(e) => setLabel(e.target.value)}
+          placeholder="Display name"
+          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <button
+          onClick={add}
+          disabled={!symbol.trim() || !label.trim() || value.length >= 30}
+          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── OSINT feeds editor ──────────────────────────────────────────────────────
+
+function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (v: OsintFeed[]) => void; }) {
+  const [label, setLabel] = useState("");
+  const [url, setUrl] = useState("");
+  const [kind, setKind] = useState<OsintFeed["kind"]>("social");
+
+  const add = () => {
+    const trimUrl = url.trim();
+    const trimLabel = label.trim().slice(0, 60);
+    if (!trimUrl || !trimLabel) return;
+    try {
+      const u = new URL(trimUrl);
+      if (u.protocol !== "https:" && u.protocol !== "http:") return;
+    } catch { return; }
+    onChange([...value, { id: `${kind}-${Date.now()}`, label: trimLabel, url: trimUrl.slice(0, 500), kind }]);
+    setLabel(""); setUrl("");
+  };
+
+  const KIND_STYLE: Record<OsintFeed["kind"], string> = {
+    social:   "bg-sky-500/15 text-sky-300 border-sky-500/40",
+    telegram: "bg-cyan-500/15 text-cyan-300 border-cyan-500/40",
+    news:     "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
+    other:    "bg-slate-700/40 text-slate-300 border-slate-600",
+  };
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        OSINT Feeds
+      </label>
+      <p className="text-[10px] text-slate-600 mb-3">
+        RSS / Atom URLs shown on the OSINT tab. Suggested: Nitter / rsshub.app bridges for X accounts (
+        <code className="text-emerald-400">https://rsshub.app/twitter/user/USERNAME</code>) and Telegram channels (
+        <code className="text-emerald-400">https://rsshub.app/telegram/channel/NAME</code>). Up to 20.
+      </p>
+
+      {value.length > 0 && (
+        <ul className="mb-2 space-y-1.5 max-h-56 overflow-y-auto">
+          {value.map((f) => (
+            <li key={f.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+              <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_STYLE[f.kind]}`}>
+                {f.kind}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-slate-200 truncate">{f.label}</p>
+                <p className="text-[9px] text-slate-600 font-mono truncate">{f.url}</p>
+              </div>
+              <button
+                onClick={() => onChange(value.filter((x) => x.id !== f.id))}
+                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="grid grid-cols-2 gap-1.5">
+        <input
+          value={label} onChange={(e) => setLabel(e.target.value)}
+          placeholder="Label (e.g. @CSIS)"
+          className="bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as OsintFeed["kind"])}
+          className="bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-500"
+        >
+          <option value="social">Social (X/Twitter)</option>
+          <option value="telegram">Telegram</option>
+          <option value="news">News</option>
+          <option value="other">Other</option>
+        </select>
+        <input
+          value={url} onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://rsshub.app/twitter/user/USERNAME"
+          className="col-span-2 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+        />
+        <button
+          onClick={add}
+          disabled={!label.trim() || !url.trim() || value.length >= 20}
+          className="col-span-2 text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
+        >
+          Add Feed
+        </button>
+      </div>
     </div>
   );
 }
@@ -390,6 +620,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [vipSenders, setVipSenders] = useState<string[]>([]);
   const [muteSenders, setMuteSenders] = useState<string[]>([]);
+  const [trackedLocations, setTrackedLocations] = useState<TrackedLocation[]>([]);
+  const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
+  const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
   const [localFeedKey, setLocalFeedKey] = useState("colorado");
   const [localLat, setLocalLat] = useState<number | null>(null);
   const [localLon, setLocalLon] = useState<number | null>(null);
@@ -413,6 +646,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setWatchlist(prefs.watchlist ?? []);
         setVipSenders(prefs.vipSenders ?? []);
         setMuteSenders(prefs.muteSenders ?? []);
+        setTrackedLocations(prefs.trackedLocations ?? []);
+        setMarketsWatchlist(prefs.marketsWatchlist ?? []);
+        setOsintFeeds(prefs.osintFeeds ?? []);
         setLocalFeedKey(prefs.localFeedKey ?? "colorado");
         setLocalLat(prefs.localLat ?? null);
         setLocalLon(prefs.localLon ?? null);
@@ -462,6 +698,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         body: JSON.stringify({
           role, priorityTopics, deprioritizeTopics, watchlist,
           vipSenders, muteSenders,
+          trackedLocations, marketsWatchlist, osintFeeds,
           localFeedKey,
           localZipcode: "", localCity: "",
           localLat, localLon,
@@ -710,6 +947,18 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             placeholder="noreply@marketing.com, mailchimp.com…"
             accent="red"
           />
+
+          <div className="border-t border-slate-800 my-5" />
+
+          <TrackedLocationsEditor value={trackedLocations} onChange={setTrackedLocations} />
+
+          <div className="border-t border-slate-800 my-5" />
+
+          <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
+
+          <div className="border-t border-slate-800 my-5" />
+
+          <OsintFeedsEditor value={osintFeeds} onChange={setOsintFeeds} />
 
           <div className="border-t border-slate-800 my-5" />
 
