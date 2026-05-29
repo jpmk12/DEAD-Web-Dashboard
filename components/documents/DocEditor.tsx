@@ -326,6 +326,20 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     catch { return ""; }
   }, [doc]);
 
+  // Word count + estimated read time. Words = whitespace-separated runs of
+  // non-space chars; close enough for narrative prose without needing a real
+  // tokenizer. 200 wpm is the standard "comfortable adult reader" rate.
+  const stats = useMemo(() => {
+    if (!doc) return { words: 0, chars: 0, minutes: 0 };
+    const text = doc.content;
+    const words = (text.match(/\S+/g) ?? []).length;
+    return {
+      words,
+      chars: text.length,
+      minutes: Math.max(1, Math.round(words / 200)),
+    };
+  }, [doc]);
+
   if (loading || !doc) {
     return (
       <div className="flex-1 flex items-center justify-center text-slate-600 text-sm font-mono">
@@ -474,6 +488,20 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
           // Key on docId so switching docs forces a clean panel — the chat
           // history is doc-scoped and shouldn't carry over.
           <DocChatPanel key={docId} docId={docId} docTitle={doc.title} onClose={() => setChatOpen(false)} />
+        )}
+      </div>
+
+      {/* Stats strip: word count + read time. Always rendered (even on an
+          empty doc) so the user has a stable footer anchor. */}
+      <div className="border-t border-slate-800 px-5 py-1.5 bg-slate-950 flex items-center justify-end gap-3 text-[10px] font-mono text-slate-600">
+        <span>{stats.words.toLocaleString()} word{stats.words === 1 ? "" : "s"}</span>
+        <span className="text-slate-800">·</span>
+        <span>{stats.chars.toLocaleString()} chars</span>
+        {stats.words > 0 && (
+          <>
+            <span className="text-slate-800">·</span>
+            <span>~{stats.minutes} min read</span>
+          </>
         )}
       </div>
 
