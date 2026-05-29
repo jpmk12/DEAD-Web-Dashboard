@@ -4,6 +4,7 @@ import { useEffect, useState, KeyboardEvent } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, AiFeature, AiUsageSummary } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
+import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
 import { applyTheme } from "@/components/ThemeApplicator";
 
 interface PreferencesDrawerProps {
@@ -353,6 +354,23 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
     closeTest("new");
   };
 
+  // One-click add from the curated suggestion list. Same URL = no-op (the
+  // suggestion's Add button is disabled in that case). Each insert uses the
+  // suggestion's label and kind as the saved values.
+  const addSuggestion = (s: OsintFeedSuggestion) => {
+    if (value.length >= 20) return;
+    if (value.some((f) => f.url === s.url)) return;
+    onChange([
+      ...value,
+      {
+        id: `${s.kind}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        label: s.label.slice(0, 60),
+        url: s.url.slice(0, 500),
+        kind: s.kind,
+      },
+    ]);
+  };
+
   const KIND_STYLE: Record<OsintFeed["kind"], string> = {
     social:   "bg-sky-500/15 text-sky-300 border-sky-500/40",
     telegram: "bg-cyan-500/15 text-cyan-300 border-cyan-500/40",
@@ -392,6 +410,78 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
           <p>
             News sites usually expose their own RSS — look for an <code>/rss</code> or <code>/feed</code> path
             on the publisher&apos;s site. Native feeds are always more reliable than scraper bridges.
+          </p>
+        </div>
+      </details>
+
+      {/* Curated suggestions — collapsed by default so the editor stays
+          compact for returning users. One click per feed; URL is pre-baked
+          to a known pattern (mostly rsshub.app Telegram bridges since
+          Telegram doesn't aggressively block scrapers). */}
+      <details className="text-[10px] mb-3 bg-slate-900/40 border border-slate-800 rounded-md px-2.5 py-1.5">
+        <summary className="cursor-pointer text-slate-400 hover:text-slate-200 select-none flex items-center gap-1.5">
+          <span className="text-emerald-400">💡</span>
+          <span className="uppercase tracking-wider font-bold">Suggested feeds</span>
+          <span className="text-slate-600 font-mono normal-case tracking-normal">
+            ({OSINT_FEED_SUGGESTIONS.reduce((n, g) => n + g.feeds.length, 0)} curated)
+          </span>
+        </summary>
+        <div className="pt-2 space-y-3 max-h-80 overflow-y-auto">
+          {OSINT_FEED_SUGGESTIONS.map((group) => (
+            <div key={group.name}>
+              <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">{group.name}</p>
+              {group.description && (
+                <p className="text-[10px] text-slate-600 mb-1.5 leading-snug">{group.description}</p>
+              )}
+              <ul className="space-y-1">
+                {group.feeds.map((s) => {
+                  const alreadyAdded = value.some((f) => f.url === s.url);
+                  const atCap = !alreadyAdded && value.length >= 20;
+                  return (
+                    <li
+                      key={s.url}
+                      className="flex items-center gap-2 bg-slate-800/40 border border-slate-800 rounded px-2 py-1"
+                    >
+                      <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border ${KIND_STYLE[s.kind]}`}>
+                        {s.kind}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-slate-200 truncate" title={s.note}>{s.label}</span>
+                          {s.bias && (
+                            <span className="text-[9px] text-amber-400 font-mono px-1 py-0 rounded bg-amber-500/10 border border-amber-500/20 truncate">
+                              {s.bias}
+                            </span>
+                          )}
+                        </div>
+                        {s.note && <p className="text-[9px] text-slate-600 leading-tight truncate" title={s.note}>{s.note}</p>}
+                      </div>
+                      <button
+                        onClick={() => addSuggestion(s)}
+                        disabled={alreadyAdded || atCap}
+                        title={
+                          alreadyAdded ? "Already in your list"
+                          : atCap ? "Feed limit reached (20)"
+                          : "Add to OSINT feeds"
+                        }
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border transition-all flex-shrink-0 ${
+                          alreadyAdded
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 cursor-default"
+                            : atCap
+                            ? "border-slate-700 text-slate-600 cursor-not-allowed"
+                            : "border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40"
+                        }`}
+                      >
+                        {alreadyAdded ? "✓ Added" : "+ Add"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+          <p className="text-[10px] text-slate-600 leading-snug border-t border-slate-800 pt-2">
+            Slugs are best-effort — if a feed returns 0 items via the Test button, search t.me/SLUG to verify it; some channels rename. Telegram bridges work far more reliably than Twitter ones.
           </p>
         </div>
       </details>
