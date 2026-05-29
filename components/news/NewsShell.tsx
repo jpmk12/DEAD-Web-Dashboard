@@ -3,7 +3,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import NewsFeed from "./NewsFeed";
 import NewsletterSection from "./NewsletterSection";
-import TwitterSection from "./TwitterSection";
 import NewsChatPanel from "./NewsChatPanel";
 import ThreadsView from "./ThreadsView";
 import ThreadHistoryPanel from "./ThreadHistoryPanel";
@@ -188,7 +187,6 @@ export default function NewsShell({
             watchlist={watchlist}
             previousSeen={previousSeenNews}
           />
-          <TwitterSection />
         </div>
 
         {/* History view */}
