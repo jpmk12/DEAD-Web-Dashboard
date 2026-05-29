@@ -1,8 +1,8 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 
 interface Aircraft {
@@ -28,57 +28,85 @@ interface AircraftMapProps {
 
 const REFRESH_MS = 15_000;
 
-// Plane-shaped DivIcon with rotation by heading. Coloured by category:
-//   notable callsign  → orange
-//   military          → red
-//   civilian          → slate
 function makePlaneIcon(heading: number, color: string, scale = 1): L.DivIcon {
   const size = 22 * scale;
-  // SVG plane (top-down) — points "up", we rotate the wrapper.
   const html = `
     <div style="transform: rotate(${heading}deg); width: ${size}px; height: ${size}px;">
       <svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${color}" stroke="#0f172a" stroke-width="0.5">
         <path d="M12 2 L13.5 9 L22 11 L22 13 L13.5 13.5 L13 18.5 L16 20 L16 21.5 L12 20.5 L8 21.5 L8 20 L11 18.5 L10.5 13.5 L2 13 L2 11 L10.5 9 Z" />
       </svg>
     </div>`;
-  return L.divIcon({
-    html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2],
-  });
+  return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 }
 
-// Lock map view to home + radius on mount. After that the user can pan/zoom
-// freely; we don't re-centre on refresh so positioning stays sticky.
-function FitToBounds({ lat, lon, radiusKm }: { lat: number; lon: number; radiusKm: number }) {
+// One-shot fitBounds when the search params change (initial mount + after the
+// user clicks "Search this area"). Doesn't fire on every render.
+function FitToSearch({ lat, lon, radiusKm, key: kkey }: { lat: number; lon: number; radiusKm: number; key: string }) {
   const map = useMap();
   useEffect(() => {
-    // Approximate bbox for the requested radius — same math as the server.
     const latDelta = radiusKm / 111;
-    const lonDelta = radiusKm / (111 * Math.cos(lat * Math.PI / 180) || 1);
+    const lonDelta = radiusKm / (111 * Math.cos((lat * Math.PI) / 180) || 1);
     map.fitBounds([[lat - latDelta, lon - lonDelta], [lat + latDelta, lon + lonDelta]], { padding: [20, 20] });
-    // Only on mount; subsequent prop changes intentionally don't re-fit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [kkey]);
+  return null;
+}
+
+// Listens to pan/zoom and reports the current map center + radius back so
+// the parent can show a "Search this area" button when the view has drifted
+// far enough from the active search bounds to warrant a re-query.
+function ViewportTracker({ onChange }: { onChange: (center: L.LatLng, radiusKm: number) => void }) {
+  const map = useMapEvents({
+    moveend: () => emit(),
+    zoomend: () => emit(),
+  });
+  function emit() {
+    const center = map.getCenter();
+    const ne = map.getBounds().getNorthEast();
+    onChange(center, center.distanceTo(ne) / 1000);
+  }
   return null;
 }
 
 export default function AircraftMap({ homeLat, homeLon, radiusKm = 250, notableCallsigns = [] }: AircraftMapProps) {
+  // Search bounds = what the API is actually fetching for. View bounds = what
+  // the user is currently looking at. The "Search this area" button bridges
+  // the two when they drift apart.
+  const [search, setSearch] = useState({ lat: homeLat, lon: homeLon, radiusKm });
+  const [viewCenter, setViewCenter] = useState<L.LatLng | null>(null);
+  const [viewRadius, setViewRadius] = useState<number>(radiusKm);
+
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
   const [milOnly, setMilOnly] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
 
-  const notableSet = useMemo(() => {
-    return new Set(notableCallsigns.map((c) => c.trim().toUpperCase()).filter((c) => c.length >= 3));
-  }, [notableCallsigns]);
+  const fitKeyRef = useRef(0);
+  fitKeyRef.current = 0; // re-derive below
 
-  // Poll the proxy every REFRESH_MS. Server-side cache means polls during a
-  // hot 60-second window cost nothing — we just get the cached state.
+  // Re-snap the view to the new search bounds when a search changes — i.e.
+  // when the user clicks "Search this area" or props change. Stable key
+  // lets FitToSearch detect "real" changes.
+  const fitKey = `${search.lat.toFixed(3)}:${search.lon.toFixed(3)}:${search.radiusKm.toFixed(0)}`;
+
+  const notableSet = useMemo(
+    () => new Set(notableCallsigns.map((c) => c.trim().toUpperCase()).filter((c) => c.length >= 3)),
+    [notableCallsigns],
+  );
+
+  // Reset search when home/radius props change (e.g. user updated their AOR
+  // in Preferences).
+  useEffect(() => {
+    setSearch({ lat: homeLat, lon: homeLon, radiusKm });
+  }, [homeLat, homeLon, radiusKm]);
+
+  // Poll the proxy whenever the active search changes.
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/osint/aircraft?lat=${homeLat}&lon=${homeLon}&radius=${radiusKm}`);
+        const res = await fetch(`/api/osint/aircraft?lat=${search.lat}&lon=${search.lon}&radius=${search.radiusKm}`);
         const data = await res.json();
         if (cancelled) return;
         if (!res.ok) {
@@ -97,13 +125,12 @@ export default function AircraftMap({ homeLat, homeLon, radiusKm = 250, notableC
     tick();
     const id = setInterval(tick, REFRESH_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, [homeLat, homeLon, radiusKm]);
+  }, [search.lat, search.lon, search.radiusKm]);
 
   const isNotable = (callsign: string) => callsign && notableSet.has(callsign.toUpperCase());
 
   const shown = useMemo(() => {
     return aircraft.filter((a) => {
-      // Notable callsigns always show through the mil filter.
       if (isNotable(a.callsign)) return true;
       if (milOnly && !a.isMilitary) return false;
       return true;
@@ -111,6 +138,29 @@ export default function AircraftMap({ homeLat, homeLon, radiusKm = 250, notableC
   }, [aircraft, milOnly, notableSet]);
 
   const notableCount = aircraft.filter((a) => isNotable(a.callsign)).length;
+
+  // Search-here drift detection: show the button if the user has moved the
+  // view center >25% of the current radius away from the search center, OR
+  // the visible radius differs by >50%. Both thresholds are loose so a
+  // pixel-perfect pan doesn't trigger a refetch.
+  const drift = useMemo(() => {
+    if (!viewCenter) return null;
+    const dKm = L.latLng(search.lat, search.lon).distanceTo(viewCenter) / 1000;
+    const centerDrift = dKm / search.radiusKm;
+    const radiusDrift = Math.abs(viewRadius - search.radiusKm) / search.radiusKm;
+    return { centerDrift, radiusDrift };
+  }, [viewCenter, viewRadius, search]);
+  const showSearchHere = drift && (drift.centerDrift > 0.25 || drift.radiusDrift > 0.5);
+
+  const searchHere = () => {
+    if (!viewCenter) return;
+    setSearch({
+      lat: viewCenter.lat,
+      lon: viewCenter.lng,
+      radiusKm: Math.max(20, Math.min(500, viewRadius)),
+    });
+    setLoading(true);
+  };
 
   return (
     <div className="space-y-2">
@@ -136,6 +186,9 @@ export default function AircraftMap({ homeLat, homeLon, radiusKm = 250, notableC
             · ⚑ {notableCount} notable
           </span>
         )}
+        <span className="text-slate-700 font-mono">
+          · {search.radiusKm.toFixed(0)}km radius
+        </span>
         {error && <span className="text-red-400 ml-2">⚠ {error}</span>}
         <span className="flex-1" />
         {fetchedAt && (
@@ -145,23 +198,30 @@ export default function AircraftMap({ homeLat, homeLon, radiusKm = 250, notableC
         )}
       </div>
 
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
+      {/* Wrapper isolates Leaflet's z-index hierarchy from the rest of the
+          page. Without `isolation: isolate`, popups (z-index 700 by default)
+          punch through over the tab nav and any modal/drawer that uses a
+          lower z-index. */}
+      <div
+        className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden relative"
+        style={{ height: 600, isolation: "isolate", zIndex: 0 }}
+      >
         <MapContainer
-          center={[homeLat, homeLon]}
+          center={[search.lat, search.lon]}
           zoom={8}
           style={{ height: "100%", width: "100%", background: "#020617" }}
           scrollWheelZoom
         >
-          {/* Dark CartoDB tiles match the dashboard's slate aesthetic. */}
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             attribution='&copy; OpenStreetMap &copy; CARTO'
             maxZoom={19}
           />
-          <FitToBounds lat={homeLat} lon={homeLon} radiusKm={radiusKm} />
+          <FitToSearch lat={search.lat} lon={search.lon} radiusKm={search.radiusKm} key={fitKey} />
+          <ViewportTracker onChange={(c, r) => { setViewCenter(c); setViewRadius(r); }} />
           <Circle
-            center={[homeLat, homeLon]}
-            radius={radiusKm * 1000}
+            center={[search.lat, search.lon]}
+            radius={search.radiusKm * 1000}
             pathOptions={{ color: "#10b981", weight: 1, opacity: 0.4, fillOpacity: 0.02 }}
           />
           {shown.map((a) => {
@@ -201,13 +261,37 @@ export default function AircraftMap({ homeLat, homeLon, radiusKm = 250, notableC
             );
           })}
         </MapContainer>
+
+        {/* "Search this area" button — appears when the user has panned/zoomed
+            far enough that the current view no longer matches the active
+            search bounds. Click to re-query at the new center + radius. */}
+        {showSearchHere && (
+          <button
+            type="button"
+            onClick={searchHere}
+            className="absolute top-3 left-1/2 -translate-x-1/2 z-[400] bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md shadow-lg transition-all"
+            title="Re-query OpenSky at the current map view"
+          >
+            🔍 Search this area
+          </button>
+        )}
+
+        {/* Reset-to-home affordance, always available so the user can snap
+            back if they've wandered. */}
+        <button
+          type="button"
+          onClick={() => setSearch({ lat: homeLat, lon: homeLon, radiusKm })}
+          className="absolute bottom-3 left-3 z-[400] bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md transition-all"
+          title="Reset to home location"
+        >
+          ⌂ Home
+        </button>
       </div>
 
       <p className="text-[10px] text-slate-700 leading-relaxed">
         Live aircraft via OpenSky Network (anonymous tier, 60s server cache).
-        Mil filter uses US Mil ICAO prefixes (AE/AF) + common military
-        callsign patterns. Orange ⚑ markers are callsigns on your watch list
-        (configure below). Plane heading is rotated to the live track angle.
+        Pan / zoom freely, then click <span className="text-emerald-400">🔍 Search this area</span> to re-query at the new center.
+        Orange ⚑ markers are callsigns on your watch list. Heading rotated to the live track angle.
       </p>
     </div>
   );

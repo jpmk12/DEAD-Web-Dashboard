@@ -2,7 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 
 interface Ship {
@@ -26,9 +26,6 @@ interface MaritimeMapProps {
 
 const REFRESH_MS = 15_000;
 
-// Triangle-shaped boat icon, rotated by COG (course over ground). Heading
-// would be more accurate where available, but COG is reported on every
-// PositionReport while heading is null for many vessels.
 function makeShipIcon(rotation: number, color: string, scale = 1): L.DivIcon {
   const size = 14 * scale;
   const html = `
@@ -40,8 +37,6 @@ function makeShipIcon(rotation: number, color: string, scale = 1): L.DivIcon {
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 }
 
-// Coarse ship-type bucketing per ITU AIS Type codes. Used to colour markers
-// and explain the marker on hover.
 function shipTypeLabel(type: number): { label: string; color: string } {
   if (type === 0)                       return { label: "Unknown",   color: "#94a3b8" };
   if (type >= 30 && type <= 39)         return { label: "Fishing",   color: "#22d3ee" };
@@ -53,18 +48,35 @@ function shipTypeLabel(type: number): { label: string; color: string } {
   return { label: `Type ${type}`,       color: "#94a3b8" };
 }
 
-function FitToBounds({ lat, lon, radiusKm }: { lat: number; lon: number; radiusKm: number }) {
+function FitToSearch({ lat, lon, radiusKm, key: kkey }: { lat: number; lon: number; radiusKm: number; key: string }) {
   const map = useMap();
   useEffect(() => {
     const latDelta = radiusKm / 111;
     const lonDelta = radiusKm / (111 * Math.cos((lat * Math.PI) / 180) || 1);
     map.fitBounds([[lat - latDelta, lon - lonDelta], [lat + latDelta, lon + lonDelta]], { padding: [20, 20] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [kkey]);
+  return null;
+}
+
+function ViewportTracker({ onChange }: { onChange: (center: L.LatLng, radiusKm: number) => void }) {
+  const map = useMapEvents({
+    moveend: () => emit(),
+    zoomend: () => emit(),
+  });
+  function emit() {
+    const center = map.getCenter();
+    const ne = map.getBounds().getNorthEast();
+    onChange(center, center.distanceTo(ne) / 1000);
+  }
   return null;
 }
 
 export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableNames = [] }: MaritimeMapProps) {
+  const [search, setSearch] = useState({ lat: homeLat, lon: homeLon, radiusKm });
+  const [viewCenter, setViewCenter] = useState<L.LatLng | null>(null);
+  const [viewRadius, setViewRadius] = useState<number>(radiusKm);
+
   const [ships, setShips] = useState<Ship[]>([]);
   const [loading, setLoading] = useState(true);
   const [configured, setConfigured] = useState(false);
@@ -72,16 +84,22 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
 
+  const fitKey = `${search.lat.toFixed(3)}:${search.lon.toFixed(3)}:${search.radiusKm.toFixed(0)}`;
+
   const notableSet = useMemo(
     () => new Set(notableNames.map((n) => n.trim().toUpperCase()).filter((n) => n.length >= 3)),
     [notableNames],
   );
 
   useEffect(() => {
+    setSearch({ lat: homeLat, lon: homeLon, radiusKm });
+  }, [homeLat, homeLon, radiusKm]);
+
+  useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/osint/ships?lat=${homeLat}&lon=${homeLon}&radius=${radiusKm}`);
+        const res = await fetch(`/api/osint/ships?lat=${search.lat}&lon=${search.lon}&radius=${search.radiusKm}`);
         const data = await res.json();
         if (cancelled) return;
         setConfigured(!!data.configured);
@@ -97,44 +115,66 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
     tick();
     const id = setInterval(tick, REFRESH_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, [homeLat, homeLon, radiusKm]);
+  }, [search.lat, search.lon, search.radiusKm]);
 
   const isNotable = (name: string) => name && notableSet.has(name.toUpperCase());
+
+  const drift = useMemo(() => {
+    if (!viewCenter) return null;
+    const dKm = L.latLng(search.lat, search.lon).distanceTo(viewCenter) / 1000;
+    return {
+      centerDrift: dKm / search.radiusKm,
+      radiusDrift: Math.abs(viewRadius - search.radiusKm) / search.radiusKm,
+    };
+  }, [viewCenter, viewRadius, search]);
+  const showSearchHere = drift && (drift.centerDrift > 0.25 || drift.radiusDrift > 0.5);
+
+  const searchHere = () => {
+    if (!viewCenter) return;
+    setSearch({
+      lat: viewCenter.lat,
+      lon: viewCenter.lng,
+      radiusKm: Math.max(20, Math.min(500, viewRadius)),
+    });
+    setLoading(true);
+  };
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap text-[10px]">
         <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">AISStream</span>
-        {!configured ? (
-          <span className="text-amber-400 font-mono">
-            Live AIS not configured — set AISSTREAM_API_KEY env var (free signup at aisstream.io)
+        {configured && (
+          <span className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border ${
+            connected
+              ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+              : "bg-amber-500/15 text-amber-400 border-amber-500/40"
+          }`}>
+            {connected ? "Connected" : "Connecting…"}
           </span>
-        ) : (
-          <>
-            <span className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border ${
-              connected
-                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                : "bg-amber-500/15 text-amber-400 border-amber-500/40"
-            }`}>
-              {connected ? "Connected" : "Connecting…"}
-            </span>
-            <span className="text-slate-700 font-mono">
-              {loading ? "…" : `${ships.length} ships in range`}
-            </span>
-            {error && <span className="text-red-400 ml-2">⚠ {error}</span>}
-          </>
         )}
+        {configured && (
+          <span className="text-slate-700 font-mono">
+            {loading ? "…" : `${ships.length} ships in range`}
+          </span>
+        )}
+        <span className="text-slate-700 font-mono">
+          · {search.radiusKm.toFixed(0)}km radius
+        </span>
+        {error && configured && <span className="text-red-400 ml-2">⚠ {error}</span>}
         <span className="flex-1" />
-        {fetchedAt && (
+        {fetchedAt && configured && (
           <span className="text-slate-700 font-mono">
             updated {Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000))}s ago
           </span>
         )}
       </div>
 
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
+      <div
+        className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden relative"
+        style={{ height: 600, isolation: "isolate", zIndex: 0 }}
+      >
         <MapContainer
-          center={[homeLat, homeLon]}
+          center={[search.lat, search.lon]}
           zoom={7}
           style={{ height: "100%", width: "100%", background: "#020617" }}
           scrollWheelZoom
@@ -144,17 +184,16 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
             attribution='&copy; OpenStreetMap &copy; CARTO'
             maxZoom={19}
           />
-          {/* OpenSeaMap seamarks overlay — chart symbols (buoys, beacons,
-              shipping lanes). Renders on top of CARTO base. */}
           <TileLayer
             url="https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png"
             attribution='&copy; OpenSeaMap'
             opacity={0.85}
           />
-          <FitToBounds lat={homeLat} lon={homeLon} radiusKm={radiusKm} />
+          <FitToSearch lat={search.lat} lon={search.lon} radiusKm={search.radiusKm} key={fitKey} />
+          <ViewportTracker onChange={(c, r) => { setViewCenter(c); setViewRadius(r); }} />
           <Circle
-            center={[homeLat, homeLon]}
-            radius={radiusKm * 1000}
+            center={[search.lat, search.lon]}
+            radius={search.radiusKm * 1000}
             pathOptions={{ color: "#10b981", weight: 1, opacity: 0.4, fillOpacity: 0.02 }}
           />
           {ships.map((s) => {
@@ -162,7 +201,6 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
             const typeInfo = shipTypeLabel(s.shipType);
             const color = notable ? "#fb923c" : typeInfo.color;
             const scale = notable ? 1.5 : 1;
-            // Prefer true heading over COG when present.
             const rotation = s.heading ?? s.cog ?? 0;
             return (
               <Marker
@@ -189,13 +227,61 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
             );
           })}
         </MapContainer>
+
+        {/* "Search this area" — re-quires AISStream to re-subscribe to the
+            new bbox. Server-side handles re-subscription without dropping
+            the WebSocket connection. */}
+        {showSearchHere && configured && (
+          <button
+            type="button"
+            onClick={searchHere}
+            className="absolute top-3 left-1/2 -translate-x-1/2 z-[400] bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md shadow-lg transition-all"
+            title="Re-subscribe to AISStream at the current map view"
+          >
+            🔍 Search this area
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setSearch({ lat: homeLat, lon: homeLon, radiusKm })}
+          className="absolute bottom-3 left-3 z-[400] bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md transition-all"
+          title="Reset to home location"
+        >
+          ⌂ Home
+        </button>
+
+        {/* Big, unmissable banner when no API key is configured. Sits on top
+            of the map (above all Leaflet z-indexes within the isolated
+            stacking context) so the user can't miss the action item. */}
+        {!configured && !loading && (
+          <div className="absolute inset-x-3 top-3 z-[500] bg-slate-900/95 border border-amber-500/40 rounded-lg p-3 shadow-lg">
+            <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wider mb-1">
+              ⚠ Live AIS not configured
+            </p>
+            <p className="text-[11px] text-slate-300 leading-snug">
+              Live ship tracking needs an AISStream API key. Sign up free at{" "}
+              <a
+                href="https://aisstream.io"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 underline hover:text-emerald-300"
+              >
+                aisstream.io
+              </a>
+              , then set <code className="text-emerald-400">AISSTREAM_API_KEY</code> in the platform's environment variables and restart the app.
+            </p>
+            <p className="text-[10px] text-slate-500 mt-1.5 leading-snug">
+              Until then the base nautical chart shows but vessel markers stay empty. The Iframe provider source above still works for live AIS via VesselFinder / MarineTraffic.
+            </p>
+          </div>
+        )}
       </div>
 
       <p className="text-[10px] text-slate-700 leading-relaxed">
-        Live AIS via AISStream (server-side WebSocket; 200km radius around your home).
-        Base: dark CartoDB tiles + OpenSeaMap seamarks overlay. Markers coloured by
-        ship type — orange ⚑ are vessels whose name matches your watch list.
-        {!configured && " Free signup at aisstream.io issues an API key; set as AISSTREAM_API_KEY in the platform env to enable."}
+        Live AIS via AISStream (server-side WebSocket). Pan / zoom freely, then
+        click <span className="text-emerald-400">🔍 Search this area</span> to re-subscribe.
+        Base: CartoDB dark + OpenSeaMap seamarks. Orange ⚑ markers match your watch list.
       </p>
     </div>
   );

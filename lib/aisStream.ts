@@ -1,17 +1,18 @@
 // AISStream client. Holds a long-lived server-side WebSocket connection to
-// aisstream.io (Node 22+ global WebSocket) and a module-scoped vessel state
-// map. The /api/osint/ships endpoint reads from the map; the connection is
-// initialized lazily on first call and re-subscribed when the bounding box
-// changes.
+// aisstream.io and a module-scoped vessel state map. The /api/osint/ships
+// endpoint reads from the map; the connection is initialized lazily on first
+// call and re-subscribed when the bounding box changes.
 //
 // Activation: only fires if AISSTREAM_API_KEY is present in the environment.
-// Without the key, getStatus() returns { configured: false } and the client
-// falls back to the iframe providers.
+// Without the key, ensureAisConnection() returns { configured: false } and the
+// client falls back to the iframe providers.
 //
-// State liveness: vessels older than VESSEL_TTL_MS are filtered out by
-// getVesselsSnapshot — typical AIS PositionReports arrive every 2-10 seconds
-// for in-range ships, so 5 minutes is plenty for catching stale entries
-// without losing recently-moored ones.
+// WebSocket impl: Node 22+ has a global WebSocket, but older runtimes do not.
+// We import the `ws` package and prefer it — its API is compatible enough
+// with the global one (supports addEventListener) and works on every Node
+// version the deployment platform might run.
+
+import WS from "ws";
 
 export interface Vessel {
   mmsi: number;
@@ -28,8 +29,12 @@ export interface Vessel {
 const VESSEL_TTL_MS = 5 * 60_000;
 const RECONNECT_BACKOFF_MS = 10_000;
 
+// WS as the connection type — works on every Node version. Methods we use
+// (send, close, addEventListener) all match the global WebSocket API.
+type WsLike = WS;
+
 const vessels = new Map<number, Vessel>();
-let ws: WebSocket | null = null;
+let ws: WsLike | null = null;
 let connecting = false;
 let lastBbox: string | null = null;
 let lastError: string | null = null;
@@ -42,7 +47,7 @@ function bboxFor(lat: number, lon: number, km: number): [number, number, number,
 }
 
 function subscribe(apiKey: string, bbox: [number, number, number, number]) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!ws || ws.readyState !== WS.OPEN) return;
   ws.send(
     JSON.stringify({
       APIKey: apiKey,
@@ -113,12 +118,12 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
   const bboxKey = bbox.map((n) => n.toFixed(2)).join(",");
 
   // Already connected to the right bbox.
-  if (ws && ws.readyState === WebSocket.OPEN && lastBbox === bboxKey) {
+  if (ws && ws.readyState === WS.OPEN && lastBbox === bboxKey) {
     return { configured: true, connected: true };
   }
 
   // Need to (re)subscribe: bbox changed but connection is still open.
-  if (ws && ws.readyState === WebSocket.OPEN && lastBbox !== bboxKey) {
+  if (ws && ws.readyState === WS.OPEN && lastBbox !== bboxKey) {
     subscribe(apiKey, bbox);
     lastBbox = bboxKey;
     // Clear cached vessels outside the new bbox on the next snapshot read —
@@ -138,19 +143,14 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
   lastError = null;
 
   try {
-    if (typeof WebSocket === "undefined") {
-      connecting = false;
-      lastError = "Node WebSocket unavailable (requires Node 22+)";
-      return { configured: true, connected: false, error: lastError };
-    }
-    ws = new WebSocket("wss://stream.aisstream.io/v0/stream");
+    ws = new WS("wss://stream.aisstream.io/v0/stream");
     ws.addEventListener("open", () => {
       lastBbox = bboxKey;
       subscribe(apiKey, bbox);
       connecting = false;
     });
-    ws.addEventListener("message", (ev: MessageEvent) => {
-      const data = typeof ev.data === "string" ? ev.data : "";
+    ws.addEventListener("message", (ev) => {
+      const data = typeof ev.data === "string" ? ev.data : (ev.data as Buffer).toString();
       if (data) handleMessage(data);
     });
     ws.addEventListener("close", () => {
@@ -158,8 +158,10 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
       lastBbox = null;
       connecting = false;
     });
-    ws.addEventListener("error", () => {
-      lastError = "WebSocket error";
+    ws.addEventListener("error", (ev) => {
+      const msg = (ev as { message?: string }).message ?? "WebSocket error";
+      lastError = msg;
+      console.error("[aisStream] WS error:", msg);
       connecting = false;
       try { ws?.close(); } catch { /* noop */ }
       ws = null;
@@ -167,6 +169,7 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
   } catch (e) {
     connecting = false;
     lastError = e instanceof Error ? e.message : "Unknown error";
+    console.error("[aisStream] connection setup failed:", lastError);
     return { configured: true, connected: false, error: lastError };
   }
 
