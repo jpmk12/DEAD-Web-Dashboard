@@ -47,20 +47,21 @@ export default function TabShell() {
   }, []);
 
   // Bump the server-side lastSeen after the user dwells on a tab for >5 s.
+  // The news tab no longer co-bumps "newsletters" — NewsletterSection bumps
+  // its own surface on the first expand of the session, so an unexpanded
+  // newsletter section doesn't get falsely marked as seen.
   useEffect(() => {
-    const surfaces: ("email" | "news" | "newsletters")[] =
-      activeTab === "email" ? ["email"]
-      : activeTab === "news" ? ["news", "newsletters"]
-      : [];
-    if (surfaces.length === 0) return;
+    const surface: "email" | "news" | null =
+      activeTab === "email" ? "email"
+      : activeTab === "news" ? "news"
+      : null;
+    if (!surface) return;
     const t = setTimeout(() => {
-      for (const surface of surfaces) {
-        fetch("/api/surface-state", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ surface }),
-        }).catch(() => {});
-      }
+      fetch("/api/surface-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ surface }),
+      }).catch(() => {});
     }, 5_000);
     return () => clearTimeout(t);
   }, [activeTab]);

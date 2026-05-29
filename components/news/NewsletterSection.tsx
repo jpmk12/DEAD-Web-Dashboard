@@ -129,12 +129,26 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, refreshKey]);
 
+  // Track per-session whether we've bumped the "newsletters" surface yet.
+  // Bumping on first expand is the right signal for "I actually read
+  // newsletters this visit"; bumping on tab-activation would dim future
+  // visits' content even if the user never opened a single newsletter.
+  const surfaceBumped = useRef(false);
+
   const toggle = useCallback((n: NewsletterSummary) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(n.id)) { next.delete(n.id); } else {
         next.add(n.id);
         sendFeedback({ subject: n.subject, action: "opened" });
+        if (!surfaceBumped.current) {
+          surfaceBumped.current = true;
+          fetch("/api/surface-state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ surface: "newsletters" }),
+          }).catch(() => {});
+        }
       }
       return next;
     });

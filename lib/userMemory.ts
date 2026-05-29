@@ -5,15 +5,25 @@ import { ChatMessage } from "./types";
 
 const MAX_MEMORY_CHARS = 12_000; // ~3k tokens; safety cap before storage
 
-// Throttle memory consolidation. Updates fire after each chat turn that has
-// an assistant reply, but at most once per MIN_UPDATE_GAP_MS. Bursty
-// back-and-forth in a single sitting collapses to a single update at the end
-// of the burst (next turn after the gap elapses).
+// Memory consolidation runs at most once per MIN_UPDATE_GAP_MS. Earlier
+// versions threw the in-window exchange away — the throttle hid the very
+// disclosure it was meant to capture if it landed mid-window and was never
+// repeated. Now we instead persist a pending-exchanges queue: every chat
+// turn appends, and whichever turn first crosses the gap consolidates the
+// entire queue and clears it. No content lost.
 const MIN_UPDATE_GAP_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_PENDING_EXCHANGES = 20;        // safety cap on the queue size
 
 interface MemoryRow extends RowDataPacket {
   content: string;
   last_updated: Date;
+  pending_exchanges: PendingExchange[] | null;
+}
+
+interface PendingExchange {
+  messages: ChatMessage[];
+  reply: string;
+  at: number; // ms epoch
 }
 
 export interface UserMemory {
@@ -33,6 +43,29 @@ export async function getMemory(): Promise<UserMemory> {
     content: rows[0].content ?? "",
     lastUpdated: rows[0].last_updated.toISOString(),
   };
+}
+
+async function getPendingExchanges(): Promise<PendingExchange[]> {
+  const pool = await getDb();
+  const [rows] = await pool.query<MemoryRow[]>(
+    "SELECT pending_exchanges FROM user_memory WHERE id = 1"
+  );
+  if (rows.length === 0) return [];
+  const raw = rows[0].pending_exchanges;
+  return Array.isArray(raw) ? raw : [];
+}
+
+async function savePendingExchanges(pending: PendingExchange[]): Promise<void> {
+  const pool = await getDb();
+  // Cap the queue so a long stretch without consolidation doesn't grow
+  // unbounded; drop the oldest entries first.
+  const capped = pending.slice(-MAX_PENDING_EXCHANGES);
+  await pool.execute(
+    `INSERT INTO user_memory (id, content, last_updated, pending_exchanges)
+     VALUES (1, '', ?, CAST(? AS JSON))
+     ON DUPLICATE KEY UPDATE pending_exchanges = VALUES(pending_exchanges)`,
+    [new Date(), JSON.stringify(capped)]
+  );
 }
 
 export async function saveMemory(content: string): Promise<void> {
@@ -64,8 +97,8 @@ export function buildMemoryContext(memory: UserMemory): string {
   );
 }
 
-// Background memory consolidation. Given the existing memory + the most
-// recent chat exchange, ask Haiku to produce an UPDATED memory document.
+// Background memory consolidation. Given the existing memory + the queued
+// chat exchanges, ask Haiku to produce an UPDATED memory document.
 // Fire-and-forget at the call site.
 export async function updateMemoryFromChat(
   recentMessages: ChatMessage[],
@@ -76,20 +109,31 @@ export async function updateMemoryFromChat(
   if (userTurns.length === 0) return;
 
   const current = await getMemory();
+  const pending = await getPendingExchanges();
 
-  // Throttle: skip if we updated recently. The information isn't lost — the
-  // next turn after the gap will pick it up via the conversation context.
+  // Always append this turn to the queue first — that way a fact disclosed
+  // mid-window survives until consolidation fires, even if the user goes
+  // quiet right after.
+  pending.push({ messages: recentMessages, reply: assistantReply, at: Date.now() });
+
+  // Within the gap window? Persist the queue and bail.
   const lastUpdatedMs = new Date(current.lastUpdated).getTime();
   if (Number.isFinite(lastUpdatedMs) && Date.now() - lastUpdatedMs < MIN_UPDATE_GAP_MS) {
+    await savePendingExchanges(pending);
     return;
   }
 
-  // Keep the prompt input small: last 6 turns max + the reply.
-  const recent = recentMessages.slice(-6);
-  const exchange = recent
-    .map((m) => `${m.role.toUpperCase()}: ${m.content.slice(0, 800)}`)
-    .join("\n")
-    + `\nASSISTANT: ${assistantReply.slice(0, 1500)}`;
+  // Gap elapsed → consolidate every queued exchange in one Claude call.
+  // Format: oldest-first so Claude sees the natural conversation order.
+  const exchange = pending
+    .map((p) => {
+      const turns = p.messages
+        .slice(-6) // keep prompt cost bounded per exchange
+        .map((m) => `${m.role.toUpperCase()}: ${m.content.slice(0, 800)}`)
+        .join("\n");
+      return `${turns}\nASSISTANT: ${p.reply.slice(0, 1500)}`;
+    })
+    .join("\n---\n");
 
   const system = `You are a memory archivist for a personal AI assistant. You will be given the user's CURRENT MEMORY (a markdown document) and a RECENT CHAT EXCHANGE. Return the UPDATED MEMORY.
 
@@ -120,6 +164,11 @@ ${exchange}`;
 
   const text =
     response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+
+  // Always clear the pending queue once we've attempted consolidation — even
+  // an empty / unchanged response means the queued exchanges were considered.
+  await savePendingExchanges([]);
+
   if (!text) return;
   // Don't overwrite with an obvious no-op (same length & prefix → likely unchanged).
   if (text === current.content.trim()) return;

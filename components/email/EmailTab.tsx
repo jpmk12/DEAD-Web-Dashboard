@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
-import { EmailMessage, EmailPriority, ActionItem, VipSuggestion, UserPrefs } from "@/lib/types";
+import { EmailMessage, EmailPriority, ActionItem, VipSuggestion } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import EmailCard from "./EmailCard";
 import AddAccountButton from "./AddAccountButton";
@@ -68,18 +68,8 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
       setLastUpdated(new Date());
       clientCache.set(CACHE_KEY, emailList, CACHE_TTL.EMAIL);
 
-      if (emailList.length > 0) {
-        setActionsLoading(true);
-        fetch("/api/gmail/actions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ emails: emailList }),
-        })
-          .then((r) => r.json())
-          .then((d) => setActions(d.actions ?? []))
-          .catch(() => {})
-          .finally(() => setActionsLoading(false));
-      }
+      // Actions extraction is in its own effect below, gated on the email-id
+      // set actually changing. Don't re-fire on every fetchEmails() call.
     } catch {
       setError("Failed to load emails. Please try again.");
     } finally {
@@ -109,28 +99,45 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
     }
   }, [status]);
 
-  // Mutate a single field of user_prefs (vipSenders / dismissedVipSuggestions).
-  // We GET, modify, POST — small risk of clobber under concurrent edits but
-  // acceptable for a single-user dashboard.
+  // Stable hash of the unread email-id set. Lets us re-fire the action-item
+  // extraction only when the set genuinely changes — tab switches and
+  // re-renders no longer pay for a redundant Claude call.
+  const emailIdsKey = useMemo(
+    () => emails.map((e) => e.id).sort().join("|"),
+    [emails]
+  );
+  const lastActionsKey = useRef<string>("");
+
+  useEffect(() => {
+    if (emails.length === 0) return;
+    if (emailIdsKey === lastActionsKey.current) return;
+    lastActionsKey.current = emailIdsKey;
+    setActionsLoading(true);
+    fetch("/api/gmail/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emails }),
+    })
+      .then((r) => r.json())
+      .then((d) => setActions(d.actions ?? []))
+      .catch(() => {})
+      .finally(() => setActionsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailIdsKey]);
+
+  // Atomic single-field append via the dedicated endpoint — avoids the
+  // GET → mutate → POST clobber risk with concurrent prefs edits.
   const updatePrefsField = async (
     field: "vipSenders" | "dismissedVipSuggestions",
     add: string
   ) => {
     try {
-      const res = await fetch("/api/user-prefs");
-      const data: { prefs?: UserPrefs } = await res.json();
-      const prefs = data.prefs;
-      if (!prefs) return false;
-      const next: UserPrefs = {
-        ...prefs,
-        [field]: Array.from(new Set([...(prefs[field] ?? []), add])),
-      };
-      const post = await fetch("/api/user-prefs", {
+      const res = await fetch("/api/user-prefs/append", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
+        body: JSON.stringify({ field, value: add }),
       });
-      return post.ok;
+      return res.ok;
     } catch {
       return false;
     }
