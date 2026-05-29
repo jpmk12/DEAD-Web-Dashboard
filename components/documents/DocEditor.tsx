@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, KeyboardEvent } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import MarkdownPreview from "./MarkdownPreview";
 import DocChatPanel from "./DocChatPanel";
+import DocToolbar from "./DocToolbar";
 
 interface DocFull {
   id: string;
@@ -180,6 +181,51 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     // Select the "url" placeholder so the user can immediately paste/type.
     const urlStart = start + 1 + sel.length + 2;
     moveCursorTo(urlStart, urlStart + 3);
+  };
+
+  // Toggle a line-prefix marker (e.g. "# ", "- ", "> "). If the cursor's
+  // current line already starts with `prefix`, strip it. If it starts with
+  // one of `alternatives`, swap it out for `prefix`. Otherwise insert.
+  // Used by the toolbar so clicking H1 twice doesn't stack `# # heading`.
+  const toggleLinePrefix = (prefix: string, alternatives: string[] = []) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart;
+    const before = ta.value.substring(0, pos);
+    const lineStart = before.lastIndexOf("\n") + 1;
+    const lineEndRel = ta.value.substring(lineStart).indexOf("\n");
+    const lineEnd = lineEndRel === -1 ? ta.value.length : lineStart + lineEndRel;
+    const lineText = ta.value.substring(lineStart, lineEnd);
+
+    let newLine: string;
+    let cursorDelta: number;
+    if (lineText.startsWith(prefix)) {
+      newLine = lineText.slice(prefix.length);
+      cursorDelta = -prefix.length;
+    } else {
+      const altMatch = alternatives.find((a) => lineText.startsWith(a));
+      if (altMatch) {
+        newLine = prefix + lineText.slice(altMatch.length);
+        cursorDelta = prefix.length - altMatch.length;
+      } else {
+        newLine = prefix + lineText;
+        cursorDelta = prefix.length;
+      }
+    }
+    const newValue = ta.value.substring(0, lineStart) + newLine + ta.value.substring(lineEnd);
+    updateContent(newValue);
+    moveCursorTo(pos + cursorDelta);
+  };
+
+  // Drop literal text at the current cursor. `cursorOffset` lets callers
+  // land the caret inside the insertion (e.g. between code-fence lines).
+  const insertAtCursor = (text: string, cursorOffset?: number) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart;
+    const newValue = ta.value.substring(0, pos) + text + ta.value.substring(pos);
+    updateContent(newValue);
+    moveCursorTo(pos + (cursorOffset ?? text.length));
   };
 
   const applySlashCommand = (cmd: SlashCommand) => {
@@ -437,8 +483,30 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
         chatOpen              ? "grid-cols-[1fr_minmax(320px,420px)]" :
                                 "grid-cols-1"
       }`}>
-        {/* Editor pane is relative so the slash-command popover anchors here. */}
-        <div className="relative h-full min-h-0">
+        {/* Editor pane is relative so the slash-command popover anchors here.
+            DocToolbar sits at the top of the column; the textarea fills the
+            remaining height via flex. */}
+        <div className="relative h-full min-h-0 flex flex-col">
+          <DocToolbar
+            onBold       ={() => wrapSelection("**")}
+            onItalic     ={() => wrapSelection("*")}
+            onInlineCode ={() => wrapSelection("`")}
+            onHeading    ={(level) => {
+              // Headings toggle between levels rather than stacking — clicking
+              // H2 on a line that already starts with `# ` swaps it.
+              const prefixes = { 1: "# ", 2: "## ", 3: "### " } as const;
+              const all: string[] = ["# ", "## ", "### ", "#### ", "##### ", "###### "];
+              toggleLinePrefix(prefixes[level], all.filter((p) => p !== prefixes[level]));
+            }}
+            onUnorderedList ={() => toggleLinePrefix("- ",     ["* ", "1. "])}
+            onOrderedList   ={() => toggleLinePrefix("1. ",    ["- ", "* "])}
+            onTaskList      ={() => toggleLinePrefix("- [ ] ", ["- ", "* ", "- [x] ", "- [X] "])}
+            onQuote         ={() => toggleLinePrefix("> ")}
+            onCodeBlock     ={() => insertAtCursor("```\n\n```", 4)}
+            onRule          ={() => insertAtCursor("\n---\n")}
+            onLink          ={insertLinkAtSelection}
+            onWikiLink      ={() => wrapSelection("[[", "]]")}
+          />
           <textarea
             ref={textareaRef}
             value={doc.content}
@@ -453,7 +521,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             placeholder={`# Heading
 Markdown here. Shortcuts: ⌘B bold · ⌘I italic · ⌘K link · ⌘[ wiki-link
 Type / for the command menu (/h2, /task, /code, /today, …)`}
-            className="w-full h-full bg-slate-950 text-slate-200 placeholder-slate-700 font-mono text-sm p-5 outline-none resize-none leading-relaxed"
+            className="w-full flex-1 min-h-0 bg-slate-950 text-slate-200 placeholder-slate-700 font-mono text-sm p-5 outline-none resize-none leading-relaxed"
           />
           {slashState.open && filteredCmds.length > 0 && (
             <div className="absolute bottom-3 left-3 right-3 max-h-56 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-20">
