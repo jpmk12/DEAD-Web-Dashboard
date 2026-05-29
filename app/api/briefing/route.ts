@@ -56,11 +56,17 @@ export async function POST(request: Request) {
   const prefs = await getUserPrefs();
   const userContext = buildUserContext(prefs);
   const tz = prefs.timezone || "America/Chicago";
+  // Include the tz in the key so changing timezone mid-day doesn't collide
+  // a "Mar-14 in CT" cache with a "Mar-14 in JST" one. VARCHAR(10) is too
+  // tight for that — but `date` column already varies cheaply via slice(0, 10).
   const cacheKey = todayInTz(tz);
 
   // Serve today's cached briefing instantly unless caller requested a refresh.
+  // getCachedBriefing returns null when the row's stored tz doesn't match the
+  // caller's current pref, so flipping timezone regenerates instead of serving
+  // a stale brief built around a different calendar day.
   if (!forceRefresh) {
-    const cached = await getCachedBriefing(cacheKey).catch(() => null);
+    const cached = await getCachedBriefing(cacheKey, tz).catch(() => null);
     if (cached) {
       return NextResponse.json({ briefing: cached.briefing, cached: true, generatedAt: cached.generatedAt });
     }
@@ -128,8 +134,21 @@ export async function POST(request: Request) {
       connections: String(p.connections ?? "").slice(0, 600),
       suggestedFocus: Array.isArray(p.suggestedFocus) ? (p.suggestedFocus as unknown[]).map((s) => String(s).slice(0, 200)) : [],
     };
+    // Refuse to cache an empty briefing — that locks in a bad day's-worth of
+    // "no signal" until the next manual refresh. Truncated Claude responses
+    // most often surface as every-field-empty.
+    const isEmpty =
+      !briefing.headline.trim() &&
+      briefing.keyDevelopments.length === 0 &&
+      briefing.topStories.length === 0;
+    if (isEmpty) {
+      return NextResponse.json(
+        { error: "Briefing response was empty — please retry" },
+        { status: 502 },
+      );
+    }
     // Fire-and-forget cache write so the next open of Brief today is instant.
-    saveCachedBriefing(cacheKey, briefing).catch((err) =>
+    saveCachedBriefing(cacheKey, tz, briefing).catch((err) =>
       console.error("Briefing cache write failed:", err)
     );
     return NextResponse.json({ briefing, cached: false });

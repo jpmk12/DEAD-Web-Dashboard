@@ -17,30 +17,35 @@ export interface CachedBriefing {
 interface CacheRow extends RowDataPacket {
   briefing: CachedBriefing;
   generated_at: string | number;
+  tz: string;
 }
 
-export async function getCachedBriefing(date: string): Promise<{ briefing: CachedBriefing; generatedAt: number } | null> {
+// Returns the cached briefing for `date` ONLY when its stored tz matches the
+// caller's current pref — changing timezone mid-day should regenerate.
+export async function getCachedBriefing(date: string, tz: string): Promise<{ briefing: CachedBriefing; generatedAt: number } | null> {
   const pool = await getDb();
   const [rows] = await pool.query<CacheRow[]>(
-    "SELECT briefing, generated_at FROM briefing_cache WHERE date = ?",
+    "SELECT briefing, generated_at, tz FROM briefing_cache WHERE date = ?",
     [date]
   );
   if (rows.length === 0) return null;
+  if (rows[0].tz && rows[0].tz !== tz) return null;
   return {
     briefing: rows[0].briefing,
     generatedAt: Number(rows[0].generated_at) || 0,
   };
 }
 
-export async function saveCachedBriefing(date: string, briefing: CachedBriefing): Promise<void> {
+export async function saveCachedBriefing(date: string, tz: string, briefing: CachedBriefing): Promise<void> {
   const pool = await getDb();
   await pool.execute(
-    `INSERT INTO briefing_cache (date, briefing, generated_at)
-     VALUES (?, CAST(? AS JSON), ?)
+    `INSERT INTO briefing_cache (date, tz, briefing, generated_at)
+     VALUES (?, ?, CAST(? AS JSON), ?)
      ON DUPLICATE KEY UPDATE
        briefing     = VALUES(briefing),
-       generated_at = VALUES(generated_at)`,
-    [date, JSON.stringify(briefing), Date.now()]
+       generated_at = VALUES(generated_at),
+       tz           = VALUES(tz)`,
+    [date, tz, JSON.stringify(briefing), Date.now()]
   );
   // Best-effort: prune anything older than 7 days so the table stays bounded.
   pool

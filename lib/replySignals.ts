@@ -119,9 +119,10 @@ export async function getVipSuggestions(
   excludeList: Set<string>
 ): Promise<VipSuggestion[]> {
   if (!accountEmail) return [];
-  const exclude = (s: VipSuggestion) =>
-    excludeList.has(s.email.toLowerCase()) ||
-    excludeList.has("@" + s.email.split("@")[1] || "");
+  const exclude = (s: VipSuggestion) => {
+    const domain = s.email.split("@")[1] ?? "";
+    return excludeList.has(s.email.toLowerCase()) || excludeList.has("@" + domain);
+  };
 
   const cached = await readCache(accountEmail).catch(() => null);
   if (cached && Date.now() - cached.computedAt < CACHE_TTL_MS) {

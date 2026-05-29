@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import type { RowDataPacket } from "mysql2";
 
 // GoDaddy Node.js Hosting injects these env vars for the managed MySQL instance.
 // Locally, set them in .env so `next dev` can connect to a dev database.
@@ -125,11 +126,28 @@ const SCHEMA_STATEMENTS = [
 // Additive column migrations for already-existing tables. MySQL < 8.0.29 has
 // no `ADD COLUMN IF NOT EXISTS`, so we ignore "duplicate column" errors and
 // let everything else surface.
-const COLUMN_MIGRATIONS: string[] = [
-  "ALTER TABLE user_prefs ADD COLUMN vip_senders                JSON NULL",
-  "ALTER TABLE user_prefs ADD COLUMN mute_senders               JSON NULL",
-  "ALTER TABLE user_prefs ADD COLUMN dismissed_vip_suggestions  JSON NULL",
+// (table, column, ALTER statement). Each runs only if the column is absent —
+// we look up information_schema first so a transient failure mid-rollout
+// doesn't leave the schema half-applied with no recovery path. Repeated boots
+// of the same version are no-ops.
+const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
+  { table: "user_prefs",  column: "vip_senders",               ddl: "ALTER TABLE user_prefs ADD COLUMN vip_senders                JSON NULL" },
+  { table: "user_prefs",  column: "mute_senders",              ddl: "ALTER TABLE user_prefs ADD COLUMN mute_senders               JSON NULL" },
+  { table: "user_prefs",  column: "dismissed_vip_suggestions", ddl: "ALTER TABLE user_prefs ADD COLUMN dismissed_vip_suggestions  JSON NULL" },
+  { table: "user_memory", column: "pending_exchanges",         ddl: "ALTER TABLE user_memory ADD COLUMN pending_exchanges JSON NULL" },
+  { table: "briefing_cache", column: "tz",                     ddl: "ALTER TABLE briefing_cache ADD COLUMN tz VARCHAR(64) NOT NULL DEFAULT 'UTC'" },
 ];
+
+interface ColumnRow extends RowDataPacket { cnt: number }
+
+async function columnExists(pool: mysql.Pool, table: string, column: string): Promise<boolean> {
+  const [rows] = await pool.query<ColumnRow[]>(
+    `SELECT COUNT(*) AS cnt FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+    [table, column]
+  );
+  return rows.length > 0 && Number(rows[0].cnt) > 0;
+}
 
 let initPromise: Promise<mysql.Pool> | null = null;
 
@@ -137,11 +155,14 @@ async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
   for (const stmt of SCHEMA_STATEMENTS) {
     await pool.query(stmt);
   }
-  for (const stmt of COLUMN_MIGRATIONS) {
+  for (const { table, column, ddl } of COLUMN_MIGRATIONS) {
+    if (await columnExists(pool, table, column)) continue;
     try {
-      await pool.query(stmt);
+      await pool.query(ddl);
     } catch (err) {
       const code = (err as { code?: string }).code;
+      // Still tolerate ER_DUP_FIELDNAME in case of a race between the check
+      // and the ALTER (e.g. two concurrent boots).
       if (code !== "ER_DUP_FIELDNAME") throw err;
     }
   }

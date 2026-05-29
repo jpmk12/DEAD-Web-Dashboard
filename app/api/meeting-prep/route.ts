@@ -37,13 +37,16 @@ export async function POST(request: Request) {
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
+  // Strict RFC-ish email regex — rejects anything that could be a Gmail
+  // search operator (`:`, parens, `OR`, etc.) when interpolated into q=.
+  const STRICT_EMAIL = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
   const raw = Array.isArray(body.attendees) ? body.attendees : [];
   const attendees = Array.from(
     new Set(
       raw
         .filter((e): e is string => typeof e === "string")
         .map((e) => e.trim().toLowerCase())
-        .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))
+        .filter((e) => STRICT_EMAIL.test(e))
     )
   ).slice(0, 8);
 
@@ -57,7 +60,10 @@ export async function POST(request: Request) {
       try {
         const list = await gmail.users.messages.list({
           userId: "me",
-          q: `from:${email} newer_than:60d`,
+          // Wrap in quotes for defense in depth: the regex above already
+          // rejects operator-shaped emails, but quoting prevents any future
+          // regex weakening from silently widening the query surface.
+          q: `from:"${email}" newer_than:60d`,
           maxResults: PER_ATTENDEE_LIMIT,
         });
         const ids = (list.data.messages ?? [])
