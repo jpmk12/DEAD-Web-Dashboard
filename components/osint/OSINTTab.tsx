@@ -2,6 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import dynamic from "next/dynamic";
+
+// Leaflet uses window/document at import time, so we have to load the map
+// component client-only. Without ssr: false the build fails with a
+// "window is not defined" error during static analysis.
+const AircraftMap = dynamic(() => import("./AircraftMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono" style={{ height: 600 }}>
+      Loading map…
+    </div>
+  ),
+});
 
 interface OsintItem {
   id: string;
@@ -76,6 +89,7 @@ const MARITIME_PROVIDERS: ProviderDef[] = [
 
 const LS_AIRCRAFT_PROVIDER = "osint-aircraft-provider";
 const LS_MARITIME_PROVIDER = "osint-maritime-provider";
+const LS_AIRCRAFT_SOURCE = "osint-aircraft-source"; // "self" | "embed"
 
 export default function OSINTTab() {
   const [items, setItems] = useState<OsintItem[]>([]);
@@ -88,6 +102,7 @@ export default function OSINTTab() {
   const [maritimeProvider, setMaritimeProvider] = useState<string>(MARITIME_PROVIDERS[0].id);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [timeWindow, setTimeWindow] = useState<"all" | "4h" | "24h" | "7d">("all");
+  const [aircraftSource, setAircraftSource] = useState<"self" | "embed">("self");
 
   useEffect(() => {
     // Restore the user's previously chosen map providers. Validate against
@@ -96,8 +111,10 @@ export default function OSINTTab() {
     try {
       const a = localStorage.getItem(LS_AIRCRAFT_PROVIDER);
       const m = localStorage.getItem(LS_MARITIME_PROVIDER);
+      const src = localStorage.getItem(LS_AIRCRAFT_SOURCE);
       if (a && AIRCRAFT_PROVIDERS.some((p) => p.id === a)) setAircraftProvider(a);
       if (m && MARITIME_PROVIDERS.some((p) => p.id === m)) setMaritimeProvider(m);
+      if (src === "self" || src === "embed") setAircraftSource(src);
     } catch {}
     fetch("/api/user-prefs")
       .then((r) => r.json())
@@ -353,9 +370,55 @@ export default function OSINTTab() {
         </div>
       )}
 
-      {/* Aircraft pane — community ADS-B providers via user-selectable iframe */}
+      {/* Aircraft pane — choose between self-hosted Leaflet map (OpenSky
+          proxy) or one of the embeddable iframe providers as a fallback.
+          Self-hosted is the default since it's the only path we fully
+          control; iframe stays available for when OpenSky is unreachable. */}
       {pane === "aircraft" && (
         <div className="space-y-2">
+          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Source</span>
+            <button
+              type="button"
+              onClick={() => {
+                setAircraftSource("self");
+                try { localStorage.setItem(LS_AIRCRAFT_SOURCE, "self"); } catch {}
+              }}
+              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                aircraftSource === "self"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+              }`}
+              title="Self-hosted Leaflet map fed by OpenSky"
+            >
+              Self-hosted
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAircraftSource("embed");
+                try { localStorage.setItem(LS_AIRCRAFT_SOURCE, "embed"); } catch {}
+              }}
+              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                aircraftSource === "embed"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+              }`}
+              title="Embeddable community ADS-B iframe (no map markers, no callsign watch)"
+            >
+              Iframe provider
+            </button>
+          </div>
+
+          {aircraftSource === "self" ? (
+            <AircraftMap
+              homeLat={homeLat}
+              homeLon={homeLon}
+              radiusKm={250}
+              notableCallsigns={watchlist}
+            />
+          ) : (
+          <>
           <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
             <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Provider</span>
             {AIRCRAFT_PROVIDERS.map((p) => (
@@ -399,6 +462,8 @@ export default function OSINTTab() {
             try another provider above, or use <span className="text-slate-500">Open ↗</span>. Community
             providers (adsb.fi / airplanes.live / adsb.lol) are the most reliable for embedding.
           </p>
+          </>
+          )}
         </div>
       )}
 
