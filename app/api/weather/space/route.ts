@@ -51,9 +51,15 @@ async function fetchSpaceWeather(): Promise<SpaceWeather> {
     fetch("https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json", { headers, cache: "no-store" }).catch(() => null),
   ]);
 
+  // Track which feeds actually succeeded so we don't cache a "Quiet" / G0
+  // fabricated state when both upstreams failed.
+  let kpOk = false;
+  let xrayOk = false;
+
   let currentKp: number | null = null;
   let kpHistory: { time: string; value: number }[] = [];
   if (kpRes && kpRes.ok) {
+    kpOk = true;
     const arr = await kpRes.json();
     // Format: [["time_tag","Kp","a_running","station_count"], ...]
     if (Array.isArray(arr) && arr.length > 1) {
@@ -69,6 +75,7 @@ async function fetchSpaceWeather(): Promise<SpaceWeather> {
   // X-ray flares — last 6 hours peak flux on GOES long-wave band (~1-8 Å).
   let currentFlareClass = "Quiet";
   if (xrayRes && xrayRes.ok) {
+    xrayOk = true;
     const arr = await xrayRes.json();
     if (Array.isArray(arr) && arr.length > 0) {
       // Each entry: {time_tag, satellite, flux, energy, …}; "0.1-0.8nm" is the long band.
@@ -84,6 +91,13 @@ async function fetchSpaceWeather(): Promise<SpaceWeather> {
       }, 0);
       currentFlareClass = fluxToFlareClass(peakFlux);
     }
+  }
+
+  // If neither feed yielded anything usable, throw rather than fabricate a
+  // "quiet" payload — the GET handler caches successful responses, and we'd
+  // otherwise lock in 10 minutes of all-zeros on a transient NOAA outage.
+  if (!kpOk && !xrayOk) {
+    throw new Error("No NOAA SWPC data available");
   }
 
   return {

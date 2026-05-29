@@ -26,10 +26,14 @@ export const AI_FEATURE_LABELS: Record<AiFeature, { label: string; sub: string }
 };
 
 // Single check used by every Claude-calling route. Fail-open if prefs lookup
-// itself failed (returns true), because losing prefs shouldn't silently kill
-// AI everywhere — that pattern would mask outages.
+// itself failed — losing prefs shouldn't silently kill AI everywhere. But
+// log the case so a recurring prefs-fetch outage doesn't quietly defeat the
+// user's master kill switch without anyone noticing.
 export function isFeatureEnabled(feature: AiFeature, prefs: UserPrefs | null | undefined): boolean {
-  if (!prefs) return true;
+  if (!prefs) {
+    console.warn(`[ai] prefs unavailable; defaulting "${feature}" to enabled`);
+    return true;
+  }
   if (prefs.aiEnabled === false) return false;
   const toggles = prefs.aiFeatureToggles ?? {};
   if (toggles[feature] === false) return false;

@@ -98,10 +98,25 @@ function startOfDayMs(tz: string, daysAgo: number = 0): number {
 }
 
 function tzOffsetMinutes(tz: string, when: Date): number {
-  // Round-trip the timestamp through the tz and back to UTC to derive offset.
-  const inTz = new Date(when.toLocaleString("en-US", { timeZone: tz }));
-  const inUtc = new Date(when.toLocaleString("en-US", { timeZone: "UTC" }));
-  return Math.round((inTz.getTime() - inUtc.getTime()) / 60_000);
+  // Use the IANA timeZoneName "longOffset" formatter, which returns an exact
+  // "GMT±HH:MM" string for the given instant. Survives DST transitions cleanly
+  // — the previous round-trip approach via toLocaleString/Date.parse was off
+  // by ~1 hour during the first/last record of a DST-changing day, because
+  // the local server tz and the target tz could disagree about whether DST
+  // applies at that instant.
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      timeZoneName: "longOffset",
+    }).formatToParts(when);
+    const off = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+    const m = off.match(/GMT([+-])(\d{2}):(\d{2})/);
+    if (!m) return 0;
+    const sign = m[1] === "+" ? 1 : -1;
+    return sign * (Number(m[2]) * 60 + Number(m[3]));
+  } catch {
+    return 0;
+  }
 }
 
 export async function getUsageToday(tz: string): Promise<AiUsageSummary> {

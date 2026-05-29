@@ -173,7 +173,15 @@ export async function updateDocument(id: string, patch: { title?: string; conten
      WHERE id = ?`,
     [next.title, next.content, JSON.stringify(next.tags), next.pinned ? 1 : 0, now, id]
   );
-  if (patch.content !== undefined) await rebuildLinksForDoc(id, next.content);
+  if (patch.content !== undefined) {
+    // Re-fetch the row after the UPDATE so the link rebuild reflects the
+    // last-write-wins state of the DB rather than the value we computed from
+    // a possibly-stale SELECT. Concurrent debounced PATCHes against the same
+    // doc would otherwise leave document_links pointing at the loser's [[x]]
+    // markers while the body shows the winner's content.
+    const fresh = await getDocument(id);
+    if (fresh) await rebuildLinksForDoc(id, fresh.content);
+  }
   return { ...existing, ...next, updatedAt: now.toISOString() };
 }
 

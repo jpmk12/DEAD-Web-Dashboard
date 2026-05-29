@@ -134,8 +134,10 @@ export async function POST(request: Request) {
     localFeedKey: VALID_FEED_KEYS.has(String(raw.localFeedKey ?? "")) ? String(raw.localFeedKey) : "colorado",
     localZipcode: String(raw.localZipcode ?? "").replace(/[^0-9a-zA-Z]/g, "").slice(0, 10),
     localCity: String(raw.localCity ?? "").slice(0, 100),
-    localLat: isFinite(rawLat) && rawLat !== 0 ? rawLat : null,
-    localLon: isFinite(rawLon) && rawLon !== 0 ? rawLon : null,
+    // Coords of 0,0 are valid (Gulf of Guinea). Track presence with the raw
+    // body field — null/undefined = unset, anything else = use the parsed number.
+    localLat: raw.localLat != null && isFinite(rawLat) ? rawLat : null,
+    localLon: raw.localLon != null && isFinite(rawLon) ? rawLon : null,
     theme: VALID_THEMES.has(raw.theme as AppTheme) ? (raw.theme as AppTheme) : "nightwatch",
     timezone: typeof raw.timezone === "string" && /^[A-Za-z_/]+$/.test(raw.timezone) ? raw.timezone.slice(0, 50) : "America/Chicago",
   };

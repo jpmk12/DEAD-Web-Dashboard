@@ -239,11 +239,13 @@
 <section id="start" class="active">
   <h2>Getting started</h2>
   <p class="lede">
-    DEAD's Dashboard is a personal intelligence cockpit — five tabs and a
+    DEAD's Dashboard is a personal intelligence cockpit — seven tabs and a
     handful of top-bar buttons. It pulls news, Gmail, Google Calendar and
-    Tasks, market data, and weather into one screen, then layers AI on
-    top to triage, summarise, and act on everything you see. Single user,
-    single instance: it learns <em>you</em> over time.
+    Tasks, market data, weather, OSINT feeds, and your own working notes
+    into one screen, then layers AI on top to triage, summarise, and act
+    on everything you see. Single user, single instance: it learns
+    <em>you</em> over time, and every Claude call is gated by toggles you
+    control.
   </p>
 
   <h3>First-time sign-in</h3>
@@ -264,10 +266,11 @@
   <div class="mock">┌─ Header ────────────────────────────────────────────────┐
 │ ◆ DEAD's Dashboard        [◆ Brief] [◈ Digest] [⚡ Capture] [⚙] │
 ├─ Tab bar ───────────────────────────────────────────────┤
-│  News  •  Calendar  •  Email  •  Markets  •  Weather   │
+│  News  •  Calendar  •  Email  •  Docs  •  OSINT         │
+│         •  Markets  •  Weather                          │
 ├─ Tab content ───────────────────────────────────────────┤
 │                                                          │
-│   ( the active tab is rendered here; all five remain     │
+│   ( the active tab is rendered here; all seven remain    │
 │     mounted so switching is instant )                    │
 │                                                          │
 └──────────────────────────────────────────────────────────┘</div>
@@ -295,10 +298,10 @@
 
 <!-- ───────────────────────── THE 5 TABS ───────────────────────── -->
 <section id="tabs-content">
-  <h2>The five tabs</h2>
+  <h2>The seven tabs</h2>
   <p class="lede">
-    The five top-of-app tabs each serve a different daily workflow. Switch
-    with the tab bar; all five stay mounted so their data refreshes in the
+    The seven top-of-app tabs each serve a different daily workflow. Switch
+    with the tab bar; all seven stay mounted so their data refreshes in the
     background.
   </p>
 
@@ -482,20 +485,190 @@
   </p>
 
 
-  <h3><span class="num">04</span>Markets</h3>
+  <h3><span class="num">04</span>Docs</h3>
   <p>
-    Real-time-ish quotes for a configured watchlist of tickers
-    (defense primes, energy, broad indices). Live price, change,
-    percentage change, sparkline. Read-only view; configure tickers in
-    the source code (no in-app editing yet).
+    A personal markdown wiki for your analytical notes. Distinct from the
+    AI assistant's long-term memory — this is <em>your</em> persistent
+    working surface.
+  </p>
+
+  <h4>Layout</h4>
+  <ul>
+    <li><strong>Left sidebar</strong>: search box, pinned section, all
+      docs sorted by recency. Click a row to open.</li>
+    <li><strong>Centre</strong>: title input, tag chips, pin star,
+      markdown editor on the left, live preview on the right (toggle
+      with <span class="ui">◫ Split</span> / <span class="ui">▭ Edit</span>).</li>
+    <li><strong>Footer</strong>: backlinks panel — every doc that
+      <code>[[wiki-links]]</code> to this one shows up as a clickable
+      chip.</li>
+  </ul>
+
+  <h4>Wiki linking</h4>
+  <p>
+    Type <code>[[Doc Title]]</code> in any doc; the preview renders it as
+    a button. Click in the preview to jump there (or create it on the
+    fly if the title doesn't exist yet). Backlinks resolve automatically
+    on save.
+  </p>
+
+  <h4>Save-to-notes from News</h4>
+  <p>
+    Every article card has a <span class="ui emerald">▤</span> button
+    next to the bookmark star. Click → creates a new doc with the
+    article quoted, source/date metadata, link, and a
+    <code>## Notes</code> section ready for annotation. The article id
+    is stored as a backlink edge.
+  </p>
+
+  <h4>Chat context</h4>
+  <p>
+    The chat assistant sees your 5 most-recently-updated docs (800
+    chars each) in its system block — ask "what did I write about
+    PLARF last week?" and Claude can cite your note.
+  </p>
+
+  <h4>Search</h4>
+  <p>
+    Sidebar search uses MySQL FULLTEXT for queries ≥3 chars; LIKE for
+    shorter. Snippets shown per result.
+  </p>
+
+  <h4>Autosave</h4>
+  <p>
+    1.2 s after you stop typing. Status indicator next to the title:
+    <em>Editing… → Saving… → ✓ Saved → Updated 12 s ago</em>.
   </p>
 
 
-  <h3><span class="num">05</span>Weather</h3>
+  <h3><span class="num">05</span>OSINT</h3>
   <p>
-    NOAA forecast + radar for your <strong>Local Area</strong> setting
-    (see Preferences). Multi-day outlook, alerts banner, current
-    conditions.
+    Aggregated open-source intelligence feeds plus live aircraft and
+    maritime maps. Six panes selectable from pill row.
+  </p>
+
+  <h4>Panes</h4>
+  <table>
+    <tr><th>Pane</th><th>Shows</th></tr>
+    <tr><td><strong>All</strong></td>
+        <td>Every configured RSS/Atom feed merged, sorted by pubDate.</td></tr>
+    <tr><td><strong>Social</strong></td>
+        <td>Feeds tagged <code>social</code> — typically X/Twitter via
+            rsshub.app bridges.</td></tr>
+    <tr><td><strong>Telegram</strong></td>
+        <td>Feeds tagged <code>telegram</code> — channel bridges.</td></tr>
+    <tr><td><strong>News</strong></td>
+        <td>Feeds tagged <code>news</code> — niche aggregators not in the
+            main News tab.</td></tr>
+    <tr><td><strong>Aircraft</strong></td>
+        <td>ADS-B Exchange map centred on your home location, military
+            filter on.</td></tr>
+    <tr><td><strong>Maritime</strong></td>
+        <td>MarineTraffic map centred on your home location.</td></tr>
+  </table>
+
+  <h4>Configuring feeds</h4>
+  <p>
+    Add RSS/Atom URLs in <span class="ui">Preferences → OSINT Feeds</span>.
+    Suggested URL templates:
+  </p>
+  <ul>
+    <li>X account: <code>https://rsshub.app/twitter/user/USERNAME</code></li>
+    <li>Telegram channel: <code>https://rsshub.app/telegram/channel/NAME</code></li>
+  </ul>
+
+  <h4>SSRF safety</h4>
+  <p>
+    URL inputs are validated on write and re-validated server-side at
+    fetch time. Loopback / RFC-1918 / link-local hostnames and URLs with
+    embedded credentials are rejected.
+  </p>
+
+  <h4>Reliability</h4>
+  <p>
+    Per-feed 8 s timeout so one slow source can't block the batch.
+    5 min server-side cache per feed. If a feed stops loading, swap to a
+    different rsshub instance — the OSINT input is generic, any RSS/Atom
+    URL works.
+  </p>
+
+
+  <h3><span class="num">06</span>Markets</h3>
+  <p>
+    Defense-industry-focused market data: editable ticker watchlist,
+    indices, energy &amp; metals, and the DOD daily contract awards
+    feed.
+  </p>
+
+  <h4>Custom watchlist</h4>
+  <p>
+    Add tickers in <span class="ui">Preferences → Markets Watchlist</span>
+    in TradingView's <code>EXCHANGE:TICKER</code> format
+    (e.g. <code>NYSE:KTOS</code>, <code>NYMEX:CL1!</code>,
+    <code>FX:USDJPY</code>). Up to 30. Default is the 5 primes
+    (LMT/RTX/NOC/GD/BA).
+  </p>
+
+  <h4>Layout</h4>
+  <ul>
+    <li><strong>Ticker tape</strong> at top — indices + your watchlist
+      (top 6).</li>
+    <li><strong>Market overview</strong> with three tabs: Watchlist /
+      Indices / Energy &amp; Metals. Click any symbol for a chart.</li>
+    <li><strong>DOD contract awards</strong> — parsed from
+      defense.gov's RSS. Branch badge (ARMY/NAVY/USAF/USMC/Space
+      Force/DLA/MDA), dollar-amount formatted (B/M/K), click-to-expand
+      for the full release link.</li>
+  </ul>
+
+
+  <h3><span class="num">07</span>Weather</h3>
+  <p>
+    Multi-location forecasts, NWS active alerts, NOAA SWPC space
+    weather, and a Windy.com map for the selected location.
+  </p>
+
+  <h4>Multi-location grid</h4>
+  <p>
+    Each tracked location gets a compact card with current temp, wind,
+    short forecast, and the next 4 forecast periods. Severity-coloured
+    alert chip if NWS has an active alert. Click a card to centre the
+    map below.
+  </p>
+  <p>
+    Add locations in <span class="ui">Preferences → Tracked Locations</span>
+    (up to 10). CONUS gets full forecast + alerts; OCONUS coords show
+    "unavailable" (NWS US-only) but still pull alerts if any reach NWS.
+  </p>
+
+  <h4>Active alerts panel</h4>
+  <p>
+    Aggregates NWS active alerts across every tracked location,
+    deduped (one alert may cover multiple tracked locations) and sorted
+    by severity. Click to expand for full areaDesc + expiry time.
+  </p>
+
+  <h4>Space weather card</h4>
+  <p>
+    Three blocks: <strong>Kp index</strong> with a small sparkline of
+    the last 24 h, <strong>G-scale</strong> geomagnetic storm level
+    (G0–G5), <strong>X-ray flare</strong> class (A/B/C/M/X) with its
+    derived <strong>R-scale</strong> radio blackout. Operational note
+    in the footer (HF degradation, SATCOM impact).
+  </p>
+
+  <h4>Map controls</h4>
+  <p>
+    Overlay selector (Wind / Rain / Temp / Clouds / Pressure) drives
+    the Windy.com ECMWF embed. Map centres on whichever location card
+    is selected; refresh re-loads everything.
+  </p>
+
+  <h4>METAR quick links</h4>
+  <p>
+    Bottom-of-tab strip of ICAO codes for common CONUS + OCONUS
+    military airfields, plus a SIGMET link. Opens metar-taf.com in a
+    new tab.
   </p>
 </section>
 
@@ -695,6 +868,98 @@
     you get Claude's summary text either way — the priority is just forced.
   </p>
 
+  <h3>Tracked Locations <small style="color: var(--text-faint); font-size: 12px; text-transform: none; letter-spacing: 0;">— Weather tab</small></h3>
+  <p>
+    Extra locations shown on the Weather tab alongside your home
+    location. Inline editor below the existing Local Area select:
+    label + lat/lon. Each gets a forecast card, active NWS alerts, and
+    feeds the alerts aggregator. Up to 10.
+  </p>
+  <p>
+    The home location (from <strong>Local Area</strong> above) is
+    always shown first; tracked locations follow.
+  </p>
+
+  <h3>Markets Watchlist <small style="color: var(--text-faint); font-size: 12px; text-transform: none; letter-spacing: 0;">— Markets tab</small></h3>
+  <p>
+    TradingView symbols rendered as the first tab of the markets
+    overview widget plus an extension to the ticker tape (up to 6
+    entries on the tape). Inline add/remove editor: symbol
+    (<code>EXCHANGE:TICKER</code>) + display label.
+  </p>
+  <p>
+    Default is the 5 defense primes — overwrite with your own list
+    when you save changes for the first time.
+  </p>
+
+  <h3>OSINT Feeds <small style="color: var(--text-faint); font-size: 12px; text-transform: none; letter-spacing: 0;">— OSINT tab</small></h3>
+  <p>
+    Inline editor for RSS/Atom feeds powering the OSINT tab. Each
+    entry: label, URL, kind (<code>social</code> / <code>telegram</code>
+    / <code>news</code> / <code>other</code>). The kind determines which
+    OSINT pane the feed appears in.
+  </p>
+  <p>
+    URLs are validated client-side at write and server-side at fetch
+    against an SSRF-block list (loopback / RFC-1918 / link-local /
+    embedded credentials all rejected). Only HTTP / HTTPS.
+  </p>
+
+  <h3>AI Controls <small style="color: var(--text-faint); font-size: 12px; text-transform: none; letter-spacing: 0;">— Anthropic kill switch + spend</small></h3>
+  <p>
+    Direct control over every Claude API call the dashboard can make,
+    plus a live spend display.
+  </p>
+
+  <h4>Master switch</h4>
+  <p>
+    Big toggle at the top of the panel. Off = no Anthropic API calls
+    anywhere, regardless of per-feature settings. Every Claude-calling
+    route falls back to a non-AI behaviour: snippets instead of
+    summaries, empty action items, "AI disabled" stream for chat, 503
+    for briefing / digest / threads / quick capture.
+  </p>
+
+  <h4>Per-feature toggles</h4>
+  <p>
+    Ten independent switches matching one-to-one with the routes that
+    call Anthropic. Per-feature toggles are opt-out: missing key =
+    enabled, so future features added later default on.
+  </p>
+  <table>
+    <tr><th>Toggle</th><th>Disabling effect</th></tr>
+    <tr><td>Chat assistant</td><td>Calendar/tasks chat returns "AI disabled" text.</td></tr>
+    <tr><td>News chat</td><td>News-rail chat returns "AI disabled" text.</td></tr>
+    <tr><td>Email triage</td><td>Emails show snippet as summary, default Low.</td></tr>
+    <tr><td>Email action items</td><td>Empty action-items array.</td></tr>
+    <tr><td>Newsletter summarisation</td><td>Fresh newsletters get empty bullets; cached entries still serve.</td></tr>
+    <tr><td>Morning brief</td><td>Briefing modal shows "disabled" message.</td></tr>
+    <tr><td>Weekly digest</td><td>Same.</td></tr>
+    <tr><td>News threads</td><td>Same.</td></tr>
+    <tr><td>Quick capture (⌘K)</td><td>Modal shows "disabled" message.</td></tr>
+    <tr><td>Memory updates</td><td>Background consolidation skipped silently; pending queue keeps accumulating.</td></tr>
+  </table>
+
+  <h4>Usage display</h4>
+  <p>
+    Live card at the bottom of the panel:
+  </p>
+  <ul>
+    <li><strong>Today's spend</strong>: total USD spent on Claude calls
+      since local midnight, plus call count.</li>
+    <li><strong>Last 7 days / Last 30 days</strong>: rolling totals
+      computed in your timezone.</li>
+    <li><strong>Today's breakdown</strong> (expandable): per-route
+      spend with the count of calls. Lets you see which feature is
+      driving cost.</li>
+  </ul>
+  <p>
+    Logging is fire-and-forget — a DB failure can never break the
+    user-facing response. Per-token rates live in
+    <code>lib/aiFeatures.ts</code> and need a manual update when
+    Anthropic publishes new pricing.
+  </p>
+
   <h3>Long-term memory</h3>
   <p>
     A markdown document the assistant maintains about you across chat
@@ -846,6 +1111,54 @@
     Custom favicon: a stylised skull centred inside a red tactical
     targeting reticle on a slate-950 background. Pure SVG, scales cleanly
     from 16×16 (browser tab) to 128×128 (bookmark).
+  </p>
+
+  <h3><span class="num">#13</span>Weather tab buildout</h3>
+  <p>
+    Multi-location dashboard (up to 10 tracked locations), aggregated
+    NWS active-alerts panel, and a NOAA SWPC space-weather card showing
+    Kp index with sparkline, G-scale geomagnetic storm level, and
+    X-ray-flare-derived R-scale radio-blackout level. Windy.com map
+    now centres on whichever location card you click.
+  </p>
+
+  <h3><span class="num">#14</span>Markets tab buildout</h3>
+  <p>
+    Editable ticker watchlist becomes the first tab of the TradingView
+    overview widget. New DOD daily contract awards panel parses
+    defense.gov RSS into vendor / branch / dollar-amount badges. Default
+    watchlist is the 5 defense primes.
+  </p>
+
+  <h3><span class="num">#15</span>OSINT tab (new)</h3>
+  <p>
+    Sixth tab. Six panes — All / Social / Telegram / News /
+    Aircraft / Maritime. Aggregates user-configured RSS/Atom feeds and
+    embeds ADS-B Exchange + MarineTraffic centred on your home
+    location. URL inputs are SSRF-validated (loopback / RFC-1918 /
+    embedded credentials all rejected).
+  </p>
+
+  <h3><span class="num">#16</span>Documents / Notes tab (new)</h3>
+  <p>
+    Personal markdown wiki, separate from the AI assistant's memory.
+    Sidebar list with FULLTEXT search, pin + tag, autosave with
+    indicator, split-view markdown editor with live preview. Wiki
+    linking via <code>[[Doc Title]]</code> with auto-resolved
+    backlinks. "Save excerpt to Docs" button on every news card.
+    Chat assistant sees your 5 most-recently-updated docs as
+    background context.
+  </p>
+
+  <h3><span class="num">#17</span>AI Controls</h3>
+  <p>
+    Master kill switch + 10 per-feature toggles for direct control over
+    every Claude API call the dashboard can make. Live "today's spend"
+    card with last-7 / last-30 totals and per-route breakdown.
+    Per-token rates hardcoded in <code>lib/aiFeatures.ts</code> driving
+    a logged <code>anthropic_usage</code> table. Streaming routes
+    capture token counts from <code>message_start</code> +
+    <code>message_delta</code> events.
   </p>
 </section>
 

@@ -50,8 +50,14 @@ export default function OSINTTab() {
     fetch("/api/user-prefs")
       .then((r) => r.json())
       .then(({ prefs }) => {
-        if (prefs?.localLat) setHomeLat(prefs.localLat);
-        if (prefs?.localLon) setHomeLon(prefs.localLon);
+        // Defense in depth: even though the server validates lat/lon as
+        // numbers, the iframe `src` below interpolates them — coerce here so
+        // a future endpoint that ships non-numeric prefs can't inject into
+        // the embed URL.
+        const lat = Number(prefs?.localLat);
+        const lon = Number(prefs?.localLon);
+        if (Number.isFinite(lat)) setHomeLat(lat);
+        if (Number.isFinite(lon)) setHomeLon(lon);
       })
       .catch(() => {});
     fetch("/api/osint/feed")

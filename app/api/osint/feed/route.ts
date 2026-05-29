@@ -16,7 +16,16 @@ interface OsintItem {
 }
 
 const TTL_MS = 5 * 60 * 1000;
+// LRU-capped server cache. Renamed / churning feed URLs would otherwise
+// accumulate entries forever on this long-lived process. Map iteration is
+// insertion-order, so dropping `cache.keys().next().value` evicts the oldest.
+const CACHE_MAX = 40;
 const cache = new Map<string, { items: OsintItem[]; expires: number }>();
+
+// Overall server-side budget for the whole batch. Per-feed timeout is 8 s,
+// but with 20 stalled feeds running in parallel the client would still wait
+// the full 8 s. Cap the route to 12 s and let any laggards drop to empty.
+const TOTAL_BUDGET_MS = 12_000;
 
 function isSafeHostname(h: string): boolean {
   if (!h) return false;
@@ -64,6 +73,16 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
     if (!res.ok) return [];
     const xml = await res.text();
     const items: OsintItem[] = [];
+    const seenLinks = new Set<string>();
+
+    const push = (entry: OsintItem) => {
+      // Dedupe by link when present; otherwise by title (some feeds carry
+      // both <item> and <entry> blocks describing the same content).
+      const key = entry.link || entry.title;
+      if (seenLinks.has(key)) return;
+      seenLinks.add(key);
+      items.push(entry);
+    };
 
     // RSS <item> blocks
     for (const m of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
@@ -73,7 +92,7 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
       const description = extractTag(block, "description");
       const pubDate = extractTag(block, "pubDate") || extractTag(block, "dc:date");
       if (!title) continue;
-      items.push({
+      push({
         id: link || `${feedId}:${title.slice(0, 60)}-${pubDate}`,
         title: title.slice(0, 400),
         link,
@@ -83,25 +102,23 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
       });
     }
 
-    // Atom <entry> blocks (fall back if no <item>)
-    if (items.length === 0) {
-      for (const m of xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)) {
-        const block = m[1];
-        const title = extractTag(block, "title");
-        const summary = extractTag(block, "summary") || extractTag(block, "content");
-        const linkM = block.match(/<link[^>]+href="([^"]+)"/i);
-        const link = linkM ? linkM[1] : "";
-        const pubDate = extractTag(block, "updated") || extractTag(block, "published");
-        if (!title) continue;
-        items.push({
-          id: link || `${feedId}:${title.slice(0, 60)}-${pubDate}`,
-          title: title.slice(0, 400),
-          link,
-          pubDate,
-          summary: summary.slice(0, 400),
-          feedId, feedLabel: label, feedKind: kind,
-        });
-      }
+    // Atom <entry> blocks — always run (some feeds mix both formats).
+    for (const m of xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)) {
+      const block = m[1];
+      const title = extractTag(block, "title");
+      const summary = extractTag(block, "summary") || extractTag(block, "content");
+      const linkM = block.match(/<link[^>]+href="([^"]+)"/i);
+      const link = linkM ? linkM[1] : "";
+      const pubDate = extractTag(block, "updated") || extractTag(block, "published");
+      if (!title) continue;
+      push({
+        id: link || `${feedId}:${title.slice(0, 60)}-${pubDate}`,
+        title: title.slice(0, 400),
+        link,
+        pubDate,
+        summary: summary.slice(0, 400),
+        feedId, feedLabel: label, feedKind: kind,
+      });
     }
 
     return items.slice(0, 12);
@@ -121,13 +138,25 @@ export async function GET() {
   if (feeds.length === 0) return NextResponse.json({ feeds: [], items: [] });
 
   // Per-feed cache so a single broken feed doesn't burn the whole batch.
-  const results = await Promise.all(feeds.map(async (f) => {
+  // Race the whole batch against an overall budget so a wedged feed can't
+  // hold the client beyond TOTAL_BUDGET_MS; unresolved feeds fall back to
+  // [] for this request.
+  const fetchAll = Promise.all(feeds.map(async (f) => {
     const hit = cache.get(f.url);
     if (hit && hit.expires > Date.now()) return { feed: f, items: hit.items };
     const items = await fetchAndParse(f.url, f.id, f.label, f.kind);
     cache.set(f.url, { items, expires: Date.now() + TTL_MS });
+    // LRU evict the oldest entry if we've exceeded the soft cap.
+    if (cache.size > CACHE_MAX) {
+      const oldest = cache.keys().next().value;
+      if (oldest) cache.delete(oldest);
+    }
     return { feed: f, items };
   }));
+  const budget = new Promise<{ feed: typeof feeds[number]; items: OsintItem[] }[]>(
+    (resolve) => setTimeout(() => resolve(feeds.map((f) => ({ feed: f, items: [] }))), TOTAL_BUDGET_MS)
+  );
+  const results = await Promise.race([fetchAll, budget]);
 
   // Flat merge sorted by pubDate desc.
   const flat = results.flatMap((r) => r.items);

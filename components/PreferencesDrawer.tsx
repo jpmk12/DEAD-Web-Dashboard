@@ -912,12 +912,24 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               <p className="text-[9px] text-slate-600 font-mono">Personalises all AI responses</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg leading-none"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-1">
+            <a
+              href="/user-guide.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open the user guide in a new tab"
+              className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 px-2 py-1 rounded-md transition-all"
+            >
+              <span className="text-sm leading-none">?</span>
+              <span className="hidden sm:inline">Guide</span>
+            </a>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Content */}
