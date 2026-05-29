@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, KeyboardEvent } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import MarkdownPreview from "./MarkdownPreview";
+import DocChatPanel from "./DocChatPanel";
 
 interface DocFull {
   id: string;
@@ -79,6 +80,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [saveState, setSaveState] = useState<SaveState>("clean");
   const [tagInput, setTagInput] = useState("");
   const [splitView, setSplitView] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
   const [slashState, setSlashState] = useState<{ open: boolean; query: string; pos: number; selectedIdx: number }>({
     open: false, query: "", pos: -1, selectedIdx: 0,
   });
@@ -370,6 +372,17 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
               {splitView ? "◫ Split" : "▭ Edit"}
             </button>
             <button
+              onClick={() => setChatOpen((v) => !v)}
+              title={chatOpen ? "Close chat panel" : "Ask Claude about this doc"}
+              className={`text-[10px] font-mono px-2 py-0.5 rounded transition-all border ${
+                chatOpen
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "text-slate-500 hover:text-slate-300 border-slate-700 hover:border-slate-500"
+              }`}
+            >
+              💬 Ask
+            </button>
+            <button
               onClick={onDelete}
               title="Delete"
               className="text-slate-600 hover:text-red-400 text-base transition-colors"
@@ -400,8 +413,16 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
         </div>
       </div>
 
-      {/* Editor / preview split */}
-      <div className={`flex-1 min-h-0 ${splitView ? "grid grid-cols-2 divide-x divide-slate-800" : ""}`}>
+      {/* Editor / preview split, plus optional chat column on the right.
+          Grid columns: editor [+ preview if split] [+ chat if open]. Each
+          panel shares the row height; flex layout inside each cell scrolls
+          independently. */}
+      <div className={`flex-1 min-h-0 grid divide-x divide-slate-800 ${
+        splitView && chatOpen ? "grid-cols-[1fr_1fr_minmax(320px,420px)]" :
+        splitView             ? "grid-cols-2" :
+        chatOpen              ? "grid-cols-[1fr_minmax(320px,420px)]" :
+                                "grid-cols-1"
+      }`}>
         {/* Editor pane is relative so the slash-command popover anchors here. */}
         <div className="relative h-full min-h-0">
           <textarea
@@ -448,6 +469,11 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
           <div className="h-full overflow-y-auto p-5 bg-slate-900/40">
             <MarkdownPreview text={doc.content} onWikiLink={onOpenByTitle} onTaskToggle={onTaskToggle} />
           </div>
+        )}
+        {chatOpen && (
+          // Key on docId so switching docs forces a clean panel — the chat
+          // history is doc-scoped and shouldn't carry over.
+          <DocChatPanel key={docId} docId={docId} docTitle={doc.title} onClose={() => setChatOpen(false)} />
         )}
       </div>
 

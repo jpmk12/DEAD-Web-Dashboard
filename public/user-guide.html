@@ -929,6 +929,8 @@
     <tr><td>News chat</td><td>News-rail chat returns "AI disabled" text.</td></tr>
     <tr><td>Email triage</td><td>Emails show snippet as summary, default Low.</td></tr>
     <tr><td>Email action items</td><td>Empty action-items array.</td></tr>
+    <tr><td>OSINT relevance scoring</td><td>OSINT cards render without priority pills; clusters still dedupe.</td></tr>
+    <tr><td>Per-doc chat</td><td>The 💬 Ask panel returns an "AI disabled" message.</td></tr>
     <tr><td>Newsletter summarisation</td><td>Fresh newsletters get empty bullets; cached entries still serve.</td></tr>
     <tr><td>Morning brief</td><td>Briefing modal shows "disabled" message.</td></tr>
     <tr><td>Weekly digest</td><td>Same.</td></tr>
@@ -1149,13 +1151,45 @@
 
   <h3><span class="num">#17</span>AI Controls</h3>
   <p>
-    Master kill switch + 10 per-feature toggles for direct control over
-    every Claude API call the dashboard can make. Live "today's spend"
-    card with last-7 / last-30 totals and per-route breakdown.
-    Per-token rates hardcoded in <code>lib/aiFeatures.ts</code> driving
-    a logged <code>anthropic_usage</code> table. Streaming routes
-    capture token counts from <code>message_start</code> +
-    <code>message_delta</code> events.
+    Master kill switch + per-feature toggles for direct control over every
+    Claude API call the dashboard can make. Live "today's spend" card with
+    last-7 / last-30 totals and per-route breakdown. Per-token rates
+    hardcoded in <code>lib/aiFeatures.ts</code> driving a logged
+    <code>anthropic_usage</code> table. Streaming routes capture token
+    counts from <code>message_start</code> + <code>message_delta</code>
+    events.
+  </p>
+
+  <h3><span class="num">#18</span>Docs editor upgrades</h3>
+  <p>
+    Three editor improvements landed together: keyboard shortcuts
+    (<code>⌘B</code> bold, <code>⌘I</code> italic, <code>⌘K</code> external
+    link, <code>⌘[</code> wiki-link), a slash-command palette (type
+    <code>/</code> at the start of a word for <code>/h2</code>,
+    <code>/task</code>, <code>/code</code>, <code>/today</code>, etc.), and
+    interactive task lists — <code>- [ ]</code> and <code>- [x]</code> render
+    as clickable checkboxes in the preview and flip the source marker on
+    click.
+  </p>
+
+  <h3><span class="num">#19</span>OSINT clustering + AI triage</h3>
+  <p>
+    Near-duplicate headlines across feeds collapse into one cluster with a
+    <code>+N more from {feed A}, {feed B}</code> expand. The
+    <strong>OSINT relevance scoring</strong> toggle adds a priority pill
+    (High / Medium / Low) to each cluster based on role / topics / watchlist
+    / AOR, with the reason carried on the pill's hover title. 14-day cache
+    keyed by a prompt hash that invalidates whenever your context changes.
+  </p>
+
+  <h3><span class="num">#20</span>Per-doc chat (💬 Ask)</h3>
+  <p>
+    On any document, the new <span class="ui">💬 Ask</span> button in the
+    doc header opens a chat panel scoped to just that doc — Claude can only
+    cite what's written there (plus your background context). Useful for
+    quick "summarize this in 3 bullets" or "what are the open questions?"
+    passes without losing the doc you're reading. Conversation state is
+    per-doc and resets on switch.
   </p>
 </section>
 
