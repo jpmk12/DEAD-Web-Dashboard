@@ -1192,6 +1192,33 @@
     per-doc and resets on switch.
   </p>
 
+  <h3><span class="num">#22</span>Docs polish: toolbar, find / replace, TOC, recent strip</h3>
+  <p>
+    Four editor improvements in one push, all aimed at making the Docs tab
+    more comfortable for serious writing without breaking the existing
+    minimal feel.
+  </p>
+  <ul>
+    <li><strong>Formatting toolbar:</strong> visible button row above the
+      textarea — B / I / inline code / H1-H3 / lists (bullet / numbered /
+      task) / quote / code block / horizontal rule / link / wiki-link.
+      Headings and list buttons toggle between levels rather than stacking.
+      Right-edge <span class="ui">?</span> opens a markdown cheatsheet
+      popover so the syntax is one click away.</li>
+    <li><strong>Find / replace:</strong> <span class="ui">⌘F</span> opens
+      an inline bar at the top of the editor. Pre-seeded with the current
+      selection. Find next wraps, Replace auto-advances, Replace all does
+      the whole doc. Aa toggle flips case-sensitivity. Escape closes.</li>
+    <li><strong>Outline (TOC):</strong> <span class="ui">≣ TOC</span>
+      button in the header opens a left sidebar listing every heading.
+      Click to jump the cursor + scroll. Headings inside code fences are
+      excluded so the outline stays clean.</li>
+    <li><strong>Recent strip:</strong> small horizontal row above the
+      editor showing the six most-recently-updated docs (current one
+      excluded). One-click switch. Pinned docs show a ★ marker.</li>
+  </ul>
+
+
   <h3><span class="num">#21</span>Capture into Docs from anywhere</h3>
   <p>
     The save-to-Docs button (<span class="ui">▤</span>) — already on news
