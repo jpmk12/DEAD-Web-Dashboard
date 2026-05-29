@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, KeyboardEvent } from "react";
+import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, AiFeature, AiUsageSummary } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
@@ -1110,13 +1110,79 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   };
-  const GROUPS: { key: GroupKey; label: string; subtitle: string }[] = [
-    { key: "you",         label: "You",                     subtitle: "Personalization · topical lenses" },
-    { key: "connections", label: "Connections & appearance", subtitle: "Accounts · calendar · theme" },
-    { key: "email",       label: "Email rules",             subtitle: "Per-sender priority overrides" },
-    { key: "sources",     label: "Content sources",         subtitle: "Tracked locations · markets · OSINT feeds" },
-    { key: "ai",          label: "AI & memory",             subtitle: "Toggles · spend · long-term memory" },
+  const GROUPS: { key: GroupKey; label: string }[] = [
+    { key: "you",         label: "You" },
+    { key: "connections", label: "Connections & appearance" },
+    { key: "email",       label: "Email rules" },
+    { key: "sources",     label: "Content sources" },
+    { key: "ai",          label: "AI & memory" },
   ];
+
+  // Live-state summaries shown next to each group label. Returns
+  // ReactNode (not just a string) so warnings — stale feeds, master AI
+  // off — can render in amber to draw attention from the collapsed header.
+  // All values derive from existing form state plus the two parent-level
+  // fetches above (feedStaleCount, aiSpendTodayMicros); no extra requests.
+  const groupSubtitle = (key: GroupKey) => {
+    if (key === "you") {
+      const parts: string[] = [];
+      if (role.trim()) parts.push("role set");
+      if (priorityTopics.length) parts.push(`${priorityTopics.length} priority`);
+      if (deprioritizeTopics.length) parts.push(`${deprioritizeTopics.length} deprio`);
+      if (watchlist.length) parts.push(`${watchlist.length} watch`);
+      return parts.length ? parts.join(" · ") : "Not configured yet";
+    }
+    if (key === "connections") {
+      const parts: string[] = [];
+      parts.push(primaryEmail ? "Primary linked" : "No primary");
+      parts.push(secondaryConnected ? "Secondary linked" : "No secondary");
+      parts.push(`${theme} theme`);
+      return parts.join(" · ");
+    }
+    if (key === "email") {
+      const parts: string[] = [];
+      if (vipSenders.length) parts.push(`${vipSenders.length} VIP`);
+      if (muteSenders.length) parts.push(`${muteSenders.length} muted`);
+      return parts.length ? parts.join(" · ") : "No overrides";
+    }
+    if (key === "sources") {
+      const parts: (string | ReactElement)[] = [];
+      if (trackedLocations.length) parts.push(`${trackedLocations.length} loc`);
+      if (marketsWatchlist.length) parts.push(`${marketsWatchlist.length} tickers`);
+      if (osintFeeds.length) {
+        if (feedStaleCount !== null && feedStaleCount > 0) {
+          parts.push(
+            <span key="feeds">
+              {osintFeeds.length} feeds{" "}
+              <span className="text-amber-400">({feedStaleCount} stale)</span>
+            </span>
+          );
+        } else {
+          parts.push(`${osintFeeds.length} feeds`);
+        }
+      }
+      if (parts.length === 0) return "No sources configured";
+      // Join string parts with " · " and React elements with separators.
+      return parts.flatMap((p, i) => i === 0 ? [p] : [" · ", p]);
+    }
+    if (key === "ai") {
+      const totalFeatures = ALL_AI_FEATURES.length;
+      const enabledCount = ALL_AI_FEATURES.filter((f) => aiFeatureToggles[f] !== false).length;
+      const dollars = aiSpendTodayMicros !== null ? `$${(aiSpendTodayMicros / 1_000_000).toFixed(2)} today` : null;
+      if (!aiEnabled) {
+        return (
+          <>
+            <span className="text-amber-400 font-bold">Master OFF</span>
+            {dollars && <> · {dollars}</>}
+          </>
+        );
+      }
+      const parts: string[] = [`${enabledCount}/${totalFeatures} features on`];
+      if (dollars) parts.push(dollars);
+      return parts.join(" · ");
+    }
+    return "";
+  };
 
   useEffect(() => {
     if (!open || loaded) return;
@@ -1153,6 +1219,32 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setSecondaryEmail(d.email ?? null);
       })
       .catch(() => {});
+  }, [open]);
+
+  // Stats feeders for the group headers. OSINT feed-health and AI today's
+  // spend both already have child components that fetch them, but those
+  // values live in child state — we re-fetch at the parent level so the
+  // collapsed headers can show stale-count and dollars-today without
+  // requiring the user to expand the group. Cache means the actual HTTP
+  // cost is shared with the child.
+  const [feedStaleCount, setFeedStaleCount] = useState<number | null>(null);
+  const [aiSpendTodayMicros, setAiSpendTodayMicros] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/osint/feed")
+      .then((r) => r.json())
+      .then((d) => {
+        const feeds: { ok: boolean }[] = Array.isArray(d?.feeds) ? d.feeds : [];
+        setFeedStaleCount(feeds.filter((f) => !f.ok).length);
+      })
+      .catch(() => setFeedStaleCount(null));
+    fetch("/api/ai-usage")
+      .then((r) => r.json())
+      .then((d) => {
+        const micros = d?.today?.totalMicros;
+        setAiSpendTodayMicros(typeof micros === "number" ? micros : null);
+      })
+      .catch(() => setAiSpendTodayMicros(null));
   }, [open]);
 
   const revokeSecondary = async () => {
@@ -1280,7 +1372,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             >
               <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.you ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">You</span>
-              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Personalization · topical lenses</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("you")}</span>
             </button>
             {openGroups.you && (
               <div className="px-4 py-4 border-t border-slate-800 space-y-5">
@@ -1375,7 +1467,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             >
               <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.connections ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Connections & appearance</span>
-              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Accounts · calendar · theme</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("connections")}</span>
             </button>
             {openGroups.connections && (
               <div className="px-4 py-4 border-t border-slate-800 space-y-5">
@@ -1455,7 +1547,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             >
               <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.email ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Email rules</span>
-              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Per-sender priority overrides</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("email")}</span>
             </button>
             {openGroups.email && (
               <div className="px-4 py-4 border-t border-slate-800 space-y-5">
@@ -1495,7 +1587,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             >
               <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.sources ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Content sources</span>
-              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Tracked locations · markets · OSINT feeds</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("sources")}</span>
             </button>
             {openGroups.sources && (
               <div className="px-4 py-4 border-t border-slate-800 space-y-5">
@@ -1515,7 +1607,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             >
               <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.ai ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">AI & memory</span>
-              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Toggles · spend · long-term memory</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("ai")}</span>
             </button>
             {openGroups.ai && (
               <div className="px-4 py-4 border-t border-slate-800 space-y-5">
