@@ -167,6 +167,60 @@ export default function OSINTTab() {
   }, [filtered]);
 
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  const [clusterSaveState, setClusterSaveState] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
+
+  // Save a cluster as a new doc. Captures the primary item (title + link +
+  // summary) plus a "Also seen in" list of the duplicate feeds so the user
+  // knows the corroboration count. Same `link` shape as the news save path
+  // — the OSINT item id rides in as an `article` link target so it shows
+  // up as a backlink anywhere we surface the source item later.
+  const saveClusterToDocs = async (
+    cluster: { key: string; items: OsintItem[] },
+    e: React.MouseEvent,
+  ) => {
+    e.stopPropagation();
+    const cur = clusterSaveState[cluster.key];
+    if (cur === "saving" || cur === "saved") return;
+    setClusterSaveState((s) => ({ ...s, [cluster.key]: "saving" }));
+    const primary = cluster.items[0];
+    const dupes = cluster.items.slice(1);
+    const seenLine = dupes.length > 0
+      ? `**Also seen in:** ${Array.from(new Set(dupes.map((d) => d.feedLabel))).join(", ")}\n\n`
+      : "";
+    const t = triage[primary.id];
+    const triageLine = t ? `**Triage:** ${t.priority} — ${t.reason}\n\n` : "";
+    const summaryBlock = primary.summary
+      ? `> ${primary.summary.replace(/\n/g, "\n> ")}\n\n`
+      : "";
+    const linkLine = primary.link ? `**Link:** [${primary.link}](${primary.link})\n\n` : "";
+    const content =
+      `# ${primary.title}\n\n` +
+      `**Source:** ${primary.feedLabel}  ·  **Kind:** ${primary.feedKind}  ·  **Date:** ${primary.pubDate.slice(0, 10)}\n\n` +
+      seenLine +
+      triageLine +
+      linkLine +
+      summaryBlock +
+      `---\n\n## Notes\n\n_(your notes here)_\n`;
+    try {
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `OSINT: ${primary.title}`.slice(0, 240),
+          content,
+          tags: ["osint", primary.feedKind].filter(Boolean),
+          link: { type: "article", id: primary.id, title: primary.title },
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setClusterSaveState((s) => ({ ...s, [cluster.key]: "saved" }));
+      setTimeout(() => setClusterSaveState((s) => ({ ...s, [cluster.key]: "idle" })), 1800);
+    } catch {
+      setClusterSaveState((s) => ({ ...s, [cluster.key]: "error" }));
+      setTimeout(() => setClusterSaveState((s) => ({ ...s, [cluster.key]: "idle" })), 1800);
+    }
+  };
+
   const [triage, setTriage] = useState<Record<string, { priority: Priority; reason: string }>>({});
   const [triaging, setTriaging] = useState(false);
 
@@ -413,6 +467,32 @@ export default function OSINTTab() {
                       <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">
                         {timeAgo(primary.pubDate)}
                       </span>
+                      {(() => {
+                        const s = clusterSaveState[cluster.key] ?? "idle";
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => saveClusterToDocs(cluster, e)}
+                            disabled={s === "saving" || s === "saved"}
+                            title={
+                              s === "saved" ? "Saved to Docs" :
+                              s === "error" ? "Save failed — click to retry" :
+                              "Save to Docs"
+                            }
+                            className={`w-5 h-5 flex items-center justify-center rounded transition-all text-[11px] flex-shrink-0 ${
+                              s === "saved"
+                                ? "text-emerald-400 bg-emerald-500/10"
+                                : s === "error"
+                                ? "text-red-400 bg-red-500/10"
+                                : s === "saving"
+                                ? "text-slate-500 cursor-wait"
+                                : "text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
+                            }`}
+                          >
+                            {s === "saved" ? "✓" : s === "error" ? "!" : "▤"}
+                          </button>
+                        );
+                      })()}
                     </div>
                     {primary.link ? (
                       <a

@@ -1,5 +1,6 @@
 import { EmailMessage, EmailPriority } from "@/lib/types";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import { useState } from "react";
 
 interface EmailCardProps {
   email: EmailMessage;
@@ -32,9 +33,53 @@ function parseSender(from: string) {
   return { name: from, email: from };
 }
 
+type SaveState = "idle" | "saving" | "saved" | "error";
+
 export default function EmailCard({ email, selected, onToggle, previousSeen = 0 }: EmailCardProps) {
   const cfg = PRIORITY_CONFIG[email.priority];
   const sender = parseSender(email.from);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+
+  // Compose the saved-doc body. Mirrors the news save-to-Docs pattern: a
+  // short header block, the body preview as a blockquote, and a `## Notes`
+  // section the user can fill in. The original email message id is recorded
+  // as an external link so the new doc shows up as a backlink anywhere we
+  // surface the source email (e.g. backlink chips on a future per-email
+  // detail view).
+  const saveToDocs = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (saveState === "saving" || saveState === "saved") return;
+    setSaveState("saving");
+    try {
+      const body = (email.bodyPreview || email.snippet || "").trim();
+      const blockquote = body
+        ? `> ${body.replace(/\n/g, "\n> ")}\n\n`
+        : "";
+      const content =
+        `# ${email.subject || "(no subject)"}\n\n` +
+        `**From:** ${email.from}  ·  **Account:** ${email.accountEmail}  ·  **Date:** ${email.date.slice(0, 10)}\n\n` +
+        (email.summary ? `**AI summary:** ${email.summary}\n\n` : "") +
+        blockquote +
+        `---\n\n## Notes\n\n_(your notes here)_\n`;
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Email: ${email.subject || "(no subject)"}`.slice(0, 240),
+          content,
+          tags: ["email"],
+          link: { type: "email", id: email.id, title: email.subject },
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 1800);
+    } catch {
+      setSaveState("error");
+      setTimeout(() => setSaveState("idle"), 1800);
+    }
+  };
+
   const timeAgo = (() => {
     try { return formatDistanceToNow(parseISO(email.date), { addSuffix: true }); }
     catch { return ""; }
@@ -88,6 +133,26 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
             {timeAgo && (
               <span className="text-[10px] text-slate-600 font-mono hidden sm:inline">{timeAgo}</span>
             )}
+            <button
+              onClick={saveToDocs}
+              disabled={saveState === "saving" || saveState === "saved"}
+              title={
+                saveState === "saved" ? "Saved to Docs" :
+                saveState === "error" ? "Save failed — click to retry" :
+                "Save excerpt to Docs"
+              }
+              className={`w-6 h-6 flex items-center justify-center rounded-md transition-all text-sm ${
+                saveState === "saved"
+                  ? "text-emerald-400 bg-emerald-500/10"
+                  : saveState === "error"
+                  ? "text-red-400 bg-red-500/10"
+                  : saveState === "saving"
+                  ? "text-slate-500 cursor-wait"
+                  : "text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
+              }`}
+            >
+              {saveState === "saved" ? "✓" : saveState === "error" ? "!" : "▤"}
+            </button>
           </div>
         </div>
 
