@@ -38,6 +38,7 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
   const [actionsChecked, setActionsChecked] = useState<Set<string>>(new Set());
   // key → "pending" while POST is in flight, "added" once Google Tasks accepted it
   const [taskStatus, setTaskStatus] = useState<Map<string, "pending" | "added" | "failed">>(new Map());
+  const [docStatus, setDocStatus]   = useState<Map<string, "pending" | "added" | "failed">>(new Map());
   const [vipSuggestions, setVipSuggestions] = useState<VipSuggestion[]>([]);
   const [suggestionBusy, setSuggestionBusy] = useState<Set<string>>(new Set());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -229,6 +230,46 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
     }
   };
 
+  // Promote an action item to a tracking doc. Heavier-weight than the
+  // single-shot Google Task — the doc carries Status / Notes / Subtasks
+  // sections with interactive task-list markers so the user can break the
+  // ask down. The source email is recorded as a backlink so the doc
+  // surfaces wherever we list backlinks for that email.
+  const addActionToDocs = async (key: string, action: ActionItem) => {
+    if (docStatus.get(key) === "added" || docStatus.get(key) === "pending") return;
+    setDocStatus((prev) => new Map(prev).set(key, "pending"));
+    try {
+      const dueLine = action.dueDate ? `**Due:** ${action.dueDate}\n\n` : "";
+      const content =
+        `# ${action.action}\n\n` +
+        `**From:** ${action.from}  ·  **Re:** ${action.subject}\n\n` +
+        dueLine +
+        `---\n\n` +
+        `## Status\n\n` +
+        `- [ ] Open\n` +
+        `- [ ] In progress\n` +
+        `- [ ] Done\n\n` +
+        `## Subtasks\n\n` +
+        `- [ ] _(break the ask down here)_\n\n` +
+        `## Notes\n\n` +
+        `_(working notes, decisions, references)_\n`;
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Track: ${action.action}`.slice(0, 240),
+          content,
+          tags: ["tracking", "action-item"],
+          link: { type: "email", id: action.emailId, title: action.subject },
+        }),
+      });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      setDocStatus((prev) => new Map(prev).set(key, "added"));
+    } catch {
+      setDocStatus((prev) => new Map(prev).set(key, "failed"));
+    }
+  };
+
   const filters: Filter[] = ["All", "High", "Medium", "Low"];
   const visible = filter === "All" ? emails : emails.filter((e) => e.priority === filter);
 
@@ -346,6 +387,7 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
                 const key = `${action.emailId}-${i}`;
                 const checked = actionsChecked.has(key);
                 const status = taskStatus.get(key);
+                const dstatus = docStatus.get(key);
                 return (
                   <li
                     key={key}
@@ -370,28 +412,52 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
                         {action.dueDate && <span className="text-amber-500 ml-2 font-bold">{action.dueDate}</span>}
                       </p>
                     </div>
-                    <button
-                      onClick={() => addActionToTasks(key, action)}
-                      disabled={status === "pending" || status === "added"}
-                      title={
-                        status === "added"
-                          ? "Added to Google Tasks"
-                          : status === "failed"
-                          ? "Failed — click to retry"
-                          : "Add to Google Tasks"
-                      }
-                      className={`flex-shrink-0 self-center text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border transition-all ${
-                        status === "added"
-                          ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 cursor-default"
-                          : status === "pending"
-                          ? "bg-slate-800 border-slate-700 text-slate-500 cursor-wait"
-                          : status === "failed"
-                          ? "bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20"
-                          : "bg-slate-800/80 border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300"
-                      }`}
-                    >
-                      {status === "added" ? "✓ Added" : status === "pending" ? "…" : status === "failed" ? "Retry" : "+ Task"}
-                    </button>
+                    <div className="flex-shrink-0 self-center flex items-center gap-1.5">
+                      <button
+                        onClick={() => addActionToDocs(key, action)}
+                        disabled={dstatus === "pending" || dstatus === "added"}
+                        title={
+                          dstatus === "added"
+                            ? "Tracking doc created"
+                            : dstatus === "failed"
+                            ? "Failed — click to retry"
+                            : "Promote to a tracking doc with Status / Subtasks / Notes sections"
+                        }
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border transition-all ${
+                          dstatus === "added"
+                            ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 cursor-default"
+                            : dstatus === "pending"
+                            ? "bg-slate-800 border-slate-700 text-slate-500 cursor-wait"
+                            : dstatus === "failed"
+                            ? "bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20"
+                            : "bg-slate-800/80 border-slate-700 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-300"
+                        }`}
+                      >
+                        {dstatus === "added" ? "✓ Doc" : dstatus === "pending" ? "…" : dstatus === "failed" ? "Retry" : "▤ Doc"}
+                      </button>
+                      <button
+                        onClick={() => addActionToTasks(key, action)}
+                        disabled={status === "pending" || status === "added"}
+                        title={
+                          status === "added"
+                            ? "Added to Google Tasks"
+                            : status === "failed"
+                            ? "Failed — click to retry"
+                            : "Add to Google Tasks"
+                        }
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border transition-all ${
+                          status === "added"
+                            ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 cursor-default"
+                            : status === "pending"
+                            ? "bg-slate-800 border-slate-700 text-slate-500 cursor-wait"
+                            : status === "failed"
+                            ? "bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20"
+                            : "bg-slate-800/80 border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300"
+                        }`}
+                      >
+                        {status === "added" ? "✓ Task" : status === "pending" ? "…" : status === "failed" ? "Retry" : "+ Task"}
+                      </button>
+                    </div>
                   </li>
                 );
               })}

@@ -1191,6 +1191,36 @@
     passes without losing the doc you're reading. Conversation state is
     per-doc and resets on switch.
   </p>
+
+  <h3><span class="num">#21</span>Capture into Docs from anywhere</h3>
+  <p>
+    The save-to-Docs button (<span class="ui">▤</span>) — already on news
+    cards — now also appears on email cards and OSINT cluster cards. Each
+    creates a doc tailored to its source:
+  </p>
+  <ul>
+    <li><strong>Email card → doc:</strong> sender / account / date header,
+      AI summary if present, body preview as a blockquote, and a
+      <code>## Notes</code> section. The email message id is recorded as a
+      backlink (<code>type: email</code>). Tag: <code>email</code>.</li>
+    <li><strong>OSINT cluster → doc:</strong> primary item title / source /
+      feed kind / date, an <code>Also seen in:</code> list of the dupe
+      feeds (so the corroboration count survives), the triage call inline
+      if scored, link, summary blockquote, and a <code>## Notes</code>
+      section. Tags: <code>osint</code> + the feed kind.</li>
+    <li><strong>Action item → tracking doc:</strong> new
+      <span class="ui">▤ Doc</span> button next to the existing
+      <span class="ui">+ Task</span> in the action-items panel. Generates
+      a doc with <code>## Status</code> (Open / In progress / Done as a
+      task list), <code>## Subtasks</code>, and <code>## Notes</code>.
+      Source email recorded as backlink. Tags: <code>tracking</code> +
+      <code>action-item</code>.</li>
+  </ul>
+  <p>
+    Same idle / saving / saved / error UX on every button. The Docs editor
+    footer also grew a <strong>word count + chars + ~N min read</strong>
+    strip so you can see at a glance how long a note has gotten.
+  </p>
 </section>
 
 
