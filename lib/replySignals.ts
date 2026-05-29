@@ -62,6 +62,26 @@ async function writeCache(accountEmail: string, suggestions: VipSuggestion[]): P
   );
 }
 
+// Cap parallel Gmail metadata calls so a cold-cache scan doesn't burst past
+// the 250 quota-units/sec/user limit (messages.get = 5 units → 200 in parallel
+// = 1000 units/sec = guaranteed 429s + empty fallback).
+const FETCH_CONCURRENCY = 10;
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (true) {
+      const idx = i++;
+      if (idx >= items.length) return;
+      out[idx] = await fn(items[idx]);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return out;
+}
+
 async function scanSentMetadata(accessToken: string): Promise<VipSuggestion[]> {
   const gmail = buildClient(accessToken);
   const list = await gmail.users.messages.list({
@@ -74,15 +94,13 @@ async function scanSentMetadata(accessToken: string): Promise<VipSuggestion[]> {
     .filter((id): id is string => Boolean(id));
   if (ids.length === 0) return [];
 
-  // Pull just the To + Date headers per message. Bounded concurrency keeps the
-  // Gmail API happy on bursts.
-  const metaResults = await Promise.all(
-    ids.map((id) =>
-      gmail.users.messages
-        .get({ userId: "me", id, format: "metadata", metadataHeaders: ["To", "Date"] })
-        .then((r) => r.data)
-        .catch(() => null)
-    )
+  // Pull just the To + Date headers per message. Concurrency-limited to keep
+  // the burst inside Gmail's per-user quota.
+  const metaResults = await mapWithConcurrency(ids, FETCH_CONCURRENCY, (id) =>
+    gmail.users.messages
+      .get({ userId: "me", id, format: "metadata", metadataHeaders: ["To", "Date"] })
+      .then((r) => r.data)
+      .catch(() => null)
   );
 
   const counts = new Map<string, { count: number; lastReplyAt: number }>();

@@ -8,6 +8,47 @@ function buildClient(accessToken: string) {
   return gmailApi({ version: "v1", auth: oauth2Client });
 }
 
+// In-process cache for parsed unread emails, keyed by (account, message id).
+// The /api/gmail classification cache skips Claude calls, but does NOT skip
+// the underlying messages.get traffic — every dashboard refresh was
+// re-fetching 25-50 full message bodies. This caches the parsed result so
+// subsequent fetches inside the TTL window pay only the messages.list cost
+// for ids we already have.
+const MESSAGE_TTL_MS = 10 * 60 * 1000;
+const messageCache = new Map<string, { msg: EmailMessage; expires: number }>();
+
+function msgCacheGet(account: EmailMessage["account"], id: string): EmailMessage | null {
+  const key = `${account}:${id}`;
+  const hit = messageCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expires) { messageCache.delete(key); return null; }
+  return hit.msg;
+}
+function msgCachePut(account: EmailMessage["account"], id: string, msg: EmailMessage): void {
+  messageCache.set(`${account}:${id}`, { msg, expires: Date.now() + MESSAGE_TTL_MS });
+  // Light prune so a long-running process doesn't accumulate dead entries.
+  if (messageCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of messageCache) if (v.expires < now) messageCache.delete(k);
+  }
+}
+
+// Trim and de-noise a raw body for Claude classification. Strips standard
+// signature blocks, mobile sigs, and long quoted-reply chains, then caps at
+// 400 chars. Sent to Claude on every cache-miss classification, so noise
+// removal directly cuts input-token spend.
+export function trimBodyForClassifier(body: string): string {
+  if (!body) return "";
+  return body
+    .replace(/\r\n/g, "\n")
+    .split(/\n-- ?\n/)[0]                  // standard sig delimiter
+    .split(/\nSent from my /)[0]           // mobile sig
+    .split(/\nOn .{1,80}wrote:\n/)[0]      // Gmail/Outlook quoted-reply preamble
+    .replace(/(\n>[^\n]*){3,}.*$/s, "")    // long quoted-reply chains
+    .trim()
+    .slice(0, 400);
+}
+
 function decodeBase64url(s: string): string {
   try {
     const std = s.replace(/-/g, "+").replace(/_/g, "/");
@@ -57,20 +98,36 @@ export async function getUnreadEmails(
     maxResults: 25,
   });
 
-  const messageRefs = (listRes.data.messages ?? []).filter((r) => r.id);
+  const messageRefs = (listRes.data.messages ?? [])
+    .map((r) => r.id)
+    .filter((id): id is string => Boolean(id));
   if (!messageRefs.length) return [];
 
-  const full = await Promise.all(
-    messageRefs.map((ref) =>
-      gmail.users.messages.get({ userId: "me", id: ref.id!, format: "full" })
+  // Partition into cache hits and the ids we still need to fetch.
+  const hits: EmailMessage[] = [];
+  const need: string[] = [];
+  for (const id of messageRefs) {
+    const cached = msgCacheGet(account, id);
+    if (cached) hits.push(cached); else need.push(id);
+  }
+
+  if (need.length === 0) {
+    // Preserve the order Gmail returned (most recent first).
+    const byId = new Map(hits.map((m) => [m.id, m]));
+    return messageRefs.map((id) => byId.get(id)!).filter(Boolean);
+  }
+
+  const fetched = await Promise.all(
+    need.map((id) =>
+      gmail.users.messages.get({ userId: "me", id, format: "full" })
     )
   );
 
-  return full.flatMap((res) => {
+  const parsed: EmailMessage[] = fetched.flatMap((res) => {
     const msg = res.data;
     if (!msg.id) return [];
     const payload = msg.payload ?? {};
-    return [{
+    const m: EmailMessage = {
       id: msg.id,
       account,
       accountEmail,
@@ -87,8 +144,14 @@ export async function getUnreadEmails(
       bodyPreview: extractBody(payload) || msg.snippet || "",
       priority: "Low" as const,
       summary: "",
-    }];
+    };
+    msgCachePut(account, m.id, m);
+    return [m];
   });
+
+  // Re-order to match Gmail's original order; cache hits + freshly parsed.
+  const byId = new Map<string, EmailMessage>([...hits, ...parsed].map((m) => [m.id, m]));
+  return messageRefs.map((id) => byId.get(id)).filter((m): m is EmailMessage => !!m);
 }
 
 export async function fetchNewsletterEmails(
