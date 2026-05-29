@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import MapAOIControls from "./MapAOIControls";
 
 interface Aircraft {
   icao24: string;
@@ -164,6 +165,14 @@ export default function AircraftMap({ homeLat, homeLon, radiusKm = 250, notableC
 
   return (
     <div className="space-y-2">
+      {/* Area-of-interest controls: visible above the map, so the user can
+          type a city / coords / radius without needing to discover the
+          drift-triggered floating button. */}
+      <MapAOIControls
+        currentRadiusKm={search.radiusKm}
+        onApply={(lat, lon, r) => { setSearch({ lat, lon, radiusKm: r }); setLoading(true); }}
+        onReset={() => setSearch({ lat: homeLat, lon: homeLon, radiusKm })}
+      />
       <div className="flex items-center gap-2 flex-wrap text-[10px]">
         <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">OpenSky</span>
         <button

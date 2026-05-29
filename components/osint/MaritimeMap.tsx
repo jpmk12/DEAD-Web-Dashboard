@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import MapAOIControls from "./MapAOIControls";
 
 interface Ship {
   mmsi: number;
@@ -141,6 +142,11 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
 
   return (
     <div className="space-y-2">
+      <MapAOIControls
+        currentRadiusKm={search.radiusKm}
+        onApply={(lat, lon, r) => { setSearch({ lat, lon, radiusKm: r }); setLoading(true); }}
+        onReset={() => setSearch({ lat: homeLat, lon: homeLon, radiusKm })}
+      />
       <div className="flex items-center gap-2 flex-wrap text-[10px]">
         <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">AISStream</span>
         {configured && (
