@@ -1072,6 +1072,52 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
+  // Collapsible-group state. Default for first-time users: only "you" is
+  // open (gives an entry point). Returning users get whatever they last
+  // had open, restored from localStorage in the effect below.
+  type GroupKey = "you" | "connections" | "email" | "sources" | "ai";
+  const [openGroups, setOpenGroups] = useState<Record<GroupKey, boolean>>({
+    you: true, connections: false, email: false, sources: false, ai: false,
+  });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("prefs-groups-state");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          setOpenGroups({
+            you:         parsed.you === true,
+            connections: parsed.connections === true,
+            email:       parsed.email === true,
+            sources:     parsed.sources === true,
+            ai:          parsed.ai === true,
+          });
+        }
+      }
+    } catch { /* fall through to defaults */ }
+  }, []);
+  const persistGroups = (next: Record<GroupKey, boolean>) => {
+    try { localStorage.setItem("prefs-groups-state", JSON.stringify(next)); } catch { /* noop */ }
+  };
+  const toggleGroup = (k: GroupKey) => {
+    setOpenGroups((prev) => { const next = { ...prev, [k]: !prev[k] }; persistGroups(next); return next; });
+  };
+  const openAndScrollTo = (k: GroupKey) => {
+    setOpenGroups((prev) => { const next = { ...prev, [k]: true }; persistGroups(next); return next; });
+    // Defer so the expanded panel exists before scrollIntoView fires.
+    setTimeout(() => {
+      const el = document.getElementById(`prefs-group-${k}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
+  const GROUPS: { key: GroupKey; label: string; subtitle: string }[] = [
+    { key: "you",         label: "You",                     subtitle: "Personalization · topical lenses" },
+    { key: "connections", label: "Connections & appearance", subtitle: "Accounts · calendar · theme" },
+    { key: "email",       label: "Email rules",             subtitle: "Per-sender priority overrides" },
+    { key: "sources",     label: "Content sources",         subtitle: "Tracked locations · markets · OSINT feeds" },
+    { key: "ai",          label: "AI & memory",             subtitle: "Toggles · spend · long-term memory" },
+  ];
+
   useEffect(() => {
     if (!open || loaded) return;
     fetch("/api/user-prefs")
@@ -1199,231 +1245,290 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-5">
+        {/* Quick-jump pill row — sticky to the top of the scroll container.
+            Click a pill to open its group AND smooth-scroll to it. Active
+            (open) groups get the emerald style. */}
+        <div className="flex-shrink-0 border-b border-slate-800 bg-slate-950 px-5 py-2 flex items-center gap-1 overflow-x-auto">
+          {GROUPS.map((g) => (
+            <button
+              key={g.key}
+              type="button"
+              onClick={() => openAndScrollTo(g.key)}
+              title={g.subtitle}
+              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded transition-all border flex-shrink-0 ${
+                openGroups[g.key]
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"
+              }`}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
 
-          {/* Accounts */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">
-              Accounts
-            </label>
+        {/* Content — five collapsible groups. Each renders its sections
+            linearly inside; the existing section forms haven't changed,
+            they've just moved into their categorical home. */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
-            {/* Primary */}
-            <div className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-3 mb-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-none mb-0.5">Primary</p>
-                    <p className="text-xs text-slate-300 truncate">{primaryEmail ?? "—"}</p>
+          {/* ─── You ─────────────────────────────────────────────── */}
+          <section id="prefs-group-you" className="border border-slate-800 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleGroup("you")}
+              className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
+            >
+              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.you ? "▾" : "▸"}</span>
+              <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">You</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Personalization · topical lenses</span>
+            </button>
+            {openGroups.you && (
+              <div className="px-4 py-4 border-t border-slate-800 space-y-5">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+                    Role / Context
+                  </label>
+                  <p className="text-[10px] text-slate-600 mb-2">
+                    Tailors all AI analysis, briefs, and chat responses to your role
+                  </p>
+                  <textarea
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    rows={3}
+                    placeholder="e.g. Defense policy analyst focused on Indo-Pacific affairs"
+                    className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg p-3 text-xs text-slate-200 placeholder-slate-600 resize-none outline-none focus:border-slate-500 transition-colors leading-relaxed"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+                    Local Area
+                  </label>
+                  <p className="text-[10px] text-slate-600 mb-2">
+                    Selects local news feeds and sets the weather map home location
+                  </p>
+                  <select
+                    value={localFeedKey}
+                    onChange={(e) => handleLocationChange(e.target.value)}
+                    className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-500 transition-colors"
+                  >
+                    {LOCAL_FEED_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+                    Timezone
+                  </label>
+                  <p className="text-[10px] text-slate-600 mb-2">
+                    Used by the AI assistant when adding calendar events
+                  </p>
+                  <select
+                    value={timezone}
+                    onChange={(e) => setTimezone(e.target.value)}
+                    className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-500 transition-colors"
+                  >
+                    {TIMEZONE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label} — {opt.value}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <TagInput
+                  label="Priority Topics"
+                  description="These topics get surfaced first in briefings and analysis"
+                  tags={priorityTopics}
+                  onChange={setPriorityTopics}
+                  placeholder="China, Space Force, nuclear policy…"
+                  accent="emerald"
+                />
+
+                <TagInput
+                  label="Deprioritise Topics"
+                  description="Less emphasis in AI responses"
+                  tags={deprioritizeTopics}
+                  onChange={setDeprioritizeTopics}
+                  placeholder="domestic politics, sports…"
+                  accent="red"
+                />
+
+                <TagInput
+                  label="Watchlist — Keyword Alerts"
+                  description="Articles, newsletter bullets, OSINT items, aircraft callsigns, and ship names matching these terms get an ⚑ badge and appear first"
+                  tags={watchlist}
+                  onChange={setWatchlist}
+                  placeholder="hypersonic, AUKUS, INDOPACOM, REACH…"
+                  accent="orange"
+                />
+              </div>
+            )}
+          </section>
+
+          {/* ─── Connections & appearance ─────────────────────────── */}
+          <section id="prefs-group-connections" className="border border-slate-800 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleGroup("connections")}
+              className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
+            >
+              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.connections ? "▾" : "▸"}</span>
+              <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Connections & appearance</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Accounts · calendar · theme</span>
+            </button>
+            {openGroups.connections && (
+              <div className="px-4 py-4 border-t border-slate-800 space-y-5">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">
+                    Accounts
+                  </label>
+                  <div className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-3 mb-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-none mb-0.5">Primary</p>
+                          <p className="text-xs text-slate-300 truncate">{primaryEmail ?? "—"}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => signOut()}
+                        className="flex-shrink-0 text-[11px] text-slate-500 hover:text-red-400 border border-slate-700 hover:border-red-500/50 px-2.5 py-1 rounded-lg transition-all font-mono"
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${secondaryConnected ? "bg-blue-400" : "bg-slate-700"}`} />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-none mb-0.5">Secondary</p>
+                          <p className="text-xs text-slate-300 truncate">
+                            {secondaryConnected && secondaryEmail ? secondaryEmail : "Not connected"}
+                          </p>
+                        </div>
+                      </div>
+                      {secondaryConnected ? (
+                        <button
+                          onClick={revokeSecondary}
+                          disabled={secondaryRevoking}
+                          className="flex-shrink-0 text-[11px] text-slate-500 hover:text-red-400 border border-slate-700 hover:border-red-500/50 px-2.5 py-1 rounded-lg transition-all font-mono disabled:opacity-40"
+                        >
+                          {secondaryRevoking ? "Removing…" : "Remove"}
+                        </button>
+                      ) : (
+                        <a
+                          href="/api/auth/gmail-secondary?step=initiate"
+                          className="flex-shrink-0 text-[11px] text-emerald-500 hover:text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60 px-2.5 py-1 rounded-lg transition-all font-mono"
+                        >
+                          Connect
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => signOut()}
-                  className="flex-shrink-0 text-[11px] text-slate-500 hover:text-red-400 border border-slate-700 hover:border-red-500/50 px-2.5 py-1 rounded-lg transition-all font-mono"
-                >
-                  Sign out
-                </button>
-              </div>
-            </div>
 
-            {/* Secondary */}
-            <div className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${secondaryConnected ? "bg-blue-400" : "bg-slate-700"}`} />
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-none mb-0.5">Secondary</p>
-                    <p className="text-xs text-slate-300 truncate">
-                      {secondaryConnected && secondaryEmail ? secondaryEmail : "Not connected"}
-                    </p>
-                  </div>
+                <CalendarSubscription />
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+                    Appearance
+                  </label>
+                  <p className="text-[10px] text-slate-600 mb-3">
+                    Theme previews update instantly
+                  </p>
+                  <ThemeSelector value={theme} onChange={handleThemeChange} />
                 </div>
-                {secondaryConnected ? (
-                  <button
-                    onClick={revokeSecondary}
-                    disabled={secondaryRevoking}
-                    className="flex-shrink-0 text-[11px] text-slate-500 hover:text-red-400 border border-slate-700 hover:border-red-500/50 px-2.5 py-1 rounded-lg transition-all font-mono disabled:opacity-40"
-                  >
-                    {secondaryRevoking ? "Removing…" : "Remove"}
-                  </button>
-                ) : (
-                  <a
-                    href="/api/auth/gmail-secondary?step=initiate"
-                    className="flex-shrink-0 text-[11px] text-emerald-500 hover:text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60 px-2.5 py-1 rounded-lg transition-all font-mono"
-                  >
-                    Connect
-                  </a>
-                )}
               </div>
-            </div>
-          </div>
+            )}
+          </section>
 
-          <div className="border-t border-slate-800 my-5" />
-
-          {/* Calendar subscription (iCal feed) */}
-          <CalendarSubscription />
-
-          <div className="border-t border-slate-800 my-5" />
-
-            {/* Theme */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-              Appearance
-            </label>
-            <p className="text-[10px] text-slate-600 mb-3">
-              Theme previews update instantly
-            </p>
-            <ThemeSelector value={theme} onChange={handleThemeChange} />
-          </div>
-
-          <div className="border-t border-slate-800 my-5" />
-
-          {/* Role */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-              Role / Context
-            </label>
-            <p className="text-[10px] text-slate-600 mb-2">
-              Tailors all AI analysis, briefs, and chat responses to your role
-            </p>
-            <textarea
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              rows={3}
-              placeholder="e.g. Defense policy analyst focused on Indo-Pacific affairs"
-              className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg p-3 text-xs text-slate-200 placeholder-slate-600 resize-none outline-none focus:border-slate-500 transition-colors leading-relaxed"
-            />
-          </div>
-
-          <div className="border-t border-slate-800 my-5" />
-
-          <TagInput
-            label="Priority Topics"
-            description="These topics get surfaced first in briefings and analysis"
-            tags={priorityTopics}
-            onChange={setPriorityTopics}
-            placeholder="China, Space Force, nuclear policy…"
-            accent="emerald"
-          />
-
-          <TagInput
-            label="Deprioritise Topics"
-            description="Less emphasis in AI responses"
-            tags={deprioritizeTopics}
-            onChange={setDeprioritizeTopics}
-            placeholder="domestic politics, sports…"
-            accent="red"
-          />
-
-          <div className="border-t border-slate-800 my-5" />
-
-          {/* Local Area */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-              Local Area
-            </label>
-            <p className="text-[10px] text-slate-600 mb-2">
-              Selects local news feeds and sets the weather map home location
-            </p>
-            <select
-              value={localFeedKey}
-              onChange={(e) => handleLocationChange(e.target.value)}
-              className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-500 transition-colors"
+          {/* ─── Email rules ──────────────────────────────────────── */}
+          <section id="prefs-group-email" className="border border-slate-800 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleGroup("email")}
+              className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              {LOCAL_FEED_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
+              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.email ? "▾" : "▸"}</span>
+              <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Email rules</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Per-sender priority overrides</span>
+            </button>
+            {openGroups.email && (
+              <div className="px-4 py-4 border-t border-slate-800 space-y-5">
+                <p className="text-[10px] text-slate-600">
+                  Force a sender to High or Low priority — bypasses the AI classifier.
+                  Use a full address (<code className="text-slate-400">jane@example.com</code>) or a bare domain
+                  (<code className="text-slate-400">example.com</code>, also matches subdomains).
+                </p>
 
-          <div className="border-t border-slate-800 my-5" />
+                <TagInput
+                  label="Always High — VIP Senders"
+                  description="Inbound mail from these senders is always treated as High priority"
+                  tags={vipSenders}
+                  onChange={setVipSenders}
+                  placeholder="boss@company.com, whitehouse.gov…"
+                  accent="emerald"
+                />
 
-          {/* Timezone */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-              Timezone
-            </label>
-            <p className="text-[10px] text-slate-600 mb-2">
-              Used by the AI assistant when adding calendar events
-            </p>
-            <select
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-500 transition-colors"
+                <TagInput
+                  label="Always Low — Muted Senders"
+                  description="Inbound mail from these senders is always pushed to Low (still shown, just demoted)"
+                  tags={muteSenders}
+                  onChange={setMuteSenders}
+                  placeholder="noreply@marketing.com, mailchimp.com…"
+                  accent="red"
+                />
+              </div>
+            )}
+          </section>
+
+          {/* ─── Content sources ──────────────────────────────────── */}
+          <section id="prefs-group-sources" className="border border-slate-800 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleGroup("sources")}
+              className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              {TIMEZONE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label} — {opt.value}</option>
-              ))}
-            </select>
-          </div>
+              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.sources ? "▾" : "▸"}</span>
+              <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Content sources</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Tracked locations · markets · OSINT feeds</span>
+            </button>
+            {openGroups.sources && (
+              <div className="px-4 py-4 border-t border-slate-800 space-y-5">
+                <TrackedLocationsEditor value={trackedLocations} onChange={setTrackedLocations} />
+                <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
+                <OsintFeedsEditor value={osintFeeds} onChange={setOsintFeeds} />
+              </div>
+            )}
+          </section>
 
-          <div className="border-t border-slate-800 my-5" />
-
-          <TagInput
-            label="Watchlist — Keyword Alerts"
-            description="Articles and newsletter bullets matching these terms get an ⚑ badge and appear first"
-            tags={watchlist}
-            onChange={setWatchlist}
-            placeholder="hypersonic, AUKUS, INDOPACOM…"
-            accent="orange"
-          />
-
-          <div className="border-t border-slate-800 my-5" />
-
-          <div className="mb-1">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-              Email Triage Overrides
-            </label>
-            <p className="text-[10px] text-slate-600 mb-3">
-              Force a sender to High or Low priority — bypasses the AI classifier.
-              Use a full address (jane@example.com) or a bare domain (example.com,
-              also matches subdomains).
-            </p>
-          </div>
-
-          <TagInput
-            label="Always High — VIP Senders"
-            description="Inbound mail from these senders is always treated as High priority"
-            tags={vipSenders}
-            onChange={setVipSenders}
-            placeholder="boss@company.com, whitehouse.gov…"
-            accent="emerald"
-          />
-
-          <TagInput
-            label="Always Low — Muted Senders"
-            description="Inbound mail from these senders is always pushed to Low (still shown, just demoted)"
-            tags={muteSenders}
-            onChange={setMuteSenders}
-            placeholder="noreply@marketing.com, mailchimp.com…"
-            accent="red"
-          />
-
-          <div className="border-t border-slate-800 my-5" />
-
-          <TrackedLocationsEditor value={trackedLocations} onChange={setTrackedLocations} />
-
-          <div className="border-t border-slate-800 my-5" />
-
-          <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
-
-          <div className="border-t border-slate-800 my-5" />
-
-          <OsintFeedsEditor value={osintFeeds} onChange={setOsintFeeds} />
-
-          <div className="border-t border-slate-800 my-5" />
-
-          <AIControlPanel
-            aiEnabled={aiEnabled}
-            onAiEnabled={setAiEnabled}
-            toggles={aiFeatureToggles}
-            onToggles={setAiFeatureToggles}
-          />
-
-          <div className="border-t border-slate-800 my-5" />
-
-          <MemoryPanel />
+          {/* ─── AI & memory ──────────────────────────────────────── */}
+          <section id="prefs-group-ai" className="border border-slate-800 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleGroup("ai")}
+              className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
+            >
+              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.ai ? "▾" : "▸"}</span>
+              <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">AI & memory</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· Toggles · spend · long-term memory</span>
+            </button>
+            {openGroups.ai && (
+              <div className="px-4 py-4 border-t border-slate-800 space-y-5">
+                <AIControlPanel
+                  aiEnabled={aiEnabled}
+                  onAiEnabled={setAiEnabled}
+                  toggles={aiFeatureToggles}
+                  onToggles={setAiFeatureToggles}
+                />
+                <MemoryPanel />
+              </div>
+            )}
+          </section>
         </div>
 
         {/* Save footer */}
