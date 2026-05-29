@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEAD's Dashboard — User Guide</title>
+<style>
+  :root {
+    --bg: #020617;
+    --surface: #0f172a;
+    --surface-2: #1a2540;
+    --border: #1e293b;
+    --border-strong: #334155;
+    --text: #f1f5f9;
+    --text-dim: #94a3b8;
+    --text-faint: #64748b;
+    --emerald: #34d399;
+    --emerald-bright: #10b981;
+    --emerald-dim: rgba(52, 211, 153, 0.15);
+    --red: #ef4444;
+    --red-dim: rgba(239, 68, 68, 0.15);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245, 158, 11, 0.15);
+    --violet: #a78bfa;
+    --violet-dim: rgba(167, 139, 250, 0.15);
+    --sky: #38bdf8;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); }
+  body {
+    margin: 0;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Header */
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(16,185,129,0.04), transparent 60%);
+  }
+  header.hero::before {
+    content: "";
+    display: block; height: 2px;
+    background: linear-gradient(90deg, var(--emerald-bright), transparent 70%);
+  }
+  header.hero .inner {
+    max-width: 1080px; margin: 0 auto;
+    padding: 28px 24px 22px;
+    display: flex; gap: 16px; align-items: center;
+  }
+  header.hero .badge {
+    width: 36px; height: 36px;
+    background: var(--emerald-dim);
+    border: 1px solid rgba(52,211,153,0.3);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--emerald); font-size: 16px;
+  }
+  header.hero h1 {
+    margin: 0; font-size: 16px; letter-spacing: 0.2em; text-transform: uppercase;
+    font-weight: 800;
+  }
+  header.hero p {
+    margin: 2px 0 0; font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+  }
+  /* Tabs */
+  nav.tabs {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(2,6,23,0.92); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav.tabs .inner {
+    max-width: 1080px; margin: 0 auto;
+    padding: 0 24px;
+    display: flex; gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  nav.tabs .inner::-webkit-scrollbar { display: none; }
+  nav.tabs button {
+    background: none; border: none; color: var(--text-dim);
+    font: inherit; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 14px 12px; cursor: pointer; white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button.active {
+    color: var(--emerald);
+    border-bottom-color: var(--emerald);
+  }
+  /* Sections */
+  main { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+  section { display: none; }
+  section.active { display: block; }
+  section > h2 {
+    margin: 0 0 8px;
+    font-size: 28px; font-weight: 800; letter-spacing: -0.01em;
+  }
+  section > .lede {
+    color: var(--text-dim); margin: 0 0 32px;
+    font-size: 15px; max-width: 720px;
+  }
+  /* Content typography */
+  h3 {
+    margin: 36px 0 10px;
+    font-size: 18px; font-weight: 700; letter-spacing: -0.005em;
+  }
+  h3 .num {
+    display: inline-block;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--emerald); background: var(--emerald-dim);
+    border: 1px solid rgba(52,211,153,0.3);
+    padding: 1px 7px; border-radius: 6px; margin-right: 10px;
+    vertical-align: 2px;
+  }
+  h4 {
+    margin: 22px 0 8px;
+    font-size: 14px; font-weight: 700; color: var(--text);
+    text-transform: uppercase; letter-spacing: 0.12em;
+  }
+  p, ul, ol { margin: 0 0 14px; color: var(--text-dim); }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  strong, b { color: var(--text); font-weight: 700; }
+  code, kbd {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 4px; color: var(--emerald);
+  }
+  kbd { color: var(--text); padding: 1px 5px; }
+  /* Cards */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px; margin: 16px 0;
+  }
+  .card.accent-emerald { border-color: rgba(52,211,153,0.4); background: var(--emerald-dim); }
+  .card.accent-amber   { border-color: rgba(245,158,11,0.4); background: var(--amber-dim); }
+  .card.accent-red     { border-color: rgba(239,68,68,0.4); background: var(--red-dim); }
+  .card.accent-violet  { border-color: rgba(167,139,250,0.4); background: var(--violet-dim); }
+  .card .title {
+    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em;
+    margin-bottom: 8px; color: var(--text);
+  }
+  /* Buttons in walkthroughs */
+  .ui {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    color: var(--text); font-family: var(--mono); font-size: 12px;
+    padding: 3px 9px; border-radius: 6px; margin: 0 2px;
+    text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
+  }
+  .ui.emerald { background: var(--emerald-bright); color: #021; border-color: var(--emerald-bright); }
+  .ui.muted { background: var(--surface); color: var(--text-dim); }
+  .ui.red { background: rgba(239,68,68,0.1); color: var(--red); border-color: rgba(239,68,68,0.4); }
+  .ui.amber { background: rgba(245,158,11,0.1); color: var(--amber); border-color: rgba(245,158,11,0.4); }
+  /* Tables */
+  table {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; margin: 16px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: rgba(255,255,255,0.02);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--text); font-weight: 800;
+  }
+  tr:last-child td { border-bottom: none; }
+  td code { font-size: 11px; }
+  /* Step walkthrough */
+  .steps { counter-reset: step; padding: 0; list-style: none; }
+  .steps > li {
+    counter-increment: step;
+    position: relative; padding: 0 0 0 36px; margin: 18px 0;
+  }
+  .steps > li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: -2px;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--emerald-dim); color: var(--emerald);
+    border: 1px solid rgba(52,211,153,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 12px; font-weight: 800;
+  }
+  /* Mocks */
+  .mock {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; margin: 14px 0;
+    font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    color: var(--text-dim); white-space: pre-wrap;
+  }
+  /* Inline note */
+  .note {
+    border-left: 3px solid var(--emerald);
+    background: rgba(52,211,153,0.05);
+    padding: 10px 14px; margin: 14px 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .note .label { color: var(--emerald); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; }
+  .note.warn { border-left-color: var(--amber); background: rgba(245,158,11,0.05); }
+  .note.warn .label { color: var(--amber); }
+  /* Two-column grid */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    color: var(--text-faint); font-size: 12px;
+    padding: 20px 24px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <div class="badge">◆</div>
+    <div>
+      <h1>DEAD's Dashboard — User Guide</h1>
+      <p>Strategic intelligence dashboard · all features &amp; settings</p>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <div class="inner" id="tabs"></div>
+</nav>
+
+<main>
+
+<!-- ───────────────────────── GETTING STARTED ───────────────────────── -->
+<section id="start" class="active">
+  <h2>Getting started</h2>
+  <p class="lede">
+    DEAD's Dashboard is a personal intelligence cockpit — five tabs and a
+    handful of top-bar buttons. It pulls news, Gmail, Google Calendar and
+    Tasks, market data, and weather into one screen, then layers AI on
+    top to triage, summarise, and act on everything you see. Single user,
+    single instance: it learns <em>you</em> over time.
+  </p>
+
+  <h3>First-time sign-in</h3>
+  <ol class="steps">
+    <li>Open the dashboard URL and click <span class="ui emerald">Sign in with Google</span>.
+      You'll grant access to Gmail, Calendar, and Tasks scopes.</li>
+    <li>The dashboard opens on the <strong>News</strong> tab by default. RSS
+      feeds start loading immediately; Gmail and Calendar populate as their
+      scopes resolve.</li>
+    <li>Open <span class="ui">⚙</span> (top right) to set your role, topics,
+      timezone, and location. Everything personalises off this — see the
+      <strong>Settings</strong> tab.</li>
+    <li>Optional: connect a <strong>secondary Gmail</strong> account from
+      Preferences for a second inbox.</li>
+  </ol>
+
+  <h3>Overall layout</h3>
+  <div class="mock">┌─ Header ────────────────────────────────────────────────┐
+│ ◆ DEAD's Dashboard        [◆ Brief] [◈ Digest] [⚡ Capture] [⚙] │
+├─ Tab bar ───────────────────────────────────────────────┤
+│  News  •  Calendar  •  Email  •  Markets  •  Weather   │
+├─ Tab content ───────────────────────────────────────────┤
+│                                                          │
+│   ( the active tab is rendered here; all five remain     │
+│     mounted so switching is instant )                    │
+│                                                          │
+└──────────────────────────────────────────────────────────┘</div>
+
+  <p>
+    Five tabs across the top, four action buttons in the header. All tabs
+    stay mounted in the background, so tab switching is instant and the
+    fetches needed for each tab continue in parallel.
+  </p>
+
+  <h3>Quick wins after sign-in</h3>
+  <ul>
+    <li>Set your <strong>Role / Context</strong> in Preferences — every AI
+      response will personalise off this.</li>
+    <li>Type one Watchlist keyword (e.g. <code>hypersonic</code>) — articles
+      mentioning it get an <span class="ui amber">⚑ WATCH</span> badge and
+      float to the top.</li>
+    <li>Press <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd> from anywhere to capture a
+      thought into a task, calendar event, or memory note.</li>
+    <li>Click <span class="ui emerald">◆ Brief</span> to generate today's
+      morning brief — synthesised from your loaded news + newsletters.</li>
+  </ul>
+</section>
+
+
+<!-- ───────────────────────── THE 5 TABS ───────────────────────── -->
+<section id="tabs-content">
+  <h2>The five tabs</h2>
+  <p class="lede">
+    The five top-of-app tabs each serve a different daily workflow. Switch
+    with the tab bar; all five stay mounted so their data refreshes in the
+    background.
+  </p>
+
+  <h3><span class="num">01</span>News</h3>
+  <p>
+    The news tab fuses three streams: an RSS feed across ~20 outlets
+    (defense, strategic, domestic, space, local for your area), newsletter
+    summaries pulled from your Gmail, and a <strong>Threads</strong> /
+    <strong>History</strong> view that surfaces cross-article narratives.
+  </p>
+
+  <h4>Sub-tabs (top of tab content)</h4>
+  <ul>
+    <li><strong>Feed</strong> — articles + newsletters. Default view.</li>
+    <li><strong>Threads</strong> — Claude finds 4-8 cross-cutting narratives
+      across today's articles ("Russia/Ukraine", "China deterrence", etc.)
+      and writes a short summary + trend (▲ rising / ◆ stable / ▼ fading).</li>
+    <li><strong>History</strong> — past Threads sessions saved in the
+      database.</li>
+  </ul>
+
+  <h4>Category filter pills</h4>
+  <p>Above the feed: <span class="ui">All · Overview · Defense · Strategic · Domestic · Space · Local · Saved</span>.
+    Each pill shows a count. <strong>Saved</strong> = articles you starred.</p>
+
+  <h4>Newsletter section</h4>
+  <p>Appears above the article grid. Newsletters from Politico, Dow Jones
+    War, Merge, and ASF — auto-summarised into bullets by Claude. Click any
+    card to expand. The newsletter open also feeds the ranking algorithm so
+    series you actually read float higher.</p>
+
+  <h4>Article card actions</h4>
+  <table>
+    <tr><th>Button</th><th>What it does</th></tr>
+    <tr><td><span class="ui">▲ Yes</span> / <span class="ui">▼ No</span></td>
+        <td>Explicit relevance feedback. Boosts/decreases the source and
+            extracted keywords by ±1 in your article ranking model.</td></tr>
+    <tr><td><span class="ui amber">☆ → ★</span></td>
+        <td>Save to the <strong>Saved</strong> sub-tab. Persists in MySQL.</td></tr>
+    <tr><td>Title link</td>
+        <td>Opens the article in a new tab. Click also fires an <em>implicit
+            open</em> signal: +0.25 to the source &amp; keywords (¼ of an
+            explicit thumbs-up). Dedup'd to once per article per 7 days.</td></tr>
+    <tr><td><span class="ui amber">⚑ WATCH</span></td>
+        <td>Auto-applied when the title matches any of your watchlist
+            keywords. Adds an orange glow and pushes the card up.</td></tr>
+    <tr><td>Dimmed card</td>
+        <td>Item is older than the last time you visited this surface — see
+            <em>What changed since I last looked</em> under
+            <strong>What's New</strong>.</td></tr>
+  </table>
+
+  <h4>Twitter section</h4>
+  <p>Below the article grid — embedded tweets from configured handles.</p>
+
+  <h4>Refresh affordances</h4>
+  <p>The <span class="ui">↻</span> button (top-right of section) refreshes
+    every feed. Refreshes inside the cache window are nearly instant.</p>
+
+
+  <h3><span class="num">02</span>Email</h3>
+  <p>
+    AI-triaged unread inbox across primary + secondary Gmail accounts.
+    Every unread email gets a priority (<span class="ui red">High</span> /
+    <span class="ui amber">Medium</span> / <span class="ui muted">Low</span>)
+    and a 1-2 sentence summary from Claude. Sorted by priority.
+  </p>
+
+  <h4>The action-items panel (top of page)</h4>
+  <p>
+    A separate Claude call extracts concrete "you need to do X" items from
+    your unread mail. Each row has a checkbox (mark locally complete) and
+    a <span class="ui amber">+ Task</span> button.
+  </p>
+  <p>
+    Clicking <span class="ui amber">+ Task</span> pushes a Google Task to
+    your default tasklist, titled with the action, due date attached if
+    Claude detected one, and notes containing the sender + subject. Button
+    flips to <span class="ui emerald">✓ Added</span> when accepted.
+  </p>
+
+  <h4>Suggested VIPs (when present)</h4>
+  <p>
+    Above the action items: senders you've replied to ≥3 times in the past
+    30 days that aren't already classified. Two actions:
+    <span class="ui emerald">Add VIP</span> (forces future mail from them to
+    High) or <span class="ui muted">Dismiss</span> (never suggest again).
+  </p>
+
+  <h4>Filter pills</h4>
+  <p>Above the inbox: <span class="ui">All · High · Medium · Low</span>.</p>
+
+  <h4>Email card</h4>
+  <table>
+    <tr><th>Element</th><th>Meaning</th></tr>
+    <tr><td>Coloured left bar</td>
+        <td>Red = High, amber = Medium, slate = Low.</td></tr>
+    <tr><td>Account chip</td>
+        <td>Slate = primary, violet = secondary. Hover for full account
+            email.</td></tr>
+    <tr><td>Summary text</td>
+        <td>Claude's 1-2 sentence read. If Claude was unavailable, falls
+            back to the Gmail snippet.</td></tr>
+    <tr><td>Dimmed card</td>
+        <td>Email arrived before your last visit to this tab.</td></tr>
+  </table>
+
+  <h4>Bulk actions</h4>
+  <p>
+    Check the box on any card. A bottom bar appears with
+    <span class="ui">Mark read</span> and <span class="ui">Clear selection</span>.
+    Reads remove the UNREAD label in Gmail and drop the card from the list.
+  </p>
+
+  <h4>Add secondary account</h4>
+  <p>
+    <span class="ui">+ Connect another Gmail</span> at the top-right runs a
+    secondary OAuth flow. The secondary token is stored in an HTTP-only
+    encrypted cookie (JWE) and auto-refreshed.
+  </p>
+
+
+  <h3><span class="num">03</span>Calendar</h3>
+  <p>
+    Agenda view of upcoming events (next 30 days, all your Google
+    calendars) plus a right rail with Tasks and an AI scheduling assistant.
+  </p>
+
+  <h4>Agenda view</h4>
+  <p>
+    Grouped by date. <strong>Today</strong>, <strong>Tomorrow</strong>, then
+    weekday names. Click any event to expand:
+  </p>
+  <ul>
+    <li>Location, description, account.</li>
+    <li><strong>Attendee list</strong>: shown as 👤 emails.</li>
+    <li><span class="ui emerald">📋 Prep</span> button when the event has
+      attendees — see the next subsection.</li>
+  </ul>
+
+  <h4>Meeting prep panel (📋 Prep)</h4>
+  <p>
+    Click <span class="ui emerald">📋 Prep</span> on an event with
+    attendees. The dashboard runs a Gmail search
+    <code>from:"&lt;attendee&gt;" newer_than:60d</code> for each attendee in
+    parallel and renders the 3 most recent emails per attendee inline. Use
+    this for last-minute meeting context.
+  </p>
+  <p>Results are cached server-side for 1 hour, keyed by the sorted
+    attendee list, so re-clicking Prep on the same meeting is instant.</p>
+
+  <h4>Right rail — Tasks</h4>
+  <p>
+    Your Google Tasks default list. Inline create, edit, complete, delete.
+    Tasks created via <span class="ui amber">+ Task</span> on the Email tab
+    or via <span class="ui">⚡ Capture</span> show up here in real time.
+  </p>
+
+  <h4>Right rail — Scheduling chat (rail)</h4>
+  <p>
+    Claude with full read access to your calendar + tasks + recent
+    news + memory. Ask things like:
+  </p>
+  <ul>
+    <li>"What's my morning look like Thursday?"</li>
+    <li>"Find me 45 min between 2 and 5 PM tomorrow."</li>
+    <li>"Add a 30 min sync with the planning team next Tuesday at 0900."</li>
+    <li>"Create a task to file the trip report by Friday."</li>
+  </ul>
+  <p>
+    When you ask to schedule or add a task, Claude emits a
+    <code>[ADD_EVENT:…]</code> or <code>[ADD_TASK:…]</code> action block;
+    the UI catches it and executes via the Calendar / Tasks API.
+  </p>
+
+  <h4>Apple Calendar / iCal feed</h4>
+  <p>
+    In <strong>Preferences → Apple Calendar / iCal Feed</strong> you'll
+    find a session-authenticated URL that subscribes any iCal app to your
+    upcoming events.
+  </p>
+
+
+  <h3><span class="num">04</span>Markets</h3>
+  <p>
+    Real-time-ish quotes for a configured watchlist of tickers
+    (defense primes, energy, broad indices). Live price, change,
+    percentage change, sparkline. Read-only view; configure tickers in
+    the source code (no in-app editing yet).
+  </p>
+
+
+  <h3><span class="num">05</span>Weather</h3>
+  <p>
+    NOAA forecast + radar for your <strong>Local Area</strong> setting
+    (see Preferences). Multi-day outlook, alerts banner, current
+    conditions.
+  </p>
+</section>
+
+
+<!-- ───────────────────────── TOP BAR ───────────────────────── -->
+<section id="topbar">
+  <h2>The top bar</h2>
+  <p class="lede">
+    Four buttons in the header, always available from any tab.
+  </p>
+
+  <h3><span class="ui emerald">◆ Brief</span> — Morning Brief</h3>
+  <p>
+    Opens the briefing modal. Claude (Opus) synthesises a structured
+    morning brief from the currently-loaded articles, newsletter highlights,
+    and your calendar:
+  </p>
+  <ul>
+    <li><strong>Headline</strong> — one sentence on the day's most important
+      development.</li>
+    <li><strong>Schedule</strong> — time-sensitive items from your
+      calendar.</li>
+    <li><strong>Key developments</strong> — top 3 with context.</li>
+    <li><strong>Top stories</strong> — 2-3 stories worth a deeper read.</li>
+    <li><strong>Connections</strong> — paragraph noting cross-domain
+      patterns.</li>
+    <li><strong>Suggested focus</strong> — recommended actions or reading.</li>
+  </ul>
+
+  <h4>Modal actions</h4>
+  <table>
+    <tr><th>Button</th><th>What it does</th></tr>
+    <tr><td><span class="ui">↻ Refresh</span></td>
+        <td>Regenerates today's brief from current articles. Otherwise the
+            brief is served from cache and re-opens are instant.</td></tr>
+    <tr><td><span class="ui">PDF</span></td>
+        <td>Opens a print-ready PDF view.</td></tr>
+    <tr><td><span class="ui">Download</span></td>
+        <td>Saves a standalone HTML copy.</td></tr>
+  </table>
+
+  <h3><span class="ui">◈ Digest</span> — Weekly Digest</h3>
+  <p>
+    Opens the same modal in digest mode. Claude (Sonnet) summarises your
+    reading patterns over the past week — sources you opened most,
+    topics you saved, recommended adjustments to your interests.
+  </p>
+
+  <h3><span class="ui">⚡ Capture</span> — Quick capture</h3>
+  <p>
+    Opens the quick-capture modal. Also bound to <kbd>⌘K</kbd> /
+    <kbd>Ctrl+K</kbd> from anywhere. Type one short thought — Claude
+    routes it into a Google Task, a calendar event, or a memory note,
+    and <strong>shows you the parsed plan before committing</strong>.
+  </p>
+
+  <h4>Two-step flow</h4>
+  <ol class="steps">
+    <li>Type your thought. Examples:<br>
+      <em>"remind me to email RAND about the panel next Thursday at 2"</em><br>
+      <em>"team sync tomorrow 0900-0930"</em><br>
+      <em>"save that the Q3 brief is due 12 Aug"</em></li>
+    <li>Press <kbd>⌘↩</kbd> or click <span class="ui emerald">Preview</span>.
+      Claude classifies and returns a parsed plan:<br>
+      <em>"About to add · Calendar event — Team sync — Wed, May 28, 9:00 AM → 9:30 AM"</em></li>
+    <li>If correct, press <kbd>⌘↩</kbd> or click
+      <span class="ui emerald">Confirm</span> — the action commits. If
+      wrong, click <span class="ui">Edit</span> to return to the input
+      with your text preserved.</li>
+  </ol>
+
+  <h4>What goes where</h4>
+  <table>
+    <tr><th>Input style</th><th>Routed to</th></tr>
+    <tr><td>"remind me to…" / "I need to…"</td><td>Google Task</td></tr>
+    <tr><td>Specific time + date</td><td>Calendar event</td></tr>
+    <tr><td>"remember that…" / "save that…"</td><td>Long-term memory (Notes section)</td></tr>
+  </table>
+
+  <p>Esc closes at any stage. Empty input is rejected client-side.</p>
+
+
+  <h3><span class="ui">⚙</span> — Preferences</h3>
+  <p>Opens the right-side preferences drawer. See the <strong>Settings</strong>
+    tab for a full walkthrough of every option.</p>
+</section>
+
+
+<!-- ───────────────────────── SETTINGS ───────────────────────── -->
+<section id="settings">
+  <h2>Settings — Preferences drawer</h2>
+  <p class="lede">
+    The drawer behind the <span class="ui">⚙</span> button. Everything
+    here personalises the dashboard — most settings flow into AI prompts
+    on every relevant route.
+  </p>
+
+  <h3>Accounts</h3>
+  <p>
+    Two rows: <strong>Primary</strong> (your sign-in Google account) and
+    <strong>Secondary</strong> (a second Gmail). Primary has a
+    <span class="ui muted">Sign out</span> link; Secondary has
+    <span class="ui emerald">Connect</span> when missing or
+    <span class="ui red">Remove</span> when connected.
+  </p>
+  <div class="note">
+    <span class="label">Secondary inbox</span><br>
+    Both inboxes are fetched in parallel by <code>/api/gmail</code>; emails
+    are mixed into one priority-sorted list with an account chip
+    distinguishing them. Newsletter summaries pull from both accounts too.
+  </div>
+
+  <h3>Apple Calendar / iCal feed</h3>
+  <p>
+    A read-only URL that subscribes any iCal-compatible app to your
+    upcoming events. Copy with <span class="ui">Copy</span> or open
+    directly in macOS Calendar with
+    <span class="ui emerald">Open in Apple Calendar</span>.
+  </p>
+
+  <h3>Appearance — Theme</h3>
+  <p>Four themes; previews update instantly.</p>
+  <table>
+    <tr><th>Theme</th><th>Palette</th><th>Vibe</th></tr>
+    <tr><td><strong>Nightwatch</strong></td><td>Deep slate / emerald</td>
+        <td>Default. The skull-reticle favicon is calibrated for this.</td></tr>
+    <tr><td><strong>Amber</strong></td><td>Black / phosphor amber</td>
+        <td>Tactical-terminal aesthetic.</td></tr>
+    <tr><td><strong>Arctic</strong></td><td>Navy / ice blue</td>
+        <td>Cool, lower-contrast.</td></tr>
+    <tr><td><strong>Mission Brief</strong></td><td>Parchment / aviation blue</td>
+        <td>Light theme.</td></tr>
+  </table>
+
+  <h3>Role / Context</h3>
+  <p>
+    Free text describing who you are. Injected into <strong>every AI
+    surface</strong>: chat, briefing, threads, news-chat, digest, email
+    triage, quick capture, memory consolidation.
+  </p>
+  <p>Example: <em>"USAF reserve / national-security analyst focused on
+    Indo-Pacific deterrence and industrial base."</em></p>
+
+  <h3>Priority Topics &nbsp;/&nbsp; Deprioritise Topics</h3>
+  <p>
+    Tag inputs (Enter or comma to add, Backspace to remove last).
+  </p>
+  <ul>
+    <li><strong>Priority topics</strong> get surfaced first in briefings and
+      bias news ranking + email triage toward High.</li>
+    <li><strong>Deprioritise topics</strong> get demoted in everything.</li>
+  </ul>
+
+  <h3>Local Area</h3>
+  <p>
+    Dropdown of preset locations (CONUS bases + a few OCONUS spots). Two
+    effects:
+  </p>
+  <ul>
+    <li>Loads the matching local RSS feeds into the News tab.</li>
+    <li>Sets the home coordinates for the Weather tab.</li>
+  </ul>
+
+  <h3>Timezone</h3>
+  <p>
+    IANA timezone (ET / CT / MT / PT / AKT / HST / JST / CET / UTC). Used
+    for:
+  </p>
+  <ul>
+    <li>Calendar event creation via the chat assistant.</li>
+    <li>The briefing-cache date key (rolls over at local midnight).</li>
+    <li>Quick-capture date resolution ("tomorrow", "next Thursday").</li>
+  </ul>
+
+  <h3>Watchlist — Keyword alerts</h3>
+  <p>
+    Tag input of bare keywords. Any article title or newsletter bullet
+    containing one gets an <span class="ui amber">⚑ WATCH</span> badge and
+    floats to the top of its section.
+  </p>
+
+  <h3>Email Triage Overrides</h3>
+  <p>Per-sender forcing of the email priority. Two lists:</p>
+  <ul>
+    <li><strong>Always High — VIP Senders</strong>: mail from these is
+      forced to High regardless of Claude's judgment.</li>
+    <li><strong>Always Low — Muted Senders</strong>: forced to Low (still
+      shown, just demoted — not hidden).</li>
+  </ul>
+  <p>
+    Each entry is either a full email address (<code>boss@company.com</code>)
+    or a bare domain (<code>example.com</code>). Domain rules also match
+    subdomains.
+  </p>
+  <p>
+    Applied <strong>after</strong> Claude classification at merge time, so
+    you get Claude's summary text either way — the priority is just forced.
+  </p>
+
+  <h3>Long-term memory</h3>
+  <p>
+    A markdown document the assistant maintains about you across chat
+    sessions. View the current contents, edit manually, or
+    <span class="ui red">Clear all</span>.
+  </p>
+  <p>
+    The dashboard updates this in the background after chat turns —
+    debounced to ~5 minutes between updates so a long conversation
+    consolidates into a single update. Each turn's content goes onto a
+    persisted queue until the gap elapses; nothing is lost.
+  </p>
+  <p>
+    Quick-capture notes append under a <code>## Notes</code> section here
+    too.
+  </p>
+</section>
+
+
+<!-- ───────────────────────── WHAT'S NEW ───────────────────────── -->
+<section id="new">
+  <h2>What's new — features added this push</h2>
+  <p class="lede">
+    Major features added to the dashboard. Roughly chronological by ship
+    order; each one has stable behaviour and lives in production today.
+  </p>
+
+  <h3><span class="num">#1</span>Newsletter summarisation upgrade</h3>
+  <p>
+    Switched the newsletter summarisation model from Haiku 4.5 to
+    Sonnet 4.6. Eliminates the empty-bullet failure mode where Haiku
+    would occasionally drop items from large batched JSON arrays, leaving
+    you with "No key facts extracted." Bounded cost by the existing 7-day
+    cache.
+  </p>
+
+  <h3><span class="num">#2</span>Email triage cache + personalised prompt + VIP / mute lists</h3>
+  <p>
+    Three changes around inbox triage:
+  </p>
+  <ul>
+    <li><strong>Classification cache</strong>. Every email is classified
+      once and stored by message id with the prompt's hash. Subsequent
+      refreshes inside 30 days reuse the cached priority + summary —
+      instant render, no Claude call. The hash invalidates the cache
+      automatically when you edit your interests.</li>
+    <li><strong>Personalised prompt</strong>. The triage prompt now includes
+      your role, priority topics, deprioritise topics, and watchlist —
+      Claude knows what counts as "an important institution" for
+      <em>you</em>.</li>
+    <li><strong>VIP / mute lists</strong>. See <em>Settings → Email Triage
+      Overrides</em>. Deterministic post-classification override.</li>
+  </ul>
+
+  <h3><span class="num">#3</span>Persistent memory layer</h3>
+  <p>
+    A long-running markdown document about you that survives across chat
+    sessions. After each chat turn, a Haiku call consolidates the
+    conversation into the document — capturing ongoing projects, upcoming
+    events, named contacts, and ad-hoc preferences. Injected into chat,
+    briefing, and quick-capture as background context.
+  </p>
+  <p>
+    The consolidation is <strong>debounced</strong> (≥5 min between
+    updates) with a persisted queue, so a burst of chat collapses to one
+    Claude call but no content is lost mid-window.
+  </p>
+
+  <h3><span class="num">#4</span>Action items → Google Tasks</h3>
+  <p>
+    Extracted action items on the Email tab now each have a
+    <span class="ui amber">+ Task</span> button that pushes a Google Task
+    to your default list. Title = action, due date = parsed deadline (if
+    any), notes = the source email's sender + subject.
+  </p>
+
+  <h3><span class="num">#5</span>Quick capture (⌘K)</h3>
+  <p>
+    Global keyboard shortcut. One textarea, one Claude call, three
+    destinations: <strong>task</strong>, <strong>calendar event</strong>,
+    or <strong>memory note</strong>. Two-step preview-then-confirm flow
+    means nothing commits to your calendar or Tasks until you OK the
+    parsed plan.
+  </p>
+
+  <h3><span class="num">#6</span>Implicit feedback on articles + newsletters</h3>
+  <p>
+    Every article title click and newsletter expand feeds a small positive
+    signal into the ranking model (~¼ of an explicit thumbs-up). After a
+    week or two of normal use, the news feed starts privileging sources
+    you actually open. Newsletter ordering already used this signal; we
+    extended it to articles.
+  </p>
+  <p>Client-side dedup keeps repeat clicks in a 7-day window from
+    multi-boosting the same article.</p>
+
+  <h3><span class="num">#7</span>"What changed since I last looked"</h3>
+  <p>
+    A per-surface <code>last_seen_at</code> snapshot. When you reload
+    the dashboard, items older than your snapshot render at 50-60%
+    opacity (hover restores). Eyes get drawn to what's new. Applies to:
+  </p>
+  <ul>
+    <li>Email cards</li>
+    <li>News cards</li>
+    <li>Newsletter cards</li>
+  </ul>
+  <p>
+    The snapshot bumps to "now" after 5 seconds of dwell on a tab. The
+    newsletters surface only bumps when you actually expand a newsletter,
+    so viewing the news tab without scrolling down doesn't falsely mark
+    newsletters as seen.
+  </p>
+
+  <h3><span class="num">#8</span>Suggested VIPs from reply patterns</h3>
+  <p>
+    The dashboard scans <code>in:sent newer_than:30d</code> in your
+    primary account and surfaces senders you've replied to ≥3 times that
+    aren't already classified. Cached server-side for 12 hours so the
+    scan is cheap after the first call of the day.
+  </p>
+
+  <h3><span class="num">#9</span>Quiet-newsletter suggestions</h3>
+  <p>
+    Newsletter series whose <code>open_count</code> is 0 (never expanded)
+    are surfaced in a small prompt above the newsletter section. One
+    click hides the whole series from future loads.
+  </p>
+
+  <h3><span class="num">#10</span>Cached morning briefing</h3>
+  <p>
+    Generated briefings persist in MySQL keyed by
+    <code>YYYY-MM-DD</code> in your timezone. Re-opening Brief during the
+    day returns the cached version instantly with no Claude call. The
+    <span class="ui">↻ Refresh</span> button in the modal busts the cache
+    when headlines shift materially.
+  </p>
+
+  <h3><span class="num">#11</span>Meeting prep auto-context</h3>
+  <p>
+    Calendar events with attendees get a <span class="ui emerald">📋 Prep</span>
+    button. Clicking it runs a Gmail search per attendee in parallel and
+    renders the 3 most recent emails from each inline. Cached server-side
+    for an hour, keyed by the sorted attendee list.
+  </p>
+
+  <h3><span class="num">#12</span>DEAD POOL skull-reticle favicon</h3>
+  <p>
+    Custom favicon: a stylised skull centred inside a red tactical
+    targeting reticle on a slate-950 background. Pure SVG, scales cleanly
+    from 16×16 (browser tab) to 128×128 (bookmark).
+  </p>
+</section>
+
+
+<!-- ───────────────────────── UNDER THE HOOD ───────────────────────── -->
+<section id="hood">
+  <h2>Under the hood — optimization &amp; cost</h2>
+  <p class="lede">
+    The features above ship with their own performance work. Summary of
+    the optimization decisions, what they save you, and the audited
+    impact on Claude API spend.
+  </p>
+
+  <h3>Caching layers</h3>
+  <table>
+    <tr><th>Cache</th><th>Scope</th><th>TTL</th><th>Saves</th></tr>
+    <tr><td><code>email_classification_cache</code></td>
+        <td>Per-message Gmail id × prompt hash</td>
+        <td>30 days</td>
+        <td>One Claude triage call per <em>new</em> email instead of per fetch.</td></tr>
+    <tr><td><code>briefing_cache</code></td>
+        <td>Per date × user timezone</td>
+        <td>7 days (pruned)</td>
+        <td>One Opus briefing call per day instead of per modal open.</td></tr>
+    <tr><td><code>newsletter_cache</code></td>
+        <td>Per Gmail message id</td>
+        <td>7 days</td>
+        <td>One Sonnet newsletter summarisation per new email.</td></tr>
+    <tr><td><code>vip_suggestions_cache</code></td>
+        <td>Per Google account</td>
+        <td>12 hours</td>
+        <td>Up to 200 Gmail metadata calls per email-tab open.</td></tr>
+    <tr><td>In-process message cache</td>
+        <td>Per (account, message id)</td>
+        <td>10 minutes</td>
+        <td>Up to 50 Gmail full-fetch calls per dashboard refresh.</td></tr>
+    <tr><td>In-process meeting-prep cache</td>
+        <td>Per sorted attendee list</td>
+        <td>1 hour</td>
+        <td>Up to 32 Gmail calls per Prep re-click.</td></tr>
+    <tr><td>Anthropic prompt cache</td>
+        <td>Per stable system block</td>
+        <td>Ephemeral</td>
+        <td>~90% of input-token cost on warm reads (chat, gmail, briefing, newsletters).</td></tr>
+  </table>
+
+  <h3>Gmail-traffic hygiene</h3>
+  <ul>
+    <li><strong>Chunked concurrency</strong>. Bulk Gmail metadata pulls (VIP
+      scan, meeting prep) use a worker-pool of 10 concurrent calls instead
+      of an unbounded <code>Promise.all</code> burst — keeps requests
+      under the 250 quota-units/sec/user limit.</li>
+    <li><strong>Body-preview trimming</strong>. Email bodies sent to Claude
+      for classification are stripped of standard signature blocks,
+      mobile sigs, and long quoted-reply chains, then capped at 400
+      chars (down from 800). ~60% reduction in input-token spend per
+      cold classification with no measurable quality regression.</li>
+    <li><strong>Atomic prefs append</strong>. VIP/mute/dismissed-suggestion
+      writes go through a dedicated <code>/api/user-prefs/append</code>
+      endpoint that uses <code>JSON_ARRAY_APPEND</code> with a
+      <code>JSON_CONTAINS</code> idempotency guard in one SQL statement
+      — race-safe with other concurrent prefs edits.</li>
+  </ul>
+
+  <h3>Model selection per route</h3>
+  <table>
+    <tr><th>Route</th><th>Model</th><th>Why</th></tr>
+    <tr><td>/api/briefing</td><td>Opus 4.7</td>
+        <td>Long structured synthesis from many sources.</td></tr>
+    <tr><td>/api/chat &amp; /api/news-chat</td><td>Opus 4.7</td>
+        <td>High-stakes reasoning over calendar + tasks + news.</td></tr>
+    <tr><td>/api/threads</td><td>Opus 4.7</td>
+        <td>Cross-article narrative extraction.</td></tr>
+    <tr><td>/api/newsletters</td><td>Sonnet 4.6</td>
+        <td>Long batched JSON outputs — Sonnet is materially more reliable
+            than Haiku here.</td></tr>
+    <tr><td>/api/digest</td><td>Sonnet 4.6</td>
+        <td>Mid-complexity weekly summary.</td></tr>
+    <tr><td>/api/gmail (triage)</td><td>Haiku 4.5</td>
+        <td>Per-email priority + 1-2 sentence summary — Haiku is enough.</td></tr>
+    <tr><td>/api/quick-capture</td><td>Haiku 4.5</td>
+        <td>Short routing decision — Haiku is plenty.</td></tr>
+    <tr><td>Memory background consolidation</td><td>Haiku 4.5</td>
+        <td>Periodic background task; cost-bounded by the debounce.</td></tr>
+  </table>
+
+  <h3>Estimated daily Claude spend</h3>
+  <p>
+    Audit ran across all Claude call sites with representative-day token
+    counts. Net cost change for typical analyst usage:
+  </p>
+  <table>
+    <tr><th>Usage profile</th><th>Before this work</th><th>After this work</th></tr>
+    <tr><td>Light (1 brief, 3 email fetches, no chat)</td>
+        <td>~$0.15/day</td><td>~$0.22/day</td></tr>
+    <tr><td>Typical (3 briefs, 15 emails, 10 chat msgs, 5 captures)</td>
+        <td>~$1.92/day</td><td>~$1.31/day</td></tr>
+    <tr><td>Heavy (5+ briefs, hourly refresh, 30 chat msgs)</td>
+        <td>~$5+/day</td><td>~$2/day</td></tr>
+  </table>
+  <p>
+    The two caches (briefing + email triage) do real work — they convert
+    "linear in fetches" to "linear in new content," which is dramatic
+    for active days and slightly negative for light ones (Sonnet upgrade
+    on newsletters costs more than Haiku did, before caches kick in).
+  </p>
+
+  <h3>Code review pass</h3>
+  <p>
+    All session-added code went through a structured review. Fixes
+    shipped:
+  </p>
+  <ul>
+    <li>Claude response validation in <code>/api/gmail</code> against
+      <code>{High, Medium, Low}</code> enum (was casting blindly).</li>
+    <li>Operator-precedence bug in
+      <code>lib/replySignals.ts</code> domain-exclusion check.</li>
+    <li>Tighter attendee-email regex + quoted Gmail
+      <code>q=</code> in <code>/api/meeting-prep</code>.</li>
+    <li>Briefing route refuses to cache an empty Claude response (no
+      more all-day "no signal" lock-ins).</li>
+    <li>Schema migrations now check
+      <code>information_schema.columns</code> before each
+      <code>ALTER</code> so a transient failure can be re-run safely.</li>
+    <li>Markdown <code>## Notes</code> append uses a proper parser
+      instead of a brittle regex.</li>
+    <li>Action-item extraction is gated on a hash of the visible
+      email-id set — no more re-fires on tab switches.</li>
+    <li>Memory throttle → debounce (with a persisted
+      pending-exchanges queue) so one-shot disclosures don't get dropped
+      mid-window.</li>
+    <li>Briefing cache invalidates on timezone change.</li>
+    <li>Anthropic prompt cache extended to <code>/api/chat</code>.</li>
+  </ul>
+</section>
+
+
+<!-- ───────────────────────── REFERENCE ───────────────────────── -->
+<section id="ref">
+  <h2>Reference</h2>
+  <p class="lede">Quick lookups: shortcuts, troubleshooting, glossary.</p>
+
+  <h3>Keyboard shortcuts</h3>
+  <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td><kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd></td>
+        <td>Open quick capture (works from any tab).</td></tr>
+    <tr><td><kbd>⌘↩</kbd> / <kbd>Ctrl+Enter</kbd></td>
+        <td>In Quick capture: Preview (first press) → Confirm (second).</td></tr>
+    <tr><td><kbd>Esc</kbd></td>
+        <td>Close the current modal or drawer.</td></tr>
+    <tr><td><kbd>Enter</kbd> or <kbd>,</kbd> (comma)</td>
+        <td>Add the current text as a tag in any Tag input.</td></tr>
+    <tr><td><kbd>Backspace</kbd> on empty Tag input</td>
+        <td>Remove the last tag.</td></tr>
+  </table>
+
+  <h3>Troubleshooting</h3>
+  <h4>"Your session needs to be refreshed"</h4>
+  <p>
+    Sign out and sign back in. The Google OAuth token expired and a
+    scope or refresh-token state needs to reset.
+  </p>
+
+  <h4>Newsletter card shows "No key facts extracted"</h4>
+  <p>
+    Should be rare since the Sonnet swap. If it happens, refresh — the
+    cache only stores summaries that had bullets, so an empty result
+    isn't sticky.
+  </p>
+
+  <h4>Briefing modal shows nothing / empty fields</h4>
+  <p>
+    Click <span class="ui">↻ Refresh</span>. Empty-field cases now return
+    a 502 instead of caching — but a server hiccup mid-stream could
+    still produce an unusable brief. Refresh forces regeneration.
+  </p>
+
+  <h4>VIP suggestion that I dismissed keeps reappearing</h4>
+  <p>
+    The dismiss endpoint is atomic and idempotent, so this shouldn't
+    happen. If it does, the dismissed list may be at its 500-entry cap
+    and rotating out old entries — adjust the cap in
+    <code>app/api/user-prefs/append/route.ts</code> if you need more.
+  </p>
+
+  <h4>Quick capture commits the wrong thing</h4>
+  <p>
+    The preview step exists exactly for this. Click
+    <span class="ui">Edit</span> on the preview to return to the input
+    with your text intact, then refine the phrasing. Common fixes:
+    add an explicit time for events; use "remember that…" to force a
+    memory note.
+  </p>
+
+  <h4>Items that should be dimmed aren't (or vice versa)</h4>
+  <p>
+    The "last seen" snapshot is captured at page-load and stays fixed
+    for the session. Reload the page to capture a fresh snapshot, or
+    bump the column to 0 in
+    <code>surface_state</code> to reset.
+  </p>
+
+  <h3>Glossary</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td><strong>Surface</strong></td>
+        <td>One of email, news, or newsletters — a tab/section the user
+            scans for new content. Tracked separately for the "what
+            changed" feature.</td></tr>
+    <tr><td><strong>Prompt hash</strong></td>
+        <td>A short hash of the system prompt + user context. Drives
+            cache invalidation for email triage. Changes when you edit
+            your interests.</td></tr>
+    <tr><td><strong>VIP override</strong></td>
+        <td>A deterministic post-classification priority forcing. VIP
+            wins over mute if a sender somehow matches both.</td></tr>
+    <tr><td><strong>Ephemeral cache (Anthropic)</strong></td>
+        <td>A prompt-caching mode where the first call writes the cache
+            and subsequent calls within the cache window read at ~10%
+            of normal input cost.</td></tr>
+  </table>
+
+  <h3>Where the data lives</h3>
+  <table>
+    <tr><th>Table</th><th>Purpose</th></tr>
+    <tr><td><code>user_prefs</code></td>
+        <td>Single row of your settings + VIP/mute lists + dismissed
+            suggestions.</td></tr>
+    <tr><td><code>user_memory</code></td>
+        <td>Long-term memory markdown + the pending-exchanges queue.</td></tr>
+    <tr><td><code>article_prefs</code></td>
+        <td>Per-keyword and per-source score dicts feeding news ranking.</td></tr>
+    <tr><td><code>newsletter_prefs</code></td>
+        <td>Per-subject open counts and explicit feedback.</td></tr>
+    <tr><td><code>email_classification_cache</code></td>
+        <td>Priority + summary per email id, with prompt hash.</td></tr>
+    <tr><td><code>newsletter_cache</code></td>
+        <td>Bullets per newsletter id.</td></tr>
+    <tr><td><code>briefing_cache</code></td>
+        <td>One briefing per (date, timezone).</td></tr>
+    <tr><td><code>vip_suggestions_cache</code></td>
+        <td>VIP scan results per account.</td></tr>
+    <tr><td><code>surface_state</code></td>
+        <td>Last-seen timestamp per surface.</td></tr>
+    <tr><td><code>saved_items</code></td>
+        <td>Saved articles &amp; newsletter bullets.</td></tr>
+    <tr><td><code>thread_sessions</code> + <code>threads</code></td>
+        <td>Threading runs and the cross-article narratives they produce.</td></tr>
+  </table>
+</section>
+
+</main>
+
+<footer>
+  DEAD's Dashboard · User Guide · generated alongside the optimization push
+</footer>
+
+<script>
+  const TABS = [
+    { id: "start",        label: "Getting Started" },
+    { id: "tabs-content", label: "The 5 Tabs" },
+    { id: "topbar",       label: "Top Bar" },
+    { id: "settings",     label: "Settings" },
+    { id: "new",          label: "What's New" },
+    { id: "hood",         label: "Under the Hood" },
+    { id: "ref",          label: "Reference" },
+  ];
+  const tabBar = document.getElementById("tabs");
+  TABS.forEach((t, i) => {
+    const b = document.createElement("button");
+    b.textContent = t.label;
+    b.dataset.tab = t.id;
+    if (i === 0) b.classList.add("active");
+    b.addEventListener("click", () => activate(t.id));
+    tabBar.appendChild(b);
+  });
+  function activate(id) {
+    document.querySelectorAll("nav.tabs button").forEach((b) =>
+      b.classList.toggle("active", b.dataset.tab === id));
+    document.querySelectorAll("main > section").forEach((s) =>
+      s.classList.toggle("active", s.id === id));
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+</script>
+</body>
+</html>
