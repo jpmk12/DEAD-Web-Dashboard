@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { recordFeedback } from "@/lib/articlePrefs";
+import { recordFeedback, recordOpen } from "@/lib/articlePrefs";
 
 export const dynamic = "force-dynamic";
+
+const VALID_ACTIONS = new Set(["useful", "not_useful", "opened"]);
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -18,13 +20,18 @@ export async function POST(req: Request) {
   if (
     typeof body.title !== "string" ||
     typeof body.source !== "string" ||
-    (body.action !== "useful" && body.action !== "not_useful")
+    typeof body.action !== "string" ||
+    !VALID_ACTIONS.has(body.action)
   ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
   const title = body.title.slice(0, 500);
   const source = body.source.slice(0, 100);
-  await recordFeedback(title, source, body.action);
+  if (body.action === "opened") {
+    await recordOpen(title, source);
+  } else {
+    await recordFeedback(title, source, body.action as "useful" | "not_useful");
+  }
   return NextResponse.json({ ok: true });
 }

@@ -6,11 +6,35 @@ import { formatDistanceToNow, parseISO } from "date-fns";
 
 interface NewsCardProps {
   item: NewsItem;
-  onFeedback: (title: string, source: string, action: "useful" | "not_useful") => void;
+  onFeedback: (title: string, source: string, action: "useful" | "not_useful" | "opened") => void;
   isSaved?: boolean;
   onSave?: (item: NewsItem) => void;
   onUnsave?: (id: string) => void;
   watchlist?: string[];
+}
+
+// Per-article cooldown for the implicit "opened" signal so refresh / re-click
+// in the same week doesn't keep boosting the ranking. Stored in localStorage.
+const OPEN_DEDUP_KEY = "news-opens";
+const OPEN_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+function trackedRecently(itemId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const map = JSON.parse(localStorage.getItem(OPEN_DEDUP_KEY) ?? "{}") as Record<string, number>;
+    const last = map[itemId] ?? 0;
+    return Date.now() - last < OPEN_COOLDOWN_MS;
+  } catch { return false; }
+}
+function markTracked(itemId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const map = JSON.parse(localStorage.getItem(OPEN_DEDUP_KEY) ?? "{}") as Record<string, number>;
+    map[itemId] = Date.now();
+    // Light prune — drop entries older than 30d to keep the map bounded.
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    for (const k of Object.keys(map)) if (map[k] < cutoff) delete map[k];
+    localStorage.setItem(OPEN_DEDUP_KEY, JSON.stringify(map));
+  } catch { /* ignore */ }
 }
 
 const CATEGORY_STYLE: Record<string, { badge: string; bar: string }> = {
@@ -95,6 +119,12 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
           href={item.link}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => {
+            if (!trackedRecently(item.id)) {
+              markTracked(item.id);
+              onFeedback(item.title, item.source, "opened");
+            }
+          }}
           className="hover:text-emerald-400 transition-colors"
         >
           {item.title}

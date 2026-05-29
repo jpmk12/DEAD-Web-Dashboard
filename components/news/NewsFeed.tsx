@@ -88,7 +88,7 @@ export default function NewsFeed({ onArticlesLoaded, refreshKey = 0, onLoadingCh
   }, [status]);
 
   // Callbacks must be declared before any early returns (React rules of hooks)
-  const handleFeedback = useCallback((title: string, source: string, action: "useful" | "not_useful") => {
+  const handleFeedback = useCallback((title: string, source: string, action: "useful" | "not_useful" | "opened") => {
     fetch("/api/article-feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

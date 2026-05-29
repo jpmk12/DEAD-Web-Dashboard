@@ -128,6 +128,24 @@ export async function recordFeedback(
   });
 }
 
+// Implicit signal: the user clicked through to read this article. Counts at
+// ~1/4 the weight of an explicit "useful" so a thumbs-up still dominates,
+// but consistent opens for a source/topic still nudge ranking over time.
+export async function recordOpen(title: string, source: string): Promise<void> {
+  const KW_DELTA = 0.25;
+  const SRC_DELTA = 0.25;
+  const keywords = extractKeywords(title);
+  await updatePrefs((prefs) => {
+    const updatedKeywords = { ...prefs.keywords };
+    for (const kw of keywords) {
+      updatedKeywords[kw] = (updatedKeywords[kw] ?? 0) + KW_DELTA;
+    }
+    const updatedSources = { ...prefs.sources };
+    updatedSources[source] = (updatedSources[source] ?? 0) + SRC_DELTA;
+    return { ...prefs, keywords: updatedKeywords, sources: updatedSources };
+  });
+}
+
 export function scoreArticle(item: NewsItem, prefs: ArticlePrefs, watchlist: string[] = []): number {
   const keywords = extractKeywords(item.title + " " + (item.summary ?? ""));
   const kwScore = keywords.reduce((sum, kw) => sum + (prefs.keywords[kw] ?? 0), 0);
