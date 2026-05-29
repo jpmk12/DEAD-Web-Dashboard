@@ -218,17 +218,77 @@ function MarketsWatchlistEditor({ value, onChange }: { value: TickerEntry[]; onC
 
 interface OsintFeedHealth { id: string; count: number; fetchedAt: number; ok: boolean }
 
+interface DiagnosticResult {
+  ok: boolean;
+  url: string;
+  status?: number;
+  statusText?: string;
+  contentType?: string;
+  bytes?: number;
+  itemTagCount?: number;
+  entryTagCount?: number;
+  parsedItems?: number;
+  firstTitle?: string;
+  durationMs: number;
+  error?: string;
+  hint?: string;
+}
+
+// Inline diagnostic panel. Renders the test-feed result in a compact form
+// suitable for tucking under a feed row or the add-form. Colour-codes the
+// status badge; surfaces the bridge-specific hint prominently when present.
+function TestResultPanel({ r, onClose }: { r: DiagnosticResult; onClose: () => void }) {
+  const passed = r.ok;
+  const statusColor = passed
+    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+    : r.status && r.status >= 200 && r.status < 300
+    ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
+    : "bg-red-500/15 text-red-300 border-red-500/40";
+  return (
+    <div className="mt-1.5 bg-slate-900/80 border border-slate-700/60 rounded-md px-2.5 py-2 text-[10px]">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${statusColor}`}>
+          {r.error ? "ERR" : r.status ? `HTTP ${r.status}` : "—"}
+        </span>
+        <span className="text-slate-500 font-mono">{r.durationMs} ms</span>
+        {r.contentType && <span className="text-slate-600 font-mono truncate flex-1">{r.contentType}</span>}
+        <button onClick={onClose} className="text-slate-600 hover:text-slate-300 leading-none">×</button>
+      </div>
+      {r.error ? (
+        <p className="text-red-400 font-mono">{r.error}</p>
+      ) : (
+        <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-slate-400 font-mono">
+          <span><span className="text-slate-600">Bytes:</span> {r.bytes?.toLocaleString() ?? "—"}</span>
+          <span><span className="text-slate-600">&lt;item&gt;:</span> {r.itemTagCount ?? 0}</span>
+          <span><span className="text-slate-600">&lt;entry&gt;:</span> {r.entryTagCount ?? 0}</span>
+        </div>
+      )}
+      {r.firstTitle && (
+        <p className="mt-1.5 text-slate-300 truncate" title={r.firstTitle}>
+          <span className="text-slate-600">Top:</span> {r.firstTitle}
+        </p>
+      )}
+      {r.hint && (
+        <p className="mt-1.5 text-amber-300/90 leading-snug border-t border-slate-800 pt-1.5">
+          💡 {r.hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (v: OsintFeed[]) => void; }) {
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<OsintFeed["kind"]>("social");
   const [health, setHealth] = useState<Record<string, OsintFeedHealth>>({});
   const [healthLoading, setHealthLoading] = useState(false);
+  // Per-row + add-form test state. "new" is the sentinel key for the
+  // add-form's tester. Tests are user-initiated (Test button), so the result
+  // object hangs around until the user dismisses it via the × in the panel.
+  const [testResults, setTestResults] = useState<Record<string, DiagnosticResult>>({});
+  const [testing, setTesting] = useState<Set<string>>(new Set());
 
-  // Pull the current per-feed health (last fetch time, item count, ok flag)
-  // from /api/osint/feed. Cache means this is cheap if the OSINT tab was
-  // recently viewed. Re-runs whenever the configured feed list changes so
-  // a freshly-added feed gets a status indicator on the next refresh.
   useEffect(() => {
     if (value.length === 0) { setHealth({}); return; }
     setHealthLoading(true);
@@ -244,7 +304,6 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
       .finally(() => setHealthLoading(false));
   }, [value.length]);
 
-  // Format the dot's title attribute — what the user sees on hover.
   const healthLabel = (h: OsintFeedHealth | undefined): { dot: string; title: string } => {
     if (!h || !h.fetchedAt) return { dot: "bg-slate-700", title: "Not fetched yet" };
     const ageMin = Math.floor((Date.now() - h.fetchedAt) / 60_000);
@@ -252,6 +311,33 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
     if (!h.ok) return { dot: "bg-red-500", title: `Last fetch failed · ${ageLabel}` };
     if (h.count === 0) return { dot: "bg-amber-500", title: `0 items · last fetched ${ageLabel}` };
     return { dot: "bg-emerald-500", title: `${h.count} items · last fetched ${ageLabel}` };
+  };
+
+  // Run the diagnostic against an arbitrary URL. `key` is either an existing
+  // feed's id or the sentinel "new" for the add-form. Setting the result
+  // populates the inline TestResultPanel for that row.
+  const runTest = async (key: string, testUrl: string) => {
+    if (!testUrl.trim()) return;
+    setTesting((prev) => new Set(prev).add(key));
+    try {
+      const res = await fetch("/api/osint/test-feed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: testUrl.trim() }),
+      });
+      const data = await res.json();
+      setTestResults((prev) => ({ ...prev, [key]: data }));
+    } catch (e) {
+      setTestResults((prev) => ({
+        ...prev,
+        [key]: { ok: false, url: testUrl, error: e instanceof Error ? e.message : "Network error", durationMs: 0 },
+      }));
+    } finally {
+      setTesting((prev) => { const next = new Set(prev); next.delete(key); return next; });
+    }
+  };
+  const closeTest = (key: string) => {
+    setTestResults((prev) => { const next = { ...prev }; delete next[key]; return next; });
   };
 
   const add = () => {
@@ -264,6 +350,7 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
     } catch { return; }
     onChange([...value, { id: `${kind}-${Date.now()}`, label: trimLabel, url: trimUrl.slice(0, 500), kind }]);
     setLabel(""); setUrl("");
+    closeTest("new");
   };
 
   const KIND_STYLE: Record<OsintFeed["kind"], string> = {
@@ -278,35 +365,73 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
       <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
         OSINT Feeds
       </label>
-      <p className="text-[10px] text-slate-600 mb-3">
-        RSS / Atom URLs shown on the OSINT tab. Suggested: Nitter / rsshub.app bridges for X accounts (
-        <code className="text-emerald-400">https://rsshub.app/twitter/user/USERNAME</code>) and Telegram channels (
-        <code className="text-emerald-400">https://rsshub.app/telegram/channel/NAME</code>). Up to 20.
+      <p className="text-[10px] text-slate-600 mb-2 leading-relaxed">
+        RSS / Atom URLs shown on the OSINT tab. Up to 20. The <span className="text-slate-400 font-bold">Test</span> button
+        on each row diagnoses what the upstream is returning (status, item count,
+        common-failure hints).
       </p>
+      <details className="text-[10px] text-slate-600 mb-3 leading-relaxed bg-slate-900/40 border border-slate-800 rounded-md px-2.5 py-1.5">
+        <summary className="cursor-pointer text-slate-400 hover:text-slate-200 select-none">
+          Bridges that usually work (and the ones that don&apos;t)
+        </summary>
+        <div className="pt-2 space-y-1.5">
+          <p>
+            <span className="text-amber-400 font-bold">⚠ Twitter / X via rsshub.app is broken most days</span> —
+            X actively blocks scrapers and the public <code>rsshub.app</code> instance is heavily rate-limited.
+            If your feed returns 0 items, try a different instance:
+          </p>
+          <ul className="ml-3 space-y-0.5 font-mono">
+            <li>· <code className="text-emerald-400">https://rsshub.feeded.xyz/twitter/user/USERNAME</code></li>
+            <li>· <code className="text-emerald-400">https://rsshub.rssforever.com/twitter/user/USERNAME</code></li>
+            <li>· <code className="text-emerald-400">https://nitter.privacydev.net/USERNAME/rss</code></li>
+          </ul>
+          <p>
+            Telegram channels (more reliable):
+            <code className="text-emerald-400 ml-1">https://rsshub.app/telegram/channel/NAME</code>
+          </p>
+          <p>
+            News sites usually expose their own RSS — look for an <code>/rss</code> or <code>/feed</code> path
+            on the publisher&apos;s site. Native feeds are always more reliable than scraper bridges.
+          </p>
+        </div>
+      </details>
 
       {value.length > 0 && (
-        <ul className="mb-2 space-y-1.5 max-h-56 overflow-y-auto">
+        <ul className="mb-2 space-y-1.5 max-h-72 overflow-y-auto">
           {value.map((f) => {
             const h = healthLabel(health[f.id]);
+            const result = testResults[f.id];
+            const isTesting = testing.has(f.id);
             return (
-              <li key={f.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-                <span
-                  className={`flex-shrink-0 w-2 h-2 rounded-full ${h.dot} ${healthLoading ? "animate-pulse" : ""}`}
-                  title={h.title}
-                />
-                <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_STYLE[f.kind]}`}>
-                  {f.kind}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-slate-200 truncate">{f.label}</p>
-                  <p className="text-[9px] text-slate-600 font-mono truncate">{f.url}</p>
+              <li key={f.id} className="bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`flex-shrink-0 w-2 h-2 rounded-full ${h.dot} ${healthLoading ? "animate-pulse" : ""}`}
+                    title={h.title}
+                  />
+                  <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_STYLE[f.kind]}`}>
+                    {f.kind}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-slate-200 truncate">{f.label}</p>
+                    <p className="text-[9px] text-slate-600 font-mono truncate">{f.url}</p>
+                  </div>
+                  <button
+                    onClick={() => runTest(f.id, f.url)}
+                    disabled={isTesting}
+                    title="Fetch the URL now and report status / item count / hints"
+                    className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/40 text-slate-400 hover:text-emerald-400 px-2 py-0.5 rounded transition-all disabled:opacity-40 flex-shrink-0"
+                  >
+                    {isTesting ? "…" : "Test"}
+                  </button>
+                  <button
+                    onClick={() => onChange(value.filter((x) => x.id !== f.id))}
+                    className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1 flex-shrink-0"
+                  >
+                    ×
+                  </button>
                 </div>
-                <button
-                  onClick={() => onChange(value.filter((x) => x.id !== f.id))}
-                  className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
-                >
-                  ×
-                </button>
+                {result && <TestResultPanel r={result} onClose={() => closeTest(f.id)} />}
               </li>
             );
           })}
@@ -335,12 +460,24 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
           className="col-span-2 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <button
+          onClick={() => runTest("new", url)}
+          disabled={!url.trim() || testing.has("new")}
+          className="text-[11px] font-bold border border-slate-700 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40"
+        >
+          {testing.has("new") ? "Testing…" : "Test First"}
+        </button>
+        <button
           onClick={add}
           disabled={!label.trim() || !url.trim() || value.length >= 20}
-          className="col-span-2 text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
+          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
         >
           Add Feed
         </button>
+        {testResults.new && (
+          <div className="col-span-2">
+            <TestResultPanel r={testResults.new} onClose={() => closeTest("new")} />
+          </div>
+        )}
       </div>
     </div>
   );
