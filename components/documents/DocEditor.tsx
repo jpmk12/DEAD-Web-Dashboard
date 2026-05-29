@@ -85,6 +85,10 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [slashState, setSlashState] = useState<{ open: boolean; query: string; pos: number; selectedIdx: number }>({
     open: false, query: "", pos: -1, selectedIdx: 0,
   });
+  const [findState, setFindState] = useState<{ open: boolean; query: string; replace: string; caseSensitive: boolean }>({
+    open: false, query: "", replace: "", caseSensitive: false,
+  });
+  const findInputRef = useRef<HTMLInputElement>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRef = useRef<{ title: string; content: string }>({ title: "", content: "" });
@@ -228,6 +232,83 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     moveCursorTo(pos + (cursorOffset ?? text.length));
   };
 
+  // ─── Find / replace ──────────────────────────────────────────────────
+  // No visual highlighting (would need an overlay div mirroring the textarea
+  // — high-effort, not MVP-worthy). Instead, "Find next" jumps the cursor
+  // selection to the next match, wrapping around at the end. Match search
+  // honours the case-sensitive toggle but stays plain-text (no regex).
+  const findNext = (fromPos?: number) => {
+    const ta = textareaRef.current;
+    if (!ta || !findState.query) return;
+    const q = findState.caseSensitive ? findState.query : findState.query.toLowerCase();
+    const hay = findState.caseSensitive ? ta.value : ta.value.toLowerCase();
+    const start = fromPos ?? ta.selectionEnd;
+    let idx = hay.indexOf(q, start);
+    if (idx === -1) idx = hay.indexOf(q, 0); // wrap
+    if (idx === -1) return;
+    moveCursorTo(idx, idx + findState.query.length);
+  };
+
+  const replaceCurrent = () => {
+    const ta = textareaRef.current;
+    if (!ta || !findState.query) return;
+    const sel = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+    const matches = findState.caseSensitive
+      ? sel === findState.query
+      : sel.toLowerCase() === findState.query.toLowerCase();
+    // Only replace if the current selection is in fact the match — otherwise
+    // a stray click while the bar is open would replace unrelated text.
+    if (!matches) {
+      findNext();
+      return;
+    }
+    const newValue =
+      ta.value.substring(0, ta.selectionStart) +
+      findState.replace +
+      ta.value.substring(ta.selectionEnd);
+    updateContent(newValue);
+    const nextCursor = ta.selectionStart + findState.replace.length;
+    moveCursorTo(nextCursor);
+    // Auto-advance to the next match.
+    setTimeout(() => findNext(nextCursor), 0);
+  };
+
+  const replaceAll = () => {
+    const ta = textareaRef.current;
+    if (!ta || !findState.query) return;
+    if (findState.caseSensitive) {
+      // Plain split-join — fast, no regex escaping concerns.
+      const next = ta.value.split(findState.query).join(findState.replace);
+      if (next !== ta.value) updateContent(next);
+      return;
+    }
+    // Case-insensitive: build a regex with escaped query, preserve case via
+    // simple replacement (no smart-casing — just substitute the literal).
+    const escaped = findState.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const next = ta.value.replace(new RegExp(escaped, "gi"), findState.replace);
+    if (next !== ta.value) updateContent(next);
+  };
+
+  const openFind = () => {
+    setFindState((s) => ({ ...s, open: true }));
+    // Pre-seed with the current selection if there is one.
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) {
+        const sel = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+        if (sel && sel.length < 100) {
+          setFindState((s) => ({ ...s, query: sel }));
+        }
+      }
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    });
+  };
+  const closeFind = () => {
+    setFindState((s) => ({ ...s, open: false }));
+    textareaRef.current?.focus();
+  };
+
   const applySlashCommand = (cmd: SlashCommand) => {
     const ta = textareaRef.current;
     if (!ta || !slashState.open) return;
@@ -299,6 +380,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     if (e.key === "b") { e.preventDefault(); wrapSelection("**"); return; }
     if (e.key === "i") { e.preventDefault(); wrapSelection("*"); return; }
     if (e.key === "k") { e.preventDefault(); insertLinkAtSelection(); return; }
+    if (e.key === "f") { e.preventDefault(); openFind(); return; }
     // ⌘[ creates a wiki-link. Use the literal key — browsers also fire "{"
     // for shift+[ on some layouts, which we don't want.
     if (e.key === "[") { e.preventDefault(); wrapSelection("[[", "]]"); return; }
@@ -507,6 +589,78 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             onLink          ={insertLinkAtSelection}
             onWikiLink      ={() => wrapSelection("[[", "]]")}
           />
+          {findState.open && (
+            <div className="border-b border-slate-800 bg-slate-900/80 px-3 py-1.5 flex items-center gap-2 text-xs">
+              <input
+                ref={findInputRef}
+                value={findState.query}
+                onChange={(e) => setFindState((s) => ({ ...s, query: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); findNext(); }
+                  if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+                }}
+                placeholder="Find"
+                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-700 outline-none"
+              />
+              <input
+                value={findState.replace}
+                onChange={(e) => setFindState((s) => ({ ...s, replace: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); replaceCurrent(); }
+                  if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+                }}
+                placeholder="Replace"
+                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-700 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setFindState((s) => ({ ...s, caseSensitive: !s.caseSensitive }))}
+                title="Case sensitive"
+                className={`text-[10px] font-mono font-bold w-7 h-7 rounded transition-all border ${
+                  findState.caseSensitive
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                    : "text-slate-500 border-slate-700 hover:text-slate-300 hover:border-slate-500"
+                }`}
+              >
+                Aa
+              </button>
+              <button
+                type="button"
+                onClick={() => findNext()}
+                disabled={!findState.query}
+                title="Find next (Enter)"
+                className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-2 py-1 rounded transition-all disabled:opacity-40"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                onClick={replaceCurrent}
+                disabled={!findState.query}
+                title="Replace current match"
+                className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-2 py-1 rounded transition-all disabled:opacity-40"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={replaceAll}
+                disabled={!findState.query}
+                title="Replace all"
+                className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 hover:text-amber-300 px-2 py-1 rounded transition-all disabled:opacity-40"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={closeFind}
+                title="Close (Esc)"
+                className="text-slate-600 hover:text-slate-300 w-6 h-6 flex items-center justify-center text-lg leading-none rounded hover:bg-slate-800 transition-all"
+              >
+                ×
+              </button>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={doc.content}
