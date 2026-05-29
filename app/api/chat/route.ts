@@ -112,13 +112,14 @@ export async function POST(request: Request) {
   const tz = userPrefs.timezone || "America/Chicago";
   const today = format(new Date(), "EEEE, MMMM d, yyyy");
 
-  const systemPrompt = `You are a personal scheduling and productivity assistant. Today is ${today}. User's timezone: ${tz}.${userContext}${memoryContext}
-
-USER'S UPCOMING CALENDAR:
-${formatEvents(sanitizedContext)}
-
-USER'S PENDING TASKS:
-${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}
+  // The system prompt splits into a cacheable "rules + identity + user
+  // preferences + long-term memory" block (stable across turns within a
+  // session) and a dynamic per-turn block (calendar / tasks / news /
+  // newsletters / today's date / tz). Anthropic prompt caching cuts the
+  // input cost of the cacheable block by ~90% on warm reads. With memory +
+  // user_context typically running 1-2k tokens, this is a real saving on
+  // every chat turn after the first.
+  const cacheableBlock = `You are a personal scheduling and productivity assistant.${userContext}${memoryContext}
 
 You can:
 - Find free time slots and check for conflicts in the calendar
@@ -127,7 +128,7 @@ You can:
 - Create tasks and to-do items
 
 TO ADD A CALENDAR EVENT: When the user asks you to schedule or add something, end your response with this on its own line (valid JSON, always include timeZone using the user's timezone):
-[ADD_EVENT:{"summary":"Event title","start":"2026-05-20T10:00:00","end":"2026-05-20T11:00:00","timeZone":"${tz}"}]
+[ADD_EVENT:{"summary":"Event title","start":"2026-05-20T10:00:00","end":"2026-05-20T11:00:00","timeZone":"<USER_TZ>"}]
 
 TO CREATE A TASK: When the user asks you to create a task or reminder, end your response with this on its own line (valid JSON only):
 [ADD_TASK:{"title":"Task description","due":"2026-05-20"}]
@@ -138,11 +139,22 @@ Rules:
 - The "due" field for tasks is optional; "description" and "location" for events are also optional
 - Include only one action block per response; ask for confirmation if multiple actions are needed`;
 
+  const dynamicBlock = `Today is ${today}. User's timezone: ${tz}.
+
+USER'S UPCOMING CALENDAR:
+${formatEvents(sanitizedContext)}
+
+USER'S PENDING TASKS:
+${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
+
   const stream = await anthropic.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 2048,
     stream: true,
-    system: systemPrompt,
+    system: [
+      { type: "text" as const, text: cacheableBlock, cache_control: { type: "ephemeral" as const } },
+      { type: "text" as const, text: dynamicBlock },
+    ],
     messages: sanitizedMessages.map((m) => ({ role: m.role, content: m.content })),
   }).catch((err: unknown) => {
     if (isOverloaded(err)) return null;

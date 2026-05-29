@@ -5,11 +5,12 @@ import { getDb } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 // Whitelist of fields the append endpoint can touch. Anything else needs the
-// full PUT via /api/user-prefs.
-const APPENDABLE: Record<string, string> = {
-  vipSenders: "vip_senders",
-  muteSenders: "mute_senders",
-  dismissedVipSuggestions: "dismissed_vip_suggestions",
+// full PUT via /api/user-prefs. Per-field caps match the lengths enforced by
+// the validation in /api/user-prefs POST so the two paths agree on shape.
+const APPENDABLE: Record<string, { column: string; max: number }> = {
+  vipSenders:              { column: "vip_senders",               max: 100 },
+  muteSenders:             { column: "mute_senders",              max: 100 },
+  dismissedVipSuggestions: { column: "dismissed_vip_suggestions", max: 500 },
 };
 
 const MAX_VALUE_LEN = 254;
@@ -28,10 +29,11 @@ export async function POST(request: Request) {
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
   const field = typeof body.field === "string" ? body.field : "";
-  const column = APPENDABLE[field];
-  if (!column) {
+  const spec = APPENDABLE[field];
+  if (!spec) {
     return NextResponse.json({ error: "Unsupported field" }, { status: 400 });
   }
+  const { column, max } = spec;
 
   const rawValue = typeof body.value === "string" ? body.value.trim() : "";
   if (!rawValue) return NextResponse.json({ error: "value is required" }, { status: 400 });
@@ -48,6 +50,15 @@ export async function POST(request: Request) {
      WHERE id = 1
        AND NOT JSON_CONTAINS(COALESCE(${column}, JSON_ARRAY()), JSON_QUOTE(?), '$')`,
     [value, value]
+  );
+  // Trim oldest entries if we've grown past the per-field cap. The trim is
+  // a separate statement so the append above can run on its idempotency
+  // guard without depending on the row size.
+  await pool.execute(
+    `UPDATE user_prefs
+       SET ${column} = JSON_REMOVE(${column}, '$[0]')
+     WHERE id = 1 AND JSON_LENGTH(${column}) > ?`,
+    [max]
   );
   return NextResponse.json({ ok: true });
 }
