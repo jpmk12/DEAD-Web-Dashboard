@@ -11,6 +11,7 @@ interface NewsCardProps {
   onSave?: (item: NewsItem) => void;
   onUnsave?: (id: string) => void;
   watchlist?: string[];
+  previousSeen?: number;
 }
 
 // Per-article cooldown for the implicit "opened" signal so refresh / re-click
@@ -47,7 +48,7 @@ const CATEGORY_STYLE: Record<string, { badge: string; bar: string }> = {
 };
 const DEFAULT_STYLE = { badge: "bg-slate-700/40 text-slate-400 border border-slate-700", bar: "bg-slate-600" };
 
-export default function NewsCard({ item, onFeedback, isSaved = false, onSave, onUnsave, watchlist = [] }: NewsCardProps) {
+export default function NewsCard({ item, onFeedback, isSaved = false, onSave, onUnsave, watchlist = [], previousSeen = 0 }: NewsCardProps) {
   const [rated, setRated] = useState<"useful" | "not_useful" | null>(null);
   const style = CATEGORY_STYLE[item.category] ?? DEFAULT_STYLE;
 
@@ -57,6 +58,13 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
     } catch {
       return "";
     }
+  })();
+
+  // Dim items the user has already had a chance to see. previousSeen = 0
+  // (never visited) leaves everything full opacity.
+  const isStale = (() => {
+    if (!previousSeen) return false;
+    try { return parseISO(item.pubDate).getTime() < previousSeen; } catch { return false; }
   })();
 
   const rate = (action: "useful" | "not_useful") => {
@@ -74,11 +82,11 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
   };
 
   return (
-    <article className={`relative bg-slate-900 rounded-xl border p-5 overflow-hidden flex flex-col card-hover ${
+    <article className={`relative bg-slate-900 rounded-xl border p-5 overflow-hidden flex flex-col card-hover transition-opacity ${
       isWatchlisted
         ? "border-orange-500/40 shadow-[0_0_16px_-4px_rgb(249_115_22_/_0.2)]"
         : "border-slate-800 hover:border-slate-600"
-    }`}>
+    } ${isStale ? "opacity-50 hover:opacity-100" : ""}`}>
       {/* Colour accent bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${isWatchlisted ? "bg-orange-500" : style.bar}`} />
 

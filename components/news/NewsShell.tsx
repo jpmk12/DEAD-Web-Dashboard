@@ -14,6 +14,8 @@ interface NewsShellProps {
   onArticlesChange?: (articles: NewsItem[]) => void;
   onNewslettersChange?: (newsletters: NewsletterSummary[]) => void;
   watchlist?: string[];
+  previousSeenNews?: number;
+  previousSeenNewsletters?: number;
 }
 
 type ViewMode = "feed" | "threads" | "history";
@@ -25,7 +27,13 @@ function formatUpdated(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export default function NewsShell({ onArticlesChange, onNewslettersChange, watchlist = [] }: NewsShellProps) {
+export default function NewsShell({
+  onArticlesChange,
+  onNewslettersChange,
+  watchlist = [],
+  previousSeenNews = 0,
+  previousSeenNewsletters = 0,
+}: NewsShellProps) {
   const [articles, setArticles] = useState<NewsItem[]>([]);
   const [newsletters, setNewsletters] = useState<NewsletterSummary[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -171,12 +179,14 @@ export default function NewsShell({ onArticlesChange, onNewslettersChange, watch
             refreshKey={refreshKey}
             onLoadingChange={handleLoadingChange}
             watchlist={watchlist}
+            previousSeen={previousSeenNewsletters}
           />
           <NewsFeed
             onArticlesLoaded={handleArticlesLoaded}
             refreshKey={refreshKey}
             onLoadingChange={handleLoadingChange}
             watchlist={watchlist}
+            previousSeen={previousSeenNews}
           />
           <TwitterSection />
         </div>

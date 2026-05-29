@@ -26,9 +26,16 @@ interface NewsFeedProps {
   refreshKey?: number;
   onLoadingChange?: (loading: boolean) => void;
   watchlist?: string[];
+  previousSeen?: number;
 }
 
-export default function NewsFeed({ onArticlesLoaded, refreshKey = 0, onLoadingChange, watchlist = [] }: NewsFeedProps) {
+export default function NewsFeed({
+  onArticlesLoaded,
+  refreshKey = 0,
+  onLoadingChange,
+  watchlist = [],
+  previousSeen = 0,
+}: NewsFeedProps) {
   const { status } = useSession();
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -244,6 +251,7 @@ export default function NewsFeed({ onArticlesLoaded, refreshKey = 0, onLoadingCh
               onSave={handleSave}
               onUnsave={handleUnsave}
               watchlist={watchlist}
+              previousSeen={previousSeen}
             />
           ))}
           {visible.length === 0 && (

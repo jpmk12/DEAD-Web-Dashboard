@@ -79,6 +79,11 @@ const SCHEMA_STATEMENTS = [
     last_updated DATETIME(3) NOT NULL
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS surface_state (
+    surface       VARCHAR(64) NOT NULL PRIMARY KEY,
+    last_seen_at  BIGINT      NOT NULL
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,

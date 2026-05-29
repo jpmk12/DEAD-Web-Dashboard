@@ -5,6 +5,7 @@ interface EmailCardProps {
   email: EmailMessage;
   selected: boolean;
   onToggle: (id: string) => void;
+  previousSeen?: number;
 }
 
 const PRIORITY_CONFIG: Record<EmailPriority, { badge: string; bar: string; glow: string }> = {
@@ -31,12 +32,16 @@ function parseSender(from: string) {
   return { name: from, email: from };
 }
 
-export default function EmailCard({ email, selected, onToggle }: EmailCardProps) {
+export default function EmailCard({ email, selected, onToggle, previousSeen = 0 }: EmailCardProps) {
   const cfg = PRIORITY_CONFIG[email.priority];
   const sender = parseSender(email.from);
   const timeAgo = (() => {
     try { return formatDistanceToNow(parseISO(email.date), { addSuffix: true }); }
     catch { return ""; }
+  })();
+  const isStale = (() => {
+    if (!previousSeen) return false;
+    try { return parseISO(email.date).getTime() < previousSeen; } catch { return false; }
   })();
 
   return (
@@ -45,7 +50,7 @@ export default function EmailCard({ email, selected, onToggle }: EmailCardProps)
         selected
           ? "border-emerald-600/50 bg-emerald-500/5"
           : "border-slate-800 bg-slate-900 hover:border-slate-700"
-      }`}
+      } ${isStale ? "opacity-50 hover:opacity-100" : ""}`}
       onClick={() => onToggle(email.id)}
     >
       {/* Priority left border */}

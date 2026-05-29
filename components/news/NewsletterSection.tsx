@@ -13,6 +13,7 @@ interface NewsletterSectionProps {
   refreshKey?: number;
   onLoadingChange?: (loading: boolean) => void;
   watchlist?: string[];
+  previousSeen?: number;
 }
 
 const SOURCE_BADGE: Record<
@@ -61,7 +62,7 @@ function bulletMatchesWatchlist(bullet: string, watchlist: string[]): boolean {
   return watchlist.some((t) => lower.includes(t.toLowerCase()));
 }
 
-export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, onLoadingChange, watchlist = [] }: NewsletterSectionProps) {
+export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, onLoadingChange, watchlist = [], previousSeen = 0 }: NewsletterSectionProps) {
   const { status } = useSession();
   const [newsletters, setNewsletters] = useState<NewsletterSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -239,6 +240,10 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
               catch { return ""; }
             })();
             const hasWatchlistMatch = n.bullets.some((b) => bulletMatchesWatchlist(b, watchlist));
+            const isStale = (() => {
+              if (!previousSeen) return false;
+              try { return parseISO(n.date).getTime() < previousSeen; } catch { return false; }
+            })();
 
             return (
               <div
@@ -249,7 +254,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                     : hasWatchlistMatch
                     ? "border-orange-500/40 shadow-[0_0_14px_-4px_rgb(249_115_22_/_0.15)]"
                     : "border-slate-800"
-                }`}
+                } ${isStale ? "opacity-60 hover:opacity-100" : ""}`}
               >
                 {/* Card header — click to expand */}
                 <div

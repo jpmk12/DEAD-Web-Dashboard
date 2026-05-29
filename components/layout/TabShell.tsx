@@ -29,6 +29,42 @@ export default function TabShell() {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [watchlist, setWatchlist] = useState<string[]>([]);
 
+  // "What changed since I last looked": frozen-at-mount snapshot of when the
+  // user last viewed each surface. Drives dimming of items older than the
+  // snapshot. Bumped on the server after dwell, but the snapshot here stays
+  // fixed for the session so things don't dim mid-scroll.
+  const [previousSeen, setPreviousSeen] = useState<Record<"email" | "news" | "newsletters", number>>({
+    email: 0, news: 0, newsletters: 0,
+  });
+
+  useEffect(() => {
+    fetch("/api/surface-state")
+      .then((r) => r.json())
+      .then((d: { lastSeen?: Record<"email" | "news" | "newsletters", number> }) => {
+        if (d.lastSeen) setPreviousSeen(d.lastSeen);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Bump the server-side lastSeen after the user dwells on a tab for >5 s.
+  useEffect(() => {
+    const surfaces: ("email" | "news" | "newsletters")[] =
+      activeTab === "email" ? ["email"]
+      : activeTab === "news" ? ["news", "newsletters"]
+      : [];
+    if (surfaces.length === 0) return;
+    const t = setTimeout(() => {
+      for (const surface of surfaces) {
+        fetch("/api/surface-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ surface }),
+        }).catch(() => {});
+      }
+    }, 5_000);
+    return () => clearTimeout(t);
+  }, [activeTab]);
+
   // Global ⌘K / Ctrl+K opens quick capture from anywhere.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -144,6 +180,8 @@ export default function TabShell() {
             onArticlesChange={setArticles}
             onNewslettersChange={setNewsletters}
             watchlist={watchlist}
+            previousSeenNews={previousSeen.news}
+            previousSeenNewsletters={previousSeen.newsletters}
           />
         </div>
 
@@ -163,7 +201,7 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "email" ? "hidden" : ""}>
-          <EmailTab />
+          <EmailTab previousSeen={previousSeen.email} />
         </div>
 
         <div className={activeTab !== "markets" ? "hidden" : ""}>

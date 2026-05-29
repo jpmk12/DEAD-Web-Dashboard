@@ -13,12 +13,13 @@ stable references that can be quoted in future sessions ("ship #5 next").
 Cache classifications by Gmail message id, inject user prefs into the
 classifier prompt, deterministic Always-High / Always-Low sender overrides.
 
-### 2. 📋 Implicit feedback on articles + newsletters
-Log every article open and newsletter-bullet expand. Feed counts into news
-ranking and newsletter ordering. Already have `article-feedback` and
-`newsletter_prefs.open_counts`; extend to implicit signals (not just thumbs).
-**Effort:** small. **Touches:** `lib/articlePrefs.ts`, `lib/newsletterPrefs.ts`,
-new endpoint `/api/track`, hook into `NewsCard` and newsletter expand.
+### 2. ✅ Implicit feedback on articles + newsletters
+**Status:** Shipped. Newsletter expand was already tracked (existing
+`/api/newsletter-feedback "opened"` → `incrementOpenCount` → sort).
+Article opens now feed `lib/articlePrefs.recordOpen` via the same
+`/api/article-feedback` route at ~¼ the weight of explicit thumbs.
+Client-side localStorage dedup keeps re-clicks in a 7-day window from
+multi-boosting.
 
 ### 3. 📋 Suggested VIPs from reply patterns
 Track senders the user replies to within N minutes (Gmail API exposes thread
@@ -64,11 +65,12 @@ support via the `List-Unsubscribe` mail header. Inbox hygiene without manual
 triage. **Effort:** small. **Touches:** sender-open tracking table, new
 `/api/gmail/unsubscribe` endpoint, EmailTab suggestion row.
 
-### 9. 📋 "What changed since I last looked"
-Track `last_seen_at` per surface. On reopen, dim or de-emphasise everything
-older than that timestamp. See new-only by default. **Effort:** small.
-**Touches:** new `surface_state` table or localStorage, render flag in
-EmailCard / NewsCard / NewsletterSection.
+### 9. ✅ "What changed since I last looked"
+**Status:** Shipped. New `surface_state` table records last visit per
+surface (`email`, `news`, `newsletters`). On page load, TabShell fetches
+the snapshot and dims items older than the snapshot at 50–60% opacity
+(hover restores to full). After 5 s of dwell on a tab, the server-side
+timestamp is bumped so the *next* session inherits a fresh baseline.
 
 ---
 
@@ -91,4 +93,6 @@ next one smarter. View / edit / clear from Preferences.
 | `d3bde01` | Newsletter summarisation → Sonnet (fix empty-bullet items) |
 | `6f087e3` | DEAD POOL skull-reticle favicon |
 | `9825cec` | Email triage cache + personalised prompt + VIP/mute lists |
-| _this push_ | Memory layer + action items → Tasks + quick capture |
+| `6882cc6` / `8979d1b` / `d0b10dd` | Memory layer + action items → Tasks + quick capture |
+| `999fa6e` | Throttle memory updates; preview-then-confirm for quick capture |
+| `a74c8a3` / _this push_ | #2 implicit article opens + #9 "what changed since I last looked" |

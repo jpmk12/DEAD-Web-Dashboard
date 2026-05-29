@@ -19,7 +19,11 @@ function formatUpdated(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export default function EmailTab() {
+interface EmailTabProps {
+  previousSeen?: number;
+}
+
+export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
   const { status } = useSession();
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -390,6 +394,7 @@ export default function EmailTab() {
                 email={email}
                 selected={selected.has(email.id)}
                 onToggle={toggleSelect}
+                previousSeen={previousSeen}
               />
             ))
           )}
