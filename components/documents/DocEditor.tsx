@@ -5,6 +5,7 @@ import { formatDistanceToNow, parseISO } from "date-fns";
 import MarkdownPreview from "./MarkdownPreview";
 import DocChatPanel from "./DocChatPanel";
 import DocToolbar from "./DocToolbar";
+import DocTOC from "./DocTOC";
 
 interface DocFull {
   id: string;
@@ -82,6 +83,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [tagInput, setTagInput] = useState("");
   const [splitView, setSplitView] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(false);
   const [slashState, setSlashState] = useState<{ open: boolean; query: string; pos: number; selectedIdx: number }>({
     open: false, query: "", pos: -1, selectedIdx: 0,
   });
@@ -386,6 +388,26 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     if (e.key === "[") { e.preventDefault(); wrapSelection("[[", "]]"); return; }
   };
 
+  // Move the textarea cursor to the start of the given source line. Used
+  // by the TOC sidebar when the user clicks a heading. Also scrolls the
+  // textarea so the line is roughly centred — textarea scroll math is
+  // approximate (uses cached lineHeight read from computed style), good
+  // enough for navigation purposes.
+  const jumpToLine = (lineIdx: number) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const lines = ta.value.split("\n");
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    let pos = 0;
+    for (let i = 0; i < lineIdx; i++) pos += lines[i].length + 1;
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+    // Approximate vertical scroll: lineHeight * lineIdx - third of viewport.
+    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 22;
+    const targetScroll = Math.max(0, lineHeight * lineIdx - ta.clientHeight / 3);
+    ta.scrollTop = targetScroll;
+  };
+
   // Flip the `[ ]` ↔ `[x]` marker on the clicked task line. Line index is
   // derived from the rendered output, so it reflects the current content state.
   const onTaskToggle = (lineIdx: number, checked: boolean) => {
@@ -507,6 +529,17 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
                updatedLabel ? `Updated ${updatedLabel}` : ""}
             </span>
             <button
+              onClick={() => setTocOpen((v) => !v)}
+              title={tocOpen ? "Hide outline" : "Show outline (TOC)"}
+              className={`text-[10px] font-mono px-2 py-0.5 rounded transition-all border ${
+                tocOpen
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "text-slate-500 hover:text-slate-300 border-slate-700 hover:border-slate-500"
+              }`}
+            >
+              ≣ TOC
+            </button>
+            <button
               onClick={() => setSplitView((v) => !v)}
               title={splitView ? "Editor only" : "Split view"}
               className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
@@ -555,16 +588,24 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
         </div>
       </div>
 
-      {/* Editor / preview split, plus optional chat column on the right.
-          Grid columns: editor [+ preview if split] [+ chat if open]. Each
-          panel shares the row height; flex layout inside each cell scrolls
-          independently. */}
+      {/* Layout columns, in order from left to right:
+          [TOC if open] · editor · [preview if split] · [chat if open].
+          The TOC column is fixed-width on the left; editor + optional
+          preview share the centre as 1fr each; chat docks on the right
+          with min/max constraints to stay readable. */}
       <div className={`flex-1 min-h-0 grid divide-x divide-slate-800 ${
-        splitView && chatOpen ? "grid-cols-[1fr_1fr_minmax(320px,420px)]" :
-        splitView             ? "grid-cols-2" :
-        chatOpen              ? "grid-cols-[1fr_minmax(320px,420px)]" :
-                                "grid-cols-1"
+        tocOpen && splitView && chatOpen ? "grid-cols-[minmax(160px,200px)_1fr_1fr_minmax(320px,420px)]" :
+        tocOpen && splitView             ? "grid-cols-[minmax(160px,200px)_1fr_1fr]" :
+        tocOpen && chatOpen              ? "grid-cols-[minmax(160px,200px)_1fr_minmax(320px,420px)]" :
+        tocOpen                          ? "grid-cols-[minmax(160px,200px)_1fr]" :
+        splitView && chatOpen            ? "grid-cols-[1fr_1fr_minmax(320px,420px)]" :
+        splitView                        ? "grid-cols-2" :
+        chatOpen                         ? "grid-cols-[1fr_minmax(320px,420px)]" :
+                                           "grid-cols-1"
       }`}>
+        {tocOpen && (
+          <DocTOC text={doc.content} onJumpToLine={jumpToLine} onClose={() => setTocOpen(false)} />
+        )}
         {/* Editor pane is relative so the slash-command popover anchors here.
             DocToolbar sits at the top of the column; the textarea fills the
             remaining height via flex. */}
