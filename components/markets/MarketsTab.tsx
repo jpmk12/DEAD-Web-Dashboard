@@ -1,125 +1,115 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { TickerEntry } from "@/lib/types";
+import ContractsPanel from "./ContractsPanel";
 
-const TICKER_CFG = JSON.stringify({
-  symbols: [
-    { proName: "FOREXCOM:SPXUSD", title: "S&P 500" },
-    { proName: "DJ:DJI",          title: "DOW" },
-    { proName: "NASDAQ:NDX",      title: "NASDAQ" },
-    { proName: "CBOE:VIX",        title: "VIX" },
-    { proName: "NYMEX:CL1!",      title: "WTI Oil" },
-    { proName: "COMEX:GC1!",      title: "Gold" },
-  ],
-  showSymbolLogo: false,
-  colorTheme: "dark",
-  isTransparent: true,
-  displayMode: "adaptive",
-  locale: "en",
-});
+const INDICES: TickerEntry[] = [
+  { symbol: "FOREXCOM:SPXUSD", label: "S&P 500" },
+  { symbol: "DJ:DJI",          label: "DJIA" },
+  { symbol: "NASDAQ:NDX",      label: "NASDAQ 100" },
+  { symbol: "CBOE:VIX",        label: "VIX" },
+];
 
-const OVERVIEW_CFG = JSON.stringify({
-  colorTheme: "dark",
-  dateRange: "1D",
-  showChart: true,
-  locale: "en",
-  width: "100%",
-  height: 520,
-  isTransparent: true,
-  showSymbolLogo: false,
-  showFloatingTooltip: false,
-  plotLineColorGrowing: "rgb(16, 185, 129)",
-  plotLineColorFalling: "rgb(239, 68, 68)",
-  gridLineColor: "rgba(51, 65, 85, 0.5)",
-  scaleFontColor: "rgba(148, 163, 184, 1)",
-  belowLineFillColorGrowing: "rgba(16, 185, 129, 0.12)",
-  belowLineFillColorFalling: "rgba(239, 68, 68, 0.12)",
-  symbolActiveColor: "rgba(16, 185, 129, 0.12)",
-  tabs: [
-    {
-      title: "Indices",
-      symbols: [
-        { s: "FOREXCOM:SPXUSD", d: "S&P 500" },
-        { s: "DJ:DJI",          d: "DJIA" },
-        { s: "NASDAQ:NDX",      d: "NASDAQ 100" },
-        { s: "CBOE:VIX",        d: "VIX" },
-      ],
-      originalTitle: "Indices",
-    },
-    {
-      title: "Defense",
-      symbols: [
-        { s: "NYSE:LMT",    d: "Lockheed Martin" },
-        { s: "NYSE:RTX",    d: "RTX Corp" },
-        { s: "NYSE:NOC",    d: "Northrop Grumman" },
-        { s: "NYSE:GD",     d: "General Dynamics" },
-        { s: "NYSE:BA",     d: "Boeing" },
-        { s: "NYSE:HII",    d: "Huntington Ingalls" },
-        { s: "NYSE:LHX",    d: "L3Harris" },
-        { s: "NYSE:SAIC",   d: "SAIC" },
-        { s: "NASDAQ:CACI", d: "CACI" },
-      ],
-      originalTitle: "Defense",
-    },
-    {
-      title: "Energy",
-      symbols: [
-        { s: "NYMEX:CL1!", d: "WTI Crude" },
-        { s: "NYMEX:BZ1!", d: "Brent Crude" },
-        { s: "COMEX:GC1!", d: "Gold" },
-        { s: "COMEX:SI1!", d: "Silver" },
-      ],
-      originalTitle: "Energy",
-    },
-  ],
-});
+const ENERGY: TickerEntry[] = [
+  { symbol: "NYMEX:CL1!", label: "WTI Crude" },
+  { symbol: "NYMEX:BZ1!", label: "Brent Crude" },
+  { symbol: "COMEX:GC1!", label: "Gold" },
+  { symbol: "COMEX:SI1!", label: "Silver" },
+];
 
-// TradingView widgets need:
-// 1. Outer div with class "tradingview-widget-container"
-// 2. Inner div with class "tradingview-widget-container__widget" (widget injects here)
-// 3. A <script> with src + JSON config as text content (read via document.currentScript)
-function TVWidget({ widgetType, configJson, height }: {
-  widgetType: string;
-  configJson: string;
-  height?: number;
+const TICKER_TAPE_DEFAULT = [
+  { proName: "FOREXCOM:SPXUSD", title: "S&P 500" },
+  { proName: "DJ:DJI",          title: "DOW" },
+  { proName: "NASDAQ:NDX",      title: "NASDAQ" },
+  { proName: "CBOE:VIX",        title: "VIX" },
+  { proName: "NYMEX:CL1!",      title: "WTI Oil" },
+  { proName: "COMEX:GC1!",      title: "Gold" },
+];
+
+function buildTickerCfg(extraTickers: TickerEntry[]): string {
+  return JSON.stringify({
+    symbols: [
+      ...TICKER_TAPE_DEFAULT,
+      ...extraTickers.slice(0, 6).map((t) => ({ proName: t.symbol, title: t.label })),
+    ],
+    showSymbolLogo: false,
+    colorTheme: "dark",
+    isTransparent: true,
+    displayMode: "adaptive",
+    locale: "en",
+  });
+}
+
+function buildOverviewCfg(watchlist: TickerEntry[]): string {
+  return JSON.stringify({
+    colorTheme: "dark",
+    dateRange: "1D",
+    showChart: true,
+    locale: "en",
+    width: "100%",
+    height: 520,
+    isTransparent: true,
+    showSymbolLogo: false,
+    showFloatingTooltip: false,
+    plotLineColorGrowing: "rgb(16, 185, 129)",
+    plotLineColorFalling: "rgb(239, 68, 68)",
+    gridLineColor: "rgba(51, 65, 85, 0.5)",
+    scaleFontColor: "rgba(148, 163, 184, 1)",
+    belowLineFillColorGrowing: "rgba(16, 185, 129, 0.12)",
+    belowLineFillColorFalling: "rgba(239, 68, 68, 0.12)",
+    symbolActiveColor: "rgba(16, 185, 129, 0.12)",
+    tabs: [
+      {
+        title: "Watchlist",
+        symbols: watchlist.map((t) => ({ s: t.symbol, d: t.label })),
+        originalTitle: "Watchlist",
+      },
+      {
+        title: "Indices",
+        symbols: INDICES.map((t) => ({ s: t.symbol, d: t.label })),
+        originalTitle: "Indices",
+      },
+      {
+        title: "Energy & Metals",
+        symbols: ENERGY.map((t) => ({ s: t.symbol, d: t.label })),
+        originalTitle: "Energy",
+      },
+    ],
+  });
+}
+
+// TradingView widget mount. Inner div is required for the TV script to inject
+// its iframe; the script reads its config from the textContent of the script
+// element via document.currentScript.
+function TVWidget({ widgetType, configJson, height, keyVer }: {
+  widgetType: string; configJson: string; height?: number; keyVer: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const mounted = useRef(false);
 
   useEffect(() => {
-    // Prevent double-mount in React strict mode
-    if (mounted.current) return;
-    mounted.current = true;
-
     const container = ref.current;
     if (!container) return;
-
     container.className = "tradingview-widget-container";
     if (height) container.style.height = `${height}px`;
-
-    // Required target div — widget script injects its iframe here
     const inner = document.createElement("div");
     inner.className = "tradingview-widget-container__widget";
     inner.style.height = "100%";
     inner.style.width = "100%";
     container.appendChild(inner);
-
-    // Script with config as text node (read by TradingView via document.currentScript.textContent)
     const script = document.createElement("script");
     script.type = "text/javascript";
     script.src = `https://s3.tradingview.com/external-embedding/embed-widget-${widgetType}.js`;
     script.async = true;
     script.appendChild(document.createTextNode(configJson));
     container.appendChild(script);
-
     return () => {
-      // Do NOT reset mounted.current here — keeping it true prevents re-injection
-      // after React Strict Mode's intentional unmount/remount cycle.
       container.innerHTML = "";
       container.removeAttribute("style");
       container.className = "";
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyVer, configJson]);
 
   return <div ref={ref} />;
 }
@@ -132,8 +122,19 @@ function formatUpdated(d: Date): string {
 }
 
 export default function MarketsTab() {
+  const [watchlist, setWatchlist] = useState<TickerEntry[]>([]);
   const [widgetKey, setWidgetKey] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    fetch("/api/user-prefs")
+      .then((r) => r.json())
+      .then(({ prefs }) => setWatchlist(prefs?.marketsWatchlist ?? []))
+      .catch(() => {});
+  }, []);
+
+  const tickerCfg = useMemo(() => buildTickerCfg(watchlist), [watchlist]);
+  const overviewCfg = useMemo(() => buildOverviewCfg(watchlist), [watchlist]);
 
   return (
     <div className="space-y-4">
@@ -145,7 +146,9 @@ export default function MarketsTab() {
           </div>
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Markets</h2>
-            <p className="text-[10px] text-slate-600 font-mono">Live market data — Defense sector &amp; key indices</p>
+            <p className="text-[10px] text-slate-600 font-mono">
+              {watchlist.length} watchlist tickers · DOD daily contracts
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -162,25 +165,33 @@ export default function MarketsTab() {
 
       {/* Ticker tape */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden min-h-[56px]">
-        <TVWidget key={`ticker-${widgetKey}`} widgetType="ticker-tape" configJson={TICKER_CFG} />
+        <TVWidget widgetType="ticker-tape" configJson={tickerCfg} keyVer={widgetKey} />
       </div>
 
-      {/* Market overview */}
+      {/* Market overview (with user's watchlist as first tab) */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 540 }}>
-        <TVWidget key={`overview-${widgetKey}`} widgetType="market-overview" configJson={OVERVIEW_CFG} height={540} />
+        <TVWidget widgetType="market-overview" configJson={overviewCfg} height={540} keyVer={widgetKey} />
       </div>
 
-      {/* Attribution */}
+      {/* DOD contract awards feed */}
+      <ContractsPanel />
+
+      {/* Empty-state hint when watchlist is the defaults-only state */}
+      {watchlist.length === 0 && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <p className="text-[10px] text-slate-500 font-mono">
+            Add tickers to your watchlist in <span className="text-emerald-400">Preferences → Markets Watchlist</span>.
+          </p>
+        </div>
+      )}
+
       <p className="text-[10px] text-slate-700 text-right">
         Market data by{" "}
-        <a
-          href="https://www.tradingview.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-slate-600 hover:text-slate-400 underline transition-colors"
-        >
-          TradingView
-        </a>
+        <a href="https://www.tradingview.com" target="_blank" rel="noopener noreferrer"
+          className="text-slate-600 hover:text-slate-400 underline">TradingView</a>
+        {" · contracts via "}
+        <a href="https://www.defense.gov/News/Contracts/" target="_blank" rel="noopener noreferrer"
+          className="text-slate-600 hover:text-slate-400 underline">defense.gov</a>
       </p>
     </div>
   );
