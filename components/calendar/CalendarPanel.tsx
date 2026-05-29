@@ -47,17 +47,66 @@ function formatEventTime(event: CalendarEvent): string {
   }
 }
 
+interface PrepMail {
+  id: string;
+  from: string;
+  subject: string;
+  date: string;
+  snippet: string;
+}
+interface PrepBlock {
+  email: string;
+  mails: PrepMail[];
+}
+
+function formatPrepDate(raw: string): string {
+  try {
+    return new Date(raw).toLocaleDateString([], { month: "short", day: "numeric" });
+  } catch { return ""; }
+}
+
+function parsePrepSender(from: string): string {
+  const m = from.match(/^(.+?)\s*<.+?>$/);
+  return (m ? m[1] : from).replace(/"/g, "").trim();
+}
+
 function AgendaEvent({ event }: { event: CalendarEvent }) {
   const [expanded, setExpanded] = useState(false);
   const time = formatEventTime(event);
   const hasDetails = !!(event.location || event.description);
+  const hasAttendees = !!event.attendees && event.attendees.length > 0;
+
+  // Meeting-prep state: lazy-loaded when the user clicks "Prep".
+  const [prepState, setPrepState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [prepBlocks, setPrepBlocks] = useState<PrepBlock[]>([]);
+
+  const fetchPrep = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (prepState === "loading" || prepState === "done") return;
+    setPrepState("loading");
+    try {
+      const res = await fetch("/api/meeting-prep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendees: event.attendees ?? [] }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "failed");
+      setPrepBlocks(Array.isArray(data.attendees) ? data.attendees : []);
+      setPrepState("done");
+    } catch {
+      setPrepState("error");
+    }
+  };
+
+  const isExpandable = hasDetails || hasAttendees;
 
   return (
     <div
       className={`flex gap-3 py-2.5 border-b border-slate-800/60 last:border-0 group ${
-        hasDetails ? "cursor-pointer select-none" : ""
+        isExpandable ? "cursor-pointer select-none" : ""
       }`}
-      onClick={() => hasDetails && setExpanded((v) => !v)}
+      onClick={() => isExpandable && setExpanded((v) => !v)}
     >
       {/* Time column */}
       <div className="w-28 flex-shrink-0 text-right pt-0.5">
@@ -76,7 +125,7 @@ function AgendaEvent({ event }: { event: CalendarEvent }) {
           <p className="text-sm font-medium text-slate-200 leading-tight group-hover:text-white transition-colors">
             {event.title}
           </p>
-          {hasDetails && (
+          {isExpandable && (
             <span className="text-slate-600 text-[10px] flex-shrink-0 mt-0.5">
               {expanded ? "▲" : "▼"}
             </span>
@@ -106,6 +155,55 @@ function AgendaEvent({ event }: { event: CalendarEvent }) {
             )}
             {event.account && (
               <p className="text-[10px] font-mono text-slate-600">{event.account}</p>
+            )}
+
+            {/* Attendees + meeting-prep loader */}
+            {hasAttendees && (
+              <div className="pt-1.5 mt-1.5 border-t border-slate-800/80">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <p className="text-[10px] font-mono text-slate-500 truncate">
+                    👤 {event.attendees!.join(", ")}
+                  </p>
+                  {prepState !== "done" && (
+                    <button
+                      onClick={fetchPrep}
+                      disabled={prepState === "loading"}
+                      title="Pull recent emails from attendees"
+                      className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 px-2 py-0.5 rounded-md transition-all disabled:opacity-40"
+                    >
+                      {prepState === "loading" ? "…" : prepState === "error" ? "Retry" : "📋 Prep"}
+                    </button>
+                  )}
+                </div>
+
+                {prepState === "done" && prepBlocks.length > 0 && (
+                  <div className="space-y-2 mt-2">
+                    {prepBlocks.map((block) => (
+                      <div key={block.email} className="bg-slate-900/60 border border-slate-800 rounded-md p-2">
+                        <p className="text-[10px] font-mono text-slate-500 mb-1.5">{block.email}</p>
+                        {block.mails.length === 0 ? (
+                          <p className="text-[10px] text-slate-600 italic">No recent mail in last 60 days.</p>
+                        ) : (
+                          <ul className="space-y-1.5">
+                            {block.mails.map((m) => (
+                              <li key={m.id} className="text-[11px] leading-snug">
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="text-slate-300 font-medium truncate">{m.subject || "(no subject)"}</span>
+                                  <span className="text-slate-600 font-mono text-[9px] flex-shrink-0">{formatPrepDate(m.date)}</span>
+                                </div>
+                                <p className="text-slate-500 text-[10px] truncate">{parsePrepSender(m.from)}: {m.snippet}</p>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {prepState === "done" && prepBlocks.every((b) => b.mails.length === 0) && (
+                  <p className="text-[10px] text-slate-600 italic mt-1">No recent mail found for any attendee.</p>
+                )}
+              </div>
             )}
           </div>
         )}

@@ -21,12 +21,13 @@ Article opens now feed `lib/articlePrefs.recordOpen` via the same
 Client-side localStorage dedup keeps re-clicks in a 7-day window from
 multi-boosting.
 
-### 3. 📋 Suggested VIPs from reply patterns
-Track senders the user replies to within N minutes (Gmail API exposes thread
-state). After 3 fast replies in 30 days, surface a card: "Add `x@y` to VIPs?"
-Maintains the VIP list automatically. **Effort:** medium. **Touches:** Gmail
-fetch (also pull Sent for reply detection), new `sender_signals` table,
-`PreferencesDrawer` suggestion card.
+### 3. ✅ Suggested VIPs from reply patterns
+**Status:** Shipped. Scans primary account `in:sent newer_than:30d` (top
+200 sent messages by Gmail metadata) and surfaces senders the user has
+replied to ≥3 times as "Suggested VIPs" above the action-items panel.
+Add VIP appends to `user_prefs.vipSenders`; Dismiss appends to a new
+`user_prefs.dismissed_vip_suggestions` field. Server-side
+`vip_suggestions_cache` keyed by account_email with 12 h TTL.
 
 ### 4. ✅ Action items → Google Tasks
 **Status:** Shipped this push. Per extracted action item from
@@ -37,18 +38,27 @@ list; one click pushes to Google Tasks via the existing `/api/tasks` POST.
 
 ## Assist — proactive help with daily work
 
-### 5. 📋 Morning auto-brief, prefetched
-Today the briefing is on-demand. Add a scheduled prefetch (~05:30 on
-weekdays in the user's tz) that synthesises calendar + likely action items
-+ top news + watchlist hits + weather. Ready when the user sits down.
-**Effort:** medium. **Touches:** new background job in `server.js` (cron),
-reuse `/api/briefing`, persist last brief.
+### 5. ✅ Morning auto-brief (partial — cached, not cron'd)
+**Status:** Shipped server-side caching. `/api/briefing` persists the
+generated briefing in a new `briefing_cache` table keyed by
+`YYYY-MM-DD` in the user's timezone; later same-day calls return the
+cache instantly with no Claude cost. A "↻ Refresh" button in
+`BriefingModal` busts the cache via `?refresh=1` when the headlines
+have shifted. **Skipped:** a true cron-prefetch at 05:30 — that would
+need OAuth-refresh-token plumbing the dashboard doesn't currently do.
+The client-side prefetch + server-side date cache covers the practical
+case (any first-of-day open feeds the cache; subsequent opens any
+device are instant).
 
-### 6. 📋 Meeting prep auto-context
-For each calendar event today, auto-pull: recent emails with attendees,
-recent articles on the topic, last meeting's notes. Render as collapsible
-panel per event. **Effort:** larger. **Touches:** `CalendarPanel`, new
-`/api/meeting-prep` endpoint, Gmail search by `from:` filter.
+### 6. ✅ Meeting prep auto-context
+**Status:** Shipped. `lib/calendar.ts` now exposes non-self attendee
+emails on each `CalendarEvent`. Expanding an event in `CalendarPanel`
+that has attendees shows a "📋 Prep" button. Clicking it calls a new
+`/api/meeting-prep` endpoint that runs `from:{email} newer_than:60d`
+Gmail searches in parallel (top 3 per attendee, metadata-only) and
+returns subject / sender / date / snippet per result. Renders inline
+under the event. Skipped for v1: cross-referencing against loaded
+articles by topic — could come later.
 
 ---
 
@@ -59,11 +69,18 @@ panel per event. **Effort:** larger. **Touches:** `CalendarPanel`, new
 Claude classifies into `{task, event, note}` and routes accordingly. Used
 dozens of times a day; removes the "which app do I put this in" decision.
 
-### 8. 📋 Smart unsubscribe / quiet-noise suggestions
-Any sender with 0 opens over 30 days → surface "Unsubscribe?" with one-click
-support via the `List-Unsubscribe` mail header. Inbox hygiene without manual
-triage. **Effort:** small. **Touches:** sender-open tracking table, new
-`/api/gmail/unsubscribe` endpoint, EmailTab suggestion row.
+### 8. ✅ Quiet-newsletter suggestions
+**Status:** Shipped (newsletter-scoped). `/api/newsletters` returns a
+`quietSubjects[]` array listing normalised series subjects in the current
+load whose `newsletter_prefs.openCounts[key]` is 0 (never expanded).
+NewsletterSection renders an inline prompt above the section header:
+"N newsletter series you've never opened" with "Hide series" (rolls
+matching ids into the existing LS_DISMISSED localStorage list) or
+"Ignore" (persists in a new LS_QUIET_DISMISSED list so the prompt
+doesn't recur). Skipped for v1: actual `List-Unsubscribe` header
+clicking — too many newsletters implement that as `mailto:` which is
+browser-dependent. Hiding the series in-app gets you the same end state
+without the surprise.
 
 ### 9. ✅ "What changed since I last looked"
 **Status:** Shipped. New `surface_state` table records last visit per
@@ -95,4 +112,8 @@ next one smarter. View / edit / clear from Preferences.
 | `9825cec` | Email triage cache + personalised prompt + VIP/mute lists |
 | `6882cc6` / `8979d1b` / `d0b10dd` | Memory layer + action items → Tasks + quick capture |
 | `999fa6e` | Throttle memory updates; preview-then-confirm for quick capture |
-| `a74c8a3` / _this push_ | #2 implicit article opens + #9 "what changed since I last looked" |
+| `a74c8a3` / `0e10e1b` | #2 implicit article opens + #9 "what changed since I last looked" |
+| `a342005` | #3 Suggested VIPs from primary reply patterns |
+| `c5895af` | #8 Quiet-newsletter suggestions |
+| `bca7eb0` | #5 Cached daily briefing + manual refresh |
+| _this push_ | #6 Meeting prep auto-context from attendees |

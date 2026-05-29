@@ -65,16 +65,26 @@ export async function getUpcomingEvents(
     return aTime.localeCompare(bTime);
   });
 
-  return merged.slice(0, 40).map((event) => ({
-    id: event.id ?? "",
-    title: event.summary ?? "Untitled Event",
-    start: event.start?.dateTime ?? event.start?.date ?? "",
-    end: event.end?.dateTime ?? event.end?.date ?? "",
-    description: event.description?.slice(0, 500) ?? undefined,
-    location: event.location ?? undefined,
-    isAllDay: !event.start?.dateTime,
-    ...(accountEmail ? { account: accountEmail } : {}),
-  }));
+  return merged.slice(0, 40).map((event) => {
+    // Pull non-self attendee emails. Used by /api/meeting-prep to find
+    // recent mail from each attendee.
+    const attendeeEmails = (event.attendees ?? [])
+      .filter((a) => a.email && !a.self)
+      .map((a) => a.email!.toLowerCase())
+      .filter((e) => /^[^@\s]+@[^@\s]+/.test(e))
+      .slice(0, 10);
+    return {
+      id: event.id ?? "",
+      title: event.summary ?? "Untitled Event",
+      start: event.start?.dateTime ?? event.start?.date ?? "",
+      end: event.end?.dateTime ?? event.end?.date ?? "",
+      description: event.description?.slice(0, 500) ?? undefined,
+      location: event.location ?? undefined,
+      isAllDay: !event.start?.dateTime,
+      ...(accountEmail ? { account: accountEmail } : {}),
+      ...(attendeeEmails.length ? { attendees: attendeeEmails } : {}),
+    };
+  });
 }
 
 export async function createEvent(accessToken: string, params: CreateEventParams): Promise<CalendarEvent> {

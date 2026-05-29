@@ -17,7 +17,8 @@ export interface CalendarEvent {
   description?: string;
   location?: string;
   isAllDay: boolean;
-  account?: string; // email address of the Google account this event belongs to
+  account?: string;        // email address of the Google account this event belongs to
+  attendees?: string[];    // lowercased emails of non-self attendees (used by meeting prep)
 }
 
 export interface ChatMessage {
