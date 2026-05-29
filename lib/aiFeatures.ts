@@ -5,6 +5,7 @@ import { AiFeature, UserPrefs } from "./types";
 export const ALL_AI_FEATURES: AiFeature[] = [
   "chat", "news_chat",
   "email_triage", "email_actions",
+  "osint_triage",
   "newsletters",
   "briefing", "digest", "threads",
   "quick_capture",
@@ -17,6 +18,7 @@ export const AI_FEATURE_LABELS: Record<AiFeature, { label: string; sub: string }
   news_chat:     { label: "News chat",                 sub: "Right-rail news Q&A" },
   email_triage:  { label: "Email triage",              sub: "Per-email priority + summary" },
   email_actions: { label: "Email action items",        sub: "Extracts to-dos from unread mail" },
+  osint_triage:  { label: "OSINT relevance scoring",    sub: "Per-item priority + reason on OSINT tab" },
   newsletters:   { label: "Newsletter summarisation",  sub: "Politico / DOW / Merge / ASF bullets" },
   briefing:      { label: "Morning brief",             sub: "Daily synthesis (cached once per day)" },
   digest:        { label: "Weekly digest",             sub: "Reading-pattern summary" },

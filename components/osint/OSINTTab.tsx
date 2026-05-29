@@ -22,6 +22,13 @@ interface FeedSummary {
 }
 
 type Pane = "all" | "social" | "telegram" | "news" | "aircraft" | "maritime";
+type Priority = "High" | "Medium" | "Low";
+
+const PRIORITY_PILL: Record<Priority, string> = {
+  High:   "bg-red-500/15 text-red-300 border-red-500/40",
+  Medium: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  Low:    "bg-slate-700/30 text-slate-500 border-slate-700",
+};
 
 const KIND_BADGE: Record<string, string> = {
   social:   "bg-sky-500/15 text-sky-300 border-sky-500/40",
@@ -160,6 +167,29 @@ export default function OSINTTab() {
   }, [filtered]);
 
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  const [triage, setTriage] = useState<Record<string, { priority: Priority; reason: string }>>({});
+  const [triaging, setTriaging] = useState(false);
+
+  // Fire triage once items are loaded. Each cluster's primary id is what
+  // gets surfaced to the user; non-primary dupes inherit the cluster's
+  // priority pill so we don't need to triage them separately.
+  useEffect(() => {
+    if (items.length === 0) return;
+    const payload = items.slice(0, 120).map((i) => ({
+      id: i.id, title: i.title, summary: i.summary, feedKind: i.feedKind, feedLabel: i.feedLabel,
+    }));
+    setTriaging(true);
+    fetch("/api/osint/triage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: payload }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d?.triage) setTriage(d.triage); })
+      .catch(() => {})
+      .finally(() => setTriaging(false));
+  }, [items]);
+
   const toggleCluster = (key: string) => setExpandedClusters((prev) => {
     const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
@@ -187,6 +217,7 @@ export default function OSINTTab() {
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">OSINT</h2>
             <p className="text-[10px] text-slate-600 font-mono">
               {feeds.length} feeds · {items.length} items · live aircraft &amp; maritime
+              {triaging && <span className="ml-2 text-emerald-500/70 animate-pulse">· triaging…</span>}
             </p>
           </div>
         </div>
@@ -360,9 +391,21 @@ export default function OSINTTab() {
                 const primary = cluster.items[0];
                 const dupes = cluster.items.slice(1);
                 const expanded = expandedClusters.has(cluster.key);
+                // Priority comes from the primary item's triage entry, with
+                // dupes silently sharing the call so we only spend tokens
+                // on the surface row.
+                const t = triage[primary.id];
                 return (
                   <li key={cluster.key} className="bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 hover:border-slate-700 transition-colors">
                     <div className="flex items-center gap-2 mb-1.5">
+                      {t && (
+                        <span
+                          className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_PILL[t.priority]}`}
+                          title={t.reason}
+                        >
+                          {t.priority}
+                        </span>
+                      )}
                       <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_BADGE[primary.feedKind] ?? KIND_BADGE.other}`}>
                         {primary.feedKind}
                       </span>

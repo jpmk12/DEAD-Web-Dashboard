@@ -74,6 +74,17 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_email_cache_prompt_hash (prompt_hash)
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS osint_triage_cache (
+    id           VARCHAR(255) NOT NULL,
+    priority     VARCHAR(8)   NOT NULL,
+    reason       VARCHAR(120) NOT NULL,
+    prompt_hash  VARCHAR(32)  NOT NULL,
+    cached_at    BIGINT       NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_osint_cache_cached_at   (cached_at),
+    INDEX idx_osint_cache_prompt_hash (prompt_hash)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS user_memory (
     id           TINYINT     NOT NULL PRIMARY KEY DEFAULT 1,
     content      MEDIUMTEXT  NOT NULL,
