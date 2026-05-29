@@ -86,6 +86,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // until their open-counts change).
   const [quietDismissed, setQuietDismissed] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
+  const [showQuietList, setShowQuietList] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
 
   const onSummariesLoadedRef = useRef(onSummariesLoaded);
@@ -223,6 +224,26 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     });
   };
 
+  // Hide just one of the quiet series (the user clicked the per-row button
+  // in the expanded list).
+  const hideOneSeries = (key: string) => {
+    const ids = newsletters
+      .filter((n) => normalizeSubject(n.subject) === key && !dismissed.has(n.id))
+      .map((n) => n.id);
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      saveSet(LS_DISMISSED, next);
+      return next;
+    });
+    setQuietDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      saveSet(LS_QUIET_DISMISSED, next);
+      return next;
+    });
+  };
+
   const ignoreQuietPrompt = () => {
     setQuietDismissed((prev) => {
       const next = new Set(prev);
@@ -234,27 +255,71 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
   return (
     <section className="mb-8">
-      {/* Quiet-series prompt: newsletter subjects the user has never expanded. */}
+      {/* Quiet-series prompt: newsletter subjects the user has never expanded.
+          Counter is clickable — expands a per-series list so the user can see
+          exactly which series are being flagged and hide them selectively. */}
       {actionableQuiet.length > 0 && !loading && (
-        <div className="mb-3 flex items-center gap-2 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2 text-xs">
-          <span className="text-slate-500 text-base leading-none">○</span>
-          <span className="text-slate-400 flex-1">
-            <span className="font-semibold text-slate-200">{actionableQuiet.length}</span>{" "}
-            newsletter series you&apos;ve never opened
-          </span>
-          <button
-            onClick={hideQuietSeries}
-            className="text-[10px] font-bold uppercase tracking-wider bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 hover:text-red-300 px-2 py-1 rounded-md transition-all"
-          >
-            Hide series
-          </button>
-          <button
-            onClick={ignoreQuietPrompt}
-            title="Not now"
-            className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md transition-all"
-          >
-            Ignore
-          </button>
+        <div className="mb-3 bg-slate-900/60 border border-slate-700/60 rounded-lg text-xs">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <span className="text-slate-500 text-base leading-none">○</span>
+            <button
+              type="button"
+              onClick={() => setShowQuietList((v) => !v)}
+              title={showQuietList ? "Collapse list" : "Show which series"}
+              className="text-slate-400 hover:text-slate-200 flex-1 text-left"
+            >
+              <span className="font-semibold text-slate-200">{actionableQuiet.length}</span>{" "}
+              newsletter series you&apos;ve never opened
+              <span className="ml-1 text-slate-600">{showQuietList ? "▴" : "▾"}</span>
+            </button>
+            <button
+              onClick={hideQuietSeries}
+              className="text-[10px] font-bold uppercase tracking-wider bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 hover:text-red-300 px-2 py-1 rounded-md transition-all"
+            >
+              Hide all
+            </button>
+            <button
+              onClick={ignoreQuietPrompt}
+              title="Not now"
+              className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md transition-all"
+            >
+              Ignore
+            </button>
+          </div>
+          {showQuietList && (
+            <ul className="border-t border-slate-800/60 divide-y divide-slate-800/40">
+              {actionableQuiet.map((key) => {
+                // Map normalized key back to a representative original subject
+                // line. Fall back to the key itself if no newsletter in the
+                // current load matches (shouldn't happen since computeQuietSubjects
+                // only returns keys present in the current items).
+                const items = newsletters.filter((n) => normalizeSubject(n.subject) === key);
+                const subject = items[0]?.subject ?? key;
+                const source = items[0]?.source ?? "";
+                const account = items[0]?.accountEmail ?? "";
+                return (
+                  <li key={key} className="flex items-center gap-2 px-3 py-1.5">
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate text-slate-300" title={subject}>{subject}</div>
+                      <div className="flex gap-1.5 items-center text-[10px] text-slate-600">
+                        {source && <span className="uppercase font-mono">{source}</span>}
+                        {source && account && <span>·</span>}
+                        {account && <span className="truncate" title={account}>{account}</span>}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-600 tabular-nums shrink-0">×{items.length}</span>
+                    <button
+                      onClick={() => hideOneSeries(key)}
+                      title="Hide just this series"
+                      className="text-[10px] font-bold uppercase tracking-wider bg-red-500/5 hover:bg-red-500/15 border border-red-500/20 text-red-500/80 hover:text-red-300 px-1.5 py-0.5 rounded transition-all shrink-0"
+                    >
+                      Hide
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 
