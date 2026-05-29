@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { getCachedBriefing, saveCachedBriefing } from "@/lib/briefingCache";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { checkRateLimit } from "@/lib/rateLimit";
 
@@ -72,6 +74,15 @@ export async function POST(request: Request) {
     }
   }
 
+  // AI feature gate. If briefing generation is off, return a hint so the
+  // modal can surface a clear message rather than spinning forever.
+  if (!isFeatureEnabled("briefing", prefs)) {
+    return NextResponse.json(
+      { error: "Briefing generation is disabled in Preferences → AI Controls", disabled: true },
+      { status: 503 }
+    );
+  }
+
   // Cache miss / refresh path: rate-limit then generate.
   if (!checkRateLimit("briefing", 15_000)) {
     return NextResponse.json({ error: "Rate limited — wait 15 s between briefs" }, { status: 429 });
@@ -109,6 +120,8 @@ export async function POST(request: Request) {
       ],
       messages: [{ role: "user", content: userContent }],
     });
+
+    logCall({ route: "briefing", model: "claude-opus-4-7", usage: response.usage }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

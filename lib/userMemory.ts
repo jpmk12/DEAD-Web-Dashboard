@@ -2,6 +2,9 @@ import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { anthropic } from "./claude";
 import { ChatMessage } from "./types";
+import { isFeatureEnabled } from "./aiFeatures";
+import { logCall } from "./anthropicLog";
+import { getUserPrefs } from "./userPrefs";
 
 const MAX_MEMORY_CHARS = 12_000; // ~3k tokens; safety cap before storage
 
@@ -108,6 +111,12 @@ export async function updateMemoryFromChat(
   const userTurns = recentMessages.filter((m) => m.role === "user");
   if (userTurns.length === 0) return;
 
+  // Feature gate. Fetched here (rather than passed in by the caller) so
+  // toggling memory off mid-burst takes effect on the very next consolidation
+  // attempt instead of running another stale-flagged update.
+  const prefs = await getUserPrefs().catch(() => null);
+  if (!isFeatureEnabled("memory", prefs)) return;
+
   const current = await getMemory();
   const pending = await getPendingExchanges();
 
@@ -161,6 +170,7 @@ ${exchange}`;
     system,
     messages: [{ role: "user", content: userMsg }],
   });
+  logCall({ route: "memory", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
 
   const text =
     response.content[0]?.type === "text" ? response.content[0].text.trim() : "";

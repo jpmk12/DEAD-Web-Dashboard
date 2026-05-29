@@ -5,6 +5,9 @@ import { fetchNewsletterEmails, markAsRead } from "@/lib/gmail";
 import { anthropic } from "@/lib/claude";
 import { NewsletterSummary } from "@/lib/types";
 import { readPrefs, buildPrefsContext, sortByPreference, normalizeSubject } from "@/lib/newsletterPrefs";
+import { getUserPrefs } from "@/lib/userPrefs";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { getCachedSummaries, getAllCachedSummaries, cacheSummaries } from "@/lib/newsletterCache";
 
@@ -106,6 +109,15 @@ export async function GET() {
       source: e.source, account: e.account, accountEmail: e.accountEmail,
     }));
 
+    // Feature gate. When disabled, fresh newsletters render with the cached
+    // copy if any; otherwise they appear with empty bullets and the UI's
+    // "No key facts extracted" placeholder. Cache hits still serve normally.
+    const userPrefs = await getUserPrefs().catch(() => null);
+    if (!isFeatureEnabled("newsletters", userPrefs)) {
+      const final = sortByPreference([...cached.values()], prefs);
+      return NextResponse.json({ newsletters: final, quietSubjects: computeQuietSubjects(final), disabled: true });
+    }
+
     try {
       const response = await anthropic.messages.create({
         // Sonnet handles long batched JSON outputs more reliably than Haiku.
@@ -127,6 +139,7 @@ export async function GET() {
         }],
       });
 
+      logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage }).catch(() => {});
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       // Robust JSON extraction — strip fences and find the array boundaries
       let jsonStr = raw.replace(/^```(?:json)?\n?/im, "").replace(/\n?```\s*$/m, "").trim();

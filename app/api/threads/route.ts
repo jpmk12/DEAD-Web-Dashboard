@@ -5,6 +5,8 @@ import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { NewsItem, NewsletterSummary, NewsThread, ThreadsResult } from "@/lib/types";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { saveSession } from "@/lib/threadHistory";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +82,13 @@ export async function POST(request: Request) {
     newsletterBullets && `\nNEWSLETTER SIGNALS:\n• ${newsletterBullets}`,
   ].filter(Boolean).join("\n");
 
+  if (!isFeatureEnabled("threads", userPrefs)) {
+    return NextResponse.json(
+      { error: "Thread generation is disabled in Preferences → AI Controls", disabled: true },
+      { status: 503 }
+    );
+  }
+
   try {
     const response = await anthropic.messages.create({
       model: "claude-opus-4-7",
@@ -90,6 +99,8 @@ export async function POST(request: Request) {
       ],
       messages: [{ role: "user", content: userContent }],
     });
+
+    logCall({ route: "threads", model: "claude-opus-4-7", usage: response.usage }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

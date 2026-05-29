@@ -4,6 +4,8 @@ import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { readPrefs as readArticlePrefs } from "@/lib/articlePrefs";
 import { readPrefs as readNewsletterPrefs } from "@/lib/newsletterPrefs";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +65,13 @@ export async function GET() {
     });
   }
 
+  if (!isFeatureEnabled("digest", prefs)) {
+    return NextResponse.json(
+      { error: "Weekly digest is disabled in Preferences → AI Controls", disabled: true },
+      { status: 503 }
+    );
+  }
+
   try {
     const response = await anthropic.messages.create({
       // Sonnet handles structured JSON from already-scored data well and
@@ -75,6 +84,8 @@ export async function GET() {
       ],
       messages: [{ role: "user", content: context }],
     });
+
+    logCall({ route: "digest", model: "claude-sonnet-4-6", usage: response.usage }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

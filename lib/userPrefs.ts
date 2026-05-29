@@ -1,6 +1,7 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed } from "./types";
+import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed, AiFeature } from "./types";
+import { ALL_AI_FEATURES } from "./aiFeatures";
 
 const DEFAULT_MARKETS_WATCHLIST: TickerEntry[] = [
   { symbol: "NYSE:LMT",    label: "Lockheed Martin" },
@@ -21,6 +22,8 @@ const DEFAULT_PREFS: UserPrefs = {
   trackedLocations: [],
   marketsWatchlist: DEFAULT_MARKETS_WATCHLIST,
   osintFeeds: [],
+  aiEnabled: true,
+  aiFeatureToggles: {},
   localFeedKey: "colorado",
   localZipcode: "",
   localCity: "",
@@ -42,6 +45,8 @@ interface PrefsRow extends RowDataPacket {
   tracked_locations: TrackedLocation[] | null;
   markets_watchlist: TickerEntry[] | null;
   osint_feeds: OsintFeed[] | null;
+  ai_enabled: number | null;
+  ai_feature_toggles: Partial<Record<AiFeature, boolean>> | null;
   local_feed_key: string;
   local_zipcode: string;
   local_city: string;
@@ -80,6 +85,18 @@ function asTickerEntries(v: unknown): TickerEntry[] {
   });
 }
 
+function asAiFeatureToggles(v: unknown): Partial<Record<AiFeature, boolean>> {
+  if (!v || typeof v !== "object") return {};
+  const out: Partial<Record<AiFeature, boolean>> = {};
+  const allowed = new Set(ALL_AI_FEATURES);
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (allowed.has(k as AiFeature) && typeof val === "boolean") {
+      out[k as AiFeature] = val;
+    }
+  }
+  return out;
+}
+
 function asOsintFeeds(v: unknown): OsintFeed[] {
   if (!Array.isArray(v)) return [];
   const KINDS = new Set(["social", "telegram", "news", "other"]);
@@ -96,7 +113,7 @@ function asOsintFeeds(v: unknown): OsintFeed[] {
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -113,6 +130,9 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     // First-time users get the curated defense default until they edit.
     marketsWatchlist: r.markets_watchlist ? asTickerEntries(r.markets_watchlist) : DEFAULT_MARKETS_WATCHLIST,
     osintFeeds: asOsintFeeds(r.osint_feeds),
+    // ai_enabled default is 1 in the schema; treat unset / null as enabled.
+    aiEnabled: r.ai_enabled == null ? true : Boolean(r.ai_enabled),
+    aiFeatureToggles: asAiFeatureToggles(r.ai_feature_toggles),
     localFeedKey: r.local_feed_key,
     localZipcode: r.local_zipcode,
     localCity: r.local_city,
@@ -134,11 +154,13 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        (id, role, priority_topics, deprioritize_topics, watchlist,
         vip_senders, mute_senders, dismissed_vip_suggestions,
         tracked_locations, markets_watchlist, osint_feeds,
+        ai_enabled, ai_feature_toggles,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             ?, CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        role                       = VALUES(role),
@@ -151,6 +173,8 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        tracked_locations          = VALUES(tracked_locations),
        markets_watchlist          = VALUES(markets_watchlist),
        osint_feeds                = VALUES(osint_feeds),
+       ai_enabled                 = VALUES(ai_enabled),
+       ai_feature_toggles         = VALUES(ai_feature_toggles),
        local_feed_key             = VALUES(local_feed_key),
        local_zipcode              = VALUES(local_zipcode),
        local_city                 = VALUES(local_city),
@@ -170,6 +194,8 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.trackedLocations),
       JSON.stringify(prefs.marketsWatchlist),
       JSON.stringify(prefs.osintFeeds),
+      prefs.aiEnabled ? 1 : 0,
+      JSON.stringify(prefs.aiFeatureToggles ?? {}),
       prefs.localFeedKey,
       prefs.localZipcode,
       prefs.localCity,

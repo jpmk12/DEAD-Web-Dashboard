@@ -3,6 +3,9 @@ import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { EmailMessage, ActionItem } from "@/lib/types";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { getUserPrefs } from "@/lib/userPrefs";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +48,11 @@ export async function POST(request: Request) {
 
   if (!actionable.length) return NextResponse.json({ actions: [] });
 
+  const prefs = await getUserPrefs().catch(() => null);
+  if (!isFeatureEnabled("email_actions", prefs)) {
+    return NextResponse.json({ actions: [], disabled: true });
+  }
+
   try {
     const response = await anthropic.messages.create({
       model: "claude-opus-4-7",
@@ -66,6 +74,8 @@ export async function POST(request: Request) {
         },
       ],
     });
+
+    logCall({ route: "email_actions", model: "claude-opus-4-7", usage: response.usage }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "[]";

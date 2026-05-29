@@ -121,6 +121,20 @@ const SCHEMA_STATEMENTS = [
       REFERENCES documents(id) ON DELETE CASCADE
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS anthropic_usage (
+    id                    BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    route                 VARCHAR(64)  NOT NULL,    -- 'chat' | 'briefing' | 'email_triage' | …
+    model                 VARCHAR(64)  NOT NULL,    -- e.g. 'claude-haiku-4-5'
+    input_tokens          INT          NOT NULL DEFAULT 0,
+    output_tokens         INT          NOT NULL DEFAULT 0,
+    cache_creation_tokens INT          NOT NULL DEFAULT 0,
+    cache_read_tokens     INT          NOT NULL DEFAULT 0,
+    cost_micros           BIGINT       NOT NULL DEFAULT 0,   -- micro-USD (10^-6 USD)
+    created_at            BIGINT       NOT NULL,             -- ms epoch
+    INDEX idx_usage_created (created_at),
+    INDEX idx_usage_route   (route)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,
@@ -163,6 +177,8 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "osint_feeds",               ddl: "ALTER TABLE user_prefs ADD COLUMN osint_feeds                JSON NULL" },
   { table: "user_memory", column: "pending_exchanges",         ddl: "ALTER TABLE user_memory ADD COLUMN pending_exchanges JSON NULL" },
   { table: "briefing_cache", column: "tz",                     ddl: "ALTER TABLE briefing_cache ADD COLUMN tz VARCHAR(64) NOT NULL DEFAULT 'UTC'" },
+  { table: "user_prefs",  column: "ai_enabled",                ddl: "ALTER TABLE user_prefs ADD COLUMN ai_enabled TINYINT(1) NOT NULL DEFAULT 1" },
+  { table: "user_prefs",  column: "ai_feature_toggles",        ddl: "ALTER TABLE user_prefs ADD COLUMN ai_feature_toggles JSON NULL" },
 ];
 
 interface ColumnRow extends RowDataPacket { cnt: number }

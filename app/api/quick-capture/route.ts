@@ -7,6 +7,8 @@ import { createEvent } from "@/lib/calendar";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getMemory, saveMemory } from "@/lib/userMemory";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +110,13 @@ export async function POST(request: Request) {
   const tz = prefs?.timezone || "America/Chicago";
   const today = format(new Date(), "EEEE, MMMM d, yyyy");
 
+  if (!isFeatureEnabled("quick_capture", prefs)) {
+    return NextResponse.json(
+      { error: "Quick capture is disabled in Preferences → AI Controls", disabled: true },
+      { status: 503 }
+    );
+  }
+
   let response;
   try {
     response = await anthropic.messages.create({
@@ -116,6 +125,7 @@ export async function POST(request: Request) {
       system: buildSystem(today, tz),
       messages: [{ role: "user", content: input }],
     });
+    logCall({ route: "quick_capture", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
   } catch (err) {
     console.error("Quick-capture classify failed:", err);
     return NextResponse.json({ error: "Couldn't process that — try again" }, { status: 503 });

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, KeyboardEvent } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, AiFeature, AiUsageSummary } from "@/lib/types";
+import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { applyTheme } from "@/components/ThemeApplicator";
 
 interface PreferencesDrawerProps {
@@ -301,6 +302,173 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
           Add Feed
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── AI control panel (toggles + spend) ──────────────────────────────────────
+
+function formatUsd(micros: number): string {
+  const usd = micros / 1_000_000;
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+// Map a route name back to its human label, falling back to the raw route id
+// if a new route name lands without a label entry.
+const ROUTE_LABEL: Record<string, string> = Object.fromEntries(
+  ALL_AI_FEATURES.map((f) => [f, AI_FEATURE_LABELS[f].label])
+);
+
+function AIControlPanel({
+  aiEnabled, onAiEnabled, toggles, onToggles,
+}: {
+  aiEnabled: boolean;
+  onAiEnabled: (v: boolean) => void;
+  toggles: Partial<Record<AiFeature, boolean>>;
+  onToggles: (v: Partial<Record<AiFeature, boolean>>) => void;
+}) {
+  const [usage, setUsage] = useState<{
+    today: AiUsageSummary; last7: AiUsageSummary; last30: AiUsageSummary;
+  } | null>(null);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/ai-usage")
+      .then((r) => r.json())
+      .then((d) => setUsage({ today: d.today, last7: d.last7, last30: d.last30 }))
+      .catch(() => {});
+  }, []);
+
+  const setFeature = (feature: AiFeature, enabled: boolean) => {
+    onToggles({ ...toggles, [feature]: enabled });
+  };
+
+  // Per-feature toggles are opt-out: missing key = enabled. Master switch
+  // off greys out everything regardless of per-feature state.
+  const featureEnabled = (f: AiFeature) =>
+    aiEnabled && toggles[f] !== false;
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        AI Controls
+      </label>
+      <p className="text-[10px] text-slate-600 mb-3">
+        Disable Anthropic API calls per feature or globally. All features fall
+        back to non-AI behaviour when off — no errors, just degraded output
+        (snippets instead of summaries, etc).
+      </p>
+
+      {/* Master switch */}
+      <div className={`rounded-lg border p-3 mb-3 ${
+        aiEnabled ? "bg-emerald-500/10 border-emerald-500/40" : "bg-red-500/10 border-red-500/40"
+      }`}>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => onAiEnabled(!aiEnabled)}
+            role="switch"
+            aria-checked={aiEnabled}
+            className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+              aiEnabled ? "bg-emerald-500" : "bg-slate-700"
+            }`}
+          >
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+              aiEnabled ? "translate-x-5" : "translate-x-0.5"
+            }`} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className={`text-xs font-bold ${aiEnabled ? "text-emerald-300" : "text-red-300"}`}>
+              {aiEnabled ? "AI features ENABLED" : "AI features DISABLED (all)"}
+            </p>
+            <p className="text-[10px] text-slate-500 font-mono leading-snug">
+              Master kill switch. Off = no Anthropic API calls anywhere.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Per-feature toggles */}
+      <ul className={`space-y-1 mb-3 ${aiEnabled ? "" : "opacity-50"}`}>
+        {ALL_AI_FEATURES.map((f) => {
+          const enabled = featureEnabled(f);
+          const meta = AI_FEATURE_LABELS[f];
+          return (
+            <li key={f} className="flex items-center gap-2.5 py-1.5">
+              <button
+                onClick={() => setFeature(f, !(toggles[f] !== false))}
+                disabled={!aiEnabled}
+                role="switch"
+                aria-checked={enabled}
+                className={`relative w-8 h-4 rounded-full transition-colors flex-shrink-0 disabled:cursor-not-allowed ${
+                  enabled ? "bg-emerald-500" : "bg-slate-700"
+                }`}
+              >
+                <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
+                  enabled ? "translate-x-4" : "translate-x-0.5"
+                }`} />
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-slate-200 leading-tight">{meta.label}</p>
+                <p className="text-[10px] text-slate-600 font-mono leading-tight">{meta.sub}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Usage summary */}
+      {usage && (
+        <div className="bg-slate-800/60 border border-slate-700/60 rounded-lg p-3">
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              Today's spend
+            </p>
+            <span className="text-[10px] text-slate-600 font-mono">
+              {usage.today.totalCalls} call{usage.today.totalCalls === 1 ? "" : "s"}
+            </span>
+          </div>
+          <p className={`text-2xl font-bold ${
+            usage.today.totalMicros === 0 ? "text-slate-500" : "text-emerald-300"
+          }`}>
+            {formatUsd(usage.today.totalMicros)}
+          </p>
+          <div className="flex items-baseline justify-between gap-2 mt-1.5 pt-1.5 border-t border-slate-700/60 text-[10px] font-mono">
+            <span className="text-slate-500">Last 7 days</span>
+            <span className="text-slate-300">{formatUsd(usage.last7.totalMicros)}</span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
+            <span className="text-slate-500">Last 30 days</span>
+            <span className="text-slate-300">{formatUsd(usage.last30.totalMicros)}</span>
+          </div>
+
+          {usage.today.byRoute.length > 0 && (
+            <>
+              <button
+                onClick={() => setShowBreakdown((v) => !v)}
+                className="text-[10px] text-slate-500 hover:text-slate-300 font-mono mt-2 transition-colors"
+              >
+                {showBreakdown ? "▲ Hide" : "▼ Show"} today's breakdown
+              </button>
+              {showBreakdown && (
+                <ul className="mt-2 space-y-0.5">
+                  {usage.today.byRoute.map((r) => (
+                    <li key={r.route} className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
+                      <span className="text-slate-400 truncate">
+                        {ROUTE_LABEL[r.route] ?? r.route}
+                      </span>
+                      <span className="text-slate-500 flex-shrink-0">
+                        {formatUsd(r.micros)} · {r.calls}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -623,6 +791,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [trackedLocations, setTrackedLocations] = useState<TrackedLocation[]>([]);
   const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
   const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
+  const [aiEnabled, setAiEnabled] = useState(true);
+  const [aiFeatureToggles, setAiFeatureToggles] = useState<Partial<Record<AiFeature, boolean>>>({});
   const [localFeedKey, setLocalFeedKey] = useState("colorado");
   const [localLat, setLocalLat] = useState<number | null>(null);
   const [localLon, setLocalLon] = useState<number | null>(null);
@@ -649,6 +819,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setTrackedLocations(prefs.trackedLocations ?? []);
         setMarketsWatchlist(prefs.marketsWatchlist ?? []);
         setOsintFeeds(prefs.osintFeeds ?? []);
+        setAiEnabled(prefs.aiEnabled !== false);
+        setAiFeatureToggles(prefs.aiFeatureToggles ?? {});
         setLocalFeedKey(prefs.localFeedKey ?? "colorado");
         setLocalLat(prefs.localLat ?? null);
         setLocalLon(prefs.localLon ?? null);
@@ -699,6 +871,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           role, priorityTopics, deprioritizeTopics, watchlist,
           vipSenders, muteSenders,
           trackedLocations, marketsWatchlist, osintFeeds,
+          aiEnabled, aiFeatureToggles,
           localFeedKey,
           localZipcode: "", localCity: "",
           localLat, localLon,
@@ -959,6 +1132,15 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           <div className="border-t border-slate-800 my-5" />
 
           <OsintFeedsEditor value={osintFeeds} onChange={setOsintFeeds} />
+
+          <div className="border-t border-slate-800 my-5" />
+
+          <AIControlPanel
+            aiEnabled={aiEnabled}
+            onAiEnabled={setAiEnabled}
+            toggles={aiFeatureToggles}
+            onToggles={setAiFeatureToggles}
+          />
 
           <div className="border-t border-slate-800 my-5" />
 

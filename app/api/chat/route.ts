@@ -4,6 +4,8 @@ import { CalendarEvent, ChatMessage, GoogleTask, NewsItem, NewsletterSummary } f
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { getMemory, buildMemoryContext, updateMemoryFromChat } from "@/lib/userMemory";
 import { getRecentDocsForContext } from "@/lib/documents";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { format, parseISO } from "date-fns";
 
@@ -160,6 +162,21 @@ ${formatEvents(sanitizedContext)}
 USER'S PENDING TASKS:
 ${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
 
+  // AI feature gate. Returns a one-chunk stream so the client doesn't need
+  // to know about a different response shape.
+  if (!isFeatureEnabled("chat", userPrefs)) {
+    const msg = "Chat is disabled in Preferences → AI Controls. Toggle it back on (or flip the master switch) to resume.";
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(msg));
+          controller.close();
+        },
+      }),
+      { headers: { "Content-Type": "text/plain; charset=utf-8" } }
+    );
+  }
+
   const stream = await anthropic.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 2048,
@@ -182,8 +199,22 @@ ${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
     async start(controller) {
       const enc = new TextEncoder();
       let assistantText = "";
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let cacheCreation = 0;
+      let cacheRead = 0;
       try {
         for await (const chunk of stream) {
+          if (chunk.type === "message_start") {
+            const u = chunk.message.usage;
+            inputTokens   = u?.input_tokens ?? 0;
+            cacheCreation = u?.cache_creation_input_tokens ?? 0;
+            cacheRead     = u?.cache_read_input_tokens ?? 0;
+          }
+          if (chunk.type === "message_delta" && chunk.usage) {
+            // The final output_tokens count arrives on the last message_delta.
+            outputTokens = chunk.usage.output_tokens ?? outputTokens;
+          }
           if (
             chunk.type === "content_block_delta" &&
             chunk.delta.type === "text_delta"
@@ -194,6 +225,17 @@ ${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
           }
         }
         controller.close();
+        // Log usage after the stream resolved successfully.
+        logCall({
+          route: "chat",
+          model: "claude-opus-4-7",
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            cache_creation_input_tokens: cacheCreation,
+            cache_read_input_tokens: cacheRead,
+          },
+        }).catch(() => {});
       } catch (err) {
         // Don't call controller.error — send a readable message instead so the pipe doesn't crash
         const msg = isOverloaded(err)

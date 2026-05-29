@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, AiFeature } from "@/lib/types";
+import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 
 const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
 const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
@@ -51,6 +52,18 @@ function isSafeHostname(h: string): boolean {
   if (/^(::1|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i.test(h)) return false;
   if (/^0\.0\.0\.0$/.test(h)) return false;
   return true;
+}
+
+function sanitizeAiFeatureToggles(v: unknown): Partial<Record<AiFeature, boolean>> {
+  if (!v || typeof v !== "object") return {};
+  const out: Partial<Record<AiFeature, boolean>> = {};
+  const allowed = new Set(ALL_AI_FEATURES);
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (allowed.has(k as AiFeature) && typeof val === "boolean") {
+      out[k as AiFeature] = val;
+    }
+  }
+  return out;
 }
 
 function sanitizeOsintFeeds(v: unknown): OsintFeed[] {
@@ -116,6 +129,8 @@ export async function POST(request: Request) {
     trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
     osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
+    aiEnabled: typeof raw.aiEnabled === "boolean" ? raw.aiEnabled : true,
+    aiFeatureToggles: sanitizeAiFeatureToggles(raw.aiFeatureToggles),
     localFeedKey: VALID_FEED_KEYS.has(String(raw.localFeedKey ?? "")) ? String(raw.localFeedKey) : "colorado",
     localZipcode: String(raw.localZipcode ?? "").replace(/[^0-9a-zA-Z]/g, "").slice(0, 10),
     localCity: String(raw.localCity ?? "").slice(0, 100),

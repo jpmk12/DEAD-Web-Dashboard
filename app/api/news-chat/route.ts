@@ -3,6 +3,8 @@ import { anthropic } from "@/lib/claude";
 import { NewsItem, NewsletterSummary, ChatMessage, ThreadsResult } from "@/lib/types";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +118,19 @@ export async function POST(request: Request) {
   const userPrefs = await getUserPrefs();
   const userContext = buildUserContext(userPrefs);
 
+  if (!isFeatureEnabled("news_chat", userPrefs)) {
+    const msg = "News chat is disabled in Preferences → AI Controls.";
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(msg));
+          controller.close();
+        },
+      }),
+      { headers: { "Content-Type": "text/plain; charset=utf-8" } }
+    );
+  }
+
   const stream = await anthropic.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 2048,
@@ -143,13 +158,33 @@ export async function POST(request: Request) {
   const readableStream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
+      let inputTokens = 0, outputTokens = 0, cacheCreation = 0, cacheRead = 0;
       try {
         for await (const chunk of stream) {
+          if (chunk.type === "message_start") {
+            const u = chunk.message.usage;
+            inputTokens   = u?.input_tokens ?? 0;
+            cacheCreation = u?.cache_creation_input_tokens ?? 0;
+            cacheRead     = u?.cache_read_input_tokens ?? 0;
+          }
+          if (chunk.type === "message_delta" && chunk.usage) {
+            outputTokens = chunk.usage.output_tokens ?? outputTokens;
+          }
           if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
             controller.enqueue(enc.encode(chunk.delta.text));
           }
         }
         controller.close();
+        logCall({
+          route: "news_chat",
+          model: "claude-opus-4-7",
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            cache_creation_input_tokens: cacheCreation,
+            cache_read_input_tokens: cacheRead,
+          },
+        }).catch(() => {});
       } catch (err) {
         const msg = isOverloaded(err)
           ? "The AI is temporarily busy — please try again in a moment."

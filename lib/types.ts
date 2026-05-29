@@ -85,6 +85,11 @@ export interface UserPrefs {
   // OSINT tab — configurable RSS feed sources (social media bridges, news,
   // niche curated feeds). Each entry is a labelled URL.
   osintFeeds: OsintFeed[];
+  // AI controls — master switch + per-feature overrides. When master is off,
+  // every Claude-calling route returns its graceful fallback regardless of
+  // per-feature settings. Per-feature is opt-out: missing key = enabled.
+  aiEnabled: boolean;
+  aiFeatureToggles: Partial<Record<AiFeature, boolean>>;
   localFeedKey: string;   // determines which RSS feeds show in "local" tab
   localZipcode: string;   // raw zipcode entered by user (5-digit US or OCONUS key)
   localCity: string;      // resolved display name e.g. "Colorado Springs, CO"
@@ -112,6 +117,37 @@ export interface OsintFeed {
   label: string;
   url: string;
   kind: "social" | "telegram" | "news" | "other";
+}
+
+export type AiFeature =
+  | "chat"           // /api/chat
+  | "news_chat"      // /api/news-chat
+  | "email_triage"   // /api/gmail Claude classification
+  | "email_actions"  // /api/gmail/actions
+  | "newsletters"    // /api/newsletters
+  | "briefing"       // /api/briefing
+  | "digest"         // /api/digest
+  | "threads"        // /api/threads
+  | "quick_capture"  // /api/quick-capture
+  | "memory";        // background memory consolidation
+
+export interface AiUsageRow {
+  id: number;
+  route: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  costMicros: number;   // micro-USD; divide by 1e6 for USD
+  createdAt: number;    // ms epoch
+}
+
+export interface AiUsageSummary {
+  totalMicros: number;
+  totalCalls: number;
+  byRoute: { route: string; micros: number; calls: number }[];
+  byModel: { model: string; micros: number; calls: number }[];
 }
 
 // Forecast / alerts / space-weather payloads returned by the weather APIs.

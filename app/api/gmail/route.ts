@@ -7,6 +7,8 @@ import { anthropic } from "@/lib/claude";
 import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { getUserPrefs, buildUserContext, senderMatches } from "@/lib/userPrefs";
 import { getCachedClassifications, cacheClassifications } from "@/lib/emailCache";
+import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { logCall } from "@/lib/anthropicLog";
 import { EmailMessage, EmailPriority } from "@/lib/types";
 
 const SYSTEM_PROMPT = `You are an email triage assistant. You will receive a JSON array of email objects.
@@ -111,7 +113,7 @@ export async function GET() {
   const uncached = allEmails.filter((e) => !cached.has(e.id));
   const fresh = new Map<string, { priority: EmailPriority; summary: string }>();
 
-  if (uncached.length > 0) {
+  if (uncached.length > 0 && isFeatureEnabled("email_triage", prefs)) {
     try {
       const response = await anthropic.messages.create({
         model: "claude-haiku-4-5",
@@ -135,6 +137,9 @@ export async function GET() {
           },
         ],
       });
+
+      // Fire-and-forget usage log; never blocks the response.
+      logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
 
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       const parsedRaw: unknown = JSON.parse(raw);
