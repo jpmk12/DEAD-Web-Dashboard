@@ -86,6 +86,8 @@ export default function OSINTTab() {
   const [homeLon, setHomeLon] = useState<number>(-104.8);
   const [aircraftProvider, setAircraftProvider] = useState<string>(AIRCRAFT_PROVIDERS[0].id);
   const [maritimeProvider, setMaritimeProvider] = useState<string>(MARITIME_PROVIDERS[0].id);
+  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [timeWindow, setTimeWindow] = useState<"all" | "4h" | "24h" | "7d">("all");
 
   useEffect(() => {
     // Restore the user's previously chosen map providers. Validate against
@@ -108,6 +110,7 @@ export default function OSINTTab() {
         const lon = Number(prefs?.localLon);
         if (Number.isFinite(lat)) setHomeLat(lat);
         if (Number.isFinite(lon)) setHomeLon(lon);
+        if (Array.isArray(prefs?.watchlist)) setWatchlist(prefs.watchlist);
       })
       .catch(() => {});
     fetch("/api/osint/feed")
@@ -133,10 +136,34 @@ export default function OSINTTab() {
   const maritimeCfg = MARITIME_PROVIDERS.find((p) => p.id === maritimeProvider) ?? MARITIME_PROVIDERS[0];
 
   const filtered = useMemo(() => {
-    if (pane === "all") return items;
-    if (pane === "aircraft" || pane === "maritime") return [];
-    return items.filter((i) => i.feedKind === pane);
-  }, [items, pane]);
+    let base: OsintItem[];
+    if (pane === "all") base = items;
+    else if (pane === "aircraft" || pane === "maritime") base = [];
+    else base = items.filter((i) => i.feedKind === pane);
+
+    if (timeWindow === "all") return base;
+    const windowMs = timeWindow === "4h" ? 4 * 3600_000
+                   : timeWindow === "24h" ? 24 * 3600_000
+                   : 7 * 24 * 3600_000;
+    const cutoff = Date.now() - windowMs;
+    return base.filter((i) => {
+      if (!i.pubDate) return false;
+      const t = Date.parse(i.pubDate);
+      return Number.isFinite(t) && t >= cutoff;
+    });
+  }, [items, pane, timeWindow]);
+
+  // Pre-compile lowercase watchlist terms once per render so the per-item
+  // match check is just an indexOf scan.
+  const watchTerms = useMemo(
+    () => watchlist.map((w) => w.trim().toLowerCase()).filter((w) => w.length >= 2),
+    [watchlist],
+  );
+  const matchesWatchlist = (item: OsintItem) => {
+    if (watchTerms.length === 0) return false;
+    const hay = `${item.title} ${item.summary}`.toLowerCase();
+    return watchTerms.some((t) => hay.includes(t));
+  };
 
   // Cluster near-duplicate headlines so the same story appearing across
   // multiple feeds collapses into one row. The dedupe key strips punctuation,
@@ -304,6 +331,28 @@ export default function OSINTTab() {
         ))}
       </div>
 
+      {/* Time-window filter — only meaningful for the feed-list panes, hidden
+          on the map panes where there are no items to filter. */}
+      {pane !== "aircraft" && pane !== "maritime" && (
+        <div className="flex items-center gap-1.5 -mt-2 text-[10px]">
+          <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Window</span>
+          {(["all", "4h", "24h", "7d"] as const).map((w) => (
+            <button
+              key={w}
+              type="button"
+              onClick={() => setTimeWindow(w)}
+              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                timeWindow === w
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+              }`}
+            >
+              {w === "all" ? "All" : w}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Aircraft pane — community ADS-B providers via user-selectable iframe */}
       {pane === "aircraft" && (
         <div className="space-y-2">
@@ -449,9 +498,25 @@ export default function OSINTTab() {
                 // dupes silently sharing the call so we only spend tokens
                 // on the surface row.
                 const t = triage[primary.id];
+                const watchHit = matchesWatchlist(primary);
                 return (
-                  <li key={cluster.key} className="bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 hover:border-slate-700 transition-colors">
+                  <li
+                    key={cluster.key}
+                    className={`relative border rounded-xl px-4 py-3 transition-colors ${
+                      watchHit
+                        ? "bg-orange-500/5 border-orange-500/40 hover:border-orange-500/60"
+                        : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
                     <div className="flex items-center gap-2 mb-1.5">
+                      {watchHit && (
+                        <span
+                          className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-orange-500/15 text-orange-400 border-orange-500/40"
+                          title="Matches your watchlist"
+                        >
+                          ⚑ Watch
+                        </span>
+                      )}
                       {t && (
                         <span
                           className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_PILL[t.priority]}`}

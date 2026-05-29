@@ -20,7 +20,10 @@ const TTL_MS = 5 * 60 * 1000;
 // accumulate entries forever on this long-lived process. Map iteration is
 // insertion-order, so dropping `cache.keys().next().value` evicts the oldest.
 const CACHE_MAX = 40;
-const cache = new Map<string, { items: OsintItem[]; expires: number }>();
+// Per-feed cache entries also carry the last successful fetch timestamp +
+// an `ok` flag (false = last attempt errored or returned nothing parseable)
+// so the PreferencesDrawer health dots have something to render against.
+const cache = new Map<string, { items: OsintItem[]; expires: number; fetchedAt: number; ok: boolean }>();
 
 // Overall server-side budget for the whole batch. Per-feed timeout is 8 s,
 // but with 20 stalled feeds running in parallel the client would still wait
@@ -140,21 +143,30 @@ export async function GET() {
   // Per-feed cache so a single broken feed doesn't burn the whole batch.
   // Race the whole batch against an overall budget so a wedged feed can't
   // hold the client beyond TOTAL_BUDGET_MS; unresolved feeds fall back to
-  // [] for this request.
+  // [] for this request. Per-result `fetchedAt` and `ok` flow through to
+  // the feeds[] response for the health-dot UI in PreferencesDrawer.
   const fetchAll = Promise.all(feeds.map(async (f) => {
     const hit = cache.get(f.url);
-    if (hit && hit.expires > Date.now()) return { feed: f, items: hit.items };
-    const items = await fetchAndParse(f.url, f.id, f.label, f.kind);
-    cache.set(f.url, { items, expires: Date.now() + TTL_MS });
-    // LRU evict the oldest entry if we've exceeded the soft cap.
+    if (hit && hit.expires > Date.now()) {
+      return { feed: f, items: hit.items, fetchedAt: hit.fetchedAt, ok: hit.ok };
+    }
+    let items: OsintItem[] = [];
+    let ok = true;
+    try {
+      items = await fetchAndParse(f.url, f.id, f.label, f.kind);
+    } catch {
+      ok = false;
+    }
+    const fetchedAt = Date.now();
+    cache.set(f.url, { items, expires: fetchedAt + TTL_MS, fetchedAt, ok });
     if (cache.size > CACHE_MAX) {
       const oldest = cache.keys().next().value;
       if (oldest) cache.delete(oldest);
     }
-    return { feed: f, items };
+    return { feed: f, items, fetchedAt, ok };
   }));
-  const budget = new Promise<{ feed: typeof feeds[number]; items: OsintItem[] }[]>(
-    (resolve) => setTimeout(() => resolve(feeds.map((f) => ({ feed: f, items: [] }))), TOTAL_BUDGET_MS)
+  const budget = new Promise<{ feed: typeof feeds[number]; items: OsintItem[]; fetchedAt: number; ok: boolean }[]>(
+    (resolve) => setTimeout(() => resolve(feeds.map((f) => ({ feed: f, items: [], fetchedAt: 0, ok: false }))), TOTAL_BUDGET_MS)
   );
   const results = await Promise.race([fetchAll, budget]);
 
@@ -170,7 +182,17 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    feeds: feeds.map((f) => ({ id: f.id, label: f.label, kind: f.kind, count: results.find((r) => r.feed.id === f.id)?.items.length ?? 0 })),
+    feeds: feeds.map((f) => {
+      const r = results.find((r) => r.feed.id === f.id);
+      return {
+        id: f.id,
+        label: f.label,
+        kind: f.kind,
+        count: r?.items.length ?? 0,
+        fetchedAt: r?.fetchedAt ?? 0,
+        ok: r?.ok ?? false,
+      };
+    }),
     items: flat,
   });
 }

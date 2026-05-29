@@ -216,10 +216,43 @@ function MarketsWatchlistEditor({ value, onChange }: { value: TickerEntry[]; onC
 
 // ─── OSINT feeds editor ──────────────────────────────────────────────────────
 
+interface OsintFeedHealth { id: string; count: number; fetchedAt: number; ok: boolean }
+
 function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (v: OsintFeed[]) => void; }) {
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<OsintFeed["kind"]>("social");
+  const [health, setHealth] = useState<Record<string, OsintFeedHealth>>({});
+  const [healthLoading, setHealthLoading] = useState(false);
+
+  // Pull the current per-feed health (last fetch time, item count, ok flag)
+  // from /api/osint/feed. Cache means this is cheap if the OSINT tab was
+  // recently viewed. Re-runs whenever the configured feed list changes so
+  // a freshly-added feed gets a status indicator on the next refresh.
+  useEffect(() => {
+    if (value.length === 0) { setHealth({}); return; }
+    setHealthLoading(true);
+    fetch("/api/osint/feed")
+      .then((r) => r.json())
+      .then((d) => {
+        const arr: OsintFeedHealth[] = Array.isArray(d?.feeds) ? d.feeds : [];
+        const map: Record<string, OsintFeedHealth> = {};
+        for (const f of arr) map[f.id] = f;
+        setHealth(map);
+      })
+      .catch(() => {})
+      .finally(() => setHealthLoading(false));
+  }, [value.length]);
+
+  // Format the dot's title attribute — what the user sees on hover.
+  const healthLabel = (h: OsintFeedHealth | undefined): { dot: string; title: string } => {
+    if (!h || !h.fetchedAt) return { dot: "bg-slate-700", title: "Not fetched yet" };
+    const ageMin = Math.floor((Date.now() - h.fetchedAt) / 60_000);
+    const ageLabel = ageMin < 1 ? "just now" : ageMin < 60 ? `${ageMin}m ago` : `${Math.floor(ageMin / 60)}h ago`;
+    if (!h.ok) return { dot: "bg-red-500", title: `Last fetch failed · ${ageLabel}` };
+    if (h.count === 0) return { dot: "bg-amber-500", title: `0 items · last fetched ${ageLabel}` };
+    return { dot: "bg-emerald-500", title: `${h.count} items · last fetched ${ageLabel}` };
+  };
 
   const add = () => {
     const trimUrl = url.trim();
@@ -253,23 +286,30 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
 
       {value.length > 0 && (
         <ul className="mb-2 space-y-1.5 max-h-56 overflow-y-auto">
-          {value.map((f) => (
-            <li key={f.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-              <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_STYLE[f.kind]}`}>
-                {f.kind}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-slate-200 truncate">{f.label}</p>
-                <p className="text-[9px] text-slate-600 font-mono truncate">{f.url}</p>
-              </div>
-              <button
-                onClick={() => onChange(value.filter((x) => x.id !== f.id))}
-                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
-              >
-                ×
-              </button>
-            </li>
-          ))}
+          {value.map((f) => {
+            const h = healthLabel(health[f.id]);
+            return (
+              <li key={f.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+                <span
+                  className={`flex-shrink-0 w-2 h-2 rounded-full ${h.dot} ${healthLoading ? "animate-pulse" : ""}`}
+                  title={h.title}
+                />
+                <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_STYLE[f.kind]}`}>
+                  {f.kind}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-slate-200 truncate">{f.label}</p>
+                  <p className="text-[9px] text-slate-600 font-mono truncate">{f.url}</p>
+                </div>
+                <button
+                  onClick={() => onChange(value.filter((x) => x.id !== f.id))}
+                  className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
 
