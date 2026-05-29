@@ -6,6 +6,16 @@ import { NewsletterSummary } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { formatDistanceToNow, parseISO } from "date-fns";
 
+// Mirror of lib/newsletterPrefs.normalizeSubject — kept here because that
+// module transitively imports mysql2 and can't be pulled into the client bundle.
+function normalizeSubject(subject: string): string {
+  return subject
+    .split(/[:\|–]|\s+-\s+/)[0]
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
 const CACHE_KEY = "newsletters:items";
 
 interface NewsletterSectionProps {
@@ -40,6 +50,7 @@ const SOURCE_BADGE: Record<
 
 const LS_DISMISSED = "nl-dismissed";
 const LS_KEPT      = "nl-kept";
+const LS_QUIET_DISMISSED = "nl-quiet-dismissed"; // normalised subjects the user already chose to ignore
 
 function loadSet(key: string): Set<string> {
   try { return new Set(JSON.parse(localStorage.getItem(key) ?? "[]") as string[]); }
@@ -69,6 +80,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [kept, setKept] = useState<Set<string>>(new Set());
+  // Normalised subject keys the server flags as "never expanded by the user."
+  const [quietSubjects, setQuietSubjects] = useState<string[]>([]);
+  // Quiet-series prompts the user has dismissed locally (don't show again
+  // until their open-counts change).
+  const [quietDismissed, setQuietDismissed] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
 
@@ -79,6 +95,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   useEffect(() => {
     setDismissed(loadSet(LS_DISMISSED));
     setKept(loadSet(LS_KEPT));
+    setQuietDismissed(loadSet(LS_QUIET_DISMISSED));
   }, []);
 
   useEffect(() => {
@@ -102,6 +119,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
         setNewsletters(items);
         onSummariesLoadedRef.current(items);
         clientCache.set(CACHE_KEY, items, CACHE_TTL.NEWSLETTERS);
+        setQuietSubjects(Array.isArray(data.quietSubjects) ? data.quietSubjects : []);
       })
       .catch(() => {})
       .finally(() => {
@@ -166,8 +184,66 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
   const hiddenCount = newsletters.filter((n) => dismissed.has(n.id)).length;
 
+  // Quiet series the user hasn't already dismissed.
+  const actionableQuiet = quietSubjects.filter((k) => !quietDismissed.has(k));
+  // Map back to specific newsletter IDs in the current load that belong to those series.
+  const quietIds = actionableQuiet.flatMap((key) =>
+    newsletters.filter((n) => normalizeSubject(n.subject) === key && !dismissed.has(n.id)).map((n) => n.id)
+  );
+
+  const hideQuietSeries = () => {
+    if (quietIds.length === 0) return;
+    // Move every quiet newsletter into the dismissed (hidden) set and persist
+    // the normalised subjects so we don't keep prompting next time.
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      quietIds.forEach((id) => next.add(id));
+      saveSet(LS_DISMISSED, next);
+      return next;
+    });
+    setQuietDismissed((prev) => {
+      const next = new Set(prev);
+      actionableQuiet.forEach((k) => next.add(k));
+      saveSet(LS_QUIET_DISMISSED, next);
+      return next;
+    });
+  };
+
+  const ignoreQuietPrompt = () => {
+    setQuietDismissed((prev) => {
+      const next = new Set(prev);
+      actionableQuiet.forEach((k) => next.add(k));
+      saveSet(LS_QUIET_DISMISSED, next);
+      return next;
+    });
+  };
+
   return (
     <section className="mb-8">
+      {/* Quiet-series prompt: newsletter subjects the user has never expanded. */}
+      {actionableQuiet.length > 0 && !loading && (
+        <div className="mb-3 flex items-center gap-2 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2 text-xs">
+          <span className="text-slate-500 text-base leading-none">○</span>
+          <span className="text-slate-400 flex-1">
+            <span className="font-semibold text-slate-200">{actionableQuiet.length}</span>{" "}
+            newsletter series you&apos;ve never opened
+          </span>
+          <button
+            onClick={hideQuietSeries}
+            className="text-[10px] font-bold uppercase tracking-wider bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 hover:text-red-300 px-2 py-1 rounded-md transition-all"
+          >
+            Hide series
+          </button>
+          <button
+            onClick={ignoreQuietPrompt}
+            title="Not now"
+            className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md transition-all"
+          >
+            Ignore
+          </button>
+        </div>
+      )}
+
       {/* Section header */}
       <div className="flex items-center gap-3 mb-3">
         <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Newsletters</span>

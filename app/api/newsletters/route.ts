@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { fetchNewsletterEmails, markAsRead } from "@/lib/gmail";
 import { anthropic } from "@/lib/claude";
 import { NewsletterSummary } from "@/lib/types";
-import { readPrefs, buildPrefsContext, sortByPreference } from "@/lib/newsletterPrefs";
+import { readPrefs, buildPrefsContext, sortByPreference, normalizeSubject } from "@/lib/newsletterPrefs";
 import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { getCachedSummaries, getAllCachedSummaries, cacheSummaries } from "@/lib/newsletterCache";
 
@@ -165,11 +165,27 @@ export async function GET() {
     }
   }
 
+  // Compute quiet-series suggestions: distinct normalised subjects in the
+  // current load that the user has *never* expanded (open_count === 0 / undefined).
+  function computeQuietSubjects(items: NewsletterSummary[]): string[] {
+    const seen = new Set<string>();
+    const quiet: string[] = [];
+    for (const n of items) {
+      const key = normalizeSubject(n.subject);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const opens = prefs.openCounts[key] ?? 0;
+      if (opens === 0) quiet.push(key);
+    }
+    return quiet;
+  }
+
   // If no emails were fetched at all, fall back to everything in cache
   if (allEmails.length === 0) {
     const allCached = await getAllCachedSummaries();
-    if (allCached.length === 0) return NextResponse.json({ newsletters: [] });
-    return NextResponse.json({ newsletters: sortByPreference(allCached, prefs) });
+    if (allCached.length === 0) return NextResponse.json({ newsletters: [], quietSubjects: [] });
+    const sorted = sortByPreference(allCached, prefs);
+    return NextResponse.json({ newsletters: sorted, quietSubjects: computeQuietSubjects(sorted) });
   }
 
   // Merge cached + new summaries, preserving fetch order
@@ -177,5 +193,9 @@ export async function GET() {
     .map((e) => cached.get(e.id))
     .filter((s): s is NewsletterSummary => s !== undefined);
 
-  return NextResponse.json({ newsletters: sortByPreference(ordered, prefs) });
+  const finalSorted = sortByPreference(ordered, prefs);
+  return NextResponse.json({
+    newsletters: finalSorted,
+    quietSubjects: computeQuietSubjects(finalSorted),
+  });
 }
