@@ -2,8 +2,24 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
+import { getCachedBriefing, saveCachedBriefing } from "@/lib/briefingCache";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { checkRateLimit } from "@/lib/rateLimit";
+
+// Today's date as YYYY-MM-DD in the given IANA timezone. Used as the cache key
+// so a brief generated at 06:00 still serves the same date at 22:00.
+function todayInTz(tz: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +38,8 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!checkRateLimit("briefing", 15_000)) {
-    return NextResponse.json({ error: "Rate limited — wait 15 s between briefs" }, { status: 429 });
-  }
+  const url = new URL(request.url);
+  const forceRefresh = url.searchParams.get("refresh") === "1";
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (contentLength > 500_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
@@ -40,6 +55,21 @@ export async function POST(request: Request) {
 
   const prefs = await getUserPrefs();
   const userContext = buildUserContext(prefs);
+  const tz = prefs.timezone || "America/Chicago";
+  const cacheKey = todayInTz(tz);
+
+  // Serve today's cached briefing instantly unless caller requested a refresh.
+  if (!forceRefresh) {
+    const cached = await getCachedBriefing(cacheKey).catch(() => null);
+    if (cached) {
+      return NextResponse.json({ briefing: cached.briefing, cached: true, generatedAt: cached.generatedAt });
+    }
+  }
+
+  // Cache miss / refresh path: rate-limit then generate.
+  if (!checkRateLimit("briefing", 15_000)) {
+    return NextResponse.json({ error: "Rate limited — wait 15 s between briefs" }, { status: 429 });
+  }
 
   const articleSummary = (articles as NewsItem[]).slice(0, 20)
     .map((a) => `[${a.source}] ${a.title}: ${(a.summary ?? "").slice(0, 150)}`)
@@ -98,7 +128,11 @@ export async function POST(request: Request) {
       connections: String(p.connections ?? "").slice(0, 600),
       suggestedFocus: Array.isArray(p.suggestedFocus) ? (p.suggestedFocus as unknown[]).map((s) => String(s).slice(0, 200)) : [],
     };
-    return NextResponse.json({ briefing });
+    // Fire-and-forget cache write so the next open of Brief today is instant.
+    saveCachedBriefing(cacheKey, briefing).catch((err) =>
+      console.error("Briefing cache write failed:", err)
+    );
+    return NextResponse.json({ briefing, cached: false });
   } catch (err) {
     console.error("Briefing failed:", err);
     return NextResponse.json({ error: "Briefing generation failed" }, { status: 500 });

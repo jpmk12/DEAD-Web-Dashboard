@@ -44,6 +44,30 @@ export default function BriefingModal({
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Force-regenerate today's briefing (busts both the server-side date cache
+  // via ?refresh=1 and the in-memory client cache).
+  const refreshBriefing = async () => {
+    if (refreshing || loading) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/briefing?refresh=1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ articles, newsletters, events: calendarEvents }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setBriefing(data.briefing);
+      clientCache.set(BRIEFING_CACHE_KEY, data.briefing, 15 * 60 * 1000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to refresh");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) { setError(null); return; }
@@ -161,6 +185,16 @@ export default function BriefingModal({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isBriefing && briefing && (
+              <button
+                onClick={refreshBriefing}
+                disabled={refreshing || loading}
+                title="Regenerate today's brief from current articles"
+                className="text-[11px] font-mono text-slate-400 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 px-2.5 py-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-wait"
+              >
+                {refreshing ? "↻ …" : "↻ Refresh"}
+              </button>
+            )}
             {((isBriefing && briefing) || (!isBriefing && digest)) && (
               <>
                 <button
