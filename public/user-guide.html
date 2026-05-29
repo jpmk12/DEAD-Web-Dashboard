@@ -1192,6 +1192,42 @@
     per-doc and resets on switch.
   </p>
 
+  <h3><span class="num">#23</span>OSINT: cleanup + self-rendered maps</h3>
+  <p>
+    Two pushes' worth of OSINT work shipped together — tab-level cleanup
+    plus replacing the brittle iframe-only maps with self-hosted
+    Leaflet renders.
+  </p>
+  <ul>
+    <li><strong>Time-window filter:</strong> pill row All / 4h / 24h / 7d
+      beneath the pane selector. Applied before clustering, so a 4h
+      window shrinks the cluster count too.</li>
+    <li><strong>Watchlist highlight:</strong> cluster cards whose
+      title/summary matches any of your watchlist terms get an
+      orange-tinted background + a <span class="ui">⚑ Watch</span> chip.</li>
+    <li><strong>Per-feed health dots:</strong> each row in the OSINT
+      Feeds preferences editor has a 2×2 dot — green (ok), amber
+      (0 items parsed), red (last fetch failed), slate (never fetched).
+      Hover shows last-fetch age.</li>
+    <li><strong>Self-rendered aircraft map:</strong> new Source toggle
+      lets you pick between a Leaflet map fed by OpenSky Network
+      (anonymous tier, 60s server cache) and the existing iframe
+      providers. The self-hosted view has rotation-by-heading plane
+      markers coloured by category — orange ⚑ for callsigns on your
+      watch list, red for military (US Mil ICAO prefixes + common mil
+      callsign patterns), slate for civilian. <span class="ui">Mil only</span>
+      toggle filters civilians out.</li>
+    <li><strong>Self-rendered maritime map:</strong> Same Source toggle
+      pattern. Self-hosted view holds a server-side WebSocket to
+      AISStream (free signup at aisstream.io issues a key — set as
+      <code>AISSTREAM_API_KEY</code> env var). Dark CartoDB base +
+      OpenSeaMap seamarks overlay. Triangle markers rotated by heading,
+      coloured by ship type (fishing / cargo / tanker / passenger /
+      special), with orange ⚑ for watch-list vessel names. Falls back
+      to a "not configured" message if no key is set.</li>
+  </ul>
+
+
   <h3><span class="num">#22</span>Docs polish: toolbar, find / replace, TOC, recent strip</h3>
   <p>
     Four editor improvements in one push, all aimed at making the Docs tab

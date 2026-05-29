@@ -15,6 +15,14 @@ const AircraftMap = dynamic(() => import("./AircraftMap"), {
     </div>
   ),
 });
+const MaritimeMap = dynamic(() => import("./MaritimeMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono" style={{ height: 600 }}>
+      Loading map…
+    </div>
+  ),
+});
 
 interface OsintItem {
   id: string;
@@ -90,6 +98,7 @@ const MARITIME_PROVIDERS: ProviderDef[] = [
 const LS_AIRCRAFT_PROVIDER = "osint-aircraft-provider";
 const LS_MARITIME_PROVIDER = "osint-maritime-provider";
 const LS_AIRCRAFT_SOURCE = "osint-aircraft-source"; // "self" | "embed"
+const LS_MARITIME_SOURCE = "osint-maritime-source"; // "self" | "embed"
 
 export default function OSINTTab() {
   const [items, setItems] = useState<OsintItem[]>([]);
@@ -103,6 +112,7 @@ export default function OSINTTab() {
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [timeWindow, setTimeWindow] = useState<"all" | "4h" | "24h" | "7d">("all");
   const [aircraftSource, setAircraftSource] = useState<"self" | "embed">("self");
+  const [maritimeSource, setMaritimeSource] = useState<"self" | "embed">("self");
 
   useEffect(() => {
     // Restore the user's previously chosen map providers. Validate against
@@ -112,9 +122,11 @@ export default function OSINTTab() {
       const a = localStorage.getItem(LS_AIRCRAFT_PROVIDER);
       const m = localStorage.getItem(LS_MARITIME_PROVIDER);
       const src = localStorage.getItem(LS_AIRCRAFT_SOURCE);
+      const msrc = localStorage.getItem(LS_MARITIME_SOURCE);
       if (a && AIRCRAFT_PROVIDERS.some((p) => p.id === a)) setAircraftProvider(a);
       if (m && MARITIME_PROVIDERS.some((p) => p.id === m)) setMaritimeProvider(m);
       if (src === "self" || src === "embed") setAircraftSource(src);
+      if (msrc === "self" || msrc === "embed") setMaritimeSource(msrc);
     } catch {}
     fetch("/api/user-prefs")
       .then((r) => r.json())
@@ -467,9 +479,55 @@ export default function OSINTTab() {
         </div>
       )}
 
-      {/* Maritime pane — user-selectable AIS provider */}
+      {/* Maritime pane — self-hosted Leaflet (AISStream WebSocket) or
+          fallback iframe providers. Same Source toggle pattern as
+          aircraft; AISStream requires AISSTREAM_API_KEY in the env to
+          show live ships. */}
       {pane === "maritime" && (
         <div className="space-y-2">
+          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Source</span>
+            <button
+              type="button"
+              onClick={() => {
+                setMaritimeSource("self");
+                try { localStorage.setItem(LS_MARITIME_SOURCE, "self"); } catch {}
+              }}
+              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                maritimeSource === "self"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+              }`}
+              title="Self-hosted Leaflet map fed by AISStream WebSocket (requires API key)"
+            >
+              Self-hosted
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMaritimeSource("embed");
+                try { localStorage.setItem(LS_MARITIME_SOURCE, "embed"); } catch {}
+              }}
+              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                maritimeSource === "embed"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+              }`}
+              title="Embeddable AIS iframe (no markers, no watch list)"
+            >
+              Iframe provider
+            </button>
+          </div>
+
+          {maritimeSource === "self" ? (
+            <MaritimeMap
+              homeLat={homeLat}
+              homeLon={homeLon}
+              radiusKm={200}
+              notableNames={watchlist}
+            />
+          ) : (
+          <>
           <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
             <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Provider</span>
             {MARITIME_PROVIDERS.map((p) => (
@@ -513,6 +571,8 @@ export default function OSINTTab() {
             try a different provider, or use <span className="text-slate-500">Open ↗</span>. OpenSeaMap
             always renders but shows only the base nautical chart (no live AIS).
           </p>
+          </>
+          )}
         </div>
       )}
 
