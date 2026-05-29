@@ -5,6 +5,7 @@ import React from "react";
 interface MarkdownPreviewProps {
   text: string;
   onWikiLink?: (title: string) => void;
+  onTaskToggle?: (lineIndex: number, checked: boolean) => void;
 }
 
 // HTML-escape user content before injecting it into the rendered output.
@@ -125,6 +126,30 @@ function renderBlocks(text: string): string {
       continue;
     }
 
+    // Task list — has to come before the generic unordered-list handler since
+    // `- [ ] x` would otherwise match `^[-*]\s+` and render as a plain bullet.
+    // The data-task-line attribute carries the source-line index so the click
+    // handler in the wrapper can flip the right line in the underlying
+    // markdown.
+    if (/^\s*[-*]\s+\[[ xX]\]\s/.test(line)) {
+      const buf: string[] = [];
+      while (i < lines.length && /^\s*[-*]\s+\[[ xX]\]\s/.test(lines[i])) {
+        const m = lines[i].match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/);
+        if (!m) break;
+        const checked = m[1].toLowerCase() === "x";
+        buf.push(
+          `<li class="ml-1 flex items-start gap-2 list-none">` +
+            `<input type="checkbox" data-task-line="${i}" ${checked ? "checked" : ""} ` +
+              `class="mt-1 cursor-pointer accent-emerald-500 w-3.5 h-3.5 flex-shrink-0" />` +
+            `<span class="${checked ? "line-through text-slate-500" : "text-slate-300"} flex-1">${inline(m[2])}</span>` +
+          `</li>`
+        );
+        i++;
+      }
+      out.push(`<ul class="my-2 space-y-0.5">${buf.join("")}</ul>`);
+      continue;
+    }
+
     // Unordered list
     if (/^\s*[-*]\s+/.test(line)) {
       const buf: string[] = [];
@@ -161,23 +186,34 @@ function renderBlocks(text: string): string {
   return out.join("\n");
 }
 
-export default function MarkdownPreview({ text, onWikiLink }: MarkdownPreviewProps) {
-  // We render via dangerouslySetInnerHTML because we want inline code-block
-  // and wiki-link nodes; all user-supplied content is HTML-escaped above via
-  // esc() before any tag scaffolding. The wiki-link button carries its title
-  // on a data-attribute and is picked up by a delegated click handler so
-  // React state updates flow correctly on click.
+export default function MarkdownPreview({ text, onWikiLink, onTaskToggle }: MarkdownPreviewProps) {
+  // We render via dangerouslySetInnerHTML because we want inline code-block,
+  // wiki-link, and task-checkbox nodes inline; all user-supplied content is
+  // HTML-escaped above via esc() before any tag scaffolding. Each interactive
+  // node (wiki button, task checkbox) carries its identifier on a data-
+  // attribute and is picked up by the delegated click/change handlers below
+  // so React state updates flow correctly.
   const html = React.useMemo(() => renderBlocks(text), [text]);
 
+  // Click handler covers both wiki-link buttons and task-list checkboxes.
+  // For checkboxes we read the data-task-line attribute and the post-click
+  // `checked` state to compute the flip.
   const onClick = React.useCallback((e: React.MouseEvent) => {
-    if (!onWikiLink) return;
     const target = e.target as HTMLElement;
-    const btn = target.closest("[data-wiki]") as HTMLElement | null;
-    if (!btn) return;
-    e.preventDefault();
-    const title = btn.getAttribute("data-wiki") ?? "";
-    if (title) onWikiLink(title);
-  }, [onWikiLink]);
+    const wikiBtn = target.closest("[data-wiki]") as HTMLElement | null;
+    if (wikiBtn && onWikiLink) {
+      e.preventDefault();
+      const title = wikiBtn.getAttribute("data-wiki") ?? "";
+      if (title) onWikiLink(title);
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.type === "checkbox" && target.dataset.taskLine !== undefined) {
+      const lineIdx = Number(target.dataset.taskLine);
+      if (Number.isFinite(lineIdx) && onTaskToggle) {
+        onTaskToggle(lineIdx, target.checked);
+      }
+    }
+  }, [onWikiLink, onTaskToggle]);
 
   if (!text.trim()) {
     return (

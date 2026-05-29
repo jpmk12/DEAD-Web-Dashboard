@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, KeyboardEvent } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import MarkdownPreview from "./MarkdownPreview";
 
@@ -22,17 +22,55 @@ interface BacklinkRef {
 
 interface DocEditorProps {
   docId: string;
-  onChanged?: () => void;       // sidebar should refetch list
-  onDeleted?: () => void;       // clear selection
-  onOpenByTitle?: (title: string) => void;  // wiki-link click
-  onOpenById?: (id: string) => void;        // backlink click
+  onChanged?: () => void;
+  onDeleted?: () => void;
+  onOpenByTitle?: (title: string) => void;
+  onOpenById?: (id: string) => void;
 }
 
 type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
 
-// Auto-save is debounced 1.2 s after the last keystroke. Title and content
-// share one save call; tags and pin fire immediately on toggle.
 const SAVE_DEBOUNCE_MS = 1200;
+
+// Slash-command palette. `insert` is either a literal string or a function
+// (used for date / time so the value is evaluated at insertion time, not at
+// module load). `cursorOffset` is where the caret should land relative to the
+// start of the inserted text — defaults to "end of insert" when omitted.
+type SlashCommand = {
+  id: string;
+  label: string;
+  insert: string | (() => string);
+  cursorOffset?: number;
+};
+const SLASH_COMMANDS: SlashCommand[] = [
+  { id: "h1",    label: "Heading 1",       insert: "# " },
+  { id: "h2",    label: "Heading 2",       insert: "## " },
+  { id: "h3",    label: "Heading 3",       insert: "### " },
+  { id: "quote", label: "Quote",           insert: "> " },
+  { id: "task",  label: "Task list item",  insert: "- [ ] " },
+  { id: "list",  label: "Bullet list",     insert: "- " },
+  { id: "ol",    label: "Numbered list",   insert: "1. " },
+  { id: "code",  label: "Code block",      insert: "```\n\n```", cursorOffset: 4 },
+  { id: "hr",    label: "Horizontal rule", insert: "\n---\n" },
+  { id: "wiki",  label: "Wiki link",       insert: "[[]]",     cursorOffset: 2 },
+  { id: "link",  label: "External link",   insert: "[](url)",  cursorOffset: 1 },
+  { id: "today", label: "Today's date",    insert: () => new Date().toISOString().slice(0, 10) },
+  { id: "now",   label: "Today + time",    insert: () => new Date().toISOString().slice(0, 16).replace("T", " ") },
+];
+
+// Look backward from `cursorPos` to find a slash-prefixed token at the start
+// of a word. Returns `open: true` only when a / immediately follows whitespace
+// or the document start — never matches paths like "https://" or "a/b".
+function detectSlash(value: string, cursorPos: number): { open: boolean; query: string; pos: number } {
+  let i = cursorPos - 1;
+  while (i >= 0 && !/\s/.test(value[i])) i--;
+  const start = i + 1;
+  const token = value.substring(start, cursorPos);
+  if (!token.startsWith("/")) return { open: false, query: "", pos: -1 };
+  // Require start-of-doc or whitespace before the slash so URL paths don't trigger.
+  if (start !== 0 && !/\s/.test(value[start - 1])) return { open: false, query: "", pos: -1 };
+  return { open: true, query: token.slice(1), pos: start };
+}
 
 export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, onOpenById }: DocEditorProps) {
   const [doc, setDoc] = useState<DocFull | null>(null);
@@ -41,13 +79,17 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [saveState, setSaveState] = useState<SaveState>("clean");
   const [tagInput, setTagInput] = useState("");
   const [splitView, setSplitView] = useState(true);
+  const [slashState, setSlashState] = useState<{ open: boolean; query: string; pos: number; selectedIdx: number }>({
+    open: false, query: "", pos: -1, selectedIdx: 0,
+  });
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRef = useRef<{ title: string; content: string }>({ title: "", content: "" });
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load the doc + its backlinks whenever the selection changes.
   useEffect(() => {
     setLoading(true);
+    setSlashState({ open: false, query: "", pos: -1, selectedIdx: 0 });
     fetch(`/api/documents/${docId}`)
       .then((r) => r.json())
       .then((data) => {
@@ -61,11 +103,9 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
       })
       .catch(() => setDoc(null))
       .finally(() => setLoading(false));
-
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [docId]);
 
-  // Push a debounced PATCH whenever title/content changes locally.
   const scheduleSave = () => {
     setSaveState("dirty");
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -89,17 +129,146 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
 
   const updateTitle = (v: string) => {
     if (!doc) return;
-    const next = { ...doc, title: v };
-    setDoc(next);
+    setDoc({ ...doc, title: v });
     latestRef.current.title = v;
     scheduleSave();
   };
   const updateContent = (v: string) => {
     if (!doc) return;
-    const next = { ...doc, content: v };
-    setDoc(next);
+    setDoc({ ...doc, content: v });
     latestRef.current.content = v;
     scheduleSave();
+  };
+
+  // Restore caret + (optional) selection after React applies the new textarea
+  // value. requestAnimationFrame waits one frame so the DOM reflects the
+  // controlled-component update before we call setSelectionRange.
+  const moveCursorTo = (pos: number, selectionEnd?: number) => {
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(pos, selectionEnd ?? pos);
+    });
+  };
+
+  // Wrap the current selection in prefix/suffix (e.g. ** / *). If nothing's
+  // selected, drops the markers around the caret and selects the empty middle
+  // so the next keystroke replaces it.
+  const wrapSelection = (prefix: string, suffix: string = prefix) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = ta.value.substring(start, end);
+    const newValue = ta.value.substring(0, start) + prefix + selected + suffix + ta.value.substring(end);
+    updateContent(newValue);
+    moveCursorTo(start + prefix.length, start + prefix.length + selected.length);
+  };
+
+  const insertLinkAtSelection = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const sel = ta.value.substring(start, end);
+    const inserted = `[${sel}](url)`;
+    const newValue = ta.value.substring(0, start) + inserted + ta.value.substring(end);
+    updateContent(newValue);
+    // Select the "url" placeholder so the user can immediately paste/type.
+    const urlStart = start + 1 + sel.length + 2;
+    moveCursorTo(urlStart, urlStart + 3);
+  };
+
+  const applySlashCommand = (cmd: SlashCommand) => {
+    const ta = textareaRef.current;
+    if (!ta || !slashState.open) return;
+    const insertText = typeof cmd.insert === "function" ? cmd.insert() : cmd.insert;
+    const cursorOffset = cmd.cursorOffset ?? insertText.length;
+    const before = ta.value.substring(0, slashState.pos);
+    const tail = ta.value.substring(slashState.pos + 1 + slashState.query.length);
+    const newValue = before + insertText + tail;
+    updateContent(newValue);
+    moveCursorTo(slashState.pos + cursorOffset);
+    setSlashState({ open: false, query: "", pos: -1, selectedIdx: 0 });
+  };
+
+  // Filter commands by the current query (matches id prefix or label substring).
+  const filteredCmds = useMemo(() => {
+    if (!slashState.open) return [] as SlashCommand[];
+    const q = slashState.query.toLowerCase();
+    if (!q) return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter((c) => c.id.startsWith(q) || c.label.toLowerCase().includes(q));
+  }, [slashState.open, slashState.query]);
+
+  const onContentInput = (v: string) => {
+    updateContent(v);
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // Detect on the *new* value before React syncs the ref — selectionStart
+    // on the live element is already at the post-input position.
+    requestAnimationFrame(() => {
+      const ta2 = textareaRef.current;
+      if (!ta2) return;
+      const result = detectSlash(ta2.value, ta2.selectionStart);
+      setSlashState((prev) => {
+        if (!result.open) return prev.open ? { open: false, query: "", pos: -1, selectedIdx: 0 } : prev;
+        const sameWord = prev.open && prev.pos === result.pos;
+        return { open: true, query: result.query, pos: result.pos, selectedIdx: sameWord ? prev.selectedIdx : 0 };
+      });
+    });
+  };
+
+  const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Slash-menu navigation when open: arrow keys / enter / tab / escape are
+    // consumed by the menu, not by the textarea.
+    if (slashState.open && filteredCmds.length > 0) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashState({ open: false, query: "", pos: -1, selectedIdx: 0 });
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashState((s) => ({ ...s, selectedIdx: Math.min(s.selectedIdx + 1, filteredCmds.length - 1) }));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashState((s) => ({ ...s, selectedIdx: Math.max(s.selectedIdx - 1, 0) }));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const cmd = filteredCmds[Math.min(slashState.selectedIdx, filteredCmds.length - 1)];
+        if (cmd) applySlashCommand(cmd);
+        return;
+      }
+    }
+
+    const meta = e.metaKey || e.ctrlKey;
+    if (!meta) return;
+    if (e.key === "b") { e.preventDefault(); wrapSelection("**"); return; }
+    if (e.key === "i") { e.preventDefault(); wrapSelection("*"); return; }
+    if (e.key === "k") { e.preventDefault(); insertLinkAtSelection(); return; }
+    // ⌘[ creates a wiki-link. Use the literal key — browsers also fire "{"
+    // for shift+[ on some layouts, which we don't want.
+    if (e.key === "[") { e.preventDefault(); wrapSelection("[[", "]]"); return; }
+  };
+
+  // Flip the `[ ]` ↔ `[x]` marker on the clicked task line. Line index is
+  // derived from the rendered output, so it reflects the current content state.
+  const onTaskToggle = (lineIdx: number, checked: boolean) => {
+    if (!doc) return;
+    const lines = doc.content.split("\n");
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    const newLine = lines[lineIdx].replace(
+      /^(\s*[-*]\s+)\[[ xX]\]/,
+      `$1[${checked ? "x" : " "}]`
+    );
+    if (newLine === lines[lineIdx]) return;
+    lines[lineIdx] = newLine;
+    updateContent(lines.join("\n"));
   };
 
   const togglePinned = async () => {
@@ -233,17 +402,51 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
 
       {/* Editor / preview split */}
       <div className={`flex-1 min-h-0 ${splitView ? "grid grid-cols-2 divide-x divide-slate-800" : ""}`}>
-        <textarea
-          value={doc.content}
-          onChange={(e) => updateContent(e.target.value)}
-          spellCheck={false}
-          placeholder="# Heading
-Markdown here. Use **bold**, *italic*, `code`, [[Other Doc]] for wiki links, [text](url) for external."
-          className="w-full h-full bg-slate-950 text-slate-200 placeholder-slate-700 font-mono text-sm p-5 outline-none resize-none leading-relaxed"
-        />
+        {/* Editor pane is relative so the slash-command popover anchors here. */}
+        <div className="relative h-full min-h-0">
+          <textarea
+            ref={textareaRef}
+            value={doc.content}
+            onChange={(e) => onContentInput(e.target.value)}
+            onKeyDown={onTextareaKeyDown}
+            onBlur={() => {
+              // Close the slash menu on blur, but defer so a mouseDown on a
+              // menu entry has time to fire applySlashCommand first.
+              setTimeout(() => setSlashState({ open: false, query: "", pos: -1, selectedIdx: 0 }), 120);
+            }}
+            spellCheck={false}
+            placeholder={`# Heading
+Markdown here. Shortcuts: ⌘B bold · ⌘I italic · ⌘K link · ⌘[ wiki-link
+Type / for the command menu (/h2, /task, /code, /today, …)`}
+            className="w-full h-full bg-slate-950 text-slate-200 placeholder-slate-700 font-mono text-sm p-5 outline-none resize-none leading-relaxed"
+          />
+          {slashState.open && filteredCmds.length > 0 && (
+            <div className="absolute bottom-3 left-3 right-3 max-h-56 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-20">
+              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest text-slate-600 border-b border-slate-800 font-mono">
+                /{slashState.query || "…"}
+              </div>
+              {filteredCmds.map((c, idx) => (
+                <button
+                  key={c.id}
+                  // onMouseDown rather than onClick so the textarea's blur
+                  // handler doesn't dismiss the menu before the click lands.
+                  onMouseDown={(e) => { e.preventDefault(); applySlashCommand(c); }}
+                  className={`w-full text-left px-3 py-1.5 text-sm flex items-center justify-between ${
+                    idx === slashState.selectedIdx
+                      ? "bg-emerald-500/10 text-emerald-300"
+                      : "text-slate-300 hover:bg-slate-800"
+                  }`}
+                >
+                  <span>{c.label}</span>
+                  <span className="text-[10px] text-slate-600 font-mono">/{c.id}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {splitView && (
           <div className="h-full overflow-y-auto p-5 bg-slate-900/40">
-            <MarkdownPreview text={doc.content} onWikiLink={onOpenByTitle} />
+            <MarkdownPreview text={doc.content} onWikiLink={onOpenByTitle} onTaskToggle={onTaskToggle} />
           </div>
         )}
       </div>
