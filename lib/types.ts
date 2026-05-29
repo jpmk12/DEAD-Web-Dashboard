@@ -73,6 +73,8 @@ export interface UserPrefs {
   // classification — see app/api/gmail/route.ts.
   vipSenders: string[];   // force priority = High
   muteSenders: string[];  // force priority = Low
+  // Sender suggestions the user has explicitly dismissed; never re-suggest.
+  dismissedVipSuggestions: string[];
   localFeedKey: string;   // determines which RSS feeds show in "local" tab
   localZipcode: string;   // raw zipcode entered by user (5-digit US or OCONUS key)
   localCity: string;      // resolved display name e.g. "Colorado Springs, CO"
@@ -81,6 +83,12 @@ export interface UserPrefs {
   theme: AppTheme;
   timezone: string;  // IANA timezone e.g. "America/Chicago"
   lastUpdated: string;
+}
+
+export interface VipSuggestion {
+  email: string;
+  count: number;        // number of replies in the lookback window
+  lastReplyAt: string;  // ISO timestamp of the most recent reply
 }
 
 export interface CachedEmailClassification {

@@ -84,6 +84,18 @@ const SCHEMA_STATEMENTS = [
     last_seen_at  BIGINT      NOT NULL
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS vip_suggestions_cache (
+    account_email  VARCHAR(255) NOT NULL PRIMARY KEY,
+    suggestions    JSON         NOT NULL,
+    computed_at    BIGINT       NOT NULL
+  ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS briefing_cache (
+    date         VARCHAR(10) NOT NULL PRIMARY KEY,   -- YYYY-MM-DD in user's tz
+    briefing     JSON        NOT NULL,
+    generated_at BIGINT      NOT NULL
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,
@@ -114,8 +126,9 @@ const SCHEMA_STATEMENTS = [
 // no `ADD COLUMN IF NOT EXISTS`, so we ignore "duplicate column" errors and
 // let everything else surface.
 const COLUMN_MIGRATIONS: string[] = [
-  "ALTER TABLE user_prefs ADD COLUMN vip_senders  JSON NULL",
-  "ALTER TABLE user_prefs ADD COLUMN mute_senders JSON NULL",
+  "ALTER TABLE user_prefs ADD COLUMN vip_senders                JSON NULL",
+  "ALTER TABLE user_prefs ADD COLUMN mute_senders               JSON NULL",
+  "ALTER TABLE user_prefs ADD COLUMN dismissed_vip_suggestions  JSON NULL",
 ];
 
 let initPromise: Promise<mysql.Pool> | null = null;

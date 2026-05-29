@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
-import { EmailMessage, EmailPriority, ActionItem } from "@/lib/types";
+import { EmailMessage, EmailPriority, ActionItem, VipSuggestion, UserPrefs } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import EmailCard from "./EmailCard";
 import AddAccountButton from "./AddAccountButton";
@@ -38,6 +38,8 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
   const [actionsChecked, setActionsChecked] = useState<Set<string>>(new Set());
   // key → "pending" while POST is in flight, "added" once Google Tasks accepted it
   const [taskStatus, setTaskStatus] = useState<Map<string, "pending" | "added" | "failed">>(new Map());
+  const [vipSuggestions, setVipSuggestions] = useState<VipSuggestion[]>([]);
+  const [suggestionBusy, setSuggestionBusy] = useState<Set<string>>(new Set());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchEmails = async (forceRefresh = false) => {
@@ -98,8 +100,57 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
     if (status === "authenticated") {
       fetchEmails();
       fetchSecondaryStatus();
+      // Best-effort VIP suggestion fetch. Cached server-side at 12h so this
+      // is cheap after the first call of the day.
+      fetch("/api/gmail/vip-suggestions")
+        .then((r) => r.json())
+        .then((d: { suggestions?: VipSuggestion[] }) => setVipSuggestions(d.suggestions ?? []))
+        .catch(() => {});
     }
   }, [status]);
+
+  // Mutate a single field of user_prefs (vipSenders / dismissedVipSuggestions).
+  // We GET, modify, POST — small risk of clobber under concurrent edits but
+  // acceptable for a single-user dashboard.
+  const updatePrefsField = async (
+    field: "vipSenders" | "dismissedVipSuggestions",
+    add: string
+  ) => {
+    try {
+      const res = await fetch("/api/user-prefs");
+      const data: { prefs?: UserPrefs } = await res.json();
+      const prefs = data.prefs;
+      if (!prefs) return false;
+      const next: UserPrefs = {
+        ...prefs,
+        [field]: Array.from(new Set([...(prefs[field] ?? []), add])),
+      };
+      const post = await fetch("/api/user-prefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      return post.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const acceptSuggestion = async (s: VipSuggestion) => {
+    if (suggestionBusy.has(s.email)) return;
+    setSuggestionBusy((prev) => new Set(prev).add(s.email));
+    const ok = await updatePrefsField("vipSenders", s.email);
+    setSuggestionBusy((prev) => { const n = new Set(prev); n.delete(s.email); return n; });
+    if (ok) setVipSuggestions((prev) => prev.filter((x) => x.email !== s.email));
+  };
+
+  const dismissSuggestion = async (s: VipSuggestion) => {
+    if (suggestionBusy.has(s.email)) return;
+    setSuggestionBusy((prev) => new Set(prev).add(s.email));
+    const ok = await updatePrefsField("dismissedVipSuggestions", s.email);
+    setSuggestionBusy((prev) => { const n = new Set(prev); n.delete(s.email); return n; });
+    if (ok) setVipSuggestions((prev) => prev.filter((x) => x.email !== s.email));
+  };
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -204,6 +255,58 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
 
   return (
     <div className="pb-20">
+      {/* VIP suggestions — surfaced when the user has replied to someone 3+
+          times in 30 days and hasn't already classified them. */}
+      {vipSuggestions.length > 0 && (
+        <div className="mb-6 bg-emerald-500/5 rounded-xl border border-emerald-500/30 overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-emerald-500/20">
+            <div className="w-6 h-6 rounded-md bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+              <span className="text-emerald-400 text-xs">★</span>
+            </div>
+            <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">
+              Suggested VIPs
+            </span>
+            <span className="text-[10px] text-slate-500 font-mono">
+              · senders you reply to often
+            </span>
+          </div>
+          <ul className="divide-y divide-emerald-500/10">
+            {vipSuggestions.map((s) => {
+              const busy = suggestionBusy.has(s.email);
+              const lastDate = s.lastReplyAt ? new Date(s.lastReplyAt) : null;
+              const lastFmt = lastDate && !isNaN(lastDate.getTime())
+                ? lastDate.toLocaleDateString([], { month: "short", day: "numeric" })
+                : "";
+              return (
+                <li key={s.email} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-100 truncate">{s.email}</p>
+                    <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                      {s.count} replies in 30 days{lastFmt ? ` · last on ${lastFmt}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => acceptSuggestion(s)}
+                    disabled={busy}
+                    className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 px-2.5 py-1 rounded-md transition-all disabled:opacity-40"
+                  >
+                    {busy ? "…" : "Add VIP"}
+                  </button>
+                  <button
+                    onClick={() => dismissSuggestion(s)}
+                    disabled={busy}
+                    title="Don't suggest again"
+                    className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-2.5 py-1 rounded-md transition-all disabled:opacity-40"
+                  >
+                    Dismiss
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {/* Action items checklist */}
       {(actionsLoading || actions.length > 0) && (
         <div className="mb-6 bg-amber-500/5 rounded-xl border border-amber-500/30 overflow-hidden glow-amber">

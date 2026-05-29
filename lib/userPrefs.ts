@@ -9,6 +9,7 @@ const DEFAULT_PREFS: UserPrefs = {
   watchlist: [],
   vipSenders: [],
   muteSenders: [],
+  dismissedVipSuggestions: [],
   localFeedKey: "colorado",
   localZipcode: "",
   localCity: "",
@@ -26,6 +27,7 @@ interface PrefsRow extends RowDataPacket {
   watchlist: string[] | null;
   vip_senders: string[] | null;
   mute_senders: string[] | null;
+  dismissed_vip_suggestions: string[] | null;
   local_feed_key: string;
   local_zipcode: string;
   local_city: string;
@@ -44,7 +46,7 @@ function asStringArray(v: unknown): string[] {
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -56,6 +58,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     watchlist: asStringArray(r.watchlist),
     vipSenders: asStringArray(r.vip_senders),
     muteSenders: asStringArray(r.mute_senders),
+    dismissedVipSuggestions: asStringArray(r.dismissed_vip_suggestions),
     localFeedKey: r.local_feed_key,
     localZipcode: r.local_zipcode,
     localCity: r.local_city,
@@ -75,27 +78,28 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
   await pool.execute(
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
-        vip_senders, mute_senders,
+        vip_senders, mute_senders, dismissed_vip_suggestions,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-             CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
-       role                = VALUES(role),
-       priority_topics     = VALUES(priority_topics),
-       deprioritize_topics = VALUES(deprioritize_topics),
-       watchlist           = VALUES(watchlist),
-       vip_senders         = VALUES(vip_senders),
-       mute_senders        = VALUES(mute_senders),
-       local_feed_key      = VALUES(local_feed_key),
-       local_zipcode       = VALUES(local_zipcode),
-       local_city          = VALUES(local_city),
-       local_lat           = VALUES(local_lat),
-       local_lon           = VALUES(local_lon),
-       theme               = VALUES(theme),
-       timezone            = VALUES(timezone),
-       last_updated        = VALUES(last_updated)`,
+       role                       = VALUES(role),
+       priority_topics            = VALUES(priority_topics),
+       deprioritize_topics        = VALUES(deprioritize_topics),
+       watchlist                  = VALUES(watchlist),
+       vip_senders                = VALUES(vip_senders),
+       mute_senders               = VALUES(mute_senders),
+       dismissed_vip_suggestions  = VALUES(dismissed_vip_suggestions),
+       local_feed_key             = VALUES(local_feed_key),
+       local_zipcode              = VALUES(local_zipcode),
+       local_city                 = VALUES(local_city),
+       local_lat                  = VALUES(local_lat),
+       local_lon                  = VALUES(local_lon),
+       theme                      = VALUES(theme),
+       timezone                   = VALUES(timezone),
+       last_updated               = VALUES(last_updated)`,
     [
       prefs.role,
       JSON.stringify(prefs.priorityTopics),
@@ -103,6 +107,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.watchlist),
       JSON.stringify(prefs.vipSenders),
       JSON.stringify(prefs.muteSenders),
+      JSON.stringify(prefs.dismissedVipSuggestions),
       prefs.localFeedKey,
       prefs.localZipcode,
       prefs.localCity,

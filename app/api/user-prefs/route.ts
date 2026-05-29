@@ -43,6 +43,9 @@ export async function POST(request: Request) {
     muteSenders: (Array.isArray(raw.muteSenders) ? raw.muteSenders : [])
       .slice(0, 100).map((t) => String(t).trim().slice(0, 254))
       .filter((t) => t.length > 0),
+    dismissedVipSuggestions: (Array.isArray(raw.dismissedVipSuggestions) ? raw.dismissedVipSuggestions : [])
+      .slice(0, 500).map((t) => String(t).trim().slice(0, 254))
+      .filter((t) => t.length > 0),
     localFeedKey: VALID_FEED_KEYS.has(String(raw.localFeedKey ?? "")) ? String(raw.localFeedKey) : "colorado",
     localZipcode: String(raw.localZipcode ?? "").replace(/[^0-9a-zA-Z]/g, "").slice(0, 10),
     localCity: String(raw.localCity ?? "").slice(0, 100),
