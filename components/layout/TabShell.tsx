@@ -9,6 +9,7 @@ import EmailTab from "@/components/email/EmailTab";
 import MarketsTab from "@/components/markets/MarketsTab";
 import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
+import DocumentsTab from "@/components/documents/DocumentsTab";
 import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
@@ -16,7 +17,7 @@ import { CalendarEvent, NewsItem, NewsletterSummary } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
 
-const VALID_TABS: Tab[] = ["news", "calendar", "email", "osint", "markets", "weather"];
+const VALID_TABS: Tab[] = ["news", "calendar", "email", "docs", "osint", "markets", "weather"];
 
 export default function TabShell() {
   const [activeTab, setActiveTab] = useState<Tab>("news");
@@ -204,6 +205,10 @@ export default function TabShell() {
 
         <div className={activeTab !== "email" ? "hidden" : ""}>
           <EmailTab previousSeen={previousSeen.email} />
+        </div>
+
+        <div className={activeTab !== "docs" ? "hidden" : ""}>
+          <DocumentsTab />
         </div>
 
         <div className={activeTab !== "osint" ? "hidden" : ""}>

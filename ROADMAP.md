@@ -1,8 +1,193 @@
 # Dashboard Roadmap
 
-Ten ideas to make this dashboard learn behaviour, assist with duties, and save
+Ideas to make this dashboard learn behaviour, assist with duties, and save
 time. Status legend: ✅ shipped · 🛠 in progress · 📋 planned. Numbers are
-stable references that can be quoted in future sessions ("ship #5 next").
+stable references that can be quoted in future sessions ("ship #15 next").
+
+---
+
+## Foundation (all shipped)
+
+### 1. ✅ Email triage cache + personalised prompt + VIP / mute lists
+Shipped commit `9825cec`. See git log for detail.
+
+### 2. ✅ Implicit feedback on articles + newsletters
+Article opens nudge ranking via `recordOpen`; newsletter expands were
+already wired. ~¼ of an explicit thumbs-up. Shipped `a74c8a3`.
+
+### 3. ✅ Suggested VIPs from reply patterns
+12 h server cache, primary account only. Shipped `a342005`.
+
+### 4. ✅ Action items → Google Tasks
+"+ Task" button on extracted email action items. Shipped `8979d1b`.
+
+### 5. ✅ Morning auto-brief (cached daily)
+`briefing_cache` table, keyed by date + timezone. Manual refresh
+button busts the cache. Shipped `bca7eb0`. **Skipped:** true cron
+prefetch (would need offline OAuth token refresh).
+
+### 6. ✅ Meeting prep auto-context
+"📋 Prep" expand on calendar events with attendees → top 3 recent
+emails per attendee in parallel. 1 h cache. Shipped `2989d46`.
+
+### 7. ✅ Quick-capture box (⌘K)
+Two-step preview → confirm routing into task / event / memory note.
+Shipped `d0b10dd` + `999fa6e`.
+
+### 8. ✅ Quiet-newsletter suggestions
+Hide newsletter series with 0 opens. Shipped `c5895af`.
+
+### 9. ✅ "What changed since I last looked"
+Per-surface lastSeen dimming. Shipped `0e10e1b`.
+
+### 10. ✅ Persistent memory layer for the AI assistant
+Auto-maintained markdown doc, debounced consolidation with persisted
+pending-exchanges queue. Shipped `6882cc6` + `999fa6e` + `6989c4f`.
+
+---
+
+## Weather / Markets / OSINT tabs (this push)
+
+### 11. ✅ Weather: multi-location dashboard
+LocationCard grid + AlertsPanel + SpaceWeatherCard. NWS forecast,
+NWS active alerts, NOAA SWPC (Kp + X-ray flares → G/R scale).
+Shipped `f5b2ea6`.
+
+### 12. ✅ Markets: custom watchlist + DOD contract awards
+Editable `marketsWatchlist` from prefs becomes first TradingView
+overview tab. New `/api/markets/contracts` parses defense.gov RSS
+into vendor / branch / dollar-amount badges. Shipped `2d49f15`.
+
+### 13. ✅ OSINT tab
+Six panes: All / Social / Telegram / News / Aircraft / Maritime.
+Aggregates user-configured RSS/Atom feeds; ADS-B Exchange + MarineTraffic
+iframes centred on home. SSRF-hardened URL validation. Shipped `61441d6`.
+
+---
+
+## Documents / Notes module (next)
+
+### 14. 🛠 Documents / Notes tab
+Personal markdown wiki — see vision doc and detailed spec below.
+Building this push.
+
+---
+
+## Planned — Productivity deep dives
+
+### 15. 📋 Smart drafted replies
+For unread High-priority emails Claude flags as needing a reply,
+sample the user's `Sent` folder for voice + style, generate a draft.
+"Use draft" inserts as a Gmail draft. **Effort:** medium-large.
+
+### 16. 📋 Email follow-up tracker
+Track outbound replies; if recipient hasn't responded in N days,
+surface a "pending follow-up" card on the Email tab.
+**Effort:** medium.
+
+### 17. 📋 Voice quick-capture
+Web Speech API on the capture modal — hands-free input mode.
+**Effort:** small.
+
+### 18. 📋 Cross-source convergence cards
+When 3+ articles + email + calendar all touch the same topic, surface
+a "convergence" card. Topic detection via the existing keyword
+extractor. **Effort:** medium.
+
+### 19. 📋 Anticipatory meeting briefings
+Per tomorrow's calendar events, generate a Claude pre-read combining
+meeting prep + news + memory. Morning card. **Effort:** medium.
+
+### 20. 📋 Reading queue
+Read-later inbox distinct from Saved. Estimated read time per item,
+daily focus-block prompts. **Effort:** small-medium.
+
+### 21. 📋 AI-suggested daily plan
+Morning card: "given your calendar + tasks + briefing, here's a
+suggested order." Editable. **Effort:** medium.
+
+### 22. 📋 Conversation continuity
+"Continue our last conversation" button on the chat; loads compressed
+prior session as context. **Effort:** small.
+
+### 23. 📋 Email scheduling
+Write a reply now; schedule send for Monday 0700. Cron worker
+dispatches. **Effort:** medium.
+
+---
+
+## Planned — Tab buildouts
+
+### 24. 📋 Weather: aviation TAF/METAR for nearby military airfields
+Decode current METAR + 24 h TAF inline per tracked location.
+Closes the OCONUS gap. **Effort:** small-medium.
+
+### 25. 📋 Weather: marine + climatology + ephemeris
+Marine forecast for coastal locations; 30-day climatology departure;
+sun/moon ephemeris per location. **Effort:** medium.
+
+### 26. 📋 Markets: per-ticker deep-dive
+Click a watchlist ticker → recent news + insider transactions +
+earnings highlights inline. **Effort:** medium.
+
+### 27. 📋 Markets: macro indicators + economic calendar
+CPI / PPI / FOMC / yield-curve cards from FRED + this week's
+release calendar. **Effort:** medium.
+
+### 28. 📋 OSINT: Claude OSINT digest
+Daily Claude summary of all OSINT feed content — one paragraph,
+top 5 themes, top names mentioned. **Effort:** medium.
+
+### 29. 📋 OSINT: per-feed search + saved-items integration
+Search within feeds, save OSINT items to the Saved tab.
+**Effort:** small.
+
+---
+
+## Planned — New modules
+
+### 30. 📋 People / Contacts CRM
+Auto-built from email threads. Per-person: last interaction, recent
+emails, notes. Feeds VIP suggestions and meeting prep.
+**Effort:** medium-large.
+
+### 31. 📋 Maps / Geography
+Leaflet map of recent news events plotted geographically. Filter by
+category. Heat overlay. **Effort:** medium-large.
+
+### 32. 📋 Research Topics
+Topic-driven view: define a topic, the tab assembles articles +
+newsletter mentions + saved items + notes touching it. Auto-updates.
+**Effort:** large.
+
+### 33. 📋 Logistics / Travel
+Trip tracker with destination weather / currency / news / notes.
+**Effort:** medium.
+
+---
+
+## Currently shipped on the working branch
+
+`claude/dead-web-dashboard-refactor-16sA7`:
+
+| Commit | What |
+|---|---|
+| `d3bde01` | Newsletter summarisation → Sonnet |
+| `6f087e3` | DEAD POOL skull-reticle favicon |
+| `9825cec` | Email triage cache + personalised prompt + VIP/mute lists |
+| `6882cc6` / `8979d1b` / `d0b10dd` | Memory layer + action items → Tasks + quick capture |
+| `999fa6e` | Throttle memory updates; preview-then-confirm for quick capture |
+| `a74c8a3` / `0e10e1b` | Implicit article opens + "what changed since I last looked" |
+| `a342005` | Suggested VIPs from primary reply patterns |
+| `c5895af` | Quiet-newsletter suggestions |
+| `bca7eb0` | Cached daily briefing + manual refresh |
+| `2989d46` | Meeting prep auto-context from attendees |
+| `04ac28c` → `e5533a0` | Code-review pass: 15 fixes across bugs / optimization / security |
+| `8cf688d` | `docs/USER-GUIDE.html` |
+| `f5b2ea6` | Weather: multi-location + NWS alerts + space weather |
+| `2d49f15` | Markets: custom watchlist + DOD contract awards |
+| `61441d6` | OSINT tab |
+| _this push_ | Documents / Notes tab (#14) |
 
 ---
 

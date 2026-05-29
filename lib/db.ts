@@ -97,6 +97,30 @@ const SCHEMA_STATEMENTS = [
     generated_at BIGINT      NOT NULL
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS documents (
+    id         VARCHAR(36)  NOT NULL PRIMARY KEY,
+    title      VARCHAR(255) NOT NULL,
+    content    MEDIUMTEXT   NOT NULL,
+    tags       JSON         NOT NULL,
+    pinned     TINYINT(1)   NOT NULL DEFAULT 0,
+    created_at DATETIME(3)  NOT NULL,
+    updated_at DATETIME(3)  NOT NULL,
+    INDEX idx_documents_updated (updated_at DESC),
+    INDEX idx_documents_pinned (pinned),
+    FULLTEXT INDEX idx_documents_fts (title, content)
+  ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS document_links (
+    doc_id       VARCHAR(36)  NOT NULL,
+    target_type  VARCHAR(32)  NOT NULL,    -- 'doc' | 'article' | 'email' | 'event'
+    target_id    VARCHAR(255) NOT NULL,
+    target_title TEXT         NULL,
+    PRIMARY KEY (doc_id, target_type, target_id),
+    INDEX idx_doc_links_target (target_type, target_id),
+    CONSTRAINT fk_doc_links_doc FOREIGN KEY (doc_id)
+      REFERENCES documents(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,

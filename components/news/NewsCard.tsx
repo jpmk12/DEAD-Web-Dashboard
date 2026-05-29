@@ -50,6 +50,7 @@ const DEFAULT_STYLE = { badge: "bg-slate-700/40 text-slate-400 border border-sla
 
 export default function NewsCard({ item, onFeedback, isSaved = false, onSave, onUnsave, watchlist = [], previousSeen = 0 }: NewsCardProps) {
   const [rated, setRated] = useState<"useful" | "not_useful" | null>(null);
+  const [notingState, setNotingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const style = CATEGORY_STYLE[item.category] ?? DEFAULT_STYLE;
 
   const timeAgo = (() => {
@@ -108,6 +109,52 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {timeAgo && <span className="text-[10px] text-slate-600 font-mono">{timeAgo}</span>}
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (notingState === "saving" || notingState === "saved") return;
+              setNotingState("saving");
+              try {
+                const res = await fetch("/api/documents", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    title: item.title.slice(0, 240),
+                    content:
+                      `# ${item.title}\n\n` +
+                      `**Source:** ${item.source}  ·  **Published:** ${item.pubDate.slice(0, 10)}\n\n` +
+                      `**Link:** [${item.link}](${item.link})\n\n` +
+                      (item.summary ? `> ${item.summary.replace(/\n/g, "\n> ")}\n\n` : "") +
+                      `---\n\n## Notes\n\n_(your notes here)_\n`,
+                    tags: [item.category],
+                    link: { type: "article", id: item.id, title: item.title },
+                  }),
+                });
+                if (!res.ok) throw new Error();
+                setNotingState("saved");
+                setTimeout(() => setNotingState("idle"), 1800);
+              } catch {
+                setNotingState("error");
+                setTimeout(() => setNotingState("idle"), 1800);
+              }
+            }}
+            title={
+              notingState === "saved" ? "Saved to Docs" :
+              notingState === "error" ? "Failed — click to retry" :
+              "Save excerpt to Docs tab"
+            }
+            className={`w-6 h-6 flex items-center justify-center rounded-md transition-all text-sm ${
+              notingState === "saved"
+                ? "text-emerald-400 bg-emerald-500/10"
+                : notingState === "error"
+                ? "text-red-400 bg-red-500/10"
+                : notingState === "saving"
+                ? "text-slate-500 cursor-wait"
+                : "text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
+            }`}
+          >
+            {notingState === "saved" ? "✓" : notingState === "error" ? "!" : "▤"}
+          </button>
           <button
             onClick={toggleSave}
             title={isSaved ? "Remove bookmark" : "Save for later"}

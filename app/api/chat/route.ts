@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { CalendarEvent, ChatMessage, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { getMemory, buildMemoryContext, updateMemoryFromChat } from "@/lib/userMemory";
+import { getRecentDocsForContext } from "@/lib/documents";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { format, parseISO } from "date-fns";
 
@@ -95,9 +96,21 @@ export async function POST(request: Request) {
   const safeArticles = Array.isArray(articles) ? (articles as NewsItem[]).slice(0, 20) : [];
   const safeNewsletters = Array.isArray(newsletters) ? (newsletters as NewsletterSummary[]).slice(0, 10) : [];
 
-  const [userPrefs, memory] = await Promise.all([getUserPrefs(), getMemory().catch(() => null)]);
+  const [userPrefs, memory, recentDocs] = await Promise.all([
+    getUserPrefs(),
+    getMemory().catch(() => null),
+    getRecentDocsForContext(5).catch(() => []),
+  ]);
   const userContext = buildUserContext(userPrefs);
   const memoryContext = memory ? buildMemoryContext(memory) : "";
+
+  // Surface the 5 most-recently-updated notes as background context so the
+  // assistant can reference them when relevant. Cap each at ~800 chars so
+  // a verbose note doesn't crowd out the rest of the system block.
+  const docsContext = recentDocs.length > 0
+    ? "\n\nRecent notes from the user's Docs tab (most recent first; reference by title when relevant):\n" +
+      recentDocs.map((d) => `### ${d.title}\n${d.content.slice(0, 800)}`).join("\n\n")
+    : "";
 
   const newsContext = safeArticles.length
     ? "\n\nRecent news the user has been reading:\n" +
@@ -119,7 +132,7 @@ export async function POST(request: Request) {
   // input cost of the cacheable block by ~90% on warm reads. With memory +
   // user_context typically running 1-2k tokens, this is a real saving on
   // every chat turn after the first.
-  const cacheableBlock = `You are a personal scheduling and productivity assistant.${userContext}${memoryContext}
+  const cacheableBlock = `You are a personal scheduling and productivity assistant.${userContext}${memoryContext}${docsContext}
 
 You can:
 - Find free time slots and check for conflicts in the calendar
