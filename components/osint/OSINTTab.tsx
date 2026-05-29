@@ -131,6 +131,43 @@ export default function OSINTTab() {
     return items.filter((i) => i.feedKind === pane);
   }, [items, pane]);
 
+  // Cluster near-duplicate headlines so the same story appearing across
+  // multiple feeds collapses into one row. The dedupe key strips punctuation,
+  // lowercases, collapses whitespace, and truncates to the first ~60 chars —
+  // long enough to disambiguate distinct stories but short enough that minor
+  // wording differences between sources still cluster. Each cluster is
+  // sorted newest-first; clusters themselves are sorted by the freshest
+  // item's pubDate.
+  const clusters = useMemo(() => {
+    const map = new Map<string, OsintItem[]>();
+    for (const item of filtered) {
+      const key = item.title
+        .toLowerCase()
+        .replace(/[^\w\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 60);
+      const k = key || item.id; // fall back to item id so empty titles never collapse together
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(item);
+    }
+    return Array.from(map.entries())
+      .map(([k, group]) => ({
+        key: k,
+        items: [...group].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || "")),
+      }))
+      .sort((a, b) => (b.items[0].pubDate || "").localeCompare(a.items[0].pubDate || ""));
+  }, [filtered]);
+
+  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  const toggleCluster = (key: string) => setExpandedClusters((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const dupesSaved = filtered.length - clusters.length;
+
   const counts = useMemo(() => ({
     all: items.length,
     social: items.filter((i) => i.feedKind === "social").length,
@@ -311,36 +348,83 @@ export default function OSINTTab() {
             </p>
           )}
 
-          {!loading && filtered.length > 0 && (
+          {!loading && dupesSaved > 0 && (
+            <p className="text-[10px] font-mono text-slate-600 text-right -mt-2">
+              {clusters.length} clusters · {dupesSaved} duplicate{dupesSaved === 1 ? "" : "s"} folded in
+            </p>
+          )}
+
+          {!loading && clusters.length > 0 && (
             <ul className="space-y-2">
-              {filtered.map((item) => (
-                <li key={item.id} className="bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 hover:border-slate-700 transition-colors">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_BADGE[item.feedKind] ?? KIND_BADGE.other}`}>
-                      {item.feedKind}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-500 truncate flex-1">{item.feedLabel}</span>
-                    <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">
-                      {timeAgo(item.pubDate)}
-                    </span>
-                  </div>
-                  {item.link ? (
-                    <a
-                      href={item.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-semibold text-slate-100 hover:text-emerald-400 transition-colors block leading-snug mb-1"
-                    >
-                      {item.title}
-                    </a>
-                  ) : (
-                    <p className="text-sm font-semibold text-slate-100 leading-snug mb-1">{item.title}</p>
-                  )}
-                  {item.summary && (
-                    <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{item.summary}</p>
-                  )}
-                </li>
-              ))}
+              {clusters.map((cluster) => {
+                const primary = cluster.items[0];
+                const dupes = cluster.items.slice(1);
+                const expanded = expandedClusters.has(cluster.key);
+                return (
+                  <li key={cluster.key} className="bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 hover:border-slate-700 transition-colors">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_BADGE[primary.feedKind] ?? KIND_BADGE.other}`}>
+                        {primary.feedKind}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-500 truncate flex-1">{primary.feedLabel}</span>
+                      <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">
+                        {timeAgo(primary.pubDate)}
+                      </span>
+                    </div>
+                    {primary.link ? (
+                      <a
+                        href={primary.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-semibold text-slate-100 hover:text-emerald-400 transition-colors block leading-snug mb-1"
+                      >
+                        {primary.title}
+                      </a>
+                    ) : (
+                      <p className="text-sm font-semibold text-slate-100 leading-snug mb-1">{primary.title}</p>
+                    )}
+                    {primary.summary && (
+                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{primary.summary}</p>
+                    )}
+                    {dupes.length > 0 && (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCluster(cluster.key)}
+                          className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 transition-colors"
+                          title={expanded ? "Hide duplicates" : "Show duplicate posts from other feeds"}
+                        >
+                          {expanded ? "▴ hide" : "▾"} +{dupes.length} more from{" "}
+                          {Array.from(new Set(dupes.map((d) => d.feedLabel))).slice(0, 3).join(", ")}
+                          {new Set(dupes.map((d) => d.feedLabel)).size > 3 ? "…" : ""}
+                        </button>
+                        {expanded && (
+                          <ul className="mt-2 pl-3 border-l border-slate-800 space-y-1.5">
+                            {dupes.map((d) => (
+                              <li key={d.id} className="text-[11px] flex items-baseline gap-2">
+                                <span className="text-[9px] font-mono text-slate-600 flex-shrink-0">{d.feedLabel}</span>
+                                {d.link ? (
+                                  <a
+                                    href={d.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-slate-400 hover:text-emerald-400 transition-colors truncate"
+                                  >
+                                    {d.title}
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-400 truncate">{d.title}</span>
+                                )}
+                                <span className="text-[9px] text-slate-700 font-mono flex-shrink-0 ml-auto">{timeAgo(d.pubDate)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </>
