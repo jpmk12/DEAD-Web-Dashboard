@@ -85,6 +85,10 @@ export interface UserPrefs {
   // OSINT tab — configurable RSS feed sources (social media bridges, news,
   // niche curated feeds). Each entry is a labelled URL.
   osintFeeds: OsintFeed[];
+  // News sources the user has toggled off — names as listed in
+  // lib/newsSources.ts. Skipped before fetch, so disabling reduces both
+  // bandwidth and AI context size for news_chat / threads / briefing.
+  disabledNewsSources: string[];
   // AI controls — master switch + per-feature overrides. When master is off,
   // every Claude-calling route returns its graceful fallback regardless of
   // per-feature settings. Per-feature is opt-out: missing key = enabled.

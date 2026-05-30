@@ -129,6 +129,12 @@ export async function POST(request: Request) {
     trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
     osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
+    // Bounded list of source names. Cap at 100 to prevent unbounded growth
+    // if the catalog ever balloons. Names trimmed and bounded to 80 chars.
+    disabledNewsSources: (Array.isArray(raw.disabledNewsSources) ? raw.disabledNewsSources : [])
+      .slice(0, 100)
+      .map((t: unknown) => String(t).trim().slice(0, 80))
+      .filter((t: string) => t.length > 0),
     aiEnabled: typeof raw.aiEnabled === "boolean" ? raw.aiEnabled : true,
     aiFeatureToggles: sanitizeAiFeatureToggles(raw.aiFeatureToggles),
     localFeedKey: VALID_FEED_KEYS.has(String(raw.localFeedKey ?? "")) ? String(raw.localFeedKey) : "colorado",
