@@ -13,6 +13,7 @@ interface DocFull {
   content: string;
   tags: string[];
   pinned: boolean;
+  archived?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -462,12 +463,29 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
 
   const onDelete = async () => {
     if (!doc) return;
-    if (!confirm(`Delete "${doc.title}"? This can't be undone.`)) return;
+    if (!confirm(`Delete "${doc.title}"? This can't be undone — use Archive (▢) if you want to hide it but keep it.`)) return;
     const res = await fetch(`/api/documents/${docId}`, { method: "DELETE" });
     if (res.ok) {
       onChanged?.();
       onDeleted?.();
     }
+  };
+
+  // Soft-delete toggle. Archived docs are excluded from default views and
+  // from chat context, but stay restorable from the Archived smart view.
+  const onToggleArchive = async () => {
+    if (!doc) return;
+    const nextArchived = !doc.archived;
+    setDoc({ ...doc, archived: nextArchived });
+    await fetch(`/api/documents/${docId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: nextArchived }),
+    }).catch(() => {});
+    onChanged?.();
+    // Drop selection on archive so the editor exits cleanly — the doc is
+    // gone from the default sidebar view it was opened from.
+    if (nextArchived) onDeleted?.();
   };
 
   const updatedLabel = useMemo(() => {
@@ -558,8 +576,15 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
               💬 Ask
             </button>
             <button
+              onClick={onToggleArchive}
+              title={doc.archived ? "Restore from archive" : "Archive — soft-delete (restore from the Archived view in the sidebar)"}
+              className={`text-base transition-colors ${doc.archived ? "text-emerald-400 hover:text-emerald-300" : "text-slate-600 hover:text-slate-300"}`}
+            >
+              {doc.archived ? "↺" : "▢"}
+            </button>
+            <button
               onClick={onDelete}
-              title="Delete"
+              title="Delete (permanent)"
               className="text-slate-600 hover:text-red-400 text-base transition-colors"
             >
               🗑

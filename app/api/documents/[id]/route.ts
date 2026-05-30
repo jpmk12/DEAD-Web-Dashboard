@@ -44,12 +44,13 @@ export async function PATCH(request: Request, ctx: RouteCtx) {
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
-  const raw = body as { title?: unknown; content?: unknown; tags?: unknown; pinned?: unknown };
+  const raw = body as { title?: unknown; content?: unknown; tags?: unknown; pinned?: unknown; archived?: unknown };
   const patch: Parameters<typeof updateDocument>[1] = {};
   if (typeof raw.title === "string") patch.title = raw.title;
   if (typeof raw.content === "string") patch.content = raw.content;
   if (Array.isArray(raw.tags)) patch.tags = raw.tags.filter((t): t is string => typeof t === "string");
   if (typeof raw.pinned === "boolean") patch.pinned = raw.pinned;
+  if (typeof raw.archived === "boolean") patch.archived = raw.archived;
 
   const doc = await updateDocument(id, patch);
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -26,7 +26,7 @@ interface DocListProps {
 // View = a pre-built filter over the full doc list. View state persists in
 // localStorage so a user who lives in "From email" stays there across reloads.
 // Tag filter is independent of view (you can combine "From email" + tag).
-type ViewKey = "all" | "pinned" | "recent" | "untagged" | "email" | "osint" | "news" | "actions";
+type ViewKey = "all" | "pinned" | "recent" | "untagged" | "email" | "osint" | "news" | "actions" | "archived";
 type SortKey = "updated" | "title";
 
 const VIEWS: { key: ViewKey; label: string }[] = [
@@ -38,6 +38,7 @@ const VIEWS: { key: ViewKey; label: string }[] = [
   { key: "osint",     label: "From OSINT" },
   { key: "news",      label: "From news" },
   { key: "actions",   label: "Action items" },
+  { key: "archived",  label: "Archived" },
 ];
 
 const SORTS: { key: SortKey; label: string }[] = [
@@ -67,6 +68,10 @@ function viewPredicate(view: ViewKey, doc: DocSummary): boolean {
     case "osint":    return doc.tags.includes("osint");
     case "news":     return doc.tags.includes("news");
     case "actions":  return doc.tags.includes("tracking") || doc.tags.includes("action-item");
+    // "Archived" docs come from a separate API call (archived=1), so by the
+    // time we hit this predicate they're already on the right list — pass
+    // them all through.
+    case "archived": return true;
   }
 }
 
@@ -123,7 +128,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
 
   // POST a bulk op to the server, clear selection on success, refresh the
   // sidebar so updated tags / pinned states / removed docs appear.
-  const runBulk = async (op: "pin" | "unpin" | "delete", tag?: string) => {
+  const runBulk = async (op: "pin" | "unpin" | "delete" | "archive" | "unarchive", tag?: string) => {
     if (selected.size === 0) return;
     if (op === "delete" && !confirm(`Delete ${selected.size} document${selected.size === 1 ? "" : "s"}? This cannot be undone.`)) return;
     setBulkBusy(true);
@@ -166,12 +171,15 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
     setLoading(true);
     const params = new URLSearchParams();
     if (debouncedSearch) params.set("search", debouncedSearch);
+    // Archived docs are a separate result set — the server returns either
+    // active OR archived, not both, so the view-switch drives a refetch.
+    if (view === "archived") params.set("archived", "1");
     fetch(`/api/documents?${params.toString()}`)
       .then((r) => r.json())
       .then((d) => setDocs(d.docs ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [debouncedSearch, refreshKey]);
+  }, [debouncedSearch, refreshKey, view]);
 
   // View + tag filter applied client-side over the fetched list. Server
   // already handles search; everything else is small enough to filter
@@ -276,10 +284,17 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
               <span className="text-emerald-400 font-bold uppercase tracking-wider">
                 {selected.size} sel
               </span>
-              <button onClick={() => runBulk("pin")}    disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Pin</button>
-              <button onClick={() => runBulk("unpin")}  disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Unpin</button>
-              <button onClick={() => { setBulkMode("tag");   setBulkTagInput(""); }} disabled={bulkBusy} className={`font-bold uppercase tracking-wider border px-1.5 py-0.5 rounded transition-all disabled:opacity-40 ${bulkMode === "tag" ? "bg-violet-500/15 text-violet-300 border-violet-500/40" : "border-slate-700 hover:border-violet-500/40 text-slate-400 hover:text-violet-400"}`}>+ Tag</button>
-              <button onClick={() => { setBulkMode("untag"); setBulkTagInput(""); }} disabled={bulkBusy} className={`font-bold uppercase tracking-wider border px-1.5 py-0.5 rounded transition-all disabled:opacity-40 ${bulkMode === "untag" ? "bg-violet-500/15 text-violet-300 border-violet-500/40" : "border-slate-700 hover:border-violet-500/40 text-slate-400 hover:text-violet-400"}`}>− Tag</button>
+              {view !== "archived" ? (
+                <>
+                  <button onClick={() => runBulk("pin")}    disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Pin</button>
+                  <button onClick={() => runBulk("unpin")}  disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Unpin</button>
+                  <button onClick={() => { setBulkMode("tag");   setBulkTagInput(""); }} disabled={bulkBusy} className={`font-bold uppercase tracking-wider border px-1.5 py-0.5 rounded transition-all disabled:opacity-40 ${bulkMode === "tag" ? "bg-violet-500/15 text-violet-300 border-violet-500/40" : "border-slate-700 hover:border-violet-500/40 text-slate-400 hover:text-violet-400"}`}>+ Tag</button>
+                  <button onClick={() => { setBulkMode("untag"); setBulkTagInput(""); }} disabled={bulkBusy} className={`font-bold uppercase tracking-wider border px-1.5 py-0.5 rounded transition-all disabled:opacity-40 ${bulkMode === "untag" ? "bg-violet-500/15 text-violet-300 border-violet-500/40" : "border-slate-700 hover:border-violet-500/40 text-slate-400 hover:text-violet-400"}`}>− Tag</button>
+                  <button onClick={() => runBulk("archive")} disabled={bulkBusy} title="Archive — soft-delete (restore from the Archived view)" className="font-bold uppercase tracking-wider border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Archive</button>
+                </>
+              ) : (
+                <button onClick={() => runBulk("unarchive")} disabled={bulkBusy} title="Restore selected docs from the archive" className="font-bold uppercase tracking-wider border border-emerald-700 hover:border-emerald-500/40 text-emerald-400 hover:text-emerald-300 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Restore</button>
+              )}
               <button onClick={() => runBulk("delete")} disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-red-500/40 text-slate-400 hover:text-red-400 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Del</button>
               <span className="flex-1" />
               <button onClick={clearSelection} disabled={bulkBusy} className="text-slate-500 hover:text-slate-300 px-1 transition-all disabled:opacity-40" title="Clear selection">×</button>

@@ -19,8 +19,9 @@ export async function GET(request: Request) {
   const search = url.searchParams.get("search")?.slice(0, 200) ?? undefined;
   const tag = url.searchParams.get("tag")?.slice(0, 64) ?? undefined;
   const pinnedOnly = url.searchParams.get("pinned") === "1";
+  const archived = url.searchParams.get("archived") === "1";
 
-  const docs = await listDocuments({ search, tag, pinnedOnly });
+  const docs = await listDocuments({ search, tag, pinnedOnly, archived });
   return NextResponse.json({ docs });
 }
 

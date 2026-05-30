@@ -7,6 +7,7 @@ export interface DocumentSummary {
   title: string;
   tags: string[];
   pinned: boolean;
+  archived: boolean;
   updatedAt: string;
   snippet?: string;       // populated by search results
 }
@@ -31,6 +32,7 @@ interface DocRow extends RowDataPacket {
   content: string;
   tags: string[] | null;
   pinned: number;
+  archived?: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -53,6 +55,7 @@ function summary(r: DocRow): DocumentSummary {
     title: r.title,
     tags: asTags(r.tags),
     pinned: Boolean(r.pinned),
+    archived: Boolean(r.archived),
     updatedAt: r.updated_at.toISOString(),
   };
 }
@@ -71,11 +74,18 @@ export async function listDocuments({
   search,
   tag,
   pinnedOnly,
+  archived = false,
   limit = 100,
-}: { search?: string; tag?: string; pinnedOnly?: boolean; limit?: number } = {}): Promise<DocumentSummary[]> {
+}: { search?: string; tag?: string; pinnedOnly?: boolean; archived?: boolean; limit?: number } = {}): Promise<DocumentSummary[]> {
   const pool = await getDb();
   const where: string[] = [];
   const params: (string | number)[] = [];
+
+  // Default: only active docs. Pass archived:true to get just the archive.
+  // No mixed view — archived = false hides archived rows; archived = true
+  // shows only archived rows. The sidebar's "Archived" smart view drives
+  // the latter.
+  where.push(archived ? "archived = 1" : "archived = 0");
 
   // Use FULLTEXT in NATURAL LANGUAGE mode when a real query is provided
   // (≥3 chars). Otherwise fall back to a LIKE on title for short queries.
@@ -104,7 +114,7 @@ export async function listDocuments({
   params.push(limit);
 
   const [rows] = await pool.query<DocRow[]>(
-    `SELECT id, title, content, tags, pinned, created_at, updated_at${scoreSelect}
+    `SELECT id, title, content, tags, pinned, archived, created_at, updated_at${scoreSelect}
      FROM documents
      ${whereSql}
      ORDER BY ${order}
@@ -132,7 +142,8 @@ export async function listDocuments({
 export async function getDocument(id: string): Promise<DocumentFull | null> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    "SELECT id, title, content, tags, pinned, created_at, updated_at FROM documents WHERE id = ?",
+    "SELECT id, title, content, tags, pinned, archived, created_at, updated_at FROM documents WHERE id = ?",
+
     [id]
   );
   return rows.length > 0 ? full(rows[0]) : null;
@@ -157,7 +168,7 @@ export async function createDocument(input: { title: string; content?: string; t
   };
 }
 
-export async function updateDocument(id: string, patch: { title?: string; content?: string; tags?: string[]; pinned?: boolean }): Promise<DocumentFull | null> {
+export async function updateDocument(id: string, patch: { title?: string; content?: string; tags?: string[]; pinned?: boolean; archived?: boolean }): Promise<DocumentFull | null> {
   const existing = await getDocument(id);
   if (!existing) return null;
   const next = {
@@ -168,11 +179,21 @@ export async function updateDocument(id: string, patch: { title?: string; conten
   };
   const now = new Date();
   const pool = await getDb();
-  await pool.execute(
-    `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), pinned = ?, updated_at = ?
-     WHERE id = ?`,
-    [next.title, next.content, JSON.stringify(next.tags), next.pinned ? 1 : 0, now, id]
-  );
+  // archived is updated only when explicitly present in the patch — a normal
+  // PATCH that just bumps title or content shouldn't restore an archived doc.
+  if (patch.archived !== undefined) {
+    await pool.execute(
+      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), pinned = ?, archived = ?, updated_at = ?
+       WHERE id = ?`,
+      [next.title, next.content, JSON.stringify(next.tags), next.pinned ? 1 : 0, patch.archived ? 1 : 0, now, id]
+    );
+  } else {
+    await pool.execute(
+      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), pinned = ?, updated_at = ?
+       WHERE id = ?`,
+      [next.title, next.content, JSON.stringify(next.tags), next.pinned ? 1 : 0, now, id]
+    );
+  }
   if (patch.content !== undefined) {
     // Re-fetch the row after the UPDATE so the link rebuild reflects the
     // last-write-wins state of the DB rather than the value we computed from
@@ -283,11 +304,12 @@ export async function getOutboundLinks(docId: string): Promise<DocumentLink[]> {
 }
 
 // Most-recently-updated N docs — used by the chat route to surface recent
-// notes as additional context.
+// notes as additional context. Archived docs are intentionally excluded so
+// soft-deleted notes don't leak back into AI prompts.
 export async function getRecentDocsForContext(n: number = 5): Promise<DocumentFull[]> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    "SELECT id, title, content, tags, pinned, created_at, updated_at FROM documents ORDER BY updated_at DESC LIMIT ?",
+    "SELECT id, title, content, tags, pinned, archived, created_at, updated_at FROM documents WHERE archived = 0 ORDER BY updated_at DESC LIMIT ?",
     [n]
   );
   return rows.map(full);
@@ -464,4 +486,14 @@ export async function bulkRemoveTag(ids: string[], tag: string): Promise<{ affec
   } finally {
     conn.release();
   }
+}
+
+export async function bulkSetArchived(ids: string[], archived: boolean): Promise<{ affected: number }> {
+  if (ids.length === 0) return { affected: 0 };
+  const pool = await getDb();
+  const [res] = await pool.query<ResultSetHeader>(
+    "UPDATE documents SET archived = ?, updated_at = ? WHERE id IN (?)",
+    [archived ? 1 : 0, new Date(), ids]
+  );
+  return { affected: res.affectedRows };
 }

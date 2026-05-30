@@ -5,6 +5,7 @@ import {
   bulkDelete,
   bulkAddTag,
   bulkRemoveTag,
+  bulkSetArchived,
 } from "@/lib/documents";
 
 // One endpoint for multi-select bulk ops in the Docs sidebar.
@@ -35,9 +36,11 @@ export async function POST(request: Request) {
   if (ids.length === 0) return NextResponse.json({ affected: 0 });
 
   try {
-    if (r.op === "pin")    return NextResponse.json(await bulkSetPinned(ids, true));
-    if (r.op === "unpin")  return NextResponse.json(await bulkSetPinned(ids, false));
-    if (r.op === "delete") return NextResponse.json(await bulkDelete(ids));
+    if (r.op === "pin")       return NextResponse.json(await bulkSetPinned(ids, true));
+    if (r.op === "unpin")     return NextResponse.json(await bulkSetPinned(ids, false));
+    if (r.op === "delete")    return NextResponse.json(await bulkDelete(ids));
+    if (r.op === "archive")   return NextResponse.json(await bulkSetArchived(ids, true));
+    if (r.op === "unarchive") return NextResponse.json(await bulkSetArchived(ids, false));
     if (r.op === "tag" || r.op === "untag") {
       if (typeof r.tag !== "string" || !r.tag.trim()) {
         return NextResponse.json({ error: "tag required" }, { status: 400 });
