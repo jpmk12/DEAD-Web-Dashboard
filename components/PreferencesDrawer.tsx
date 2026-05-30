@@ -333,6 +333,8 @@ function TestResultPanel({ r, onClose, onSwapTo }: { r: DiagnosticResult; onClos
 // tiny "current local" hint; other local-set sources show greyed so the user
 // knows they're not active right now, but they're still toggleable so the
 // pref survives a location switch.
+interface NewsSourceStat { name: string; count: number; totalChars: number }
+
 function NewsSourcesEditor({
   value,
   onChange,
@@ -346,6 +348,56 @@ function NewsSourcesEditor({
   const disabledSet = new Set(value);
   const currentLocalSet = new Set((LOCAL_NEWS_SETS[currentLocalKey] ?? []).map((s) => s.name));
   const baseNames = new Set(BASE_NEWS_SOURCES.map((s) => s.name));
+  const [stats, setStats] = useState<Map<string, NewsSourceStat>>(new Map());
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  // Pull /api/news once on mount for the per-source volume counts shown
+  // beside each toggle. The route already fetches every feed for the News
+  // tab, so we're sharing whatever caching the platform layer provides.
+  useEffect(() => {
+    setStatsLoading(true);
+    fetch("/api/news")
+      .then((r) => r.json())
+      .then((d) => {
+        const arr: NewsSourceStat[] = Array.isArray(d?.sourceStats) ? d.sourceStats : [];
+        const map = new Map<string, NewsSourceStat>();
+        for (const s of arr) map.set(s.name, s);
+        setStats(map);
+      })
+      .catch(() => {})
+      .finally(() => setStatsLoading(false));
+  }, []);
+
+  // Items / token estimate formatting. Token guess = chars / 4 — close
+  // enough for English news prose. We surface "items" prominently and
+  // tokens as a secondary indicator. The exact saving depends on whether
+  // total volume drops below each AI route's article cap.
+  const formatTokens = (chars: number): string => {
+    const tok = Math.round(chars / 4);
+    if (tok >= 10_000) return `${Math.round(tok / 1000)}k tok`;
+    if (tok >= 1000)   return `${(tok / 1000).toFixed(1)}k tok`;
+    return `${tok} tok`;
+  };
+
+  // Sum the enabled stats so the user sees the impact of their current
+  // disabled set on aggregate volume.
+  const aggregate = (() => {
+    let items = 0;
+    let chars = 0;
+    let itemsIfAll = 0;
+    let charsIfAll = 0;
+    for (const s of sources) {
+      const hit = stats.get(s.name);
+      if (!hit) continue;
+      itemsIfAll += hit.count;
+      charsIfAll += hit.totalChars;
+      if (!disabledSet.has(s.name)) {
+        items += hit.count;
+        chars += hit.totalChars;
+      }
+    }
+    return { items, chars, itemsIfAll, charsIfAll };
+  })();
 
   // Group by category for visual structure. Categories render in a stable
   // order; local goes last since it's location-dependent.
@@ -392,11 +444,24 @@ function NewsSourcesEditor({
       <p className="text-[10px] text-slate-600 mb-2 leading-relaxed">
         Toggle individual feeds off to cut both the read pile AND the token cost of
         News chat / threads / briefing — disabled sources are skipped before fetch.
-        Local sources outside your current area stay toggleable so the choice
-        persists across location changes.
+        Each row shows <span className="text-slate-400">items</span> in the last
+        fetch and the rough <span className="text-slate-400">tokens</span> they
+        carry if all were sent to Claude. Real savings only kick in once volume
+        drops below the route caps (chat: 20, threads / news-chat: 40).
       </p>
       <div className="flex items-center gap-2 mb-3 text-[10px]">
         <span className="text-slate-500 font-mono">{enabledCount}/{sources.length} enabled</span>
+        {!statsLoading && aggregate.itemsIfAll > 0 && (
+          <span className="text-slate-600 font-mono">
+            · {aggregate.items}/{aggregate.itemsIfAll} items
+            {" · "}
+            <span className={aggregate.chars < aggregate.charsIfAll ? "text-emerald-400" : ""}>
+              ~{formatTokens(aggregate.chars)}
+            </span>
+            {" / "}
+            ~{formatTokens(aggregate.charsIfAll)}
+          </span>
+        )}
         <span className="flex-1" />
         <button
           type="button"
@@ -428,6 +493,7 @@ function NewsSourcesEditor({
                   const isDisabled = disabledSet.has(s.name);
                   const isLocalOther = s.category === "local" && !currentLocalSet.has(s.name);
                   const isCurrentLocal = s.category === "local" && currentLocalSet.has(s.name);
+                  const stat = stats.get(s.name);
                   return (
                     <li
                       key={s.name}
@@ -453,6 +519,22 @@ function NewsSourcesEditor({
                         )}
                         {isLocalOther && (
                           <span className="text-[9px] text-slate-600 font-mono flex-shrink-0">· other location</span>
+                        )}
+                        <span className="flex-1" />
+                        {/* Per-source volume + token estimate. statsLoading
+                            renders a tiny placeholder so the row layout
+                            doesn't snap once the fetch resolves. */}
+                        {statsLoading ? (
+                          <span className="text-[9px] text-slate-700 font-mono flex-shrink-0 animate-pulse">…</span>
+                        ) : stat ? (
+                          <span
+                            className="text-[9px] text-slate-500 font-mono flex-shrink-0 tabular-nums"
+                            title={`${stat.count} items, ~${formatTokens(stat.totalChars)} if all sent to Claude`}
+                          >
+                            {stat.count} · {formatTokens(stat.totalChars)}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">— no data</span>
                         )}
                       </label>
                     </li>

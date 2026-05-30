@@ -38,8 +38,33 @@ export async function GET() {
     if (!result.ok && result.error) sourceErrors[result.source] = result.error;
   }
 
+  // Per-source aggregates the Preferences UI uses to show volume and a
+  // rough token estimate next to each toggle. `totalChars` covers what a
+  // threads / briefing prompt would carry (title + summary); the client
+  // divides by ~4 to ballpark tokens. This isn't a guarantee of saved
+  // tokens — the AI routes cap at 20-40 articles each, so disabling a
+  // source only reduces real input-token cost once total volume drops
+  // below the cap. That nuance is documented in the editor's help text.
+  const sourceStats: { name: string; count: number; totalChars: number }[] = [];
+  const seenForStats = new Map<string, { count: number; chars: number }>();
+  for (const r of feedResults) {
+    const agg = seenForStats.get(r.source) ?? { count: 0, chars: 0 };
+    for (const it of r.items) {
+      agg.count++;
+      agg.chars += (it.title?.length ?? 0) + (it.summary?.length ?? 0);
+    }
+    seenForStats.set(r.source, agg);
+  }
+  for (const [name, { count, chars }] of seenForStats) {
+    sourceStats.push({ name, count, totalChars: chars });
+  }
+
   return NextResponse.json(
-    { items, sourceErrors: Object.keys(sourceErrors).length ? sourceErrors : undefined },
+    {
+      items,
+      sourceErrors: Object.keys(sourceErrors).length ? sourceErrors : undefined,
+      sourceStats,
+    },
     { headers: { "Cache-Control": "private, no-store" } }
   );
 }
