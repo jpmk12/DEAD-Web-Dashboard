@@ -84,6 +84,12 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
   const [sort, setSort] = useState<SortKey>("updated");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  // Bulk selection. Set of doc ids; action bar surfaces when non-empty.
+  // `bulkMode` is the in-flight tag/untag input panel — null otherwise.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState<null | "tag" | "untag">(null);
+  const [bulkTagInput, setBulkTagInput] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // Restore view + sort from localStorage on mount. Defaults are kept above
   // so a fresh user gets "All / Recent" without any storage seed.
@@ -104,6 +110,51 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
     setSort(next);
     try { localStorage.setItem(LS_SORT, next); } catch {}
   };
+
+  // ─── Bulk actions ────────────────────────────────────────────────────────
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => { setSelected(new Set()); setBulkMode(null); setBulkTagInput(""); };
+
+  // POST a bulk op to the server, clear selection on success, refresh the
+  // sidebar so updated tags / pinned states / removed docs appear.
+  const runBulk = async (op: "pin" | "unpin" | "delete", tag?: string) => {
+    if (selected.size === 0) return;
+    if (op === "delete" && !confirm(`Delete ${selected.size} document${selected.size === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setBulkBusy(true);
+    try {
+      await fetch("/api/documents/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op, ids: Array.from(selected), tag }),
+      });
+      clearSelection();
+      onRefresh();
+    } catch { /* ignore */ }
+    finally { setBulkBusy(false); }
+  };
+
+  const applyBulkTag = async () => {
+    const tag = bulkTagInput.trim();
+    if (!tag || !bulkMode) return;
+    setBulkBusy(true);
+    try {
+      await fetch("/api/documents/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: bulkMode, ids: Array.from(selected), tag }),
+      });
+      clearSelection();
+      onRefresh();
+    } catch { /* ignore */ }
+    finally { setBulkBusy(false); }
+  };
+
 
   // Debounce search input so we don't fire on every keystroke.
   useEffect(() => {
@@ -141,6 +192,19 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
 
   const pinned = filtered.filter((d) => d.pinned);
   const rest   = filtered.filter((d) => !d.pinned);
+
+  // Select-all (visible filtered list) toggle. Defined after `filtered` so
+  // it captures the current render's value. Acts as a deselect when
+  // everything visible is already selected.
+  const selectAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = filtered.length > 0 && filtered.every((d) => next.has(d.id));
+      if (allSelected) { for (const d of filtered) next.delete(d.id); }
+      else             { for (const d of filtered) next.add(d.id); }
+      return next;
+    });
+  };
 
   // Counts per view, computed once over the full doc set. Shown beside each
   // view label so the user can see at a glance which views have anything.
@@ -202,6 +266,61 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
           </button>
         </div>
 
+        {/* Bulk action bar — surfaces when ≥1 doc is selected via the row
+            checkboxes. Pin/Unpin/Tag/Untag/Delete operate on every selection,
+            then clear it. Tag/Untag drop a small inline input panel below
+            so the user types the tag without leaving the bar. */}
+        {selected.size > 0 && (
+          <div className="bg-emerald-500/10 border border-emerald-500/40 rounded-md px-2 py-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+              <span className="text-emerald-400 font-bold uppercase tracking-wider">
+                {selected.size} sel
+              </span>
+              <button onClick={() => runBulk("pin")}    disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Pin</button>
+              <button onClick={() => runBulk("unpin")}  disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Unpin</button>
+              <button onClick={() => { setBulkMode("tag");   setBulkTagInput(""); }} disabled={bulkBusy} className={`font-bold uppercase tracking-wider border px-1.5 py-0.5 rounded transition-all disabled:opacity-40 ${bulkMode === "tag" ? "bg-violet-500/15 text-violet-300 border-violet-500/40" : "border-slate-700 hover:border-violet-500/40 text-slate-400 hover:text-violet-400"}`}>+ Tag</button>
+              <button onClick={() => { setBulkMode("untag"); setBulkTagInput(""); }} disabled={bulkBusy} className={`font-bold uppercase tracking-wider border px-1.5 py-0.5 rounded transition-all disabled:opacity-40 ${bulkMode === "untag" ? "bg-violet-500/15 text-violet-300 border-violet-500/40" : "border-slate-700 hover:border-violet-500/40 text-slate-400 hover:text-violet-400"}`}>− Tag</button>
+              <button onClick={() => runBulk("delete")} disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-red-500/40 text-slate-400 hover:text-red-400 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Del</button>
+              <span className="flex-1" />
+              <button onClick={clearSelection} disabled={bulkBusy} className="text-slate-500 hover:text-slate-300 px-1 transition-all disabled:opacity-40" title="Clear selection">×</button>
+            </div>
+            {bulkMode && (
+              <div className="flex items-center gap-1 mt-1.5">
+                <input
+                  value={bulkTagInput}
+                  onChange={(e) => setBulkTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); applyBulkTag(); }
+                    if (e.key === "Escape") { setBulkMode(null); setBulkTagInput(""); }
+                  }}
+                  autoFocus
+                  placeholder={bulkMode === "tag" ? "Tag to add" : "Tag to remove"}
+                  disabled={bulkBusy}
+                  className="flex-1 min-w-0 bg-slate-950 border border-slate-700 focus:border-emerald-500/40 rounded px-2 py-0.5 text-[11px] text-slate-200 placeholder-slate-700 outline-none disabled:opacity-40"
+                />
+                <button
+                  onClick={applyBulkTag}
+                  disabled={bulkBusy || !bulkTagInput.trim()}
+                  className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-2 py-0.5 rounded disabled:opacity-40"
+                >
+                  Apply
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Select-all toggle for the current visible filtered list. Hidden when
+            the list is empty so it doesn't dangle. */}
+        {!loading && filtered.length > 0 && (
+          <button
+            onClick={selectAllVisible}
+            className="text-[10px] text-slate-600 hover:text-slate-400 font-mono self-start"
+          >
+            {filtered.every((d) => selected.has(d.id)) ? "Deselect all visible" : `Select all visible (${filtered.length})`}
+          </button>
+        )}
+
         {/* Active tag filter chip — only renders when set, with a close button
             so the user can drop the filter without rooting through the list. */}
         {tagFilter && (
@@ -245,7 +364,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
             <p className="px-3 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-widest text-amber-400">
               ★ Pinned
             </p>
-            <ul>{pinned.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={setTagFilter} activeTag={tagFilter} />)}</ul>
+            <ul>{pinned.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={setTagFilter} activeTag={tagFilter} checked={selected.has(d.id)} onToggleChecked={toggleSelect} />)}</ul>
           </>
         )}
 
@@ -254,7 +373,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
             <p className="px-3 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-500">
               {pinned.length > 0 ? "All other documents" : "Documents"}
             </p>
-            <ul>{rest.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={setTagFilter} activeTag={tagFilter} />)}</ul>
+            <ul>{rest.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={setTagFilter} activeTag={tagFilter} checked={selected.has(d.id)} onToggleChecked={toggleSelect} />)}</ul>
           </>
         )}
       </div>
@@ -283,20 +402,35 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
 }
 
 function DocRow({
-  doc, selected, onSelect, onTagClick, activeTag,
+  doc, selected, onSelect, onTagClick, activeTag, checked, onToggleChecked,
 }: {
   doc: DocSummary; selected: boolean; onSelect: (id: string) => void; onTagClick: (tag: string) => void; activeTag: string | null;
+  checked: boolean; onToggleChecked: (id: string) => void;
 }) {
   return (
     <li>
       <div
-        className={`block w-full border-l-2 transition-colors ${
+        className={`flex w-full border-l-2 transition-colors ${
           selected ? "bg-slate-800/70 border-emerald-500" : "border-transparent hover:bg-slate-800/40"
         }`}
       >
+        <label
+          // onMouseDown + preventDefault keeps the row's button click from
+          // firing first and stealing the selected-doc state.
+          onMouseDown={(e) => e.preventDefault()}
+          className="flex items-center pl-2 pr-1 cursor-pointer"
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => onToggleChecked(doc.id)}
+            className="h-3.5 w-3.5 rounded border-slate-700 bg-slate-800 accent-emerald-500 cursor-pointer"
+          />
+        </label>
+        <div className="flex-1 min-w-0">
         <button
           onClick={() => onSelect(doc.id)}
-          className="w-full text-left px-3 pt-2 pb-1"
+          className="w-full text-left px-2 pt-2 pb-1"
         >
           <div className="flex items-baseline justify-between gap-2">
             <p className={`text-xs font-medium truncate ${selected ? "text-slate-100" : "text-slate-300"}`}>
@@ -313,7 +447,7 @@ function DocRow({
           )}
         </button>
         {doc.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 px-3 pb-2">
+          <div className="flex flex-wrap gap-1 px-2 pb-2">
             {doc.tags.map((t) => (
               <button
                 key={t}
@@ -332,6 +466,7 @@ function DocRow({
             ))}
           </div>
         )}
+        </div>
       </div>
     </li>
   );

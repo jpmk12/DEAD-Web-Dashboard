@@ -368,3 +368,100 @@ export async function updateTagAcrossDocs(from: string, to: string | null): Prom
     conn.release();
   }
 }
+
+// ─── Bulk ops over multiple docs ─────────────────────────────────────────────
+//
+// Single endpoint serves Pin / Unpin / Tag / Untag / Delete on a batch of
+// document ids. Tag/untag is per-doc transformation so it runs in a
+// transaction; pin/unpin/delete are single SQL statements.
+
+export async function bulkSetPinned(ids: string[], pinned: boolean): Promise<{ affected: number }> {
+  if (ids.length === 0) return { affected: 0 };
+  const pool = await getDb();
+  const [res] = await pool.query<ResultSetHeader>(
+    "UPDATE documents SET pinned = ?, updated_at = ? WHERE id IN (?)",
+    [pinned ? 1 : 0, new Date(), ids]
+  );
+  return { affected: res.affectedRows };
+}
+
+export async function bulkDelete(ids: string[]): Promise<{ affected: number }> {
+  if (ids.length === 0) return { affected: 0 };
+  const pool = await getDb();
+  // document_links FK cascades on delete.
+  const [res] = await pool.query<ResultSetHeader>(
+    "DELETE FROM documents WHERE id IN (?)",
+    [ids]
+  );
+  return { affected: res.affectedRows };
+}
+
+export async function bulkAddTag(ids: string[], tag: string): Promise<{ affected: number }> {
+  if (ids.length === 0 || !tag.trim()) return { affected: 0 };
+  const trimmed = tag.trim().slice(0, 64);
+  const pool = await getDb();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query<RowDataPacket[]>(
+      "SELECT id, tags FROM documents WHERE id IN (?)",
+      [ids]
+    );
+    let affected = 0;
+    const now = new Date();
+    for (const row of rows) {
+      const arr = Array.isArray(row.tags)
+        ? (row.tags as unknown[]).filter((t): t is string => typeof t === "string")
+        : [];
+      if (arr.includes(trimmed)) continue; // already has the tag — skip
+      const next = [...arr, trimmed].slice(0, 20);
+      await conn.execute(
+        "UPDATE documents SET tags = CAST(? AS JSON), updated_at = ? WHERE id = ?",
+        [JSON.stringify(next), now, row.id]
+      );
+      affected++;
+    }
+    await conn.commit();
+    return { affected };
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+export async function bulkRemoveTag(ids: string[], tag: string): Promise<{ affected: number }> {
+  if (ids.length === 0 || !tag.trim()) return { affected: 0 };
+  const target = tag.trim();
+  const pool = await getDb();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query<RowDataPacket[]>(
+      "SELECT id, tags FROM documents WHERE id IN (?)",
+      [ids]
+    );
+    let affected = 0;
+    const now = new Date();
+    for (const row of rows) {
+      const arr = Array.isArray(row.tags)
+        ? (row.tags as unknown[]).filter((t): t is string => typeof t === "string")
+        : [];
+      if (!arr.includes(target)) continue;
+      const next = arr.filter((t) => t !== target);
+      await conn.execute(
+        "UPDATE documents SET tags = CAST(? AS JSON), updated_at = ? WHERE id = ?",
+        [JSON.stringify(next), now, row.id]
+      );
+      affected++;
+    }
+    await conn.commit();
+    return { affected };
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
