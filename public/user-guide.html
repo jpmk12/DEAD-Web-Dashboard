@@ -591,6 +591,28 @@
       zip).</li>
   </ul>
 
+  <h4>Files repo</h4>
+  <p>
+    <span class="ui">📝 Docs</span> / <span class="ui">📁 Files</span>
+    toggle at the top of the sidebar switches between the two surfaces.
+    Files mode shows uploaded files instead of markdown docs.
+  </p>
+  <ul>
+    <li><strong>Upload:</strong> click <span class="ui">↑ Upload</span>
+      or drop files onto the sidebar header. 30 MB per-file cap; 250 MB
+      aggregate quota with a colour-coded usage bar.</li>
+    <li><strong>Preview:</strong> images inline, PDFs in an iframe,
+      small text/JSON/XML files as preformatted text. Everything else
+      → Download.</li>
+    <li><strong>Metadata:</strong> Edit lets you rename, add tags,
+      and write a description.</li>
+    <li><strong>Attach to doc:</strong> uploads from Files mode while
+      a doc is open in Docs mode auto-attach to that doc.</li>
+    <li><strong>Storage:</strong> MySQL LONGBLOB — persists with the
+      database, backed up alongside everything else, no external
+      storage to configure.</li>
+  </ul>
+
 
   <h3><span class="num">05</span>OSINT</h3>
   <p>
@@ -1465,6 +1487,37 @@
     passes without losing the doc you're reading. Conversation state is
     per-doc and resets on switch.
   </p>
+
+  <h3><span class="num">#26</span>Files repo on the Docs tab</h3>
+  <p>
+    The Docs tab now has a sibling surface for storing files. New
+    <span class="ui">📝 Docs</span> / <span class="ui">📁 Files</span>
+    toggle at the top of the sidebar swaps between the two.
+  </p>
+  <ul>
+    <li><strong>Upload:</strong> click <span class="ui">↑ Upload</span>
+      in the Files sidebar OR drop files anywhere on the sidebar header.
+      30 MB per-file limit; 250 MB aggregate quota with a coloured
+      usage bar (green / amber / red) at the bottom.</li>
+    <li><strong>Preview:</strong> images render full-size in the main
+      pane, PDFs open in an inline iframe with the browser's native
+      viewer, small text/JSON/XML files (&lt; 200 KB) render as
+      preformatted text. Everything else gets a Download button.</li>
+    <li><strong>Metadata:</strong> per-file Edit panel lets you rename,
+      add tags (comma-separated), and write a description.</li>
+    <li><strong>Attach to doc:</strong> when a doc is open in the Docs
+      pane, switching to Files auto-attaches new uploads to that doc.
+      Useful for "save this PDF alongside the brief I'm writing"
+      flows.</li>
+    <li><strong>Storage backend:</strong> MySQL LONGBLOB. Files
+      persist with the database — they survive deploys and are
+      backed up alongside everything else. No external storage to
+      configure.</li>
+    <li><strong>Delete:</strong> per-file 🗑 in the viewer header.
+      Confirm dialog, then gone — no soft-delete tier for files
+      (that's what Archive on docs is for).</li>
+  </ul>
+
 
   <h3><span class="num">#25</span>Docs: version history + export</h3>
   <p>

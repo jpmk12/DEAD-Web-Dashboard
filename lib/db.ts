@@ -74,6 +74,22 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_email_cache_prompt_hash (prompt_hash)
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS files (
+    id            VARCHAR(36)  NOT NULL,
+    filename      VARCHAR(255) NOT NULL,
+    mime_type     VARCHAR(127) NOT NULL,
+    size_bytes    BIGINT       NOT NULL,
+    description   TEXT         NULL,
+    tags          JSON         NULL,
+    doc_id        VARCHAR(36)  NULL,
+    data          LONGBLOB     NOT NULL,
+    uploaded_at   DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_files_uploaded (uploaded_at DESC),
+    INDEX idx_files_doc      (doc_id),
+    CONSTRAINT fk_files_doc FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE SET NULL
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS document_versions (
     id           VARCHAR(36)  NOT NULL,
     doc_id       VARCHAR(36)  NOT NULL,
