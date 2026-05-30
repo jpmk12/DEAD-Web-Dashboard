@@ -537,6 +537,49 @@
     <em>Editing… → Saving… → ✓ Saved → Updated 12 s ago</em>.
   </p>
 
+  <h4>Organizing your docs</h4>
+  <p>
+    Sidebar controls for finding things when your pile grows. State
+    persists in localStorage AND in the URL hash, so a specific filter
+    combo is shareable / bookmarkable.
+  </p>
+  <ul>
+    <li><strong>Smart views</strong> (dropdown beside the search box):
+      <em>All</em> · <em>Pinned</em> · <em>Recent (7d)</em> ·
+      <em>Stale (30d+)</em> · <em>Untagged</em> ·
+      <em>From email</em> / <em>From OSINT</em> / <em>From news</em> /
+      <em>Action items</em> (filter by the auto-applied tags from
+      capture buttons) · <em>Archived</em>. Each option shows its
+      count in parentheses.</li>
+    <li><strong>Sort</strong>: <em>Recent</em> · <em>Title A-Z</em> ·
+      <em>Longest</em> (by word count). Pinned always float to the
+      top regardless of sort.</li>
+    <li><strong>Tag chips on rows</strong>: click any tag chip to add
+      it to the filter. Click again to remove. With 2+ active tags,
+      an <em>Any / All</em> toggle appears — Any = OR (matches any
+      of them), All = AND (must have all).</li>
+    <li><strong># Manage tags</strong> (button in the controls row):
+      modal showing every tag with usage count. Per-row Rename /
+      Merge / Delete. Cleans up "china" vs "China" without editing
+      every doc by hand.</li>
+    <li><strong>Bulk actions</strong>: each row has a checkbox on the
+      left. Select multiple → action bar appears with
+      <em>Pin · Unpin · + Tag · − Tag · Archive · Del</em>. Tag input
+      drops below the bar; Enter commits across the entire selection.
+      <em>Select all visible</em> link below the bar acts on the
+      currently-filtered view.</li>
+    <li><strong>Archive</strong> (▢ button in the editor header, or
+      bulk Archive): soft-delete. Archived docs are hidden from the
+      default sidebar, the recent-docs strip, AND the chat assistant's
+      context — but stay restorable from the Archived smart view
+      (▢ flips to ↺ Restore there). Use this instead of 🗑 Delete
+      when you're not sure you'll need the doc again.</li>
+    <li><strong>URL hash state</strong>: every view / sort / tag /
+      tagmode change is written to <code>#view=email&amp;tags=foo,bar&amp;sort=title</code>
+      via <code>history.replaceState</code>. Bookmark it, paste it to
+      a teammate, or just keep it open across sessions.</li>
+  </ul>
+
 
   <h3><span class="num">05</span>OSINT</h3>
   <p>
@@ -1411,6 +1454,47 @@
     passes without losing the doc you're reading. Conversation state is
     per-doc and resets on switch.
   </p>
+
+  <h3><span class="num">#24</span>Docs organization: views, sort, tags, bulk, archive</h3>
+  <p>
+    Comprehensive sidebar overhaul for the Docs tab. With capture buttons
+    on every news / email / OSINT / action-item card, the pile got large
+    fast. This push gives you the levers to keep it sane.
+  </p>
+  <ul>
+    <li><strong>Smart views</strong> in a dropdown: All / Pinned /
+      Recent (7d) / Stale (30d+) / Untagged / From email / From OSINT /
+      From news / Action items / Archived. Each shows the count in
+      parentheses. Choice persists in localStorage AND in the URL hash.</li>
+    <li><strong>Sort</strong>: Recent · Title A-Z · Longest (word
+      count). Pinned still float to top in all modes.</li>
+    <li><strong>Clickable tag chips</strong> on each row. Click a chip
+      to add it to the filter; with 2+ active, an Any/All toggle
+      switches OR-vs-AND matching.</li>
+    <li><strong># Manage tags modal</strong>: every tag with usage
+      count, plus per-row Rename · Merge · Delete. Reconcile typos
+      across the whole library without editing each doc.</li>
+    <li><strong>Bulk actions</strong>: checkbox column + action bar
+      with Pin / Unpin / + Tag / − Tag / Archive / Del. Select-all
+      acts on the currently-filtered view, so you can narrow first
+      then batch-act.</li>
+    <li><strong>Archive (soft-delete)</strong>: new ▢ button in the
+      editor header AND in the bulk bar. Archived docs are hidden from
+      the default sidebar, the recent-docs strip, and the chat
+      assistant's context — restore from the Archived view (▢ flips
+      to ↺ Restore there). Use instead of 🗑 Delete when you might
+      want the doc back.</li>
+    <li><strong>URL hash state</strong>: the active view + sort + tags
+      + tagmode are written to <code>window.location.hash</code> so
+      you can bookmark a specific filter combination.</li>
+  </ul>
+  <p>
+    Bonus fix in the same push: VIP / mute sender changes were silently
+    not applying until the email tab's 10-minute client cache expired —
+    saving prefs now invalidates the cache so derived views (email
+    priorities, news sort, briefing) refetch immediately.
+  </p>
+
 
   <h3><span class="num">#23</span>OSINT: cleanup + self-rendered maps</h3>
   <p>
