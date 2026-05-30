@@ -126,7 +126,10 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
                       `**Link:** [${item.link}](${item.link})\n\n` +
                       (item.summary ? `> ${item.summary.replace(/\n/g, "\n> ")}\n\n` : "") +
                       `---\n\n## Notes\n\n_(your notes here)_\n`,
-                    tags: [item.category],
+                    // "news" first so the Docs sidebar "From news" smart
+                    // view can find it; category as the secondary tag for
+                    // grouping.
+                    tags: ["news", item.category],
                     link: { type: "article", id: item.id, title: item.title },
                   }),
                 });
