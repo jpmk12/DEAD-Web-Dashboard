@@ -10,6 +10,7 @@ interface DocSummary {
   tags: string[];
   pinned: boolean;
   updatedAt: string;
+  wordCount?: number;
   snippet?: string;
 }
 
@@ -26,13 +27,15 @@ interface DocListProps {
 // View = a pre-built filter over the full doc list. View state persists in
 // localStorage so a user who lives in "From email" stays there across reloads.
 // Tag filter is independent of view (you can combine "From email" + tag).
-type ViewKey = "all" | "pinned" | "recent" | "untagged" | "email" | "osint" | "news" | "actions" | "archived";
-type SortKey = "updated" | "title";
+type ViewKey = "all" | "pinned" | "recent" | "stale" | "untagged" | "email" | "osint" | "news" | "actions" | "archived";
+type SortKey = "updated" | "title" | "words";
+type TagMode = "any" | "all";
 
 const VIEWS: { key: ViewKey; label: string }[] = [
   { key: "all",       label: "All" },
   { key: "pinned",    label: "Pinned" },
   { key: "recent",    label: "Recent (7d)" },
+  { key: "stale",     label: "Stale (30d+)" },
   { key: "untagged",  label: "Untagged" },
   { key: "email",     label: "From email" },
   { key: "osint",     label: "From OSINT" },
@@ -44,6 +47,7 @@ const VIEWS: { key: ViewKey; label: string }[] = [
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "updated", label: "Recent" },
   { key: "title",   label: "Title A-Z" },
+  { key: "words",   label: "Longest" },
 ];
 
 const LS_VIEW = "docs-view";
@@ -61,6 +65,13 @@ function viewPredicate(view: ViewKey, doc: DocSummary): boolean {
       try {
         const t = parseISO(doc.updatedAt).getTime();
         return Number.isFinite(t) && t > Date.now() - 7 * 24 * 60 * 60 * 1000;
+      } catch { return false; }
+    }
+    case "stale": {
+      // Hasn't been edited in 30+ days. Surfaces cleanup candidates.
+      try {
+        const t = parseISO(doc.updatedAt).getTime();
+        return Number.isFinite(t) && t < Date.now() - 30 * 24 * 60 * 60 * 1000;
       } catch { return false; }
     }
     case "untagged": return doc.tags.length === 0;
@@ -87,7 +98,8 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [view, setView] = useState<ViewKey>("all");
   const [sort, setSort] = useState<SortKey>("updated");
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [tagMode, setTagMode] = useState<TagMode>("any");
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
   // Bulk selection. Set of doc ids; action bar surfaces when non-empty.
   // `bulkMode` is the in-flight tag/untag input panel — null otherwise.
@@ -96,16 +108,49 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
   const [bulkTagInput, setBulkTagInput] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  // Restore view + sort from localStorage on mount. Defaults are kept above
-  // so a fresh user gets "All / Recent" without any storage seed.
+  // Restore view + sort from URL hash first (lets users bookmark / share
+  // filter state) and fall back to localStorage. URL precedence means a
+  // pasted "#view=email&tag=foo" link sets the state on landing even if
+  // localStorage had something else.
   useEffect(() => {
+    let hashView: string | null = null;
+    let hashSort: string | null = null;
+    let hashTags: string[] = [];
+    let hashMode: string | null = null;
     try {
-      const savedView = localStorage.getItem(LS_VIEW);
-      const savedSort = localStorage.getItem(LS_SORT);
+      const hash = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+      if (hash) {
+        const p = new URLSearchParams(hash);
+        hashView = p.get("view");
+        hashSort = p.get("sort");
+        hashMode = p.get("tagmode");
+        const tg = p.get("tags");
+        if (tg) hashTags = tg.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+    } catch { /* noop */ }
+
+    try {
+      const savedView = hashView ?? localStorage.getItem(LS_VIEW);
+      const savedSort = hashSort ?? localStorage.getItem(LS_SORT);
       if (savedView && VIEWS.some((v) => v.key === savedView)) setView(savedView as ViewKey);
       if (savedSort && SORTS.some((s) => s.key === savedSort)) setSort(savedSort as SortKey);
     } catch { /* noop */ }
+    if (hashTags.length > 0) setTagFilter(hashTags);
+    if (hashMode === "all" || hashMode === "any") setTagMode(hashMode);
   }, []);
+
+  // Reflect view / sort / tag filter into the URL hash so the state is
+  // shareable. history.replaceState avoids a back-button entry per change.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams();
+    if (view !== "all") p.set("view", view);
+    if (sort !== "updated") p.set("sort", sort);
+    if (tagFilter.length > 0) p.set("tags", tagFilter.join(","));
+    if (tagFilter.length >= 2 && tagMode !== "any") p.set("tagmode", tagMode);
+    const hash = p.toString();
+    try { window.history.replaceState(null, "", hash ? `#${hash}` : window.location.pathname); } catch {}
+  }, [view, sort, tagFilter, tagMode]);
 
   const updateView = (next: ViewKey) => {
     setView(next);
@@ -186,17 +231,26 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
   // in-memory without round-tripping.
   const filtered = useMemo(() => {
     let out = docs.filter((d) => viewPredicate(view, d));
-    if (tagFilter) out = out.filter((d) => d.tags.includes(tagFilter));
+    if (tagFilter.length > 0) {
+      out = out.filter((d) => {
+        if (tagMode === "all") return tagFilter.every((t) => d.tags.includes(t));
+        return tagFilter.some((t) => d.tags.includes(t));
+      });
+    }
     if (sort === "title") {
-      // Pinned still float to top, then alphabetical within each group.
       out = [...out].sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
       });
+    } else if (sort === "words") {
+      out = [...out].sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return (b.wordCount ?? 0) - (a.wordCount ?? 0);
+      });
     }
     // "updated" sort is what the server already returns; nothing to do.
     return out;
-  }, [docs, view, sort, tagFilter]);
+  }, [docs, view, sort, tagFilter, tagMode]);
 
   const pinned = filtered.filter((d) => d.pinned);
   const rest   = filtered.filter((d) => !d.pinned);
@@ -336,17 +390,40 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
           </button>
         )}
 
-        {/* Active tag filter chip — only renders when set, with a close button
-            so the user can drop the filter without rooting through the list. */}
-        {tagFilter && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-600 font-mono">Tag:</span>
+        {/* Active tag filter chips. Click a chip to remove it. Mode toggle
+            switches between Any (OR) and All (AND) when ≥2 are active. */}
+        {tagFilter.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-slate-600 font-mono">Tag{tagFilter.length === 1 ? "" : "s"}:</span>
+            {tagFilter.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTagFilter((prev) => prev.filter((x) => x !== t))}
+                title={`Remove "${t}" filter`}
+                className="text-[10px] font-mono bg-violet-500/15 text-violet-300 border border-violet-500/40 hover:bg-violet-500/25 px-2 py-0.5 rounded transition-all"
+              >
+                {t} ×
+              </button>
+            ))}
+            {tagFilter.length >= 2 && (
+              <button
+                onClick={() => setTagMode((m) => m === "any" ? "all" : "any")}
+                title={tagMode === "any" ? "Match docs with ANY of these tags" : "Match docs with ALL of these tags"}
+                className={`text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border transition-all ${
+                  tagMode === "all"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                    : "bg-slate-800 text-slate-400 border-slate-700"
+                }`}
+              >
+                {tagMode === "any" ? "Any" : "All"}
+              </button>
+            )}
             <button
-              onClick={() => setTagFilter(null)}
-              title="Clear tag filter"
-              className="text-[10px] font-mono bg-violet-500/15 text-violet-300 border border-violet-500/40 hover:bg-violet-500/25 px-2 py-0.5 rounded transition-all"
+              onClick={() => setTagFilter([])}
+              title="Clear all tag filters"
+              className="text-[10px] text-slate-500 hover:text-slate-300 px-1"
             >
-              {tagFilter} ×
+              ×
             </button>
           </div>
         )}
@@ -379,7 +456,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
             <p className="px-3 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-widest text-amber-400">
               ★ Pinned
             </p>
-            <ul>{pinned.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={setTagFilter} activeTag={tagFilter} checked={selected.has(d.id)} onToggleChecked={toggleSelect} />)}</ul>
+            <ul>{pinned.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={(t) => setTagFilter((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])} activeTags={tagFilter} checked={selected.has(d.id)} onToggleChecked={toggleSelect} />)}</ul>
           </>
         )}
 
@@ -388,7 +465,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
             <p className="px-3 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-500">
               {pinned.length > 0 ? "All other documents" : "Documents"}
             </p>
-            <ul>{rest.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={setTagFilter} activeTag={tagFilter} checked={selected.has(d.id)} onToggleChecked={toggleSelect} />)}</ul>
+            <ul>{rest.map((d) => <DocRow key={d.id} doc={d} selected={selectedId === d.id} onSelect={onSelect} onTagClick={(t) => setTagFilter((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])} activeTags={tagFilter} checked={selected.has(d.id)} onToggleChecked={toggleSelect} />)}</ul>
           </>
         )}
       </div>
@@ -398,15 +475,16 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
         onClose={() => setTagManagerOpen(false)}
         onChanged={() => {
           // Tag changes touch every affected doc's tags + updated_at, so the
-          // list needs a refetch. Also drop the active filter if it referenced
-          // a tag that no longer exists (deletes / renames).
+          // list needs a refetch. Also drop any active-filter tags that no
+          // longer exist (deletes / renames).
           onRefresh();
-          if (tagFilter) {
+          if (tagFilter.length > 0) {
             fetch("/api/documents/tags")
               .then((r) => r.json())
               .then((d) => {
-                const tags: { tag: string }[] = Array.isArray(d?.tags) ? d.tags : [];
-                if (!tags.some((t) => t.tag === tagFilter)) setTagFilter(null);
+                const tagsLive: { tag: string }[] = Array.isArray(d?.tags) ? d.tags : [];
+                const live = new Set(tagsLive.map((t) => t.tag));
+                setTagFilter((prev) => prev.filter((t) => live.has(t)));
               })
               .catch(() => {});
           }
@@ -417,9 +495,9 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
 }
 
 function DocRow({
-  doc, selected, onSelect, onTagClick, activeTag, checked, onToggleChecked,
+  doc, selected, onSelect, onTagClick, activeTags, checked, onToggleChecked,
 }: {
-  doc: DocSummary; selected: boolean; onSelect: (id: string) => void; onTagClick: (tag: string) => void; activeTag: string | null;
+  doc: DocSummary; selected: boolean; onSelect: (id: string) => void; onTagClick: (tag: string) => void; activeTags: string[];
   checked: boolean; onToggleChecked: (id: string) => void;
 }) {
   return (
@@ -469,9 +547,9 @@ function DocRow({
                 // onMouseDown so the click doesn't first trigger the row's
                 // onClick (selection). preventDefault stops the focus jump.
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onTagClick(t); }}
-                title={activeTag === t ? "Active filter — click another tag to swap" : `Filter by "${t}"`}
+                title={activeTags.includes(t) ? "Active filter — click to remove" : `Add "${t}" to filter`}
                 className={`text-[9px] font-mono px-1.5 py-0.5 rounded border transition-all ${
-                  activeTag === t
+                  activeTags.includes(t)
                     ? "bg-violet-500/25 text-violet-200 border-violet-400/60"
                     : "bg-violet-500/10 text-violet-400/80 border-violet-500/20 hover:bg-violet-500/20 hover:text-violet-300"
                 }`}

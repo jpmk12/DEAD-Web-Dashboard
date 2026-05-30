@@ -9,6 +9,10 @@ export interface DocumentSummary {
   pinned: boolean;
   archived: boolean;
   updatedAt: string;
+  // Approximate word count derived from content character length / 5. Lets
+  // the sidebar offer a "Longest first" sort without pulling content into
+  // the listing response.
+  wordCount: number;
   snippet?: string;       // populated by search results
 }
 
@@ -33,6 +37,9 @@ interface DocRow extends RowDataPacket {
   tags: string[] | null;
   pinned: number;
   archived?: number;
+  // Populated by listDocuments via CHAR_LENGTH(content) so we don't pay
+  // the cost of shipping content for every row.
+  char_count?: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -50,6 +57,10 @@ function asTags(v: unknown): string[] {
 }
 
 function summary(r: DocRow): DocumentSummary {
+  // Word count = char_count / 5. Rough but good enough for sort + the
+  // editor-footer estimate. Computed from CHAR_LENGTH selected in
+  // listDocuments so we don't ship the full content for every row.
+  const chars = typeof r.char_count === "number" ? r.char_count : (r.content ? r.content.length : 0);
   return {
     id: r.id,
     title: r.title,
@@ -57,6 +68,7 @@ function summary(r: DocRow): DocumentSummary {
     pinned: Boolean(r.pinned),
     archived: Boolean(r.archived),
     updatedAt: r.updated_at.toISOString(),
+    wordCount: Math.round(chars / 5),
   };
 }
 
@@ -114,7 +126,8 @@ export async function listDocuments({
   params.push(limit);
 
   const [rows] = await pool.query<DocRow[]>(
-    `SELECT id, title, content, tags, pinned, archived, created_at, updated_at${scoreSelect}
+    `SELECT id, title, content, tags, pinned, archived, created_at, updated_at,
+            CHAR_LENGTH(content) AS char_count${scoreSelect}
      FROM documents
      ${whereSql}
      ORDER BY ${order}
