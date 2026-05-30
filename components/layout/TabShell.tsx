@@ -97,14 +97,43 @@ export default function TabShell() {
   // Kick off the weekly digest fetch on mount — it only needs the user's
   // pref history (already on the server), not loaded articles. The result
   // sits in clientCache so the Digest modal opens instantly.
-  useEffect(() => { prefetchDigest(); }, []);
+  //
+  // Also re-fire on window focus and on the custom "dashboard-cache-cleared"
+  // event the Preferences drawer dispatches after a save. Without these,
+  // a failed first attempt (transient network blip) OR a cache clear from
+  // a prefs save would leave the modal cold-fetching on first open.
+  useEffect(() => {
+    prefetchDigest();
+    const reprime = () => prefetchDigest();
+    // visibilitychange catches Chrome tab switches more reliably than focus.
+    const onVisible = () => { if (!document.hidden) prefetchDigest(); };
+    window.addEventListener("focus", reprime);
+    window.addEventListener("dashboard-cache-cleared", reprime);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", reprime);
+      window.removeEventListener("dashboard-cache-cleared", reprime);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   // Start brief generation in background once both articles and newsletters are loaded.
   // prefetchBriefing guards against duplicates internally (isFresh + inflight checks).
+  // Also re-fires on the cache-cleared event so a prefs save re-primes the brief.
   useEffect(() => {
-    if (articles.length > 0 && newsletters.length > 0) {
-      prefetchBriefing(articles, newsletters, calendarEvents);
-    }
+    if (articles.length === 0 || newsletters.length === 0) return;
+    prefetchBriefing(articles, newsletters, calendarEvents);
+    const reprime = () => {
+      if (articles.length > 0 && newsletters.length > 0) {
+        prefetchBriefing(articles, newsletters, calendarEvents);
+      }
+    };
+    window.addEventListener("focus", reprime);
+    window.addEventListener("dashboard-cache-cleared", reprime);
+    return () => {
+      window.removeEventListener("focus", reprime);
+      window.removeEventListener("dashboard-cache-cleared", reprime);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [articles.length, newsletters.length]);
 

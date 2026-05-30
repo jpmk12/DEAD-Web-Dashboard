@@ -1597,6 +1597,12 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
       // EmailTab cache happily serves stale priorities and a new VIP
       // entry silently doesn't apply until the cache expires.
       clientCache.clear();
+      // Fire a custom event so prefetchers (digest, briefing) re-prime
+      // immediately. Without this, the digest modal cold-fetches on next
+      // open because nothing re-runs the prefetch after the clear.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("dashboard-cache-cleared"));
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onSaved();
