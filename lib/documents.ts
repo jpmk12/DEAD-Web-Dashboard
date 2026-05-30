@@ -292,3 +292,79 @@ export async function getRecentDocsForContext(n: number = 5): Promise<DocumentFu
   );
   return rows.map(full);
 }
+
+// ─── Tag manager ─────────────────────────────────────────────────────────────
+//
+// Read-aggregate across all docs to support the Manage Tags modal in the
+// Docs sidebar. At a typical user's scale (<1k docs, <100 tags) this is
+// fast enough to run on every modal open without needing a separate
+// aggregate table. If the doc count balloons later, swap to a denormalised
+// tag_counts table maintained by save / delete.
+
+interface TagsOnlyRow extends RowDataPacket { tags: unknown }
+
+export async function listAllTags(): Promise<{ tag: string; count: number }[]> {
+  const pool = await getDb();
+  const [rows] = await pool.query<TagsOnlyRow[]>("SELECT tags FROM documents");
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!Array.isArray(row.tags)) continue;
+    const seen = new Set<string>();
+    for (const t of row.tags) {
+      if (typeof t !== "string") continue;
+      const k = t.trim();
+      if (!k || seen.has(k)) continue; // de-dupe within a single doc
+      seen.add(k);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+}
+
+// Replace `from` with `to` on every doc that has it (rename / merge), or
+// remove `from` entirely if `to` is null (delete). De-duplicates within
+// each doc so a merge of "china" into "China" on a doc that already has
+// both ends up with just "China". Runs as a single transaction so a
+// half-applied state can't leak out under contention.
+export async function updateTagAcrossDocs(from: string, to: string | null): Promise<{ docsAffected: number }> {
+  const pool = await getDb();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query<RowDataPacket[]>("SELECT id, tags FROM documents");
+    let affected = 0;
+    const now = new Date();
+    for (const row of rows) {
+      if (!Array.isArray(row.tags)) continue;
+      const arr = (row.tags as unknown[]).filter((t): t is string => typeof t === "string");
+      if (!arr.includes(from)) continue;
+      let next: string[];
+      if (to) {
+        const seen = new Set<string>();
+        next = [];
+        for (const t of arr) {
+          const replaced = t === from ? to : t;
+          if (seen.has(replaced)) continue;
+          seen.add(replaced);
+          next.push(replaced);
+        }
+      } else {
+        next = arr.filter((t) => t !== from);
+      }
+      await conn.execute(
+        "UPDATE documents SET tags = CAST(? AS JSON), updated_at = ? WHERE id = ?",
+        [JSON.stringify(next), now, row.id]
+      );
+      affected++;
+    }
+    await conn.commit();
+    return { docsAffected: affected };
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}

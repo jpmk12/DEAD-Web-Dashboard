@@ -104,6 +104,7 @@ export default function DocumentsTab() {
         onSelect={select}
         onCreate={createNew}
         refreshKey={listRefreshKey}
+        onRefresh={() => setListRefreshKey((k) => k + 1)}
       />
       {selectedId ? (
         <div className="flex-1 flex flex-col min-w-0">

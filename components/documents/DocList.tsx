@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import TagManagerModal from "./TagManagerModal";
 
 interface DocSummary {
   id: string;
@@ -17,6 +18,9 @@ interface DocListProps {
   onSelect: (id: string) => void;
   onCreate: () => void;
   refreshKey: number;
+  // Bump-the-refresh callback so the tag manager can force a list re-fetch
+  // after rename/merge/delete (every doc's tags + updated_at changed).
+  onRefresh: () => void;
 }
 
 // View = a pre-built filter over the full doc list. View state persists in
@@ -71,7 +75,7 @@ function timeAgo(s: string): string {
   catch { return ""; }
 }
 
-export default function DocList({ selectedId, onSelect, onCreate, refreshKey }: DocListProps) {
+export default function DocList({ selectedId, onSelect, onCreate, refreshKey, onRefresh }: DocListProps) {
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -79,6 +83,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey }: 
   const [view, setView] = useState<ViewKey>("all");
   const [sort, setSort] = useState<SortKey>("updated");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
   // Restore view + sort from localStorage on mount. Defaults are kept above
   // so a fresh user gets "All / Recent" without any storage seed.
@@ -187,6 +192,14 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey }: 
               <option key={s.key} value={s.key}>{s.label}</option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => setTagManagerOpen(true)}
+            title="Manage tags — rename, merge, delete across all docs"
+            className="bg-slate-800/70 border border-slate-700/80 hover:border-violet-500/40 hover:text-violet-400 text-slate-400 rounded-md w-7 h-7 flex items-center justify-center transition-all flex-shrink-0"
+          >
+            <span className="text-sm leading-none">#</span>
+          </button>
         </div>
 
         {/* Active tag filter chip — only renders when set, with a close button
@@ -245,6 +258,26 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey }: 
           </>
         )}
       </div>
+
+      <TagManagerModal
+        open={tagManagerOpen}
+        onClose={() => setTagManagerOpen(false)}
+        onChanged={() => {
+          // Tag changes touch every affected doc's tags + updated_at, so the
+          // list needs a refetch. Also drop the active filter if it referenced
+          // a tag that no longer exists (deletes / renames).
+          onRefresh();
+          if (tagFilter) {
+            fetch("/api/documents/tags")
+              .then((r) => r.json())
+              .then((d) => {
+                const tags: { tag: string }[] = Array.isArray(d?.tags) ? d.tags : [];
+                if (!tags.some((t) => t.tag === tagFilter)) setTagFilter(null);
+              })
+              .catch(() => {});
+          }
+        }}
+      />
     </div>
   );
 }
