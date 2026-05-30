@@ -326,6 +326,14 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
           >
             <span className="text-sm leading-none">#</span>
           </button>
+          <a
+            href="/api/documents/export"
+            download
+            title="Export all docs as a zip of markdown files (archived go under archived/)"
+            className="bg-slate-800/70 border border-slate-700/80 hover:border-emerald-500/40 hover:text-emerald-400 text-slate-400 rounded-md w-7 h-7 flex items-center justify-center transition-all flex-shrink-0"
+          >
+            <span className="text-sm leading-none">⬇</span>
+          </a>
         </div>
 
         {/* Bulk action bar — surfaces when ≥1 doc is selected via the row

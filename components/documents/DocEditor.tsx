@@ -584,6 +584,14 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             >
               📜 History
             </button>
+            <a
+              href={`/api/documents/${docId}/export`}
+              download
+              title="Export this doc as markdown (.md) with YAML frontmatter"
+              className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
+            >
+              ⬇ MD
+            </a>
             <button
               onClick={onToggleArchive}
               title={doc.archived ? "Restore from archive" : "Archive — soft-delete (restore from the Archived view in the sidebar)"}
