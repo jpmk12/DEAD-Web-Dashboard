@@ -4,7 +4,10 @@
 
 import { clientCache, CACHE_TTL } from "./clientCache";
 
-export const CACHE_KEY = "digest:result";
+// Bumped to :v2 when the server-side field caps grew (commit Reading Patterns
+// fix). Pre-fix cached values had truncated text; the version suffix makes
+// every client read a fresh value once the new build deploys.
+export const CACHE_KEY = "digest:result:v2";
 
 let inflight: Promise<void> | null = null;
 

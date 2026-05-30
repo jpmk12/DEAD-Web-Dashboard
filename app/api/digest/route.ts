@@ -12,10 +12,12 @@ export const dynamic = "force-dynamic";
 const SYSTEM_PROMPT = `You are a personal reading analyst. Based on the user's engagement patterns (which keywords and sources they marked useful vs. not useful), generate a weekly digest insight. Return ONLY a JSON object with no markdown:
 {
   "topTopics": ["topic 1", "topic 2", "topic 3"],
-  "readingInsight": "2-3 sentences about their engagement patterns",
-  "coverageGaps": "1-2 sentences about topics in their stated interests they haven't engaged with",
+  "readingInsight": "2-4 substantive sentences about their engagement patterns — call out concrete keywords, sources, and any clear preference shifts",
+  "coverageGaps": "1-3 sentences about topics in their stated interests they haven't engaged with, with concrete next-step suggestions",
   "nextWeekRecommendations": ["specific recommendation 1", "specific recommendation 2", "specific recommendation 3"]
-}`;
+}
+
+Be concrete and reference the actual keywords / sources from the user data — vague platitudes ("you read a lot about world events") are unhelpful.`;
 
 export async function GET() {
   const session = await auth();
@@ -77,7 +79,11 @@ export async function GET() {
       // Sonnet handles structured JSON from already-scored data well and
       // is materially cheaper than Opus for this task.
       model: "claude-sonnet-4-6",
-      max_tokens: 1024,
+      // 2048 leaves room for verbose JSON without bumping into the cap
+      // mid-string — at 1024 a chatty 3-sentence reading insight + the
+      // other fields could get cut off and the parser would salvage a
+      // truncated readingInsight from the partial JSON.
+      max_tokens: 2048,
       system: [
         { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
         ...(userContext ? [{ type: "text" as const, text: userContext }] : []),
@@ -96,11 +102,15 @@ export async function GET() {
     if (objEnd >= 0 && objEnd < clean.length - 1) clean = clean.slice(0, objEnd + 1);
     const parsed = JSON.parse(clean);
     const p = parsed as Record<string, unknown>;
+    // Field caps generous enough to fit the prompt's "2-4 sentence" target
+    // without truncation. The earlier 500/400/200 numbers were leftover from
+    // when the prompt asked for a single sentence — they were silently
+    // cutting Reading Patterns mid-thought.
     const digest = {
-      topTopics: Array.isArray(p.topTopics) ? (p.topTopics as unknown[]).map((s) => String(s).slice(0, 100)) : [],
-      readingInsight: String(p.readingInsight ?? "").slice(0, 500),
-      coverageGaps: String(p.coverageGaps ?? "").slice(0, 400),
-      nextWeekRecommendations: Array.isArray(p.nextWeekRecommendations) ? (p.nextWeekRecommendations as unknown[]).map((s) => String(s).slice(0, 200)) : [],
+      topTopics: Array.isArray(p.topTopics) ? (p.topTopics as unknown[]).map((s) => String(s).slice(0, 120)) : [],
+      readingInsight: String(p.readingInsight ?? "").slice(0, 1500),
+      coverageGaps: String(p.coverageGaps ?? "").slice(0, 1000),
+      nextWeekRecommendations: Array.isArray(p.nextWeekRecommendations) ? (p.nextWeekRecommendations as unknown[]).map((s) => String(s).slice(0, 400)) : [],
     };
     return NextResponse.json({ digest });
   } catch (err) {
