@@ -978,6 +978,226 @@
 </section>
 
 
+<!-- ───────────────────────── BEST PRACTICES ───────────────────────── -->
+<section id="best">
+  <h2>Best practices — get the most out of the dashboard</h2>
+  <p class="lede">
+    Honest framing first: there's no real ML loop. "Learning" here means
+    <strong>context shaping</strong> — your prefs, memory, and docs are
+    injected into every AI call — plus <strong>engagement-weighted sorting</strong>
+    for news. Getting the most out of the dashboard is about feeding the
+    right signals to the right places. This page is the practical guide.
+  </p>
+
+  <h3>One-time setup that compounds across everything</h3>
+  <p>
+    These values are read into the system block of every chat turn, every
+    triage call, every brief. Five minutes spent here pays forever. All
+    five live under <span class="ui">Preferences → You</span> except VIP
+    Senders (Email rules).
+  </p>
+  <ol class="steps">
+    <li>
+      <strong>Role / Context.</strong> One paragraph describing what you do
+      and what matters to you — this phrase appears in nearly every prompt.
+      Example: <em>"Defense policy analyst focused on Indo-Pacific, especially
+      PLARF and SCS deterrence. Active duty USAF, brief senior leadership
+      weekly."</em>
+    </li>
+    <li>
+      <strong>Priority Topics.</strong> Short, sharp tags. Bias OSINT triage,
+      email triage, news sorting, briefing emphasis. Aim for 4-8 entries,
+      not 30. Example: <code>China, Space Force, hypersonic, ISR, AUKUS, PLARF</code>.
+    </li>
+    <li>
+      <strong>Deprioritise Topics.</strong> Equally important. Tells the AI
+      what to push down. Example: <code>domestic politics, sports, celebrity, crypto</code>.
+    </li>
+    <li>
+      <strong>Watchlist.</strong> The most cross-cutting signal — matches highlight
+      news, OSINT items, <strong>aircraft callsigns</strong> on the map, and
+      <strong>ship names</strong> on the maritime map. Use it for people,
+      callsigns, hardware names, and codenames you track.
+      Example: <code>REACH, HAVOC, sentdefender, Lockheed, JL-3</code>.
+    </li>
+    <li>
+      <strong>VIP Senders.</strong> Each entry guarantees the sender's mail
+      is always High — bypasses AI classification entirely. Highest-leverage
+      email tuning. Use full addresses (<code>boss@x.com</code>) or bare
+      domains (<code>whitehouse.gov</code>, which also matches subdomains).
+    </li>
+  </ol>
+
+  <h3>Daily signals that improve recommendations</h3>
+  <p>
+    1-2 seconds each, accumulate into measurable sort improvements within
+    ~10 ratings.
+  </p>
+  <table>
+    <tr><th>Action</th><th>Why it matters</th></tr>
+    <tr>
+      <td><span class="ui">👍 / 👎</span> on news cards</td>
+      <td>Drives <code>sortByPreference</code> — articles up-voted get
+        boosted; sources get sticky boost. Effect visible after ~10 ratings.</td>
+    </tr>
+    <tr>
+      <td><span class="ui">★</span> bookmark</td>
+      <td>Bookmarked items rank higher and stay retrievable on the Saved view.</td>
+    </tr>
+    <tr>
+      <td><span class="ui">▤</span> Save to Docs</td>
+      <td>Strongest interest signal AND retrievable later — the 5 most-recently-updated docs
+        join every chat's system context.</td>
+    </tr>
+    <tr>
+      <td><span class="ui">+ Task</span> / <span class="ui">▤ Doc</span> on action items</td>
+      <td>Validates that the action-item extraction is right. Ignoring all of
+        them suggests the AI prompt needs tuning.</td>
+    </tr>
+  </table>
+
+  <h3>Building memory the app can actually use</h3>
+  <p>
+    Long-term memory is a single markdown doc the chat assistant reads on every
+    turn. Two ways content gets in:
+  </p>
+  <ol class="steps">
+    <li>
+      <strong>Substantive chat conversations.</strong> After a real exchange (multiple
+      turns, content beyond pleasantries), background consolidation runs after a
+      ~5 min debounce and writes a few sentences. Empty small-talk produces
+      nothing. <em>To maximize:</em> chat about real work — projects, opinions,
+      ongoing analysis. The consolidation pulls facts about <em>you</em>.
+    </li>
+    <li>
+      <strong>Quick capture notes</strong> (<span class="ui">⌘K</span>). The
+      fastest way to explicitly seed memory. Pattern that works best: facts
+      about people and projects.
+      <ul>
+        <li><code>"Remember that Jin Park works on Taiwan portfolio at SAIS, prefers email"</code></li>
+        <li><code>"Save that the PLARF brief is due to N2 by 15 June"</code></li>
+        <li><code>"Brigadier Rivera became INDOPACOM J3 in May"</code></li>
+      </ul>
+      These land in long-term memory under <code>## Notes</code> with the
+      capture date. Later you can ask <em>"what did I save about Jin Park?"</em>
+      and the assistant cites it.
+    </li>
+  </ol>
+  <p>
+    <strong>Periodically prune.</strong> Visit <span class="ui">Preferences → AI
+    &amp; memory → Long-term memory</span>. After a few weeks of chat, the
+    memory accumulates cruft — outdated facts, things you don't care about
+    anymore. Edit it directly like a markdown doc. AI output quality is
+    proportional to the signal-to-noise in that file.
+  </p>
+
+  <h3>Docs as a knowledge graph</h3>
+  <p>
+    The Docs tab is more than notes — the 5 most-recently-updated docs are
+    passed to the chat assistant on every turn.
+  </p>
+  <ul>
+    <li><strong>Save research as docs</strong>, not just chat history. Chat is
+      ephemeral; docs are durable context.</li>
+    <li><strong>Use <code>[[Wiki Link]]</code> between docs.</strong> Backlinks
+      render on each doc's footer. Builds a topic graph the assistant can
+      navigate via the 💬 Ask panel.</li>
+    <li><strong>Tag your docs.</strong> Tags shape your own retrieval and the
+      recent-docs strip.</li>
+    <li><strong>Use the 💬 Ask panel on long docs</strong> — Claude can only
+      cite what's written, so it forces tighter cross-referencing.</li>
+  </ul>
+
+  <h3>OSINT tuning</h3>
+  <p>
+    The triage scoring uses Role + Priority Topics + Deprioritise + Watchlist
+    + AOR — so the You setup above carries through. Direct OSINT actions:
+  </p>
+  <ul>
+    <li><strong>Disable noisy feeds.</strong> The per-feed health dots in
+      Preferences flag dead bridges.</li>
+    <li><strong>Use the Test button</strong> before adding any new feed.</li>
+    <li><strong>Curate watchlist callsigns</strong> — they show as ⚑ on the
+      aircraft map AND highlight in feed items.</li>
+    <li><strong>Set your Home location</strong> to your actual AOR — the triage
+      prompt knows "local AOR" and biases items there.</li>
+  </ul>
+
+  <h3>Email rules tuning</h3>
+  <ul>
+    <li><strong>VIP senders compound</strong> — every mail from them is High,
+      you stop missing real signal.</li>
+    <li><strong>Muted senders cut noise</strong> — domain-level mutes
+      (<code>mailchimp.com</code>) catch marketing.</li>
+    <li><strong>The triage cache invalidates on prompt change.</strong> When
+      you edit Role / Topics / Watchlist, every previously-cached email
+      re-classifies on the next fetch. New sort orders show up within a
+      refresh after tuning.</li>
+  </ul>
+
+  <h3>What the app DOESN'T learn from</h3>
+  <p>
+    Knowing this prevents you from expecting magic:
+  </p>
+  <ul>
+    <li><strong>Calendar event attendance.</strong> No signal. Lean on the
+      chat assistant to query meetings.</li>
+    <li><strong>Time of day</strong> you open the dashboard. No diurnal
+      learning.</li>
+    <li><strong>Tab usage telemetry.</strong> None.</li>
+    <li><strong>Downstream action.</strong> AI usage shows tokens; nothing
+      tracks whether you acted on a brief.</li>
+    <li><strong>Reading depth / scroll position.</strong> Click-through counts
+      as engagement; deep reads don't register beyond that.</li>
+    <li><strong>Previous chat answers.</strong> Each chat session starts fresh
+      from your memory/prefs/docs — there's no cross-session conversational
+      state beyond what gets consolidated into memory.</li>
+  </ul>
+
+  <h3>The minimum-viable maintenance loop</h3>
+  <p><strong>Once a week:</strong></p>
+  <ul>
+    <li>Glance at <span class="ui">Preferences → AI &amp; memory → Long-term
+      memory</span>. Trim cruft.</li>
+    <li>Check Content sources quick-stats. Toggle off any source that's been
+      low-signal.</li>
+    <li>Look at AI usage (today / 7d / 30d). If one feature is dominating
+      spend, decide whether it's worth it.</li>
+  </ul>
+  <p><strong>Once a month:</strong></p>
+  <ul>
+    <li>Re-read your Role / Priority Topics. Roles drift; topics get stale.</li>
+    <li>Audit your watchlist — remove terms that don't surface anymore, add
+      things you've started caring about.</li>
+    <li>Review saved Docs. Delete obvious junk; refine titles for retrievability.</li>
+  </ul>
+
+  <h3>If you do only three things</h3>
+  <p>
+    Highest-leverage actions, in order:
+  </p>
+  <ol class="steps">
+    <li>
+      <strong>Write a sharp 2-3 sentence Role.</strong> Most people leave this
+      blank or write something generic. A specific role transforms every
+      single AI output.
+    </li>
+    <li>
+      <strong>Set 5-7 Priority Topics.</strong> Not 1, not 30. Specific
+      enough to matter, broad enough to compound.
+    </li>
+    <li>
+      <strong>Quick-capture 5 facts about people you work with</strong>
+      this week. The chat assistant's recall on those names will become
+      noticeably better.
+    </li>
+  </ol>
+  <p>
+    That trio takes 15 minutes and changes the feel of the app.
+  </p>
+</section>
+
+
 <!-- ───────────────────────── WHAT'S NEW ───────────────────────── -->
 <section id="new">
   <h2>What's new — features added this push</h2>
@@ -1544,9 +1764,10 @@
 <script>
   const TABS = [
     { id: "start",        label: "Getting Started" },
-    { id: "tabs-content", label: "The 5 Tabs" },
+    { id: "tabs-content", label: "The 7 Tabs" },
     { id: "topbar",       label: "Top Bar" },
     { id: "settings",     label: "Settings" },
+    { id: "best",         label: "Best Practices" },
     { id: "new",          label: "What's New" },
     { id: "hood",         label: "Under the Hood" },
     { id: "ref",          label: "Reference" },
