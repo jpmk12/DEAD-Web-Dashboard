@@ -6,6 +6,7 @@ import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, AiFeature
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, allKnownNewsSources, type NewsSource } from "@/lib/newsSources";
+import { clientCache } from "@/lib/clientCache";
 import { applyTheme } from "@/components/ThemeApplicator";
 
 interface PreferencesDrawerProps {
@@ -1590,6 +1591,12 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           theme, timezone,
         }),
       });
+      // Wipe the client-side data caches so derived views (email priorities
+      // from VIP/mute rules, news sort from topics/watchlist, briefing
+      // from role) re-fetch on next visit. Without this, the 10-minute
+      // EmailTab cache happily serves stale priorities and a new VIP
+      // entry silently doesn't apply until the cache expires.
+      clientCache.clear();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onSaved();

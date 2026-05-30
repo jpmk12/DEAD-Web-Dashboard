@@ -36,6 +36,12 @@ export const clientCache = {
   delete(key: string): void {
     store.delete(key);
   },
+
+  /** Drop all entries. Used after a prefs save invalidates derived data
+   *  across multiple tabs (email priorities, news sort, calendar context). */
+  clear(): void {
+    store.clear();
+  },
 };
 
 export const CACHE_TTL = {
