@@ -55,33 +55,108 @@ interface DiagnosticResult {
   durationMs: number;
   error?: string;
   hint?: string;
+  // Alternative URLs the client can offer as one-click swaps when we can
+  // recognise the bridge pattern and the upstream is blocking us.
+  alternatives?: string[];
 }
 
-function diagnose(opts: { url: string; status?: number; xml?: string; error?: string }): { hint?: string } {
+// Known-alive (as of late 2025) alternative public RSSHub instances. They
+// rotate availability constantly — the user's network may reach one when
+// rsshub.app is blocked. If all of them fail too, self-hosting is the only
+// durable answer.
+const RSSHUB_INSTANCES = [
+  "rsshub.app",
+  "rsshub.atgw.io",
+  "rsshub.kkkk.icu",
+  "rsshub.rssforever.com",
+];
+
+// Build alternative URLs by swapping the rsshub host for each instance the
+// caller isn't already on. Returns at most 3 to keep the test panel compact.
+function rsshubAlternatives(url: string): string[] {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return []; }
+  const host = parsed.hostname.toLowerCase();
+  if (!/(^|\.)rsshub\./.test(host) && host !== "rsshub.app") return [];
+  const others = RSSHUB_INSTANCES.filter((h) => h !== host);
+  return others.slice(0, 3).map((h) => {
+    const next = new URL(url);
+    next.hostname = h;
+    return next.toString();
+  });
+}
+
+function diagnose(opts: { url: string; status?: number; xml?: string; error?: string }): { hint?: string; alternatives?: string[] } {
   const { url, status, xml, error } = opts;
-  // Twitter / X via rsshub: the most reliable failure mode by far. Surface a
-  // specific suggestion when we see the pattern.
-  const isTwitterBridge =
-    /rsshub|nitter/i.test(url) &&
-    /\b(twitter|x\.com|status|user)\b/i.test(url);
-  if (error?.includes("aborted") || error?.includes("timeout")) {
-    return { hint: "Upstream did not respond in 8 s — rsshub instances are frequently overloaded. Try a different instance." };
+  const lowerUrl = url.toLowerCase();
+  const isRsshub = /(^|\.)rsshub\.|rsshub\.app/.test(new URL(url).hostname.toLowerCase());
+  const isTwitterPath = /\b(twitter|x\.com|user\/|status\/)\b/.test(lowerUrl) && isRsshub;
+  const isTelegramPath = /\/telegram\//.test(lowerUrl) && isRsshub;
+  const alternatives = rsshubAlternatives(url);
+
+  if (error?.includes("aborted") || error?.includes("timeout") || error?.includes("Timed out")) {
+    if (isRsshub) {
+      return {
+        hint: "Bridge timed out (8 s). The instance is overloaded — try a different rsshub instance below, or self-host (https://docs.rsshub.app).",
+        alternatives,
+      };
+    }
+    return { hint: "Upstream did not respond in 8 s." };
   }
   if (status === 429 || status === 403) {
-    return { hint: "Upstream rate-limited or blocked us. For Twitter/X this is normal — try a different bridge instance." };
+    if (isTelegramPath) {
+      return {
+        hint: "This rsshub instance is blocking your network (Telegram itself doesn't block scrapers — the bridge does). Try a different instance below, or self-host.",
+        alternatives,
+      };
+    }
+    if (isTwitterPath) {
+      return {
+        hint: "Upstream (Twitter/X) blocked the bridge. Twitter actively bans scrapers — try a different rsshub instance, but Twitter bridges are unreliable across the board.",
+        alternatives,
+      };
+    }
+    if (isRsshub) {
+      return {
+        hint: "This rsshub instance is rate-limiting your network. Try a different instance below.",
+        alternatives,
+      };
+    }
+    return { hint: "Upstream rate-limited or blocked us." };
   }
   if (status === 404) {
+    if (isRsshub) {
+      return {
+        hint: "Route not found on this instance. The channel/account slug may be wrong (verify on t.me/SLUG) or this instance disabled the route.",
+        alternatives,
+      };
+    }
     return { hint: "Upstream returned 404 — the bridge route may have been removed or renamed." };
   }
   if (status && status >= 500) {
-    return { hint: "Upstream returned a 5xx error — bridge is having problems. Try again later or use a different instance." };
+    if (isRsshub) {
+      return {
+        hint: "Bridge instance returned 5xx. Try a different instance below.",
+        alternatives,
+      };
+    }
+    return { hint: "Upstream returned a 5xx error — bridge is having problems." };
   }
   if (status === 200 && xml !== undefined) {
     const itemCount = (xml.match(/<item\b/gi) || []).length;
     const entryCount = (xml.match(/<entry\b/gi) || []).length;
     if (itemCount === 0 && entryCount === 0) {
-      if (isTwitterBridge) {
-        return { hint: "Empty feed. X/Twitter actively blocks scrapers — rsshub.app for Twitter is broken most days. Try one of the alternative instances suggested below." };
+      if (isTwitterPath) {
+        return {
+          hint: "Empty feed. X/Twitter actively blocks scrapers; even when rsshub returns 200 the items vanish. Twitter bridges are unreliable across the board.",
+          alternatives,
+        };
+      }
+      if (isTelegramPath) {
+        return {
+          hint: "Empty feed. Either the slug is wrong (search t.me/SLUG to verify) or this bridge instance is serving a stub.",
+          alternatives,
+        };
       }
       return { hint: "Feed returned 200 but contains no <item> or <entry> blocks. The bridge may be returning an error page disguised as RSS." };
     }
@@ -154,14 +229,16 @@ export async function POST(req: Request) {
     result.parsedItems = result.itemTagCount + result.entryTagCount;
     result.ok = res.ok && (result.itemTagCount > 0 || result.entryTagCount > 0);
 
-    const { hint } = diagnose({ url, status: res.status, xml });
-    if (hint) result.hint = hint;
+    const d = diagnose({ url, status: res.status, xml });
+    if (d.hint) result.hint = d.hint;
+    if (d.alternatives && d.alternatives.length > 0) result.alternatives = d.alternatives;
   } catch (err) {
     clearTimeout(tid);
     const msg = err instanceof Error ? err.message : "Unknown fetch error";
     result.error = msg.includes("aborted") ? "Timed out after 8 s" : msg;
-    const { hint } = diagnose({ url, error: msg });
-    if (hint) result.hint = hint;
+    const d = diagnose({ url, error: msg });
+    if (d.hint) result.hint = d.hint;
+    if (d.alternatives && d.alternatives.length > 0) result.alternatives = d.alternatives;
   }
 
   result.durationMs = Date.now() - start;

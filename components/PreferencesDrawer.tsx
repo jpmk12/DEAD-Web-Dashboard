@@ -233,12 +233,17 @@ interface DiagnosticResult {
   durationMs: number;
   error?: string;
   hint?: string;
+  alternatives?: string[];
 }
 
 // Inline diagnostic panel. Renders the test-feed result in a compact form
 // suitable for tucking under a feed row or the add-form. Colour-codes the
-// status badge; surfaces the bridge-specific hint prominently when present.
-function TestResultPanel({ r, onClose }: { r: DiagnosticResult; onClose: () => void }) {
+// status badge; surfaces the bridge-specific hint prominently when present;
+// offers one-click alternative-instance swaps when the diagnostic returns
+// alternatives. The optional onSwapTo callback wires the swap to the parent
+// (used for existing-feed rows; the add-form passes onSwapTo as a setter
+// that fills the URL input instead).
+function TestResultPanel({ r, onClose, onSwapTo }: { r: DiagnosticResult; onClose: () => void; onSwapTo?: (newUrl: string) => void }) {
   const passed = r.ok;
   const statusColor = passed
     ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
@@ -273,6 +278,44 @@ function TestResultPanel({ r, onClose }: { r: DiagnosticResult; onClose: () => v
         <p className="mt-1.5 text-amber-300/90 leading-snug border-t border-slate-800 pt-1.5">
           💡 {r.hint}
         </p>
+      )}
+      {r.alternatives && r.alternatives.length > 0 && onSwapTo && (
+        <div className="mt-1.5 border-t border-slate-800 pt-1.5">
+          <p className="text-slate-500 font-mono mb-1 text-[9px] uppercase tracking-wider">
+            Try a different instance:
+          </p>
+          <div className="space-y-1">
+            {r.alternatives.map((altUrl) => {
+              let altHost = altUrl;
+              try { altHost = new URL(altUrl).hostname; } catch { /* keep full URL */ }
+              return (
+                <div key={altUrl} className="flex items-center gap-1.5">
+                  <code className="text-[10px] text-emerald-400 font-mono truncate flex-1" title={altUrl}>
+                    {altHost}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => onSwapTo(altUrl)}
+                    className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-400 hover:text-emerald-300 px-2 py-0.5 rounded transition-all flex-shrink-0"
+                  >
+                    Use this
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-slate-600 font-mono mt-1.5 text-[9px] leading-snug">
+            Still failing? Self-hosting RSSHub is the durable fix —{" "}
+            <a
+              href="https://docs.rsshub.app/install/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 underline hover:text-emerald-400"
+            >
+              docs.rsshub.app/install
+            </a>
+          </p>
+        </div>
       )}
     </div>
   );
@@ -357,6 +400,15 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
   // One-click add from the curated suggestion list. Same URL = no-op (the
   // suggestion's Add button is disabled in that case). Each insert uses the
   // suggestion's label and kind as the saved values.
+  // In-place URL swap for an existing feed row. Preserves id / label / kind
+  // and only updates the URL — then re-runs the diagnostic so the user sees
+  // whether the alternative actually worked.
+  const swapFeedUrl = (id: string, newUrl: string) => {
+    const next = value.map((f) => f.id === id ? { ...f, url: newUrl.slice(0, 500) } : f);
+    onChange(next);
+    runTest(id, newUrl);
+  };
+
   const addSuggestion = (s: OsintFeedSuggestion) => {
     if (value.length >= 20) return;
     if (value.some((f) => f.url === s.url)) return;
@@ -521,7 +573,13 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
                     ×
                   </button>
                 </div>
-                {result && <TestResultPanel r={result} onClose={() => closeTest(f.id)} />}
+                {result && (
+                  <TestResultPanel
+                    r={result}
+                    onClose={() => closeTest(f.id)}
+                    onSwapTo={(newUrl) => swapFeedUrl(f.id, newUrl)}
+                  />
+                )}
               </li>
             );
           })}
@@ -565,7 +623,11 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
         </button>
         {testResults.new && (
           <div className="col-span-2">
-            <TestResultPanel r={testResults.new} onClose={() => closeTest("new")} />
+            <TestResultPanel
+              r={testResults.new}
+              onClose={() => closeTest("new")}
+              onSwapTo={(newUrl) => { setUrl(newUrl); runTest("new", newUrl); }}
+            />
           </div>
         )}
       </div>
