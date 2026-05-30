@@ -578,6 +578,17 @@
       tagmode change is written to <code>#view=email&amp;tags=foo,bar&amp;sort=title</code>
       via <code>history.replaceState</code>. Bookmark it, paste it to
       a teammate, or just keep it open across sessions.</li>
+    <li><strong>📜 Version history</strong> (button in the editor
+      header): snapshots fire on content edits, throttled to one per
+      5 minutes, last 25 kept. Two-pane modal — pick a snapshot, hit
+      Restore. The current content is snapshotted first so the
+      restore is itself undoable.</li>
+    <li><strong>⬇ Export</strong>: the editor header has an
+      <span class="ui">⬇ MD</span> button that downloads the current
+      doc as markdown with YAML frontmatter. The sidebar's
+      <span class="ui">⬇</span> button downloads <em>all</em> docs
+      as a zip (archived go under <code>archived/</code> inside the
+      zip).</li>
   </ul>
 
 
@@ -1454,6 +1465,31 @@
     passes without losing the doc you're reading. Conversation state is
     per-doc and resets on switch.
   </p>
+
+  <h3><span class="num">#25</span>Docs: version history + export</h3>
+  <p>
+    Two safety nets for the Docs tab.
+  </p>
+  <ul>
+    <li><strong>📜 History</strong> button in the editor header opens a
+      two-pane modal with the last 25 snapshots of the current doc
+      (newest first). Snapshots fire on content edits and are throttled
+      to one per 5 minutes (a rapid edit cluster shares a single
+      snapshot). Click a row to preview, Restore to apply — the
+      current state gets snapshotted first so the restore itself is
+      undoable.</li>
+    <li><strong>⬇ MD</strong> button in the editor header downloads
+      the current doc as a <code>.md</code> file with YAML frontmatter
+      carrying the metadata (title / tags / pinned / archived /
+      created / updated / id). Round-trippable into Obsidian, VS Code,
+      etc.</li>
+    <li><strong>⬇</strong> button in the sidebar (next to # Manage
+      tags) downloads <em>all</em> docs as a zip of <code>.md</code>
+      files. Active docs sit at the zip root; archived docs go under
+      <code>archived/</code> so they're easy to skip when reviewing.
+      Capped at 1000 docs per export to keep memory bounded.</li>
+  </ul>
+
 
   <h3><span class="num">#24</span>Docs organization: views, sort, tags, bulk, archive</h3>
   <p>
