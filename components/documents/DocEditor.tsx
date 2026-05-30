@@ -6,6 +6,7 @@ import MarkdownPreview from "./MarkdownPreview";
 import DocChatPanel from "./DocChatPanel";
 import DocToolbar from "./DocToolbar";
 import DocTOC from "./DocTOC";
+import DocHistoryModal from "./DocHistoryModal";
 
 interface DocFull {
   id: string;
@@ -85,6 +86,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [splitView, setSplitView] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [slashState, setSlashState] = useState<{ open: boolean; query: string; pos: number; selectedIdx: number }>({
     open: false, query: "", pos: -1, selectedIdx: 0,
   });
@@ -576,6 +578,13 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
               💬 Ask
             </button>
             <button
+              onClick={() => setHistoryOpen(true)}
+              title="Version history — snapshots are saved on edits, last 25 kept"
+              className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
+            >
+              📜 History
+            </button>
+            <button
               onClick={onToggleArchive}
               title={doc.archived ? "Restore from archive" : "Archive — soft-delete (restore from the Archived view in the sidebar)"}
               className={`text-base transition-colors ${doc.archived ? "text-emerald-400 hover:text-emerald-300" : "text-slate-600 hover:text-slate-300"}`}
@@ -812,6 +821,28 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
           </div>
         </div>
       )}
+
+      <DocHistoryModal
+        open={historyOpen}
+        docId={docId}
+        onClose={() => setHistoryOpen(false)}
+        onRestored={() => {
+          // Force the editor to refetch the active doc after restore so the
+          // textarea / preview reflect the restored content.
+          setDoc(null);
+          setLoading(true);
+          fetch(`/api/documents/${docId}`)
+            .then((r) => r.json())
+            .then((data) => {
+              setDoc(data.doc ?? null);
+              latestRef.current = { title: data.doc?.title ?? "", content: data.doc?.content ?? "" };
+              setSaveState("clean");
+            })
+            .catch(() => setDoc(null))
+            .finally(() => setLoading(false));
+          onChanged?.();
+        }}
+      />
     </div>
   );
 }

@@ -74,6 +74,18 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_email_cache_prompt_hash (prompt_hash)
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS document_versions (
+    id           VARCHAR(36)  NOT NULL,
+    doc_id       VARCHAR(36)  NOT NULL,
+    title        VARCHAR(255) NOT NULL,
+    content      MEDIUMTEXT   NOT NULL,
+    tags         JSON         NULL,
+    saved_at     DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_dv_doc_saved (doc_id, saved_at DESC),
+    CONSTRAINT fk_dv_doc FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS osint_triage_cache (
     id           VARCHAR(255) NOT NULL,
     priority     VARCHAR(8)   NOT NULL,

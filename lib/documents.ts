@@ -190,6 +190,13 @@ export async function updateDocument(id: string, patch: { title?: string; conten
     tags: patch.tags !== undefined ? asTags(patch.tags) : existing.tags,
     pinned: patch.pinned !== undefined ? patch.pinned : existing.pinned,
   };
+  // Snapshot the OLD state to document_versions before applying the patch —
+  // only when content actually changes (otherwise the autosave path of
+  // pin/unpin/tag edits would burn versions for no reason). The throttle
+  // inside maybeSnapshotVersion keeps a rapid edit cluster to one snapshot.
+  if (patch.content !== undefined && existing.content !== next.content) {
+    await maybeSnapshotVersion(existing);
+  }
   const now = new Date();
   const pool = await getDb();
   // archived is updated only when explicitly present in the patch — a normal
@@ -509,4 +516,125 @@ export async function bulkSetArchived(ids: string[], archived: boolean): Promise
     [archived ? 1 : 0, new Date(), ids]
   );
   return { affected: res.affectedRows };
+}
+
+// ─── Version history ─────────────────────────────────────────────────────────
+//
+// Each meaningful update snapshots the PRE-edit state into document_versions.
+// Throttled at 5 minutes — rapid keystrokes within that window update the
+// most-recent snapshot rather than appending. Caps at MAX_VERSIONS per doc;
+// the oldest get pruned on the next snapshot.
+
+const VERSION_THROTTLE_MS = 5 * 60 * 1000;
+const MAX_VERSIONS_PER_DOC = 25;
+
+export interface DocumentVersion {
+  id: string;
+  docId: string;
+  title: string;
+  content: string;
+  tags: string[];
+  savedAt: string;
+}
+
+interface VersionRow extends RowDataPacket {
+  id: string;
+  doc_id: string;
+  title: string;
+  content: string;
+  tags: string[] | null;
+  saved_at: Date;
+}
+
+function versionRow(r: VersionRow): DocumentVersion {
+  return {
+    id: r.id,
+    docId: r.doc_id,
+    title: r.title,
+    content: r.content ?? "",
+    tags: asTags(r.tags),
+    savedAt: r.saved_at.toISOString(),
+  };
+}
+
+// Snapshot the existing state (before applying the patch) so the user can
+// roll back. Only fires when the prior snapshot is older than the throttle,
+// OR when there's no prior snapshot. Otherwise updates the prior one in
+// place — the most recent snapshot reflects the last edit-cluster start.
+async function maybeSnapshotVersion(existing: DocumentFull): Promise<void> {
+  const pool = await getDb();
+  const [rows] = await pool.query<VersionRow[]>(
+    "SELECT id, doc_id, title, content, tags, saved_at FROM document_versions WHERE doc_id = ? ORDER BY saved_at DESC LIMIT 1",
+    [existing.id]
+  );
+  const now = new Date();
+  if (rows.length > 0) {
+    const last = rows[0];
+    const ageMs = now.getTime() - last.saved_at.getTime();
+    if (ageMs < VERSION_THROTTLE_MS) {
+      // Don't append; the previous snapshot is the same cluster start.
+      return;
+    }
+  }
+  const vid = crypto.randomUUID();
+  await pool.execute(
+    `INSERT INTO document_versions (id, doc_id, title, content, tags, saved_at)
+     VALUES (?, ?, ?, ?, CAST(? AS JSON), ?)`,
+    [vid, existing.id, existing.title, existing.content, JSON.stringify(existing.tags), now]
+  );
+  // Prune older than MAX_VERSIONS.
+  const [allRows] = await pool.query<VersionRow[]>(
+    "SELECT id FROM document_versions WHERE doc_id = ? ORDER BY saved_at DESC",
+    [existing.id]
+  );
+  if (allRows.length > MAX_VERSIONS_PER_DOC) {
+    const toDelete = allRows.slice(MAX_VERSIONS_PER_DOC).map((r) => r.id);
+    if (toDelete.length > 0) {
+      await pool.query("DELETE FROM document_versions WHERE id IN (?)", [toDelete]);
+    }
+  }
+}
+
+export async function listDocumentVersions(docId: string): Promise<DocumentVersion[]> {
+  const pool = await getDb();
+  const [rows] = await pool.query<VersionRow[]>(
+    "SELECT id, doc_id, title, content, tags, saved_at FROM document_versions WHERE doc_id = ? ORDER BY saved_at DESC",
+    [docId]
+  );
+  return rows.map(versionRow);
+}
+
+export async function getDocumentVersion(versionId: string): Promise<DocumentVersion | null> {
+  const pool = await getDb();
+  const [rows] = await pool.query<VersionRow[]>(
+    "SELECT id, doc_id, title, content, tags, saved_at FROM document_versions WHERE id = ?",
+    [versionId]
+  );
+  return rows.length > 0 ? versionRow(rows[0]) : null;
+}
+
+// Restore a version's title/content/tags onto the doc. Snapshots current
+// state first so the restore itself is undoable.
+export async function restoreVersion(versionId: string): Promise<DocumentFull | null> {
+  const v = await getDocumentVersion(versionId);
+  if (!v) return null;
+  const current = await getDocument(v.docId);
+  if (!current) return null;
+  // Force a snapshot of the current state regardless of throttle.
+  const pool = await getDb();
+  const vid = crypto.randomUUID();
+  await pool.execute(
+    `INSERT INTO document_versions (id, doc_id, title, content, tags, saved_at)
+     VALUES (?, ?, ?, ?, CAST(? AS JSON), ?)`,
+    [vid, current.id, current.title, current.content, JSON.stringify(current.tags), new Date()]
+  );
+  // Apply restored content.
+  return updateDocument(v.docId, { title: v.title, content: v.content, tags: v.tags });
+}
+
+// Export-the-snapshot helper for the surfaces that wire updateDocument into
+// the editor's autosave path.
+export async function snapshotBeforeUpdate(id: string): Promise<void> {
+  const existing = await getDocument(id);
+  if (existing) await maybeSnapshotVersion(existing);
 }
