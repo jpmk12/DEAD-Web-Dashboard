@@ -105,6 +105,22 @@ export async function recordOpen(subject: string): Promise<void> {
   }));
 }
 
+// A "deep dive" — the user clicked through to read the original email in Gmail —
+// is a much stronger interest signal than merely expanding the summary, so it
+// contributes a heavier weight to the series' engagement score. Folding it into
+// openCounts means it flows through sortByPreference, buildPrefsContext's
+// top-series list, and the quiet-series pruning with no further changes.
+const DEEP_DIVE_WEIGHT = 3;
+
+export async function recordDeepDive(subject: string): Promise<void> {
+  const key = normalizeSubject(subject);
+  if (!key) return;
+  await updatePrefs((prefs) => ({
+    ...prefs,
+    openCounts: { ...prefs.openCounts, [key]: (prefs.openCounts[key] ?? 0) + DEEP_DIVE_WEIGHT },
+  }));
+}
+
 export async function recordFeedback(
   id: string,
   value: "useful" | "not_useful"

@@ -68,6 +68,16 @@ function sendFeedback(payload: { id?: string; subject: string; action: string })
   }).catch(() => {});
 }
 
+// Deep-link to the original message in Gmail's web UI. `id` is the Gmail
+// message id; `#all/<id>` opens it regardless of which label it lives under.
+// Keying the account off `authuser=<email>` (rather than a numeric /u/N index)
+// targets the right inbox in this multi-account setup without assuming order.
+function gmailUrl(n: NewsletterSummary): string | null {
+  if (!n.id) return null;
+  const account = n.accountEmail ? `?authuser=${encodeURIComponent(n.accountEmail)}` : "";
+  return `https://mail.google.com/mail/${account}#all/${n.id}`;
+}
+
 function bulletMatchesWatchlist(bullet: string, watchlist: string[]): boolean {
   const lower = bullet.toLowerCase();
   return watchlist.some((t) => lower.includes(t.toLowerCase()));
@@ -135,6 +145,15 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // newsletters this visit"; bumping on tab-activation would dim future
   // visits' content even if the user never opened a single newsletter.
   const surfaceBumped = useRef(false);
+  const bumpSurface = useCallback(() => {
+    if (surfaceBumped.current) return;
+    surfaceBumped.current = true;
+    fetch("/api/surface-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ surface: "newsletters" }),
+    }).catch(() => {});
+  }, []);
 
   const toggle = useCallback((n: NewsletterSummary) => {
     setExpanded((prev) => {
@@ -142,18 +161,19 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       if (next.has(n.id)) { next.delete(n.id); } else {
         next.add(n.id);
         sendFeedback({ subject: n.subject, action: "opened" });
-        if (!surfaceBumped.current) {
-          surfaceBumped.current = true;
-          fetch("/api/surface-state", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ surface: "newsletters" }),
-          }).catch(() => {});
-        }
+        bumpSurface();
       }
       return next;
     });
-  }, []);
+  }, [bumpSurface]);
+
+  // Clicking through to read the original email is a stronger interest signal
+  // than expanding the summary — record it as a weighted "deep_dive" so the
+  // series ranks higher and is exempt from the quiet-series prune.
+  const openOriginal = useCallback((n: NewsletterSummary) => {
+    sendFeedback({ subject: n.subject, action: "deep_dive" });
+    bumpSurface();
+  }, [bumpSurface]);
 
   const keepNewsletter = useCallback((n: NewsletterSummary, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -388,6 +408,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
         <div className="space-y-2">
           {sorted.map((n) => {
             const open = expanded.has(n.id);
+            const gmailHref = gmailUrl(n);
             const isKept = kept.has(n.id);
             const badge = SOURCE_BADGE[n.source] ?? SOURCE_BADGE.politico;
             const timeAgo = (() => {
@@ -451,6 +472,18 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
                   {/* Keep / Remove quick actions */}
                   <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {gmailHref && (
+                      <a
+                        href={gmailHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => openOriginal(n)}
+                        title="Read the original email in Gmail"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-600 hover:text-blue-400 hover:bg-blue-500/10 transition-all text-sm"
+                      >
+                        ↗
+                      </a>
+                    )}
                     <button
                       onClick={(e) => keepNewsletter(n, e)}
                       title={isKept ? "Un-keep" : "Keep — pin to top"}
@@ -498,6 +531,20 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                         <li className="text-sm text-slate-600 italic">No key facts extracted.</li>
                       )}
                     </ul>
+                    {gmailHref && (
+                      <div className="px-4 pb-3 -mt-0.5">
+                        <a
+                          href={gmailHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => openOriginal(n)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400/80 hover:text-blue-300 transition-colors"
+                        >
+                          Read the original email in Gmail
+                          <span aria-hidden>↗</span>
+                        </a>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

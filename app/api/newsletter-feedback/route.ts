@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { recordOpen, recordFeedback, normalizeSubject } from "@/lib/newsletterPrefs";
+import { recordOpen, recordDeepDive, recordFeedback, normalizeSubject } from "@/lib/newsletterPrefs";
 
 const MAX_SUBJECT_LENGTH = 500;
-const VALID_ACTIONS = new Set(["opened", "useful", "not_useful"]);
+const VALID_ACTIONS = new Set(["opened", "deep_dive", "useful", "not_useful"]);
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +39,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   }
 
-  if (action === "opened") {
+  if (action === "opened" || action === "deep_dive") {
     // Guard against empty normalized keys corrupting openCounts
     if (!normalizeSubject(subject)) {
       return NextResponse.json({ error: "subject invalid" }, { status: 400 });
     }
-    await recordOpen(subject);
+    if (action === "deep_dive") await recordDeepDive(subject);
+    else await recordOpen(subject);
   } else {
     if (typeof id !== "string" || !id) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
