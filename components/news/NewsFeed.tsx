@@ -81,9 +81,11 @@ export default function NewsFeed({
   // the tab is open. The server's ctx_hash keying makes the regenerate cheap
   // and one-shot — unchanged prefs still hit the daily cache.
   const [prefsVersion, setPrefsVersion] = useState(0);
-  // Last refreshKey we curated against — distinguishes a real Refresh click from
-  // the monotonic counter merely being > 0 (see the curation effect).
-  const prevRefreshKey = useRef(0);
+  // refreshKey of the last COMPLETED curation. "Manual" = the current refreshKey
+  // hasn't been curated yet — which stays true across the items-churn re-run a
+  // manual refresh triggers (the news refetch swaps the items array), so the
+  // forced ?refresh=1 isn't lost to a race. Updated only on completion.
+  const lastCuratedKey = useRef(0);
 
   useEffect(() => {
     const onCleared = () => setPrefsVersion((v) => v + 1);
@@ -148,16 +150,15 @@ export default function NewsFeed({
   useEffect(() => {
     if (status !== "authenticated" || tab !== "overview" || items.length === 0) return;
 
-    // "Manual" = the Refresh button bumped refreshKey since our last run, not
-    // merely refreshKey > 0 (it's a monotonic counter that never resets, so
-    // `> 0` would stay true all session and force a Claude call on every feed
-    // refresh). Only a genuine new refresh forces ?refresh=1.
-    const manual = refreshKey > prevRefreshKey.current;
-    prevRefreshKey.current = refreshKey;
+    // "Manual" = this refreshKey hasn't been curated yet (the Refresh button
+    // bumped the monotonic counter). It stays true until a curation actually
+    // completes, so the items-churn re-run a refresh causes doesn't downgrade
+    // the forced ?refresh=1 into a cache-hitting non-forced call.
+    const manual = refreshKey !== lastCuratedKey.current;
     // A prefs save (prefsVersion bump) clears clientCache, so get() returns
     // null and we re-POST; the server then re-curates on the ctx_hash miss.
     const cached = manual ? null : clientCache.get<Curated>(CURATED_KEY);
-    if (cached) { setCurated(cached); setCurating(false); return; }
+    if (cached) { setCurated(cached); lastCuratedKey.current = refreshKey; setCurating(false); return; }
 
     setCurating(true);
     const controller = new AbortController();
@@ -178,6 +179,7 @@ export default function NewsFeed({
           mode: data.mode === "ai" ? "ai" : "deterministic",
         };
         setCurated(curatedData);
+        lastCuratedKey.current = refreshKey; // this refresh is satisfied
         // Don't persist a transient result (thin feed / rate-limit / AI error) —
         // let it self-heal on the next view. The server enforces once-per-day;
         // this client TTL just stops intra-session re-POSTs.
