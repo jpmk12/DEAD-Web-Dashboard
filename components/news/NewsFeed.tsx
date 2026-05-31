@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
-import { NewsItem } from "@/lib/types";
+import { NewsItem, SavedItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import NewsCard from "./NewsCard";
 
@@ -71,7 +71,12 @@ export default function NewsFeed({
   const [error, setError] = useState<string | null>(null);
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<TabId>("all");
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  // Persisted saved items are the source of truth for the Saved tab — they
+  // outlive the live RSS feed, so a saved article that has rolled off the feed
+  // still shows (the count and the list stay in sync). savedIds is derived for
+  // the per-card star state.
+  const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+  const savedIds = useMemo(() => new Set(savedItems.map((s) => s.id)), [savedItems]);
   const [errorsExpanded, setErrorsExpanded] = useState(false);
   const [curated, setCurated] = useState<Curated | null>(null);
   const [curating, setCurating] = useState(false);
@@ -135,10 +140,7 @@ export default function NewsFeed({
     if (status !== "authenticated") return;
     fetch("/api/saved")
       .then((r) => r.json())
-      .then((data) => {
-        const ids = new Set<string>((data.items ?? []).map((i: { id: string }) => i.id));
-        setSavedIds(ids);
-      })
+      .then((data) => setSavedItems(Array.isArray(data.items) ? data.items : []))
       .catch(() => {});
   }, [status]);
 
@@ -200,7 +202,12 @@ export default function NewsFeed({
   }, []);
 
   const handleSave = useCallback((item: NewsItem) => {
-    setSavedIds((prev) => new Set(prev).add(item.id));
+    const saved: SavedItem = {
+      id: item.id, type: "article", title: item.title,
+      content: item.summary ?? "", source: item.source,
+      link: item.link, savedAt: new Date().toISOString(),
+    };
+    setSavedItems((prev) => (prev.some((s) => s.id === item.id) ? prev : [saved, ...prev]));
     fetch("/api/saved", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -216,7 +223,7 @@ export default function NewsFeed({
   }, []);
 
   const handleUnsave = useCallback((id: string) => {
-    setSavedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    setSavedItems((prev) => prev.filter((s) => s.id !== id));
     fetch(`/api/saved?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
   }, []);
 
@@ -227,11 +234,21 @@ export default function NewsFeed({
     }, {}),
   [items]);
 
+  // Render saved articles from the persisted store (not the live feed) so ones
+  // that have aged out of the feed still appear. savedAt drives the card's
+  // timestamp; category "saved" falls through to NewsCard's default style.
+  const savedAsItems = useMemo<NewsItem[]>(() =>
+    savedItems.map((s) => ({
+      id: s.id, title: s.title, source: s.source, category: "saved",
+      pubDate: s.savedAt, summary: s.content, link: s.link ?? "",
+    })),
+  [savedItems]);
+
   const visible = useMemo(() =>
-    tab === "saved" ? items.filter((i) => savedIds.has(i.id)) :
+    tab === "saved" ? savedAsItems :
     tab === "all"   ? items :
     items.filter((i) => i.category === tab),
-  [tab, items, savedIds]);
+  [tab, items, savedAsItems]);
 
   // The curated set is frozen server-side, so render it directly rather than
   // mapping ids against the live feed (which rolls older articles off).
