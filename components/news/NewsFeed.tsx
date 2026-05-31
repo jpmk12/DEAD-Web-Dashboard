@@ -60,6 +60,17 @@ export default function NewsFeed({
   const [curated, setCurated] = useState<Curated | null>(null);
   const [curating, setCurating] = useState(false);
   const [showDiscover, setShowDiscover] = useState(false);
+  // Bumped on a prefs save (clientCache.clear + dashboard-cache-cleared) so the
+  // Overview re-curates once against the new role/topics/watchlist even while
+  // the tab is open. The server's ctx_hash keying makes the regenerate cheap
+  // and one-shot — unchanged prefs still hit the daily cache.
+  const [prefsVersion, setPrefsVersion] = useState(0);
+
+  useEffect(() => {
+    const onCleared = () => setPrefsVersion((v) => v + 1);
+    window.addEventListener("dashboard-cache-cleared", onCleared);
+    return () => window.removeEventListener("dashboard-cache-cleared", onCleared);
+  }, []);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -118,6 +129,8 @@ export default function NewsFeed({
   useEffect(() => {
     if (status !== "authenticated" || tab !== "overview" || items.length === 0) return;
 
+    // A prefs save (prefsVersion bump) clears clientCache, so get() returns
+    // null and we re-POST; the server then re-curates on the ctx_hash miss.
     const manual = refreshKey > 0;
     const cached = manual ? null : clientCache.get<Curated>(CURATED_KEY);
     if (cached) { setCurated(cached); setCurating(false); return; }
@@ -140,7 +153,7 @@ export default function NewsFeed({
       .catch(() => {})
       .finally(() => setCurating(false));
     return () => controller.abort();
-  }, [status, tab, items, refreshKey]);
+  }, [status, tab, items, refreshKey, prefsVersion]);
 
   // Callbacks must be declared before any early returns (React rules of hooks)
   const handleFeedback = useCallback((title: string, source: string, action: "useful" | "not_useful" | "opened") => {

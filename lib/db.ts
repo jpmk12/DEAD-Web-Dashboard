@@ -139,6 +139,7 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS news_overview_cache (
     date         VARCHAR(10) NOT NULL PRIMARY KEY,   -- YYYY-MM-DD in user's tz
     tz           VARCHAR(64) NOT NULL DEFAULT 'UTC',
+    ctx_hash     VARCHAR(16) NOT NULL DEFAULT '',    -- hash of role/topics/watchlist; mismatch forces re-curate
     payload      JSON        NOT NULL,               -- { critical: NewsItem[], discover: NewsItem[], mode }
     generated_at BIGINT      NOT NULL
   ) ENGINE=InnoDB`,
@@ -223,6 +224,7 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "osint_feeds",               ddl: "ALTER TABLE user_prefs ADD COLUMN osint_feeds                JSON NULL" },
   { table: "user_memory", column: "pending_exchanges",         ddl: "ALTER TABLE user_memory ADD COLUMN pending_exchanges JSON NULL" },
   { table: "briefing_cache", column: "tz",                     ddl: "ALTER TABLE briefing_cache ADD COLUMN tz VARCHAR(64) NOT NULL DEFAULT 'UTC'" },
+  { table: "news_overview_cache", column: "ctx_hash",          ddl: "ALTER TABLE news_overview_cache ADD COLUMN ctx_hash VARCHAR(16) NOT NULL DEFAULT ''" },
   { table: "user_prefs",  column: "ai_enabled",                ddl: "ALTER TABLE user_prefs ADD COLUMN ai_enabled TINYINT(1) NOT NULL DEFAULT 1" },
   { table: "user_prefs",  column: "ai_feature_toggles",        ddl: "ALTER TABLE user_prefs ADD COLUMN ai_feature_toggles JSON NULL" },
   { table: "user_prefs",  column: "disabled_news_sources",     ddl: "ALTER TABLE user_prefs ADD COLUMN disabled_news_sources JSON NULL" },

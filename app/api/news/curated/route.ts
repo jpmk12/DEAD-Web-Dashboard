@@ -30,6 +30,15 @@ function todayInTz(tz: string): string {
   }
 }
 
+// djb2 over the user-context string (role/topics/watchlist). Folded into the
+// daily cache key so editing those re-curates once, while routine reading
+// activity (which doesn't change this string) still costs one call/day.
+function hashCtx(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
 const SYSTEM_PROMPT = `You are a senior intelligence briefer curating a personalised "critical reading" list. From the candidate articles, pick the ones THIS user most needs to read today — stories that genuinely matter given their role, priority topics, and watchlist, not routine updates.
 
 Selection guidance:
@@ -95,11 +104,14 @@ export async function POST(request: Request) {
   const prefs = await getUserPrefs().catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
   const day = todayInTz(tz);
+  const userContext = prefs ? buildUserContext(prefs) : "";
+  const ctxHash = hashCtx(userContext);
 
   // Once-per-day: serve today's frozen curation instantly (zero Claude cost),
   // regardless of which session/device asks or how the feeds have rolled since.
+  // A prefs edit changes ctxHash, which misses the cache and re-curates once.
   if (!forceRefresh) {
-    const cached = await getCachedOverview(day, tz).catch(() => null);
+    const cached = await getCachedOverview(day, tz, ctxHash).catch(() => null);
     if (cached) {
       return NextResponse.json({ ...cached.payload, day, cached: true, generatedAt: cached.generatedAt });
     }
@@ -121,11 +133,10 @@ export async function POST(request: Request) {
   // serve the deterministic split rather than failing the Overview. The
   // deterministic snapshot is still cached for the day so it stays stable.
   if (!isFeatureEnabled("news_overview", prefs) || !checkRateLimit("news_overview", 8_000)) {
-    await saveCachedOverview(day, tz, fallback).catch(() => {});
+    await saveCachedOverview(day, tz, ctxHash, fallback).catch(() => {});
     return NextResponse.json({ ...fallback, day, cached: false });
   }
 
-  const userContext = buildUserContext(prefs!);
   const topKeywords = Object.entries(articlePrefs.keywords)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 15)
@@ -201,6 +212,6 @@ export async function POST(request: Request) {
     console.error("News curation failed:", err);
   }
 
-  await saveCachedOverview(day, tz, result).catch(() => {});
+  await saveCachedOverview(day, tz, ctxHash, result).catch(() => {});
   return NextResponse.json({ ...result, day, cached: false });
 }
