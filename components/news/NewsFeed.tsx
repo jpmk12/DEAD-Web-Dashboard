@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { NewsItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
@@ -34,6 +34,22 @@ const TABS = [
 
 type TabId = typeof TABS[number]["id"];
 
+function SkeletonGrid() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="bg-slate-900 rounded-xl border border-slate-800 p-5 animate-pulse">
+          <div className="h-3 bg-slate-800 rounded-md w-24 mb-3" />
+          <div className="h-4 bg-slate-800 rounded-md w-full mb-2" />
+          <div className="h-4 bg-slate-800 rounded-md w-5/6 mb-4" />
+          <div className="h-3 bg-slate-800 rounded-md w-full mb-1" />
+          <div className="h-3 bg-slate-800 rounded-md w-4/5" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface NewsFeedProps {
   onArticlesLoaded?: (articles: NewsItem[]) => void;
   refreshKey?: number;
@@ -65,6 +81,9 @@ export default function NewsFeed({
   // the tab is open. The server's ctx_hash keying makes the regenerate cheap
   // and one-shot — unchanged prefs still hit the daily cache.
   const [prefsVersion, setPrefsVersion] = useState(0);
+  // Last refreshKey we curated against — distinguishes a real Refresh click from
+  // the monotonic counter merely being > 0 (see the curation effect).
+  const prevRefreshKey = useRef(0);
 
   useEffect(() => {
     const onCleared = () => setPrefsVersion((v) => v + 1);
@@ -129,9 +148,14 @@ export default function NewsFeed({
   useEffect(() => {
     if (status !== "authenticated" || tab !== "overview" || items.length === 0) return;
 
+    // "Manual" = the Refresh button bumped refreshKey since our last run, not
+    // merely refreshKey > 0 (it's a monotonic counter that never resets, so
+    // `> 0` would stay true all session and force a Claude call on every feed
+    // refresh). Only a genuine new refresh forces ?refresh=1.
+    const manual = refreshKey > prevRefreshKey.current;
+    prevRefreshKey.current = refreshKey;
     // A prefs save (prefsVersion bump) clears clientCache, so get() returns
     // null and we re-POST; the server then re-curates on the ctx_hash miss.
-    const manual = refreshKey > 0;
     const cached = manual ? null : clientCache.get<Curated>(CURATED_KEY);
     if (cached) { setCurated(cached); setCurating(false); return; }
 
@@ -144,11 +168,20 @@ export default function NewsFeed({
       signal: controller.signal,
     })
       .then((r) => r.json())
-      .then((data: Curated) => {
-        setCurated(data);
-        // Long client TTL — the server enforces once-per-day; this just stops
-        // intra-session re-POSTs. Cleared on prefs save via clientCache.clear().
-        clientCache.set(CURATED_KEY, data, 12 * 60 * 60 * 1000);
+      .then((data: Partial<Curated> & { transient?: boolean }) => {
+        // Ignore error payloads ({error}) — don't render or cache a non-result,
+        // which would otherwise freeze an empty Overview for 12h with no retry.
+        if (!Array.isArray(data.critical) || !Array.isArray(data.discover)) return;
+        const curatedData: Curated = {
+          critical: data.critical,
+          discover: data.discover,
+          mode: data.mode === "ai" ? "ai" : "deterministic",
+        };
+        setCurated(curatedData);
+        // Don't persist a transient result (thin feed / rate-limit / AI error) —
+        // let it self-heal on the next view. The server enforces once-per-day;
+        // this client TTL just stops intra-session re-POSTs.
+        if (!data.transient) clientCache.set(CURATED_KEY, curatedData, 12 * 60 * 60 * 1000);
       })
       .catch(() => {})
       .finally(() => setCurating(false));
@@ -279,19 +312,7 @@ export default function NewsFeed({
         })}
       </div>
 
-      {loading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="bg-slate-900 rounded-xl border border-slate-800 p-5 animate-pulse">
-              <div className="h-3 bg-slate-800 rounded-md w-24 mb-3" />
-              <div className="h-4 bg-slate-800 rounded-md w-full mb-2" />
-              <div className="h-4 bg-slate-800 rounded-md w-5/6 mb-4" />
-              <div className="h-3 bg-slate-800 rounded-md w-full mb-1" />
-              <div className="h-3 bg-slate-800 rounded-md w-4/5" />
-            </div>
-          ))}
-        </div>
-      )}
+      {loading && <SkeletonGrid />}
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4 text-sm mb-4">
@@ -327,19 +348,7 @@ export default function NewsFeed({
           source (e.g. DVIDS) is disabled. */}
       {!loading && !error && tab === "overview" && (
         <div>
-          {overviewLoading && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="bg-slate-900 rounded-xl border border-slate-800 p-5 animate-pulse">
-                  <div className="h-3 bg-slate-800 rounded-md w-24 mb-3" />
-                  <div className="h-4 bg-slate-800 rounded-md w-full mb-2" />
-                  <div className="h-4 bg-slate-800 rounded-md w-5/6 mb-4" />
-                  <div className="h-3 bg-slate-800 rounded-md w-full mb-1" />
-                  <div className="h-3 bg-slate-800 rounded-md w-4/5" />
-                </div>
-              ))}
-            </div>
-          )}
+          {overviewLoading && <SkeletonGrid />}
 
           {!overviewLoading && criticalItems.length === 0 && (
             <div className="text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">

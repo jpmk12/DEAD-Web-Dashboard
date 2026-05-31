@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { NewsItem } from "@/lib/types";
+import { safeHttpHref } from "@/lib/url";
 import { formatDistanceToNow, parseISO } from "date-fns";
 
 interface NewsCardProps {
@@ -174,7 +175,7 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
 
       <h2 className="text-sm font-semibold text-slate-100 mb-2 leading-snug flex-1">
         <a
-          href={item.link}
+          href={safeHttpHref(item.link)}
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => {

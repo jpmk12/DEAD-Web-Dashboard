@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { NewsletterSummary } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
+import { gmailMessageUrl } from "@/lib/gmailLink";
 import { formatDistanceToNow, parseISO } from "date-fns";
 
 // Mirror of lib/newsletterPrefs.normalizeSubject — kept here because that
@@ -68,15 +69,7 @@ function sendFeedback(payload: { id?: string; subject: string; action: string })
   }).catch(() => {});
 }
 
-// Deep-link to the original message in Gmail's web UI. `id` is the Gmail
-// message id; `#all/<id>` opens it regardless of which label it lives under.
-// Keying the account off `authuser=<email>` (rather than a numeric /u/N index)
-// targets the right inbox in this multi-account setup without assuming order.
-function gmailUrl(n: NewsletterSummary): string | null {
-  if (!n.id) return null;
-  const account = n.accountEmail ? `?authuser=${encodeURIComponent(n.accountEmail)}` : "";
-  return `https://mail.google.com/mail/${account}#all/${n.id}`;
-}
+const gmailUrl = (n: NewsletterSummary) => gmailMessageUrl(n.id, n.accountEmail);
 
 function bulletMatchesWatchlist(bullet: string, watchlist: string[]): boolean {
   const lower = bullet.toLowerCase();
@@ -169,8 +162,13 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
   // Clicking through to read the original email is a stronger interest signal
   // than expanding the summary — record it as a weighted "deep_dive" so the
-  // series ranks higher and is exempt from the quiet-series prune.
+  // series ranks higher and is exempt from the quiet-series prune. Deduped per
+  // session so repeatedly clicking the same item's link (the header ↗ and the
+  // footer link both fire this) doesn't keep inflating its score by +3 each.
+  const deepDived = useRef<Set<string>>(new Set());
   const openOriginal = useCallback((n: NewsletterSummary) => {
+    if (deepDived.current.has(n.id)) return;
+    deepDived.current.add(n.id);
     sendFeedback({ subject: n.subject, action: "deep_dive" });
     bumpSurface();
   }, [bumpSurface]);

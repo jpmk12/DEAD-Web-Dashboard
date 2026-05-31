@@ -10,6 +10,7 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { getCachedSummaries, getAllCachedSummaries, cacheSummaries } from "@/lib/newsletterCache";
+import { extractJsonArray } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
 
@@ -141,14 +142,7 @@ export async function GET() {
 
       logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage }).catch(() => {});
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
-      // Robust JSON extraction — strip fences and find the array boundaries
-      let jsonStr = raw.replace(/^```(?:json)?\n?/im, "").replace(/\n?```\s*$/m, "").trim();
-      const arrStart = jsonStr.indexOf("[");
-      if (arrStart > 0) jsonStr = jsonStr.slice(arrStart);
-      const arrEnd = jsonStr.lastIndexOf("]");
-      if (arrEnd >= 0 && arrEnd < jsonStr.length - 1) jsonStr = jsonStr.slice(0, arrEnd + 1);
-
-      const parsed: unknown = JSON.parse(jsonStr);
+      const parsed: unknown = JSON.parse(extractJsonArray(raw));
       if (!Array.isArray(parsed)) throw new Error("Expected array");
 
       const validated = (parsed as unknown[]).filter(

@@ -7,21 +7,8 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { checkRateLimit } from "@/lib/rateLimit";
-
-// Today's date as YYYY-MM-DD in the given IANA timezone. Used as the cache key
-// so a brief generated at 06:00 still serves the same date at 22:00.
-function todayInTz(tz: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-  } catch {
-    return new Date().toISOString().slice(0, 10);
-  }
-}
+import { extractJsonObject } from "@/lib/aiJson";
+import { todayInTz } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -125,11 +112,7 @@ export async function POST(request: Request) {
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
-    let clean = raw.replace(/^```(?:json)?\n?/im, "").replace(/\n?```\s*$/m, "").trim();
-    const objStart = clean.indexOf("{");
-    if (objStart > 0) clean = clean.slice(objStart);
-    const objEnd = clean.lastIndexOf("}");
-    if (objEnd >= 0 && objEnd < clean.length - 1) clean = clean.slice(0, objEnd + 1);
+    const clean = extractJsonObject(raw);
     let p: Record<string, unknown> = {};
     try {
       p = JSON.parse(clean) as Record<string, unknown>;

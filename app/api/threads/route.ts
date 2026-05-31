@@ -7,6 +7,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { saveSession } from "@/lib/threadHistory";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
+import { extractJsonObject } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
 
@@ -104,15 +105,7 @@ export async function POST(request: Request) {
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
-
-    // Robust JSON extraction: strip fences then locate the outermost { } span.
-    // Calculate objEnd AFTER the first slice so both indices refer to the same string.
-    let clean = raw.replace(/^```(?:json)?\n?/im, "").replace(/\n?```\s*$/m, "").trim();
-    const objStart = clean.indexOf("{");
-    if (objStart > 0) clean = clean.slice(objStart);
-    const objEnd = clean.lastIndexOf("}");
-    if (objEnd >= 0 && objEnd < clean.length - 1) clean = clean.slice(0, objEnd + 1);
-    const parsed = JSON.parse(clean);
+    const parsed = JSON.parse(extractJsonObject(raw));
 
     const validIds = new Set(articlePayload.map((a) => a.id));
 
