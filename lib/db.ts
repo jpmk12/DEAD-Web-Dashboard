@@ -136,6 +136,13 @@ const SCHEMA_STATEMENTS = [
     generated_at BIGINT      NOT NULL
   ) ENGINE=InnoDB`,
 
+  `CREATE TABLE IF NOT EXISTS news_overview_cache (
+    date         VARCHAR(10) NOT NULL PRIMARY KEY,   -- YYYY-MM-DD in user's tz
+    tz           VARCHAR(64) NOT NULL DEFAULT 'UTC',
+    payload      JSON        NOT NULL,               -- { critical: NewsItem[], discover: NewsItem[], mode }
+    generated_at BIGINT      NOT NULL
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS documents (
     id         VARCHAR(36)  NOT NULL PRIMARY KEY,
     title      VARCHAR(255) NOT NULL,

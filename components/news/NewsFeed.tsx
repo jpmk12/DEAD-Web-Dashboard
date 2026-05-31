@@ -8,6 +8,19 @@ import NewsCard from "./NewsCard";
 
 const CACHE_KEY = "news:items";
 
+// Keep in sync with /api/news/curated CANDIDATE_LIMIT — the shortlist we hand
+// the curator. The Overview is built from this pool, not a source category.
+const CANDIDATE_LIMIT = 45;
+// Curation is cached server-side once per day; this client key just avoids
+// re-POSTing on every tab switch / background refresh within a session.
+const CURATED_KEY = "news:curated";
+
+interface Curated {
+  critical: NewsItem[];
+  discover: NewsItem[];
+  mode: "ai" | "deterministic";
+}
+
 const TABS = [
   { id: "all",       label: "All" },
   { id: "overview",  label: "Overview" },
@@ -44,6 +57,9 @@ export default function NewsFeed({
   const [tab, setTab] = useState<TabId>("all");
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [errorsExpanded, setErrorsExpanded] = useState(false);
+  const [curated, setCurated] = useState<Curated | null>(null);
+  const [curating, setCurating] = useState(false);
+  const [showDiscover, setShowDiscover] = useState(false);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -94,6 +110,38 @@ export default function NewsFeed({
       .catch(() => {});
   }, [status]);
 
+  // Curate the Overview lazily — only when the user is on that tab and we have
+  // articles. Curation runs once per day (cached server-side and frozen for the
+  // day to keep cost down and the list stable). A manual refresh (refreshKey)
+  // forces a regenerate with ?refresh=1; otherwise the session-level cache keeps
+  // tab switches and background refreshes from re-POSTing.
+  useEffect(() => {
+    if (status !== "authenticated" || tab !== "overview" || items.length === 0) return;
+
+    const manual = refreshKey > 0;
+    const cached = manual ? null : clientCache.get<Curated>(CURATED_KEY);
+    if (cached) { setCurated(cached); setCurating(false); return; }
+
+    setCurating(true);
+    const controller = new AbortController();
+    fetch(manual ? "/api/news/curated?refresh=1" : "/api/news/curated", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidates: items.slice(0, CANDIDATE_LIMIT) }),
+      signal: controller.signal,
+    })
+      .then((r) => r.json())
+      .then((data: Curated) => {
+        setCurated(data);
+        // Long client TTL — the server enforces once-per-day; this just stops
+        // intra-session re-POSTs. Cleared on prefs save via clientCache.clear().
+        clientCache.set(CURATED_KEY, data, 12 * 60 * 60 * 1000);
+      })
+      .catch(() => {})
+      .finally(() => setCurating(false));
+    return () => controller.abort();
+  }, [status, tab, items, refreshKey]);
+
   // Callbacks must be declared before any early returns (React rules of hooks)
   const handleFeedback = useCallback((title: string, source: string, action: "useful" | "not_useful" | "opened") => {
     fetch("/api/article-feedback", {
@@ -137,6 +185,13 @@ export default function NewsFeed({
     items.filter((i) => i.category === tab),
   [tab, items, savedIds]);
 
+  // The curated set is frozen server-side, so render it directly rather than
+  // mapping ids against the live feed (which rolls older articles off).
+  const criticalItems = curated?.critical ?? [];
+  const discoverItems = curated?.discover ?? [];
+  // Show a skeleton while the first curation of the day is in flight.
+  const overviewLoading = curating && criticalItems.length === 0;
+
   if (status === "unauthenticated") {
     return (
       <div className="flex flex-col items-center justify-center min-h-[300px] gap-5 text-center">
@@ -162,10 +217,24 @@ export default function NewsFeed({
   const getCount = (id: TabId) => {
     if (id === "all") return items.length;
     if (id === "saved") return savedIds.size;
+    if (id === "overview") return criticalItems.length;
     return countByCategory[id] ?? 0;
   };
 
   const failedCount = Object.keys(sourceErrors).length;
+
+  const renderCard = (item: NewsItem) => (
+    <NewsCard
+      key={item.id}
+      item={item}
+      onFeedback={handleFeedback}
+      isSaved={savedIds.has(item.id)}
+      onSave={handleSave}
+      onUnsave={handleUnsave}
+      watchlist={watchlist}
+      previousSeen={previousSeen}
+    />
+  );
 
   return (
     <div>
@@ -240,20 +309,74 @@ export default function NewsFeed({
         </div>
       )}
 
-      {!loading && !error && (
+      {/* Overview — AI-curated "critical for you" + collapsed discovery.
+          Drawn from the whole feed, so it never blanks when a single
+          source (e.g. DVIDS) is disabled. */}
+      {!loading && !error && tab === "overview" && (
+        <div>
+          {overviewLoading && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="bg-slate-900 rounded-xl border border-slate-800 p-5 animate-pulse">
+                  <div className="h-3 bg-slate-800 rounded-md w-24 mb-3" />
+                  <div className="h-4 bg-slate-800 rounded-md w-full mb-2" />
+                  <div className="h-4 bg-slate-800 rounded-md w-5/6 mb-4" />
+                  <div className="h-3 bg-slate-800 rounded-md w-full mb-1" />
+                  <div className="h-3 bg-slate-800 rounded-md w-4/5" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!overviewLoading && criticalItems.length === 0 && (
+            <div className="text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">
+              {items.length === 0 ? "No articles loaded" : "Nothing critical surfaced — check the All tab"}
+            </div>
+          )}
+
+          {criticalItems.length > 0 && (
+            <>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Critical for you</span>
+                <div className="flex-1 h-px bg-slate-800" />
+                <span className="text-[10px] font-mono text-slate-600 uppercase tracking-wider">
+                  {curated?.mode === "ai" ? "AI-curated" : "by your interests"}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {criticalItems.map(renderCard)}
+              </div>
+            </>
+          )}
+
+          {discoverItems.length > 0 && (
+            <div className="mt-8">
+              <button
+                onClick={() => setShowDiscover((v) => !v)}
+                className="flex items-center gap-2 w-full text-left mb-4 group"
+              >
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-500 group-hover:text-slate-300 transition-colors">
+                  More to discover
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono leading-none bg-slate-800 text-slate-600">
+                  {discoverItems.length}
+                </span>
+                <div className="flex-1 h-px bg-slate-800" />
+                <span className="text-slate-600 text-xs">{showDiscover ? "▲" : "▼"}</span>
+              </button>
+              {showDiscover && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {discoverItems.map(renderCard)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && !error && tab !== "overview" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visible.map((item) => (
-            <NewsCard
-              key={item.id}
-              item={item}
-              onFeedback={handleFeedback}
-              isSaved={savedIds.has(item.id)}
-              onSave={handleSave}
-              onUnsave={handleUnsave}
-              watchlist={watchlist}
-              previousSeen={previousSeen}
-            />
-          ))}
+          {visible.map(renderCard)}
           {visible.length === 0 && (
             <div className="col-span-full text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">
               {tab === "saved" ? "No saved articles yet — star articles to save them" : `No ${tab === "all" ? "" : tab + " "}articles loaded`}

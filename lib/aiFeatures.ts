@@ -9,6 +9,7 @@ export const ALL_AI_FEATURES: AiFeature[] = [
   "doc_chat",
   "newsletters",
   "briefing", "digest", "threads",
+  "news_overview",
   "quick_capture",
   "memory",
 ];
@@ -25,6 +26,7 @@ export const AI_FEATURE_LABELS: Record<AiFeature, { label: string; sub: string }
   briefing:      { label: "Morning brief",             sub: "Daily synthesis (cached once per day)" },
   digest:        { label: "Weekly digest",             sub: "Reading-pattern summary" },
   threads:       { label: "News threads",              sub: "Cross-article narrative extraction" },
+  news_overview: { label: "News Overview curation",    sub: "Picks the day's must-reads for you" },
   quick_capture: { label: "Quick capture (⌘K)",        sub: "Routes free text → task / event / note" },
   memory:        { label: "Long-term memory updates",  sub: "Background consolidation after chat" },
 };

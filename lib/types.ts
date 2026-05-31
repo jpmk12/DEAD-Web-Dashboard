@@ -134,6 +134,7 @@ export type AiFeature =
   | "briefing"       // /api/briefing
   | "digest"         // /api/digest
   | "threads"        // /api/threads
+  | "news_overview"  // /api/news/curated
   | "quick_capture"  // /api/quick-capture
   | "memory";        // background memory consolidation
 
