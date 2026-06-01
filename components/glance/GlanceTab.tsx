@@ -105,6 +105,24 @@ function senderName(from: string): string {
   return at > 0 ? from.slice(0, at) : from;
 }
 
+// Google Tasks `due` is a date-only value encoded at UTC midnight. It must be
+// compared by calendar date against the LOCAL today — matching TasksPanel's
+// dateGroup() — not as an absolute instant. Comparing instants pulls a task
+// due *tomorrow* (whose UTC-midnight timestamp falls on tonight in behind-UTC
+// zones) into "today", disagreeing with the Tasks/Calendar tab.
+function localTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function taskDueState(due?: string): "overdue" | "today" | "future" | "none" {
+  if (!due) return "none";
+  const taskDate = due.substring(0, 10);
+  const today = localTodayStr();
+  if (taskDate < today) return "overdue";
+  if (taskDate === today) return "today";
+  return "future";
+}
+
 // Re-read the module-level caches on an interval so Glance fills in as the
 // other tabs finish loading in the background. Peeks happen during render;
 // the tick just forces re-evaluation. Only runs while Glance is visible.
@@ -179,10 +197,13 @@ export default function GlanceTab({
   const newEmails = emails.filter((e) => ms(e.date) > previousSeen.email && e.priority !== "Low").length;
 
   // ── Derived: needs-you-now (urgency-ranked merge) ──
-  const todayEnd = endOfToday();
+  // Date-only comparison (see taskDueState) so "due today" agrees with the
+  // Tasks/Calendar tab. Only overdue or due-today tasks demand attention here.
   const dueTasks = tasks
-    .filter((t) => t.status === "needsAction" && t.due && ms(t.due) <= todayEnd)
-    .sort((a, b) => ms(a.due) - ms(b.due));
+    .filter((t) => t.status === "needsAction")
+    .map((t) => ({ t, state: taskDueState(t.due) }))
+    .filter((x) => x.state === "overdue" || x.state === "today")
+    .sort((a, b) => (a.t.due ?? "").localeCompare(b.t.due ?? ""));
 
   type Urgent = {
     id: string;
@@ -197,8 +218,8 @@ export default function GlanceTab({
 
   const urgent: Urgent[] = [];
 
-  for (const t of dueTasks) {
-    const overdue = ms(t.due) < startOfToday();
+  for (const { t, state } of dueTasks) {
+    const overdue = state === "overdue";
     urgent.push({
       id: `task-${t.id}`,
       rank: overdue ? 0 : 1,
@@ -206,7 +227,7 @@ export default function GlanceTab({
       icon: "✓",
       label: t.title,
       sub: overdue ? "Task overdue" : "Task due today",
-      meta: relTime(t.due),
+      meta: overdue ? "Overdue" : "Today",
       onClick: () => onNavigate("calendar"),
     });
   }
