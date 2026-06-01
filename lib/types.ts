@@ -129,6 +129,7 @@ export type AiFeature =
   | "email_triage"   // /api/gmail Claude classification
   | "email_actions"  // /api/gmail/actions
   | "osint_triage"   // /api/osint/triage
+  | "osint_situation"// /api/osint/situation
   | "doc_chat"       // /api/documents/chat
   | "newsletters"    // /api/newsletters
   | "briefing"       // /api/briefing

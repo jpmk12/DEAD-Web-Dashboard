@@ -399,6 +399,38 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const rest = useMemo(() => enriched.filter((e) => !e.isSignal), [enriched]);
   const newSignalCount = useMemo(() => enriched.filter((e) => e.isSignal && e.isNew).length, [enriched]);
 
+  // AI "Situation now" — a one-line read of the current signals. Fetched only
+  // while the user is on the tab, and only when the signal set actually changes
+  // (hash guard), so a quiet day or a background poll doesn't spend tokens.
+  const [situation, setSituation] = useState("");
+  const [situationOff, setSituationOff] = useState(false);
+  const lastSitHash = useRef("");
+  useEffect(() => {
+    if (!active || signals.length === 0) return;
+    const hash = signals.map((s) => s.primary.id).join("|");
+    if (hash === lastSitHash.current) return;
+    lastSitHash.current = hash;
+    const ctrl = new AbortController();
+    fetch("/api/osint/situation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: signals.slice(0, 15).map((s) => ({
+          title: s.primary.title, feed: s.primary.feedLabel, kind: s.primary.feedKind,
+          priority: s.priority ?? "", reason: s.t?.reason ?? "", sources: s.distinctFeeds,
+        })),
+      }),
+      signal: ctrl.signal,
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        setSituationOff(!!d.disabled);
+        if (typeof d.situation === "string" && d.situation) setSituation(d.situation);
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [active, signals]);
+
   // Report the count up for the nav badge — but only "new" matters there, and
   // only while the user isn't already looking at the tab.
   useEffect(() => { onSignalCount?.(active ? 0 : newSignalCount); }, [newSignalCount, active, onSignalCount]);
@@ -785,6 +817,19 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             <p className="text-[11px] text-slate-600 font-mono text-center py-6">
               No items in this pane.
             </p>
+          )}
+
+          {/* Situation line — one-glance read of what matters right now. */}
+          {!loading && signals.length > 0 && !situationOff && (
+            <div className="bg-violet-500/5 border border-violet-500/30 rounded-lg px-3 py-2 flex items-start gap-2.5">
+              <span className="text-violet-400 text-[10px] font-bold uppercase tracking-widest mt-0.5 flex-shrink-0">Situation</span>
+              <p className="text-xs text-slate-200 leading-snug">
+                {situation || <span className="text-slate-500 italic">Reading the room…</span>}
+              </p>
+            </div>
+          )}
+          {!loading && feeds.length > 0 && filtered.length > 0 && signals.length === 0 && (
+            <p className="text-[11px] text-slate-600 font-mono">All quiet — no high-priority signals right now.</p>
           )}
 
           {/* New-signal banner — the proactive "something happened" nudge. */}
