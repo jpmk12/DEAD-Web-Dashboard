@@ -36,10 +36,11 @@ export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
-  const { articles = [], newsletters = [], events = [] } = body as {
+  const { articles = [], newsletters = [], events = [], osint = [] } = body as {
     articles?: NewsItem[];
     newsletters?: NewsletterSummary[];
     events?: CalendarEvent[];
+    osint?: { title?: string; priority?: string; reason?: string; sources?: number }[];
   };
 
   const prefs = await getUserPrefs();
@@ -87,9 +88,19 @@ export async function POST(request: Request) {
     .map((e) => `${e.start}: ${e.title}${e.location ? ` @ ${e.location}` : ""}`)
     .join("\n");
 
+  const osintSignals = (Array.isArray(osint) ? osint : []).slice(0, 8)
+    .map((o) => {
+      const pr = String(o.priority ?? "").slice(0, 8);
+      const src = Number(o.sources) > 1 ? ` (${Number(o.sources)} sources)` : "";
+      const why = o.reason ? ` — ${String(o.reason).slice(0, 80)}` : "";
+      return `[${pr}]${src} ${String(o.title ?? "").slice(0, 160)}${why}`;
+    })
+    .join("\n");
+
   const userContent = [
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
     newsletterBullets && `NEWSLETTER HIGHLIGHTS:\n${newsletterBullets}`,
+    osintSignals && `OSINT SIGNALS (flagged from the user's monitored feeds):\n${osintSignals}`,
     calendarItems && `CALENDAR:\n${calendarItems}`,
   ].filter(Boolean).join("\n\n");
 

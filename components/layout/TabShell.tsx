@@ -42,6 +42,8 @@ export default function TabShell() {
   // OSINT nav badge. Reported up by OSINTTab (which polls in the background
   // even while hidden).
   const [osintSignals, setOsintSignals] = useState(0);
+  // Top OSINT signals, fed into the morning brief so it reflects monitored feeds.
+  const [osintTop, setOsintTop] = useState<{ title: string; priority: string; reason: string; sources: number }[]>([]);
 
   useEffect(() => {
     fetch("/api/surface-state")
@@ -126,10 +128,10 @@ export default function TabShell() {
   // Also re-fires on the cache-cleared event so a prefs save re-primes the brief.
   useEffect(() => {
     if (articles.length === 0 || newsletters.length === 0) return;
-    prefetchBriefing(articles, newsletters, calendarEvents);
+    prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
     const reprime = () => {
       if (articles.length > 0 && newsletters.length > 0) {
-        prefetchBriefing(articles, newsletters, calendarEvents);
+        prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
       }
     };
     window.addEventListener("focus", reprime);
@@ -249,6 +251,7 @@ export default function TabShell() {
             active={activeTab === "osint"}
             previousSeen={previousSeen.osint}
             onSignalCount={setOsintSignals}
+            onTopSignals={setOsintTop}
           />
         </div>
 

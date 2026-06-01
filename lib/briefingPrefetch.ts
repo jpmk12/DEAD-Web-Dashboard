@@ -12,6 +12,7 @@ export function prefetchBriefing(
   articles: unknown[],
   newsletters: unknown[],
   events: unknown[],
+  osint: unknown[] = [],
 ): void {
   if (articles.length === 0) return;
   if (clientCache.isFresh(CACHE_KEY)) return;
@@ -20,7 +21,7 @@ export function prefetchBriefing(
   inflight = fetch("/api/briefing", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ articles, newsletters, events }),
+    body: JSON.stringify({ articles, newsletters, events, osint }),
   })
     .then((r) => r.json())
     .then((data) => {

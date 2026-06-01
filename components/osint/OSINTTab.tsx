@@ -106,13 +106,16 @@ const PRIORITY_RANK: Record<Priority, number> = { High: 3, Medium: 2, Low: 1 };
 const CORROBORATION_MIN = 3;
 const POLL_MS = 90_000;
 
+interface SignalDigest { title: string; priority: string; reason: string; sources: number }
+
 interface OSINTTabProps {
   active?: boolean;
   previousSeen?: number;            // server-recorded last-visit timestamp (ms)
   onSignalCount?: (n: number) => void; // report new-signal count up for the nav badge
+  onTopSignals?: (items: SignalDigest[]) => void; // feed the morning brief
 }
 
-export default function OSINTTab({ active = true, previousSeen = 0, onSignalCount }: OSINTTabProps) {
+export default function OSINTTab({ active = true, previousSeen = 0, onSignalCount, onTopSignals }: OSINTTabProps) {
   const [items, setItems] = useState<OsintItem[]>([]);
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
   const [pane, setPane] = useState<Pane>("all");
@@ -431,6 +434,75 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
     return () => ctrl.abort();
   }, [active, signals]);
 
+  // Feed the top signals up to the morning brief so OSINT surfaces there too.
+  useEffect(() => {
+    onTopSignals?.(signals.slice(0, 8).map((s) => ({
+      title: s.primary.title, priority: s.priority ?? "Medium",
+      reason: s.t?.reason ?? "", sources: s.distinctFeeds,
+    })));
+  }, [signals, onTopSignals]);
+
+  // Browser notifications: alert on genuinely new feed signals when the user
+  // isn't already looking. Permission is opt-in via the header button.
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission | "unsupported">("default");
+  useEffect(() => {
+    if (typeof Notification === "undefined") setNotifPerm("unsupported");
+    else setNotifPerm(Notification.permission);
+  }, []);
+  const notifiedIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const fresh = enriched.filter((e) => e.isSignal && e.isNew && !notifiedIds.current.has(e.primary.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((e) => notifiedIds.current.add(e.primary.id));
+    // Don't notify about what they're already watching.
+    if (active && !document.hidden) return;
+    try {
+      new Notification(`OSINT — ${fresh.length} new signal${fresh.length > 1 ? "s" : ""}`, {
+        body: fresh[0].primary.title.slice(0, 140),
+        tag: "osint-signals",
+      });
+    } catch { /* notification blocked */ }
+  }, [enriched, active]);
+
+  // Map-contact awareness: while on a feed pane, poll the aircraft/maritime
+  // feeds so military activity and watchlisted contacts in the AOR show up
+  // here too (no token cost — these are the same free endpoints the maps use).
+  const [contacts, setContacts] = useState<{ mil: number; vessels: number; watched: string[] }>({ mil: 0, vessels: 0, watched: [] });
+  useEffect(() => {
+    if (!active || pane === "aircraft" || pane === "maritime") return;
+    if (!Number.isFinite(homeLat) || !Number.isFinite(homeLon)) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const [ac, sh] = await Promise.all([
+          fetch(`/api/osint/aircraft?lat=${homeLat}&lon=${homeLon}&radius=250`).then((r) => r.json()).catch(() => ({})),
+          fetch(`/api/osint/ships?lat=${homeLat}&lon=${homeLon}&radius=200`).then((r) => r.json()).catch(() => ({})),
+        ]);
+        if (cancelled) return;
+        const aircraft: { callsign?: string; isMilitary?: boolean }[] = Array.isArray(ac.aircraft) ? ac.aircraft : [];
+        const ships: { name?: string }[] = Array.isArray(sh.ships) ? sh.ships : [];
+        const watched: string[] = [];
+        for (const a of aircraft) {
+          const cs = (a.callsign ?? "").trim();
+          if (cs && watchTerms.some((t) => cs.toLowerCase().includes(t))) watched.push(`✈ ${cs}`);
+        }
+        for (const v of ships) {
+          const nm = (v.name ?? "").trim();
+          if (nm && watchTerms.some((t) => nm.toLowerCase().includes(t))) watched.push(`⚓ ${nm}`);
+        }
+        setContacts({
+          mil: aircraft.filter((a) => a.isMilitary).length,
+          vessels: ships.length,
+          watched: Array.from(new Set(watched)).slice(0, 6),
+        });
+      } catch { /* ignore */ }
+    };
+    poll();
+    const id = setInterval(poll, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [active, pane, homeLat, homeLon, watchTerms]);
+
   // Report the count up for the nav badge — but only "new" matters there, and
   // only while the user isn't already looking at the tab.
   useEffect(() => { onSignalCount?.(active ? 0 : newSignalCount); }, [newSignalCount, active, onSignalCount]);
@@ -543,6 +615,31 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             </p>
           </div>
         </div>
+
+        {/* Opt-in browser alerts on new high-priority signals. */}
+        {notifPerm !== "unsupported" && (
+          <button
+            type="button"
+            onClick={() => {
+              if (notifPerm === "default") Notification.requestPermission().then(setNotifPerm).catch(() => {});
+            }}
+            disabled={notifPerm !== "default"}
+            title={
+              notifPerm === "granted" ? "You'll get a browser alert when a new high-priority signal arrives"
+              : notifPerm === "denied" ? "Alerts blocked — enable notifications for this site in your browser"
+              : "Get a browser alert when a new high-priority signal arrives"
+            }
+            className={`flex-shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border transition-all ${
+              notifPerm === "granted"
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                : notifPerm === "denied"
+                ? "text-slate-600 border-slate-800 cursor-not-allowed"
+                : "text-slate-400 border-slate-700 hover:border-emerald-500/40 hover:text-emerald-400"
+            }`}
+          >
+            {notifPerm === "granted" ? "🔔 Alerts on" : notifPerm === "denied" ? "🔔 Blocked" : "🔔 Enable alerts"}
+          </button>
+        )}
       </div>
 
       {/* Pane selector */}
@@ -830,6 +927,27 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           )}
           {!loading && feeds.length > 0 && filtered.length > 0 && signals.length === 0 && (
             <p className="text-[11px] text-slate-600 font-mono">All quiet — no high-priority signals right now.</p>
+          )}
+
+          {/* AOR contacts — cross-domain awareness from the live maps without
+              having to open the map pane. Watchlisted contacts called out. */}
+          {!loading && (contacts.mil > 0 || contacts.vessels > 0 || contacts.watched.length > 0) && (
+            <div className="flex items-center gap-2 flex-wrap text-[11px] bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-1.5">
+              <span className="text-slate-600 font-mono uppercase tracking-wider text-[10px]">AOR contacts</span>
+              {contacts.mil > 0 && <span className="text-slate-300">✈ {contacts.mil} military</span>}
+              {contacts.vessels > 0 && <span className="text-slate-500">⚓ {contacts.vessels} vessels</span>}
+              {contacts.watched.map((w) => (
+                <span key={w} className="text-orange-400 font-semibold border border-orange-500/40 bg-orange-500/10 rounded px-1.5 py-0.5">⚑ {w}</span>
+              ))}
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => setPane("aircraft")}
+                className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-emerald-400 transition-colors"
+              >
+                View map ↗
+              </button>
+            </div>
           )}
 
           {/* New-signal banner — the proactive "something happened" nudge. */}
