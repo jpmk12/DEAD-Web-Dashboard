@@ -10,6 +10,7 @@ import MarketsTab from "@/components/markets/MarketsTab";
 import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
 import DocumentsTab from "@/components/documents/DocumentsTab";
+import GlanceTab from "@/components/glance/GlanceTab";
 import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
@@ -17,10 +18,10 @@ import { CalendarEvent, NewsItem, NewsletterSummary } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
 
-const VALID_TABS: Tab[] = ["news", "calendar", "email", "docs", "osint", "markets", "weather"];
+const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "docs", "osint", "markets", "weather"];
 
 export default function TabShell() {
-  const [activeTab, setActiveTab] = useState<Tab>("news");
+  const [activeTab, setActiveTab] = useState<Tab>("glance");
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [tasksRefreshKey, setTasksRefreshKey] = useState(0);
   const [articles, setArticles] = useState<NewsItem[]>([]);
@@ -213,6 +214,22 @@ export default function TabShell() {
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6">
         {/* All tabs stay mounted — CSS hidden keeps them alive for instant switching and parallel pre-fetch */}
+        <div className={activeTab !== "glance" ? "hidden" : ""}>
+          <GlanceTab
+            active={activeTab === "glance"}
+            articles={articles}
+            newsletters={newsletters}
+            calendarEvents={calendarEvents}
+            osintTop={osintTop}
+            osintSignals={osintSignals}
+            previousSeen={previousSeen}
+            watchlist={watchlist}
+            onNavigate={setActiveTab}
+            onOpenBrief={openBriefing}
+            onOpenDigest={openDigest}
+          />
+        </div>
+
         <div className={activeTab !== "news" ? "hidden" : ""}>
           <NewsShell
             onArticlesChange={setArticles}

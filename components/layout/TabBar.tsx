@@ -1,4 +1,4 @@
-export type Tab = "news" | "calendar" | "email" | "docs" | "osint" | "markets" | "weather";
+export type Tab = "glance" | "news" | "calendar" | "email" | "docs" | "osint" | "markets" | "weather";
 
 interface TabBarProps {
   activeTab: Tab;
@@ -9,6 +9,7 @@ interface TabBarProps {
 }
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: "glance",   label: "Glance",       icon: "◆" },
   { id: "news",     label: "News",         icon: "◉" },
   { id: "calendar", label: "Calendar & AI", icon: "◈" },
   { id: "email",    label: "Email",         icon: "◎" },
