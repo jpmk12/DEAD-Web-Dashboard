@@ -153,9 +153,11 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
           <span className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border ${
             connected
               ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+              : error
+              ? "bg-red-500/15 text-red-400 border-red-500/40"
               : "bg-amber-500/15 text-amber-400 border-amber-500/40"
           }`}>
-            {connected ? "Connected" : "Connecting…"}
+            {connected ? "Connected" : error ? "Disconnected" : "Connecting…"}
           </span>
         )}
         {configured && (

@@ -28,6 +28,10 @@ export interface Vessel {
 
 const VESSEL_TTL_MS = 5 * 60_000;
 const RECONNECT_BACKOFF_MS = 10_000;
+// Hard cap on the handshake. Without this, a proxy that silently drops the
+// WebSocket upgrade leaves `connecting` true forever and the UI stuck on
+// "Connecting…" with no error — the connection never opens, errors, or closes.
+const CONNECT_TIMEOUT_MS = 12_000;
 
 // WS as the connection type — works on every Node version. Methods we use
 // (send, close, addEventListener) all match the global WebSocket API.
@@ -39,6 +43,11 @@ let connecting = false;
 let lastBbox: string | null = null;
 let lastError: string | null = null;
 let lastConnectAttempt = 0;
+let connectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearConnectTimer() {
+  if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
+}
 
 function bboxFor(lat: number, lon: number, km: number): [number, number, number, number] {
   const latDelta = km / 111;
@@ -143,30 +152,78 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
   lastError = null;
 
   try {
-    ws = new WS("wss://stream.aisstream.io/v0/stream");
-    ws.addEventListener("open", () => {
+    const sock = new WS("wss://stream.aisstream.io/v0/stream");
+    ws = sock;
+
+    // Fail loudly if the handshake never completes — turns a silent hang into a
+    // visible, diagnosable error and lets the backoff/retry path run.
+    connectTimer = setTimeout(() => {
+      if (sock.readyState !== WS.OPEN) {
+        lastError =
+          "Handshake timed out after 12s — never opened, errored, or closed. " +
+          "The host likely blocks outbound WebSocket upgrades on 443.";
+        console.error("[aisStream]", lastError);
+        connecting = false;
+        try { sock.terminate(); } catch { /* noop */ }
+        if (ws === sock) { ws = null; lastBbox = null; }
+      }
+    }, CONNECT_TIMEOUT_MS);
+
+    sock.addEventListener("open", () => {
+      clearConnectTimer();
       lastBbox = bboxKey;
+      lastError = null;        // clear any stale error from a prior failed attempt
       subscribe(apiKey, bbox);
       connecting = false;
     });
-    ws.addEventListener("message", (ev) => {
+    sock.addEventListener("message", (ev) => {
       const data = typeof ev.data === "string" ? ev.data : (ev.data as Buffer).toString();
       if (data) handleMessage(data);
     });
-    ws.addEventListener("close", () => {
-      ws = null;
-      lastBbox = null;
+    sock.addEventListener("close", (ev) => {
+      clearConnectTimer();
+      // A close while still connecting (never opened) usually means the server
+      // rejected us — most often a bad/expired API key. Surface code + reason.
+      if (connecting && !lastError) {
+        const code = (ev as { code?: number }).code;
+        const reason = (ev as { reason?: string }).reason;
+        lastError =
+          `Closed before opening${code ? ` (code ${code})` : ""}${reason ? `: ${reason}` : ""} — ` +
+          "verify the AISSTREAM_API_KEY is valid.";
+        console.error("[aisStream]", lastError);
+      }
       connecting = false;
+      if (ws === sock) { ws = null; lastBbox = null; }
     });
-    ws.addEventListener("error", (ev) => {
-      const msg = (ev as { message?: string }).message ?? "WebSocket error";
-      lastError = msg;
+    sock.addEventListener("error", (ev) => {
+      clearConnectTimer();
+      const e = ev as { error?: { message?: string; code?: string }; message?: string };
+      const code = e.error?.code ? ` (${e.error.code})` : "";
+      const msg = (e.error?.message ?? e.message ?? "WebSocket error") + code;
       console.error("[aisStream] WS error:", msg);
+      // Don't clobber a more specific reason already set by the
+      // unexpected-response handler (e.g. the HTTP 403 upgrade rejection) — the
+      // generic "closed before established" error fires right after it.
+      if (!lastError) lastError = msg;
       connecting = false;
-      try { ws?.close(); } catch { /* noop */ }
-      ws = null;
+      try { sock.close(); } catch { /* noop */ }
+      if (ws === sock) ws = null;
+    });
+    // ws-specific: a proxy/load-balancer answering the upgrade with a normal
+    // HTTP response (not 101 Switching Protocols) emits this instead of
+    // 'open'/'error'/'close' — the classic "WebSockets blocked" signature.
+    sock.on("unexpected-response", (_req, res) => {
+      clearConnectTimer();
+      lastError =
+        `Upgrade rejected with HTTP ${res.statusCode ?? "?"} — the platform is ` +
+        "blocking the WebSocket upgrade (a proxy answered instead of aisstream.io).";
+      console.error("[aisStream]", lastError);
+      connecting = false;
+      try { sock.close(); } catch { /* noop */ }
+      if (ws === sock) ws = null;
     });
   } catch (e) {
+    clearConnectTimer();
     connecting = false;
     lastError = e instanceof Error ? e.message : "Unknown error";
     console.error("[aisStream] connection setup failed:", lastError);
