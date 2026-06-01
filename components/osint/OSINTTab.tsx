@@ -40,6 +40,8 @@ interface FeedSummary {
   label: string;
   kind: string;
   count: number;
+  ok?: boolean;       // last fetch succeeded
+  fetchedAt?: number;
 }
 
 type Pane = "all" | "social" | "telegram" | "news" | "aircraft" | "maritime";
@@ -910,11 +912,50 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             </div>
           )}
 
-          {!loading && feeds.length > 0 && filtered.length === 0 && (
-            <p className="text-[11px] text-slate-600 font-mono text-center py-6">
-              No items in this pane.
-            </p>
-          )}
+          {!loading && feeds.length > 0 && filtered.length === 0 && (() => {
+            const kindFeeds = pane === "all" ? feeds : feeds.filter((f) => f.kind === pane);
+            const failing = kindFeeds.filter((f) => f.ok === false);
+            const isBridgeKind = pane === "social" || pane === "telegram";
+            if (kindFeeds.length === 0) {
+              return (
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 text-center text-[11px] text-slate-500 font-mono">
+                  No {pane === "all" ? "" : pane + " "}feeds configured. Add them in{" "}
+                  <span className="text-emerald-400">Preferences → OSINT Feeds</span>.
+                </div>
+              );
+            }
+            return (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 text-[11px] text-slate-400 leading-relaxed">
+                <p className="text-slate-300">
+                  {kindFeeds.length} {pane === "all" ? "" : pane + " "}feed{kindFeeds.length === 1 ? "" : "s"} configured, but nothing came through
+                  {failing.length > 0 ? ` — ${failing.length} failed to fetch.` : " right now."}
+                </p>
+                {failing.length > 0 && (
+                  <ul className="font-mono text-[10px] text-red-400/70 space-y-0.5">
+                    {failing.slice(0, 6).map((f) => <li key={f.id}>✗ {f.label}</li>)}
+                  </ul>
+                )}
+                {isBridgeKind && (
+                  <p className="text-slate-500">
+                    X/Twitter and Telegram have no native RSS, so these depend on public bridges
+                    (RSSHub / Nitter) that are frequently rate-limited or blocked upstream — usually why this pane is empty.
+                  </p>
+                )}
+                <div className="text-slate-500">
+                  <span className="text-slate-400 font-semibold">Make them reliable:</span>
+                  <ul className="list-disc list-inside mt-1 space-y-0.5">
+                    <li>Hit the <span className="text-emerald-400">Test</span> button on each feed in <span className="text-emerald-400">Preferences → OSINT Feeds</span> to see the exact failure and try an alternate instance.</li>
+                    {isBridgeKind && (
+                      <li>Prefer native RSS where it exists — Bluesky (<span className="font-mono text-slate-400">bsky.app/profile/&lt;handle&gt;/rss</span>) and Mastodon (<span className="font-mono text-slate-400">…/@user.rss</span>) need no bridge and don&apos;t rate-limit.</li>
+                    )}
+                    {isBridgeKind && (
+                      <li>Self-hosting RSSHub avoids the public-instance limits that break <span className="font-mono text-slate-400">rsshub.app</span> Twitter/Telegram feeds.</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Situation line — one-glance read of what matters right now. */}
           {!loading && signals.length > 0 && !situationOff && (
