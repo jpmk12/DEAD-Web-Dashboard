@@ -4,9 +4,9 @@ import { getDb } from "./db";
 // "Surfaces" are top-level views the user scans for new content. The dashboard
 // records when they last visited each so the next visit can dim items older
 // than that timestamp ("what changed since I last looked").
-export type Surface = "email" | "news" | "newsletters";
+export type Surface = "email" | "news" | "newsletters" | "osint";
 
-const VALID_SURFACES = new Set<Surface>(["email", "news", "newsletters"]);
+const VALID_SURFACES = new Set<Surface>(["email", "news", "newsletters", "osint"]);
 
 interface SurfaceRow extends RowDataPacket {
   surface: string;
@@ -22,7 +22,7 @@ export async function getAllLastSeen(): Promise<Record<Surface, number>> {
   const [rows] = await pool.query<SurfaceRow[]>(
     "SELECT surface, last_seen_at FROM surface_state"
   );
-  const result: Record<Surface, number> = { email: 0, news: 0, newsletters: 0 };
+  const result: Record<Surface, number> = { email: 0, news: 0, newsletters: 0, osint: 0 };
   for (const r of rows) {
     if (isValidSurface(r.surface)) {
       result[r.surface] = Number(r.last_seen_at) || 0;

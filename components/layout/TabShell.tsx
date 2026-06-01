@@ -35,14 +35,18 @@ export default function TabShell() {
   // user last viewed each surface. Drives dimming of items older than the
   // snapshot. Bumped on the server after dwell, but the snapshot here stays
   // fixed for the session so things don't dim mid-scroll.
-  const [previousSeen, setPreviousSeen] = useState<Record<"email" | "news" | "newsletters", number>>({
-    email: 0, news: 0, newsletters: 0,
+  const [previousSeen, setPreviousSeen] = useState<Record<"email" | "news" | "newsletters" | "osint", number>>({
+    email: 0, news: 0, newsletters: 0, osint: 0,
   });
+  // Count of new high-priority OSINT signals since last visit — drives the
+  // OSINT nav badge. Reported up by OSINTTab (which polls in the background
+  // even while hidden).
+  const [osintSignals, setOsintSignals] = useState(0);
 
   useEffect(() => {
     fetch("/api/surface-state")
       .then((r) => r.json())
-      .then((d: { lastSeen?: Record<"email" | "news" | "newsletters", number> }) => {
+      .then((d: { lastSeen?: Record<"email" | "news" | "newsletters" | "osint", number> }) => {
         if (d.lastSeen) setPreviousSeen(d.lastSeen);
       })
       .catch(() => {});
@@ -202,7 +206,7 @@ export default function TabShell() {
           </div>
         </div>
 
-        <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        <TabBar activeTab={activeTab} onTabChange={setActiveTab} badges={{ osint: osintSignals }} />
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6">
@@ -241,7 +245,11 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "osint" ? "hidden" : ""}>
-          <OSINTTab />
+          <OSINTTab
+            active={activeTab === "osint"}
+            previousSeen={previousSeen.osint}
+            onSignalCount={setOsintSignals}
+          />
         </div>
 
         <div className={activeTab !== "markets" ? "hidden" : ""}>

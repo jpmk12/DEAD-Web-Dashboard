@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import dynamic from "next/dynamic";
 
@@ -100,7 +100,19 @@ const LS_MARITIME_PROVIDER = "osint-maritime-provider";
 const LS_AIRCRAFT_SOURCE = "osint-aircraft-source"; // "self" | "embed"
 const LS_MARITIME_SOURCE = "osint-maritime-source"; // "self" | "embed"
 
-export default function OSINTTab() {
+const PRIORITY_RANK: Record<Priority, number> = { High: 3, Medium: 2, Low: 1 };
+// A story carried by this many distinct feeds is treated as corroborated /
+// "developing" — independent reporting is itself an importance signal.
+const CORROBORATION_MIN = 3;
+const POLL_MS = 90_000;
+
+interface OSINTTabProps {
+  active?: boolean;
+  previousSeen?: number;            // server-recorded last-visit timestamp (ms)
+  onSignalCount?: (n: number) => void; // report new-signal count up for the nav badge
+}
+
+export default function OSINTTab({ active = true, previousSeen = 0, onSignalCount }: OSINTTabProps) {
   const [items, setItems] = useState<OsintItem[]>([]);
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
   const [pane, setPane] = useState<Pane>("all");
@@ -142,6 +154,12 @@ export default function OSINTTab() {
         if (Array.isArray(prefs?.watchlist)) setWatchlist(prefs.watchlist);
       })
       .catch(() => {});
+  }, []);
+
+  // Keep the feed live: fetch on mount, then poll. Re-fetching swaps in new
+  // items; the triage effect (keyed on items) re-runs and only spends tokens
+  // on ids it hasn't already cached, so polling stays cheap.
+  const loadFeed = useCallback(() => {
     fetch("/api/osint/feed")
       .then((r) => r.json())
       .then((d) => {
@@ -151,6 +169,14 @@ export default function OSINTTab() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadFeed();
+    const id = setInterval(loadFeed, POLL_MS);
+    const onFocus = () => loadFeed();
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(id); window.removeEventListener("focus", onFocus); };
+  }, [loadFeed]);
 
   const pickAircraft = (id: string) => {
     setAircraftProvider(id);
@@ -314,6 +340,160 @@ export default function OSINTTab() {
     telegram: items.filter((i) => i.feedKind === "telegram").length,
     news: items.filter((i) => i.feedKind === "news").length,
   }), [items]);
+
+  // ── Situational awareness: "what's new and what matters since I last looked" ──
+
+  // Baseline timestamp for "new" detection. Follows the server's last-visit
+  // time until the user dwells on the tab, at which point it advances to now so
+  // the signals they've seen stop counting as new (and the nav badge clears).
+  const [baseline, setBaseline] = useState(previousSeen);
+  const advanced = useRef(false);
+  useEffect(() => { if (!advanced.current) setBaseline(previousSeen); }, [previousSeen]);
+
+  useEffect(() => {
+    if (!active) return;
+    const t = setTimeout(() => {
+      advanced.current = true;
+      setBaseline(Date.now());
+      fetch("/api/surface-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ surface: "osint" }),
+      }).catch(() => {});
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [active]);
+
+  const [signalsOnly, setSignalsOnly] = useState(false);
+  const [bannerDismissedAt, setBannerDismissedAt] = useState(0);
+
+  // Enrich each cluster with the signals an analyst cares about: priority,
+  // watchlist hit, corroboration (distinct feeds), recency vs. the baseline.
+  const enriched = useMemo(() => {
+    return clusters.map((c) => {
+      const primary = c.items[0];
+      const t = triage[primary.id];
+      const priority = t?.priority;
+      const watch = matchesWatchlist(primary);
+      const distinctFeeds = new Set(c.items.map((i) => i.feedLabel)).size;
+      const corroborated = distinctFeeds >= CORROBORATION_MIN;
+      const newest = c.items.reduce((mx, i) => Math.max(mx, Date.parse(i.pubDate) || 0), 0);
+      const isNew = newest > baseline;
+      const isSignal = priority === "High" || watch || corroborated;
+      return { ...c, primary, t, priority, watch, distinctFeeds, corroborated, newest, isNew, isSignal };
+    });
+  }, [clusters, triage, watchTerms, baseline]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  type Enriched = (typeof enriched)[number];
+
+  // Attention strip: signals first, ranked by priority then recency.
+  const signals = useMemo(() =>
+    enriched
+      .filter((e) => e.isSignal)
+      .sort((a, b) =>
+        (PRIORITY_RANK[b.priority ?? "Low"] - PRIORITY_RANK[a.priority ?? "Low"]) ||
+        (b.newest - a.newest))
+      .slice(0, 12),
+  [enriched]);
+
+  const rest = useMemo(() => enriched.filter((e) => !e.isSignal), [enriched]);
+  const newSignalCount = useMemo(() => enriched.filter((e) => e.isSignal && e.isNew).length, [enriched]);
+
+  // Report the count up for the nav badge — but only "new" matters there, and
+  // only while the user isn't already looking at the tab.
+  useEffect(() => { onSignalCount?.(active ? 0 : newSignalCount); }, [newSignalCount, active, onSignalCount]);
+
+  const renderCluster = (e: Enriched) => {
+    const primary = e.primary;
+    const dupes = e.items.slice(1);
+    const expanded = expandedClusters.has(e.key);
+    const t = e.t;
+    const watchHit = e.watch;
+    const showReason = e.isSignal && !!t?.reason;
+    const s = clusterSaveState[e.key] ?? "idle";
+    return (
+      <li
+        key={e.key}
+        className={`relative border rounded-xl px-4 py-3 transition-colors ${
+          e.priority === "High"
+            ? "bg-red-500/[0.04] border-red-500/30 hover:border-red-500/50"
+            : watchHit
+            ? "bg-orange-500/5 border-orange-500/40 hover:border-orange-500/60"
+            : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
+        }`}
+      >
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+          {e.isNew && (
+            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40" title="New since you last looked">New</span>
+          )}
+          {watchHit && (
+            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-orange-500/15 text-orange-400 border-orange-500/40" title="Matches your watchlist">⚑ Watch</span>
+          )}
+          {t && (
+            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_PILL[t.priority]}`} title={t.reason}>{t.priority}</span>
+          )}
+          {e.corroborated && (
+            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/40" title={`${e.distinctFeeds} independent feeds carrying this story`}>🔥 {e.distinctFeeds} sources</span>
+          )}
+          <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_BADGE[primary.feedKind] ?? KIND_BADGE.other}`}>{primary.feedKind}</span>
+          <span className="text-[10px] font-mono text-slate-500 truncate flex-1 min-w-0">{primary.feedLabel}</span>
+          <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">{timeAgo(primary.pubDate)}</span>
+          <button
+            type="button"
+            onClick={(ev) => saveClusterToDocs(e, ev)}
+            disabled={s === "saving" || s === "saved"}
+            title={s === "saved" ? "Saved to Docs" : s === "error" ? "Save failed — click to retry" : "Save to Docs"}
+            className={`w-5 h-5 flex items-center justify-center rounded transition-all text-[11px] flex-shrink-0 ${
+              s === "saved" ? "text-emerald-400 bg-emerald-500/10"
+              : s === "error" ? "text-red-400 bg-red-500/10"
+              : s === "saving" ? "text-slate-500 cursor-wait"
+              : "text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
+            }`}
+          >
+            {s === "saved" ? "✓" : s === "error" ? "!" : "▤"}
+          </button>
+        </div>
+        {primary.link ? (
+          <a href={primary.link} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-slate-100 hover:text-emerald-400 transition-colors block leading-snug mb-1">{primary.title}</a>
+        ) : (
+          <p className="text-sm font-semibold text-slate-100 leading-snug mb-1">{primary.title}</p>
+        )}
+        {showReason && <p className="text-[10px] text-emerald-300/70 italic mb-1">↳ {t!.reason}</p>}
+        {primary.summary && (
+          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{primary.summary}</p>
+        )}
+        {dupes.length > 0 && (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => toggleCluster(e.key)}
+              className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 transition-colors"
+              title={expanded ? "Hide duplicates" : "Show duplicate posts from other feeds"}
+            >
+              {expanded ? "▴ hide" : "▾"} +{dupes.length} more from{" "}
+              {Array.from(new Set(dupes.map((d) => d.feedLabel))).slice(0, 3).join(", ")}
+              {new Set(dupes.map((d) => d.feedLabel)).size > 3 ? "…" : ""}
+            </button>
+            {expanded && (
+              <ul className="mt-2 pl-3 border-l border-slate-800 space-y-1.5">
+                {dupes.map((d) => (
+                  <li key={d.id} className="text-[11px] flex items-baseline gap-2">
+                    <span className="text-[9px] font-mono text-slate-600 flex-shrink-0">{d.feedLabel}</span>
+                    {d.link ? (
+                      <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-emerald-400 transition-colors truncate">{d.title}</a>
+                    ) : (
+                      <span className="text-slate-400 truncate">{d.title}</span>
+                    )}
+                    <span className="text-[9px] text-slate-700 font-mono flex-shrink-0 ml-auto">{timeAgo(d.pubDate)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </li>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -607,138 +787,69 @@ export default function OSINTTab() {
             </p>
           )}
 
+          {/* New-signal banner — the proactive "something happened" nudge. */}
+          {!loading && newSignalCount > 0 && bannerDismissedAt !== newSignalCount && (
+            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/40 rounded-lg px-3 py-2">
+              <span className="text-red-400 text-sm leading-none animate-pulse">▲</span>
+              <span className="text-[11px] text-red-200 font-semibold">
+                {newSignalCount} new signal{newSignalCount === 1 ? "" : "s"} since you last looked
+              </span>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => setBannerDismissedAt(newSignalCount)}
+                className="text-[10px] text-red-300/70 hover:text-red-200 uppercase font-bold tracking-wider"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Needs-attention strip: High / watchlist / corroborated, ranked. */}
+          {!loading && signals.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-red-400/80">⚑ Needs attention</span>
+                <span className="text-[9px] font-mono text-slate-600">
+                  {signals.length} signal{signals.length === 1 ? "" : "s"}
+                </span>
+                <div className="flex-1 h-px bg-slate-800" />
+                {rest.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSignalsOnly((v) => !v)}
+                    className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border transition-all ${
+                      signalsOnly
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                        : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+                    }`}
+                    title="Hide everything that isn't a signal"
+                  >
+                    {signalsOnly ? "Signals only ✓" : "Signals only"}
+                  </button>
+                )}
+              </div>
+              <ul className="space-y-2">{signals.map(renderCluster)}</ul>
+            </div>
+          )}
+
           {!loading && dupesSaved > 0 && (
-            <p className="text-[10px] font-mono text-slate-600 text-right -mt-2">
+            <p className="text-[10px] font-mono text-slate-600 text-right">
               {clusters.length} clusters · {dupesSaved} duplicate{dupesSaved === 1 ? "" : "s"} folded in
             </p>
           )}
 
-          {!loading && clusters.length > 0 && (
-            <ul className="space-y-2">
-              {clusters.map((cluster) => {
-                const primary = cluster.items[0];
-                const dupes = cluster.items.slice(1);
-                const expanded = expandedClusters.has(cluster.key);
-                // Priority comes from the primary item's triage entry, with
-                // dupes silently sharing the call so we only spend tokens
-                // on the surface row.
-                const t = triage[primary.id];
-                const watchHit = matchesWatchlist(primary);
-                return (
-                  <li
-                    key={cluster.key}
-                    className={`relative border rounded-xl px-4 py-3 transition-colors ${
-                      watchHit
-                        ? "bg-orange-500/5 border-orange-500/40 hover:border-orange-500/60"
-                        : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      {watchHit && (
-                        <span
-                          className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-orange-500/15 text-orange-400 border-orange-500/40"
-                          title="Matches your watchlist"
-                        >
-                          ⚑ Watch
-                        </span>
-                      )}
-                      {t && (
-                        <span
-                          className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_PILL[t.priority]}`}
-                          title={t.reason}
-                        >
-                          {t.priority}
-                        </span>
-                      )}
-                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_BADGE[primary.feedKind] ?? KIND_BADGE.other}`}>
-                        {primary.feedKind}
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-500 truncate flex-1">{primary.feedLabel}</span>
-                      <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">
-                        {timeAgo(primary.pubDate)}
-                      </span>
-                      {(() => {
-                        const s = clusterSaveState[cluster.key] ?? "idle";
-                        return (
-                          <button
-                            type="button"
-                            onClick={(e) => saveClusterToDocs(cluster, e)}
-                            disabled={s === "saving" || s === "saved"}
-                            title={
-                              s === "saved" ? "Saved to Docs" :
-                              s === "error" ? "Save failed — click to retry" :
-                              "Save to Docs"
-                            }
-                            className={`w-5 h-5 flex items-center justify-center rounded transition-all text-[11px] flex-shrink-0 ${
-                              s === "saved"
-                                ? "text-emerald-400 bg-emerald-500/10"
-                                : s === "error"
-                                ? "text-red-400 bg-red-500/10"
-                                : s === "saving"
-                                ? "text-slate-500 cursor-wait"
-                                : "text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
-                            }`}
-                          >
-                            {s === "saved" ? "✓" : s === "error" ? "!" : "▤"}
-                          </button>
-                        );
-                      })()}
-                    </div>
-                    {primary.link ? (
-                      <a
-                        href={primary.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-semibold text-slate-100 hover:text-emerald-400 transition-colors block leading-snug mb-1"
-                      >
-                        {primary.title}
-                      </a>
-                    ) : (
-                      <p className="text-sm font-semibold text-slate-100 leading-snug mb-1">{primary.title}</p>
-                    )}
-                    {primary.summary && (
-                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{primary.summary}</p>
-                    )}
-                    {dupes.length > 0 && (
-                      <div className="mt-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleCluster(cluster.key)}
-                          className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 transition-colors"
-                          title={expanded ? "Hide duplicates" : "Show duplicate posts from other feeds"}
-                        >
-                          {expanded ? "▴ hide" : "▾"} +{dupes.length} more from{" "}
-                          {Array.from(new Set(dupes.map((d) => d.feedLabel))).slice(0, 3).join(", ")}
-                          {new Set(dupes.map((d) => d.feedLabel)).size > 3 ? "…" : ""}
-                        </button>
-                        {expanded && (
-                          <ul className="mt-2 pl-3 border-l border-slate-800 space-y-1.5">
-                            {dupes.map((d) => (
-                              <li key={d.id} className="text-[11px] flex items-baseline gap-2">
-                                <span className="text-[9px] font-mono text-slate-600 flex-shrink-0">{d.feedLabel}</span>
-                                {d.link ? (
-                                  <a
-                                    href={d.link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-slate-400 hover:text-emerald-400 transition-colors truncate"
-                                  >
-                                    {d.title}
-                                  </a>
-                                ) : (
-                                  <span className="text-slate-400 truncate">{d.title}</span>
-                                )}
-                                <span className="text-[9px] text-slate-700 font-mono flex-shrink-0 ml-auto">{timeAgo(d.pubDate)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+          {/* The rest, newest-first. Hidden when "Signals only" is on. */}
+          {!loading && !signalsOnly && rest.length > 0 && (
+            <>
+              {signals.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Everything else</span>
+                  <div className="flex-1 h-px bg-slate-800/60" />
+                </div>
+              )}
+              <ul className="space-y-2">{rest.map(renderCluster)}</ul>
+            </>
           )}
         </>
       )}
