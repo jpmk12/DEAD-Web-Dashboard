@@ -57,13 +57,19 @@ function bboxFor(lat: number, lon: number, km: number): [number, number, number,
 
 function subscribe(apiKey: string, bbox: [number, number, number, number]) {
   if (!ws || ws.readyState !== WS.OPEN) return;
-  ws.send(
-    JSON.stringify({
-      APIKey: apiKey,
-      BoundingBoxes: [[[bbox[0], bbox[1]], [bbox[2], bbox[3]]]],
-      FilterMessageTypes: ["PositionReport", "ShipStaticData"],
-    }),
-  );
+  // Guard the send: ws masks outgoing frames, and a masking fault must not
+  // bubble out as an uncaught exception that takes down the process.
+  try {
+    ws.send(
+      JSON.stringify({
+        APIKey: apiKey,
+        BoundingBoxes: [[[bbox[0], bbox[1]], [bbox[2], bbox[3]]]],
+        FilterMessageTypes: ["PositionReport", "ShipStaticData"],
+      }),
+    );
+  } catch (err) {
+    console.error("[aisStream] subscribe send failed:", err);
+  }
 }
 
 function handleMessage(raw: string) {
@@ -209,7 +215,7 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
       // generic "closed before established" error fires right after it.
       if (!lastError) lastError = msg;
       connecting = false;
-      try { sock.close(); } catch { /* noop */ }
+      try { sock.terminate(); } catch { /* noop */ }
       if (ws === sock) ws = null;
     });
     // ws-specific: a proxy/load-balancer answering the upgrade with a normal
@@ -222,7 +228,7 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
         "blocking the WebSocket upgrade (a proxy answered instead of aisstream.io).";
       console.error("[aisStream]", lastError);
       connecting = false;
-      try { sock.close(); } catch { /* noop */ }
+      try { sock.terminate(); } catch { /* noop */ }
       if (ws === sock) ws = null;
     });
   } catch (e) {

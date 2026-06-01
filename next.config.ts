@@ -4,6 +4,11 @@ import type { NextConfig } from "next";
 // the platform runs `npm install && npm start` (which calls `next start`)
 // and injects PORT, which `next start` honors automatically.
 const nextConfig: NextConfig = {
+  // `ws` (the AISStream client) must be required at runtime, not webpack-bundled
+  // into the server output — bundling breaks its frame-masking module and throws
+  // "TypeError: t.mask is not a function" as an uncaughtException that crashes
+  // the Node process.
+  serverExternalPackages: ["ws"],
   // ESLint is a dev-only dependency; the platform installs with
   // `npm install --production`, so eslint isn't present at build time.
   // Skip lint during build (run `npm run lint` locally instead).
@@ -27,8 +32,12 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               // TradingView widget loader scripts + Twitter embeds
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://platform.twitter.com https://abs.twimg.com https://x.com https://s3.tradingview.com https://*.tradingview.com",
-              // Windy map embed + TradingView widget iframes + Twitter
-              "frame-src https://platform.twitter.com https://syndication.twitter.com https://twitter.com https://x.com https://embed.windy.com https://*.tradingview.com https://www.tradingview.com",
+              // Windy map embed + TradingView widget iframes + Twitter +
+              // OSINT aircraft/maritime iframe providers (the page blocks any
+              // frame whose origin isn't listed here — without these the
+              // maritime/aircraft "Iframe provider" panes render blank even
+              // though the providers allow embedding).
+              "frame-src https://platform.twitter.com https://syndication.twitter.com https://twitter.com https://x.com https://embed.windy.com https://*.tradingview.com https://www.tradingview.com https://globe.adsb.fi https://globe.airplanes.live https://globe.adsb.lol https://globe.adsbexchange.com https://www.vesselfinder.com https://www.marinetraffic.com https://map.openseamap.org",
               // TradingView injects styles + Twitter
               "style-src 'self' 'unsafe-inline' https://platform.twitter.com https://abs.twimg.com https://x.com https://*.tradingview.com",
               "img-src 'self' data: https:",
