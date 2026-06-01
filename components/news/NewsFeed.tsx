@@ -70,7 +70,7 @@ export default function NewsFeed({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
-  const [tab, setTab] = useState<TabId>("all");
+  const [tab, setTab] = useState<TabId>("overview");
   // Persisted saved items are the source of truth for the Saved tab — they
   // outlive the live RSS feed, so a saved article that has rolled off the feed
   // still shows (the count and the list stay in sync). savedIds is derived for
