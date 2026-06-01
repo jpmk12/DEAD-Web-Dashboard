@@ -10,6 +10,7 @@ import {
   cacheOsintTriage,
   OsintPriority,
 } from "@/lib/osintTriageCache";
+import { extractJsonArray } from "@/lib/aiJson";
 
 // Triage the visible OSINT items: each gets a priority + a <60-char reason
 // the user can hover/read. The client POSTs the items it's currently showing
@@ -108,7 +109,8 @@ export async function POST(req: Request) {
       logCall({ route: "osint_triage", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
 
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
-      const parsedRaw: unknown = JSON.parse(raw);
+      // Strip ```json fences / prose the model sometimes adds before parsing.
+      const parsedRaw: unknown = JSON.parse(extractJsonArray(raw));
       const parsed = Array.isArray(parsedRaw) ? parsedRaw.filter(isValidTriage) : [];
       for (const c of parsed) fresh.set(c.id, { priority: c.priority, reason: c.reason });
 

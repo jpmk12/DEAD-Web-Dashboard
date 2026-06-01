@@ -182,14 +182,17 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
     });
     sock.addEventListener("close", (ev) => {
       clearConnectTimer();
-      // A close while still connecting (never opened) usually means the server
-      // rejected us — most often a bad/expired API key. Surface code + reason.
+      // A close while still connecting (never opened) means the handshake never
+      // completed — the API key isn't even checked until after the socket opens
+      // (it rides in the first subscription message), so this is connectivity,
+      // not auth. Code 1006 = abnormal close (dropped with no close frame), the
+      // classic signature of a proxy/firewall blocking the outbound WebSocket.
       if (connecting && !lastError) {
         const code = (ev as { code?: number }).code;
         const reason = (ev as { reason?: string }).reason;
         lastError =
           `Closed before opening${code ? ` (code ${code})` : ""}${reason ? `: ${reason}` : ""} — ` +
-          "verify the AISSTREAM_API_KEY is valid.";
+          "handshake never completed; the host likely blocks outbound WebSockets.";
         console.error("[aisStream]", lastError);
       }
       connecting = false;
