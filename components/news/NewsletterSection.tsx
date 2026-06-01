@@ -18,6 +18,29 @@ function normalizeSubject(subject: string): string {
 }
 
 const CACHE_KEY = "newsletters:items";
+const SOURCE_META_KEY = "newsletters:sourcemeta";
+
+// Badge palette keyed by colour name. New user-defined sources without an
+// explicit colour are assigned one deterministically from this set (hashColor).
+const BADGE_PALETTE: Record<string, string> = {
+  blue:    "bg-blue-500/10 text-blue-400 border border-blue-500/30",
+  emerald: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30",
+  violet:  "bg-violet-500/10 text-violet-400 border border-violet-500/30",
+  amber:   "bg-amber-500/10 text-amber-400 border border-amber-500/30",
+  sky:     "bg-sky-500/10 text-sky-400 border border-sky-500/30",
+  rose:    "bg-rose-500/10 text-rose-400 border border-rose-500/30",
+  teal:    "bg-teal-500/10 text-teal-400 border border-teal-500/30",
+  orange:  "bg-orange-500/10 text-orange-400 border border-orange-500/30",
+};
+const PALETTE_KEYS = Object.keys(BADGE_PALETTE);
+
+type SourceMeta = { id: string; label: string; color: string | null };
+
+function hashColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETTE_KEYS[h % PALETTE_KEYS.length];
+}
 
 interface NewsletterSectionProps {
   onSummariesLoaded: (summaries: NewsletterSummary[]) => void;
@@ -26,28 +49,6 @@ interface NewsletterSectionProps {
   watchlist?: string[];
   previousSeen?: number;
 }
-
-const SOURCE_BADGE: Record<
-  NewsletterSummary["source"],
-  { label: string; className: string }
-> = {
-  politico: {
-    label: "POLITICO",
-    className: "bg-blue-500/10 text-blue-400 border border-blue-500/30",
-  },
-  dow: {
-    label: "DEPT OF WAR",
-    className: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30",
-  },
-  merge: {
-    label: "THE MERGE",
-    className: "bg-violet-500/10 text-violet-400 border border-violet-500/30",
-  },
-  asf: {
-    label: "A&SF",
-    className: "bg-amber-500/10 text-amber-400 border border-amber-500/30",
-  },
-};
 
 const LS_DISMISSED = "nl-dismissed";
 const LS_KEPT      = "nl-kept";
@@ -79,6 +80,22 @@ function bulletMatchesWatchlist(bullet: string, watchlist: string[]): boolean {
 export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, onLoadingChange, watchlist = [], previousSeen = 0 }: NewsletterSectionProps) {
   const { status } = useSession();
   const [newsletters, setNewsletters] = useState<NewsletterSummary[]>([]);
+  // id → display badge, supplied by /api/newsletters (resolved from the user's
+  // configured sources). Falls back to a hashed palette colour for any id not
+  // present (e.g. a summary whose source rule was later removed).
+  const [sourceMeta, setSourceMeta] = useState<Record<string, SourceMeta>>({});
+  // Bumped when a prefs save clears caches — forces a re-fetch so edited
+  // newsletter sources take effect immediately (the fetch effect otherwise
+  // only re-runs on auth/refreshKey changes).
+  const [reloadTick, setReloadTick] = useState(0);
+  const badgeFor = useCallback((id: string): { label: string; className: string } => {
+    const meta = sourceMeta[id];
+    const colorKey = (meta?.color && BADGE_PALETTE[meta.color]) ? meta.color : hashColor(id);
+    return {
+      label: meta?.label ?? id.toUpperCase(),
+      className: BADGE_PALETTE[colorKey] ?? BADGE_PALETTE.blue,
+    };
+  }, [sourceMeta]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -109,6 +126,8 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     const isFresh = clientCache.isFresh(CACHE_KEY);
     const isManualRefresh = refreshKey > 0;
 
+    const staleMeta = clientCache.peek<Record<string, SourceMeta>>(SOURCE_META_KEY);
+    if (staleMeta) setSourceMeta(staleMeta);
     if (stale) { setNewsletters(stale); onSummariesLoadedRef.current(stale); }
     if (isFresh && !isManualRefresh) return;
 
@@ -123,6 +142,16 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
         setNewsletters(items);
         onSummariesLoadedRef.current(items);
         clientCache.set(CACHE_KEY, items, CACHE_TTL.NEWSLETTERS);
+        if (Array.isArray(data.sources)) {
+          const map: Record<string, SourceMeta> = {};
+          for (const s of data.sources) {
+            if (s && typeof s.id === "string") {
+              map[s.id] = { id: s.id, label: typeof s.label === "string" ? s.label : s.id, color: typeof s.color === "string" ? s.color : null };
+            }
+          }
+          setSourceMeta(map);
+          clientCache.set(SOURCE_META_KEY, map, CACHE_TTL.NEWSLETTERS);
+        }
         setQuietSubjects(Array.isArray(data.quietSubjects) ? data.quietSubjects : []);
       })
       .catch(() => {})
@@ -131,7 +160,19 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       });
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, refreshKey]);
+  }, [status, refreshKey, reloadTick]);
+
+  // A prefs save (e.g. editing newsletter sources) clears the client caches and
+  // dispatches this event — re-pull so the new source list applies right away.
+  useEffect(() => {
+    const onCleared = () => {
+      clientCache.delete(CACHE_KEY);
+      clientCache.delete(SOURCE_META_KEY);
+      setReloadTick((t) => t + 1);
+    };
+    window.addEventListener("dashboard-cache-cleared", onCleared);
+    return () => window.removeEventListener("dashboard-cache-cleared", onCleared);
+  }, []);
 
   // Track per-session whether we've bumped the "newsletters" surface yet.
   // Bumping on first expand is the right signal for "I actually read
@@ -320,7 +361,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                     <div className="flex-1 min-w-0">
                       <div className="truncate text-slate-300" title={subject}>{subject}</div>
                       <div className="flex gap-1.5 items-center text-[10px] text-slate-600">
-                        {source && <span className="uppercase font-mono">{source}</span>}
+                        {source && <span className="uppercase font-mono">{badgeFor(source).label}</span>}
                         {source && account && <span>·</span>}
                         {account && <span className="truncate" title={account}>{account}</span>}
                       </div>
@@ -381,7 +422,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
             <p className="px-4 py-3 text-sm text-slate-600 italic">No bullets extracted.</p>
           ) : (
             sortedBullets.map(({ bullet, source, watched }, i) => {
-              const badge = SOURCE_BADGE[source] ?? SOURCE_BADGE.politico;
+              const badge = badgeFor(source);
               return (
                 <div key={i} className={`flex gap-3 px-4 py-2.5 ${watched ? "bg-orange-500/5" : ""}`}>
                   <span className={`flex-shrink-0 mt-1 text-sm ${watched ? "text-orange-400" : "text-emerald-500"}`}>›</span>
@@ -408,7 +449,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
             const open = expanded.has(n.id);
             const gmailHref = gmailUrl(n);
             const isKept = kept.has(n.id);
-            const badge = SOURCE_BADGE[n.source] ?? SOURCE_BADGE.politico;
+            const badge = badgeFor(n.source);
             const timeAgo = (() => {
               try { return formatDistanceToNow(parseISO(n.date), { addSuffix: true }); }
               catch { return ""; }
@@ -561,7 +602,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
           {/* Dismissed items (shown when showHidden) */}
           {showHidden && newsletters.filter((n) => dismissed.has(n.id)).map((n) => {
-            const badge = SOURCE_BADGE[n.source] ?? SOURCE_BADGE.politico;
+            const badge = badgeFor(n.source);
             return (
               <div key={n.id} className="bg-slate-900/40 rounded-xl border border-slate-800/50 px-4 py-3 flex items-center gap-2 opacity-50">
                 <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md ${badge.className}`}>

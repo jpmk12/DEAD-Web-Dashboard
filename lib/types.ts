@@ -46,9 +46,22 @@ export interface NewsletterSummary {
   subject: string;
   date: string;
   bullets: string[];
-  source: "politico" | "dow" | "merge" | "asf";
+  source: string;  // newsletter source rule id — see NewsletterSourceRule (defaults: politico/dow/merge/asf)
   account: "primary" | "secondary";
   accountEmail: string;
+}
+
+// A user-configurable rule for which emails count as "newsletters". Each rule
+// matches by sender OR subject; the route turns it into a Gmail query
+// (`from:<value>` or `subject:"<value>"`). `id` is the value stored on each
+// summary's `source` field and used to look up the display badge.
+export interface NewsletterSourceRule {
+  id: string;
+  label: string;                    // badge text, e.g. "POLITICO"
+  matchType: "sender" | "subject";
+  value: string;                    // sender email/domain, or subject phrase
+  color?: string;                   // badge palette key (blue/emerald/violet/amber/sky/rose/teal/orange)
+  enabled?: boolean;                // default true; false skips the rule without deleting it
 }
 
 export interface SavedItem {
@@ -85,6 +98,10 @@ export interface UserPrefs {
   // OSINT tab — configurable RSS feed sources (social media bridges, news,
   // niche curated feeds). Each entry is a labelled URL.
   osintFeeds: OsintFeed[];
+  // Newsletters — configurable rules for which emails are pulled in as
+  // newsletters, matched by sender or subject. Empty/unset → the four built-in
+  // defaults (Politico / Dept of War / The Merge / A&SF).
+  newsletterSources: NewsletterSourceRule[];
   // News sources the user has toggled off — names as listed in
   // lib/newsSources.ts. Skipped before fetch, so disabling reduces both
   // bandwidth and AI context size for news_chat / threads / briefing.

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, AiFeature } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 
 const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
 const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
+const NL_BADGE_COLORS = new Set(["blue", "emerald", "violet", "amber", "sky", "rose", "teal", "orange"]);
 
 function sanitizeTrackedLocations(v: unknown): TrackedLocation[] {
   if (!Array.isArray(v)) return [];
@@ -85,6 +86,26 @@ function sanitizeOsintFeeds(v: unknown): OsintFeed[] {
   }).slice(0, 20);
 }
 
+function sanitizeNewsletterSources(v: unknown): NewsletterSourceRule[] {
+  if (!Array.isArray(v)) return [];
+  const seen = new Set<string>();
+  return v.flatMap((x): NewsletterSourceRule[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const label = String(r.label ?? "").trim().slice(0, 40);
+    // Strip newlines/quotes so a value can't break the Gmail query syntax.
+    const value = String(r.value ?? "").trim().replace(/[\r\n"]+/g, " ").slice(0, 200);
+    if (!label || !value) return [];
+    const matchType: NewsletterSourceRule["matchType"] = r.matchType === "subject" ? "subject" : "sender";
+    let id = String(r.id ?? "").trim().slice(0, 64);
+    if (!id || seen.has(id)) id = `nl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    seen.add(id);
+    const color = typeof r.color === "string" && NL_BADGE_COLORS.has(r.color) ? r.color : undefined;
+    const enabled = r.enabled !== false;
+    return [{ id, label, matchType, value, ...(color ? { color } : {}), enabled }];
+  }).slice(0, 12);
+}
+
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -129,6 +150,7 @@ export async function POST(request: Request) {
     trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
     osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
+    newsletterSources: sanitizeNewsletterSources(raw.newsletterSources),
     // Bounded list of source names. Cap at 100 to prevent unbounded growth
     // if the catalog ever balloons. Names trimmed and bounded to 80 chars.
     disabledNewsSources: (Array.isArray(raw.disabledNewsSources) ? raw.disabledNewsSources : [])

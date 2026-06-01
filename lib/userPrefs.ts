@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed, AiFeature } from "./types";
+import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature } from "./types";
 import { ALL_AI_FEATURES } from "./aiFeatures";
 
 const DEFAULT_MARKETS_WATCHLIST: TickerEntry[] = [
@@ -9,6 +9,17 @@ const DEFAULT_MARKETS_WATCHLIST: TickerEntry[] = [
   { symbol: "NYSE:NOC",    label: "Northrop Grumman" },
   { symbol: "NYSE:GD",     label: "General Dynamics" },
   { symbol: "NYSE:BA",     label: "Boeing" },
+];
+
+// The original hardcoded newsletter sources, now seeded as editable defaults.
+// `id`s intentionally match the legacy `source` literals so existing
+// newsletter_cache rows and badge colours carry over with no data migration.
+// Returned whenever a user has never customised the list (column NULL).
+export const DEFAULT_NEWSLETTER_SOURCES: NewsletterSourceRule[] = [
+  { id: "politico", label: "POLITICO",    matchType: "sender", value: "politico.com",                        color: "blue",    enabled: true },
+  { id: "dow",      label: "DEPT OF WAR", matchType: "sender", value: "govdelivery@subscriptions.war.gov",    color: "emerald", enabled: true },
+  { id: "merge",    label: "THE MERGE",   matchType: "sender", value: "news@themerge.co",                     color: "violet",  enabled: true },
+  { id: "asf",      label: "A&SF",        matchType: "sender", value: "AirAndSpaceForcesMagazine@afa.org",    color: "amber",   enabled: true },
 ];
 
 const DEFAULT_PREFS: UserPrefs = {
@@ -22,6 +33,7 @@ const DEFAULT_PREFS: UserPrefs = {
   trackedLocations: [],
   marketsWatchlist: DEFAULT_MARKETS_WATCHLIST,
   osintFeeds: [],
+  newsletterSources: DEFAULT_NEWSLETTER_SOURCES,
   disabledNewsSources: [],
   aiEnabled: true,
   aiFeatureToggles: {},
@@ -46,6 +58,7 @@ interface PrefsRow extends RowDataPacket {
   tracked_locations: TrackedLocation[] | null;
   markets_watchlist: TickerEntry[] | null;
   osint_feeds: OsintFeed[] | null;
+  newsletter_sources: NewsletterSourceRule[] | null;
   disabled_news_sources: string[] | null;
   ai_enabled: number | null;
   ai_feature_toggles: Partial<Record<AiFeature, boolean>> | null;
@@ -112,10 +125,25 @@ function asOsintFeeds(v: unknown): OsintFeed[] {
   });
 }
 
+function asNewsletterSources(v: unknown): NewsletterSourceRule[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): NewsletterSourceRule[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    if (typeof r.id !== "string" || typeof r.label !== "string" || typeof r.value !== "string") return [];
+    const value = r.value.trim();
+    if (!value) return [];
+    const matchType = r.matchType === "subject" ? "subject" : "sender";
+    const color = typeof r.color === "string" ? r.color.slice(0, 24) : undefined;
+    const enabled = r.enabled === false ? false : true;
+    return [{ id: r.id.slice(0, 64), label: r.label.slice(0, 40), matchType, value: value.slice(0, 200), color, enabled }];
+  }).slice(0, 12);
+}
+
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -132,6 +160,11 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     // First-time users get the curated defense default until they edit.
     marketsWatchlist: r.markets_watchlist ? asTickerEntries(r.markets_watchlist) : DEFAULT_MARKETS_WATCHLIST,
     osintFeeds: asOsintFeeds(r.osint_feeds),
+    // NULL column = user never customised → seed the legacy hardcoded sources.
+    // A saved-but-empty array ([]) is respected (user removed them all).
+    newsletterSources: r.newsletter_sources == null
+      ? DEFAULT_NEWSLETTER_SOURCES
+      : asNewsletterSources(r.newsletter_sources),
     disabledNewsSources: asStringArray(r.disabled_news_sources),
     // ai_enabled default is 1 in the schema; treat unset / null as enabled.
     aiEnabled: r.ai_enabled == null ? true : Boolean(r.ai_enabled),
@@ -156,13 +189,13 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
         vip_senders, mute_senders, dismissed_vip_suggestions,
-        tracked_locations, markets_watchlist, osint_feeds, disabled_news_sources,
+        tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, disabled_news_sources,
         ai_enabled, ai_feature_toggles,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
@@ -176,6 +209,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        tracked_locations          = VALUES(tracked_locations),
        markets_watchlist          = VALUES(markets_watchlist),
        osint_feeds                = VALUES(osint_feeds),
+       newsletter_sources         = VALUES(newsletter_sources),
        disabled_news_sources      = VALUES(disabled_news_sources),
        ai_enabled                 = VALUES(ai_enabled),
        ai_feature_toggles         = VALUES(ai_feature_toggles),
@@ -198,6 +232,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.trackedLocations),
       JSON.stringify(prefs.marketsWatchlist),
       JSON.stringify(prefs.osintFeeds),
+      JSON.stringify(prefs.newsletterSources ?? []),
       JSON.stringify(prefs.disabledNewsSources ?? []),
       prefs.aiEnabled ? 1 : 0,
       JSON.stringify(prefs.aiFeatureToggles ?? {}),
