@@ -932,8 +932,8 @@ function AIControlPanel({
               aiEnabled ? "bg-emerald-500" : "bg-slate-700"
             }`}
           >
-            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-              aiEnabled ? "translate-x-5" : "translate-x-0.5"
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+              aiEnabled ? "translate-x-5" : "translate-x-0"
             }`} />
           </button>
           <div className="flex-1 min-w-0">
@@ -963,8 +963,8 @@ function AIControlPanel({
                   enabled ? "bg-emerald-500" : "bg-slate-700"
                 }`}
               >
-                <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
-                  enabled ? "translate-x-4" : "translate-x-0.5"
+                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
+                  enabled ? "translate-x-4" : "translate-x-0"
                 }`} />
               </button>
               <div className="flex-1 min-w-0">
