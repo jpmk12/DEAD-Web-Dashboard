@@ -21,14 +21,26 @@ export async function GET(req: Request) {
   const lon = parseFloat(url.searchParams.get("lon") || "-104.8");
   const radius = Math.min(500, Math.max(50, parseFloat(url.searchParams.get("radius") || "200")));
 
-  const status = ensureAisConnection(lat, lon, radius);
-  const ships = status.configured ? getVesselsSnapshot() : [];
-
-  return NextResponse.json({
-    configured: status.configured,
-    connected: status.connected,
-    error: status.error,
-    ships,
-    fetchedAt: Date.now(),
-  });
+  // Never let a fault in the AIS bridge turn into a 500 → the client would
+  // render it as a scary "Network error". Always answer with valid JSON.
+  try {
+    const status = ensureAisConnection(lat, lon, radius);
+    const ships = status.configured ? getVesselsSnapshot() : [];
+    return NextResponse.json({
+      configured: status.configured,
+      connected: status.connected,
+      error: status.error,
+      ships,
+      fetchedAt: Date.now(),
+    });
+  } catch (err) {
+    console.error("[ships] route error:", err);
+    return NextResponse.json({
+      configured: true,
+      connected: false,
+      error: "AIS bridge error — retrying.",
+      ships: [],
+      fetchedAt: Date.now(),
+    });
+  }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import MapAOIControls from "./MapAOIControls";
@@ -96,21 +96,30 @@ export default function MaritimeMap({ homeLat, homeLon, radiusKm = 200, notableN
     setSearch({ lat: homeLat, lon: homeLon, radiusKm });
   }, [homeLat, homeLon, radiusKm]);
 
+  const failCount = useRef(0);
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
         const res = await fetch(`/api/osint/ships?lat=${search.lat}&lon=${search.lon}&radius=${search.radiusKm}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
+        failCount.current = 0;
         setConfigured(!!data.configured);
         setConnected(!!data.connected);
         setError(data.error ?? null);
         setShips(Array.isArray(data.ships) ? data.ships : []);
         setFetchedAt(typeof data.fetchedAt === "number" ? data.fetchedAt : Date.now());
         setLoading(false);
-      } catch {
-        if (!cancelled) { setError("Network error"); setLoading(false); }
+      } catch (e) {
+        if (cancelled) return;
+        failCount.current += 1;
+        console.error("[MaritimeMap] ships fetch failed:", e);
+        // Tolerate a transient blip — only surface after repeated failures, and
+        // keep any vessels already on the map rather than blanking it.
+        if (failCount.current >= 2) setError("Live AIS feed unreachable — retrying…");
+        setLoading(false);
       }
     };
     tick();
