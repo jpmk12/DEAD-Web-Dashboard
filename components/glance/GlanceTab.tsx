@@ -9,6 +9,7 @@ import {
   CalendarEvent,
   EmailMessage,
   GoogleTask,
+  TickerEntry,
 } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 
@@ -46,6 +47,7 @@ interface GlanceTabProps {
   osintSignals: number;
   previousSeen: SeenMap;
   watchlist: string[];
+  marketsWatchlist: TickerEntry[];
   onNavigate: (tab: Tab) => void;
   onOpenBrief: () => void;
   onOpenDigest: () => void;
@@ -151,6 +153,7 @@ export default function GlanceTab({
   osintSignals,
   previousSeen,
   watchlist,
+  marketsWatchlist,
   onNavigate,
   onOpenBrief,
   onOpenDigest,
@@ -515,6 +518,26 @@ export default function GlanceTab({
                         className="text-[11px] font-medium text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
                       >
                         {w}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {marketsWatchlist.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
+                    Markets
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {marketsWatchlist.slice(0, 8).map((t) => (
+                      <button
+                        key={t.symbol}
+                        onClick={() => onNavigate("markets")}
+                        title={t.label}
+                        className="text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
+                      >
+                        {t.symbol.includes(":") ? t.symbol.split(":")[1] : t.symbol}
                       </button>
                     ))}
                   </div>
