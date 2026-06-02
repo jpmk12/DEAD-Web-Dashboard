@@ -504,14 +504,15 @@ export default function GlanceTab({
               {watchlist.length > 0 && (
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-                    Watchlist
+                    Watch terms
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {watchlist.slice(0, 8).map((w) => (
                       <button
                         key={w}
-                        onClick={() => onNavigate("markets")}
-                        className="text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
+                        onClick={() => onNavigate("news")}
+                        title={`Flagged when "${w}" appears in news`}
+                        className="text-[11px] font-medium text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
                       >
                         {w}
                       </button>
