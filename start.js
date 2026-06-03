@@ -51,9 +51,13 @@ if (!fs.existsSync(prerenderManifest)) {
   // .next on the writable layer keeps that rename intra-device. (build.js wipes
   // for the same reason.)
   fs.rmSync(path.join(__dirname, ".next"), { recursive: true, force: true });
+  // Preload the fs.rename EXDEV fallback (sandbox FS rejects cross-dir renames
+  // during next's static export). See scripts/rename-exdev-shim.cjs.
+  const shim = path.join(__dirname, "scripts", "rename-exdev-shim.cjs");
+  const buildNodeOptions = [process.env.NODE_OPTIONS, `--require ${shim}`].filter(Boolean).join(" ");
   const build = spawnSync(process.execPath, [nextBin, "build"], {
     stdio: "inherit",
-    env: { ...process.env, NODE_ENV: "production" },
+    env: { ...process.env, NODE_ENV: "production", NODE_OPTIONS: buildNodeOptions },
   });
   if (build.status !== 0) {
     console.error("[startup] 'next build' failed; cannot start without a production build");

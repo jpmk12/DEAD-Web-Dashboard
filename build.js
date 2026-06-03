@@ -10,6 +10,7 @@
 // It also wipes .next first so a stale/partial build dir can't corrupt the build.
 const { rmSync } = require("fs");
 const { spawnSync } = require("child_process");
+const path = require("path");
 
 rmSync(".next", { recursive: true, force: true });
 
@@ -20,9 +21,15 @@ rmSync(".next", { recursive: true, force: true });
 // "ENOENT .next/prerender-manifest.json".
 const nextBin = require.resolve("next/dist/bin/next");
 
+// Preload an fs.rename EXDEV fallback into the build: the sandbox FS rejects
+// cross-directory renames (e.g. .next/export/500.html -> .next/server/pages/),
+// which otherwise aborts the build with EXDEV. See scripts/rename-exdev-shim.cjs.
+const shim = path.join(__dirname, "scripts", "rename-exdev-shim.cjs");
+const nodeOptions = [process.env.NODE_OPTIONS, `--require ${shim}`].filter(Boolean).join(" ");
+
 const result = spawnSync(process.execPath, [nextBin, "build"], {
   stdio: "inherit",
-  env: { ...process.env, NODE_ENV: "production" },
+  env: { ...process.env, NODE_ENV: "production", NODE_OPTIONS: nodeOptions },
 });
 
 process.exit(result.status ?? 1);
