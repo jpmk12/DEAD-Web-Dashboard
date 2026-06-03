@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
 import ChatPanel from "./ChatPanel";
 
@@ -17,6 +17,22 @@ interface FloatingAssistantProps {
 // a right-side slide-over. The Calendar tab keeps its inline rail assistant too.
 export default function FloatingAssistant({ calendarEvents, tasks, articles, newsletters, onTaskAdded }: FloatingAssistantProps) {
   const [open, setOpen] = useState(false);
+  // Fetch tasks independently so the assistant has them even if the Calendar
+  // tab (and its background TasksPanel) hasn't loaded yet. Falls back to the
+  // prop until the fetch lands.
+  const [fetchedTasks, setFetchedTasks] = useState<GoogleTask[] | null>(null);
+
+  const loadTasks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data?.tasks)) setFetchedTasks(data.tasks);
+    } catch { /* keep the prop fallback */ }
+  }, []);
+
+  // Refresh tasks each time the assistant is opened.
+  useEffect(() => { if (open) loadTasks(); }, [open, loadTasks]);
 
   useEffect(() => {
     if (!open) return;
@@ -59,10 +75,10 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
             <div className="flex-1 min-h-0 p-3">
               <ChatPanel
                 calendarEvents={calendarEvents}
-                tasks={tasks}
+                tasks={fetchedTasks ?? tasks}
                 articles={articles}
                 newsletters={newsletters}
-                onTaskAdded={onTaskAdded}
+                onTaskAdded={() => { onTaskAdded(); loadTasks(); }}
               />
             </div>
           </div>
