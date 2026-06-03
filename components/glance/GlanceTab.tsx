@@ -10,6 +10,7 @@ import {
   EmailMessage,
   GoogleTask,
   TickerEntry,
+  WeatherThreats,
 } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 
@@ -162,6 +163,23 @@ export default function GlanceTab({
   useCacheTick(active);
 
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
+  const [threats, setThreats] = useState<WeatherThreats | null>(null);
+
+  // Severe-weather threats for the user's locations (+ active tropical systems),
+  // from the shared /api/weather/threats endpoint. Surfaced in "Needs you now".
+  useEffect(() => {
+    if (!active || status !== "authenticated") return;
+    let cancelled = false;
+    const load = () => {
+      fetch("/api/weather/threats")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: WeatherThreats | null) => { if (!cancelled && d) setThreats(d); })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 3 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [active, status]);
 
   // Tasks are the one "needs you now" source with no shared client cache, so
   // Glance fetches them itself (lightweight) and stashes the result so a later
@@ -220,6 +238,21 @@ export default function GlanceTab({
   };
 
   const urgent: Urgent[] = [];
+
+  // Severe weather outranks everything — only warnings/severe alerts surface
+  // here (minor advisories stay on the Weather tab).
+  for (const w of (threats?.threats ?? []).filter((t) => t.lifeThreatening || t.severity === "Extreme" || t.severity === "Severe").slice(0, 3)) {
+    urgent.push({
+      id: `wx-${w.id}`,
+      rank: w.lifeThreatening ? -1 : 0,
+      tone: "red",
+      icon: "⚠",
+      label: w.event,
+      sub: w.locations.join(", "),
+      meta: "Weather",
+      onClick: () => onNavigate("weather"),
+    });
+  }
 
   for (const { t, state } of dueTasks) {
     const overdue = state === "overdue";
@@ -503,6 +536,21 @@ export default function GlanceTab({
                 tone={osintSignals > 0 ? "red" : "muted"}
                 onClick={() => onNavigate("osint")}
               />
+
+              {threats && (threats.summary.total > 0 || threats.tropical.length > 0) && (
+                <RadarLine
+                  label="Severe weather"
+                  value={
+                    threats.summary.lifeThreatening > 0
+                      ? `${threats.summary.lifeThreatening} life-threatening`
+                      : threats.tropical.length > 0
+                      ? `${threats.tropical.length} tropical system${threats.tropical.length === 1 ? "" : "s"}`
+                      : `${threats.summary.total} alert${threats.summary.total === 1 ? "" : "s"}`
+                  }
+                  tone={threats.summary.lifeThreatening > 0 ? "red" : "muted"}
+                  onClick={() => onNavigate("weather")}
+                />
+              )}
 
               {watchlist.length > 0 && (
                 <div>

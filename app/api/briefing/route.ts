@@ -6,6 +6,7 @@ import { getCachedBriefing, saveCachedBriefing } from "@/lib/briefingCache";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
+import { getWeatherThreats, type NamedPoint } from "@/lib/severeWeather";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { extractJsonObject } from "@/lib/aiJson";
 import { todayInTz } from "@/lib/date";
@@ -97,7 +98,28 @@ export async function POST(request: Request) {
     })
     .join("\n");
 
+  // Severe weather for the user's locations — surfaced first so the briefer
+  // leads with it when life/property is at risk. Best-effort; never blocks.
+  let weatherLine = "";
+  try {
+    const locs: NamedPoint[] = [];
+    if (prefs.localLat != null && prefs.localLon != null) {
+      locs.push({ label: prefs.localCity || "Home", lat: prefs.localLat, lon: prefs.localLon });
+    }
+    for (const t of prefs.trackedLocations ?? []) locs.push({ label: t.label, lat: t.lat, lon: t.lon });
+    if (locs.length > 0) {
+      const { threats, tropical } = await getWeatherThreats(locs);
+      const sig = threats.filter((t) => t.lifeThreatening || t.severity === "Extreme" || t.severity === "Severe").slice(0, 6);
+      const lines = [
+        ...sig.map((t) => `[${t.severity}] ${t.event} — ${t.locations.join(", ")}`),
+        ...tropical.slice(0, 4).map((s) => `Active: ${s.category} ${s.name}${s.intensityKt ? ` (${s.intensityKt} kt)` : ""}`),
+      ];
+      if (lines.length) weatherLine = lines.join("\n");
+    }
+  } catch { /* weather is best-effort in the brief */ }
+
   const userContent = [
+    weatherLine && `SEVERE WEATHER (user's locations — prioritise if life-threatening):\n${weatherLine}`,
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
     newsletterBullets && `NEWSLETTER HIGHLIGHTS:\n${newsletterBullets}`,
     osintSignals && `OSINT SIGNALS (flagged from the user's monitored feeds):\n${osintSignals}`,
