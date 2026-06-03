@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature } from "./types";
+import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "./types";
 import { ALL_AI_FEATURES } from "./aiFeatures";
 
 const DEFAULT_MARKETS_WATCHLIST: TickerEntry[] = [
@@ -22,6 +22,19 @@ export const DEFAULT_NEWSLETTER_SOURCES: NewsletterSourceRule[] = [
   { id: "asf",      label: "A&SF",        matchType: "sender", value: "AirAndSpaceForcesMagazine@afa.org",    color: "amber",   enabled: true },
 ];
 
+// Originally hardcoded in WeatherTab; seeded as editable defaults so the same
+// airfields appear with decoded METAR/TAF and existing users lose nothing.
+export const DEFAULT_METAR_STATIONS: MetarStation[] = [
+  { icao: "KCOS", label: "Peterson/CSAF (CO)" },
+  { icao: "KADW", label: "Andrews AFB (MD)" },
+  { icao: "KNGU", label: "Norfolk NAS (VA)" },
+  { icao: "KFAF", label: "Langley AFB (VA)" },
+  { icao: "KLCH", label: "Barksdale AFB (LA)" },
+  { icao: "KDYS", label: "Dyess AFB (TX)" },
+  { icao: "PHIK", label: "Hickam AFB (HI)" },
+  { icao: "RODN", label: "Kadena AB (JPN)" },
+];
+
 const DEFAULT_PREFS: UserPrefs = {
   role: "",
   priorityTopics: [],
@@ -34,6 +47,7 @@ const DEFAULT_PREFS: UserPrefs = {
   marketsWatchlist: DEFAULT_MARKETS_WATCHLIST,
   osintFeeds: [],
   newsletterSources: DEFAULT_NEWSLETTER_SOURCES,
+  metarStations: DEFAULT_METAR_STATIONS,
   disabledNewsSources: [],
   aiEnabled: true,
   aiFeatureToggles: {},
@@ -59,6 +73,7 @@ interface PrefsRow extends RowDataPacket {
   markets_watchlist: TickerEntry[] | null;
   osint_feeds: OsintFeed[] | null;
   newsletter_sources: NewsletterSourceRule[] | null;
+  metar_stations: MetarStation[] | null;
   disabled_news_sources: string[] | null;
   ai_enabled: number | null;
   ai_feature_toggles: Partial<Record<AiFeature, boolean>> | null;
@@ -140,10 +155,22 @@ function asNewsletterSources(v: unknown): NewsletterSourceRule[] {
   }).slice(0, 12);
 }
 
+function asMetarStations(v: unknown): MetarStation[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): MetarStation[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const icao = String(r.icao ?? "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(icao)) return [];
+    const label = typeof r.label === "string" && r.label.trim() ? r.label.trim().slice(0, 60) : icao;
+    return [{ icao, label }];
+  }).slice(0, 12);
+}
+
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -165,6 +192,9 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     newsletterSources: r.newsletter_sources == null
       ? DEFAULT_NEWSLETTER_SOURCES
       : asNewsletterSources(r.newsletter_sources),
+    metarStations: r.metar_stations == null
+      ? DEFAULT_METAR_STATIONS
+      : asMetarStations(r.metar_stations),
     disabledNewsSources: asStringArray(r.disabled_news_sources),
     // ai_enabled default is 1 in the schema; treat unset / null as enabled.
     aiEnabled: r.ai_enabled == null ? true : Boolean(r.ai_enabled),
@@ -189,13 +219,13 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
         vip_senders, mute_senders, dismissed_vip_suggestions,
-        tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, disabled_news_sources,
+        tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
         ai_enabled, ai_feature_toggles,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
@@ -210,6 +240,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        markets_watchlist          = VALUES(markets_watchlist),
        osint_feeds                = VALUES(osint_feeds),
        newsletter_sources         = VALUES(newsletter_sources),
+       metar_stations             = VALUES(metar_stations),
        disabled_news_sources      = VALUES(disabled_news_sources),
        ai_enabled                 = VALUES(ai_enabled),
        ai_feature_toggles         = VALUES(ai_feature_toggles),
@@ -233,6 +264,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.marketsWatchlist),
       JSON.stringify(prefs.osintFeeds),
       JSON.stringify(prefs.newsletterSources ?? []),
+      JSON.stringify(prefs.metarStations ?? []),
       JSON.stringify(prefs.disabledNewsSources ?? []),
       prefs.aiEnabled ? 1 : 0,
       JSON.stringify(prefs.aiFeatureToggles ?? {}),

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature, AiUsageSummary } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, allKnownNewsSources, type NewsSource } from "@/lib/newsSources";
@@ -233,6 +233,69 @@ function NewsletterSourcesEditor({ value, onChange }: { value: NewsletterSourceR
         <button
           onClick={add}
           disabled={!label.trim() || !val.trim() || value.length >= 12}
+          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MetarStationsEditor({ value, onChange }: { value: MetarStation[]; onChange: (v: MetarStation[]) => void; }) {
+  const [icao, setIcao] = useState("");
+  const [label, setLabel] = useState("");
+  const add = () => {
+    const code = icao.trim().toUpperCase();
+    const lab = label.trim().slice(0, 60) || code;
+    if (!/^[A-Z0-9]{4}$/.test(code) || value.length >= 12) return;
+    if (value.some((s) => s.icao === code)) return;
+    onChange([...value, { icao: code, label: lab }]);
+    setIcao(""); setLabel("");
+  };
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        METAR / TAF Stations
+      </label>
+      <p className="text-[10px] text-slate-600 mb-3">
+        Airfields shown with decoded aviation weather on the Weather tab. Use 4-letter ICAO codes
+        (e.g.&nbsp;<code className="text-emerald-400">KCOS</code>, <code className="text-emerald-400">RODN</code>). Up to 12.
+      </p>
+
+      {value.length > 0 && (
+        <ul className="mb-2 space-y-1.5 max-h-56 overflow-y-auto">
+          {value.map((s) => (
+            <li key={s.icao} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+              <span className="text-[10px] font-mono font-bold text-sky-400 flex-shrink-0 w-12">{s.icao}</span>
+              <span className="text-xs text-slate-300 flex-1 min-w-0 truncate">{s.label}</span>
+              <button
+                onClick={() => onChange(value.filter((x) => x.icao !== s.icao))}
+                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex gap-1.5">
+        <input
+          value={icao} onChange={(e) => setIcao(e.target.value.toUpperCase().slice(0, 4))}
+          placeholder="ICAO"
+          className="w-20 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+        />
+        <input
+          value={label} onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+          placeholder="Display name (e.g. Ramstein AB)"
+          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <button
+          onClick={add}
+          disabled={!/^[A-Z0-9]{4}$/.test(icao.trim().toUpperCase()) || value.length >= 12}
           className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
         >
           Add
@@ -1439,6 +1502,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
   const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
   const [newsletterSources, setNewsletterSources] = useState<NewsletterSourceRule[]>([]);
+  const [metarStations, setMetarStations] = useState<MetarStation[]>([]);
   const [disabledNewsSources, setDisabledNewsSources] = useState<string[]>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiFeatureToggles, setAiFeatureToggles] = useState<Partial<Record<AiFeature, boolean>>>({});
@@ -1595,6 +1659,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setMarketsWatchlist(prefs.marketsWatchlist ?? []);
         setOsintFeeds(prefs.osintFeeds ?? []);
         setNewsletterSources(prefs.newsletterSources ?? []);
+        setMetarStations(prefs.metarStations ?? []);
         setDisabledNewsSources(prefs.disabledNewsSources ?? []);
         setAiEnabled(prefs.aiEnabled !== false);
         setAiFeatureToggles(prefs.aiFeatureToggles ?? {});
@@ -1673,7 +1738,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         body: JSON.stringify({
           role, priorityTopics, deprioritizeTopics, watchlist,
           vipSenders, muteSenders,
-          trackedLocations, marketsWatchlist, osintFeeds, newsletterSources,
+          trackedLocations, marketsWatchlist, osintFeeds, newsletterSources, metarStations,
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
           localFeedKey,
@@ -2010,6 +2075,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                   currentLocalKey={localFeedKey}
                 />
                 <NewsletterSourcesEditor value={newsletterSources} onChange={setNewsletterSources} />
+                <MetarStationsEditor value={metarStations} onChange={setMetarStations} />
                 <OsintFeedsEditor value={osintFeeds} onChange={setOsintFeeds} />
               </div>
             )}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 
 const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
@@ -106,6 +106,20 @@ function sanitizeNewsletterSources(v: unknown): NewsletterSourceRule[] {
   }).slice(0, 12);
 }
 
+function sanitizeMetarStations(v: unknown): MetarStation[] {
+  if (!Array.isArray(v)) return [];
+  const seen = new Set<string>();
+  return v.flatMap((x): MetarStation[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const icao = String(r.icao ?? "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(icao) || seen.has(icao)) return [];
+    seen.add(icao);
+    const label = String(r.label ?? "").trim().slice(0, 60) || icao;
+    return [{ icao, label }];
+  }).slice(0, 12);
+}
+
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -151,6 +165,7 @@ export async function POST(request: Request) {
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
     osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
     newsletterSources: sanitizeNewsletterSources(raw.newsletterSources),
+    metarStations: sanitizeMetarStations(raw.metarStations),
     // Bounded list of source names. Cap at 100 to prevent unbounded growth
     // if the catalog ever balloons. Names trimmed and bounded to 80 chars.
     disabledNewsSources: (Array.isArray(raw.disabledNewsSources) ? raw.disabledNewsSources : [])

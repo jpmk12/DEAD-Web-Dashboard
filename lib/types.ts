@@ -102,6 +102,9 @@ export interface UserPrefs {
   // newsletters, matched by sender or subject. Empty/unset → the four built-in
   // defaults (Politico / Dept of War / The Merge / A&SF).
   newsletterSources: NewsletterSourceRule[];
+  // Weather — airfields shown with decoded METAR/TAF. Unset → the built-in
+  // default set of military fields.
+  metarStations: MetarStation[];
   // News sources the user has toggled off — names as listed in
   // lib/newsSources.ts. Skipped before fetch, so disabling reduces both
   // bandwidth and AI context size for news_chat / threads / briefing.
@@ -210,6 +213,56 @@ export interface SpaceWeather {
   geoStorm: string;        // G0..G5
   radioBlackout: string;   // R0..R5
   radiationStorm: string;  // S0..S5
+}
+
+// A user-chosen airfield for decoded METAR/TAF on the Weather tab.
+export interface MetarStation {
+  icao: string;   // 4-char ICAO, e.g. "KCOS"
+  label: string;  // display name, e.g. "Peterson SFB (CO)"
+}
+
+export type FlightCategory = "VFR" | "MVFR" | "IFR" | "LIFR" | "UNKNOWN";
+
+export interface MetarObs {
+  icao: string;
+  name: string;            // station name from the data source
+  observedAt: string;      // ISO timestamp of the observation
+  raw: string;             // raw METAR
+  flightCategory: FlightCategory;
+  windDir: number | null;  // degrees; null = calm or variable
+  windVariable: boolean;
+  windSpeedKt: number | null;
+  windGustKt: number | null;
+  visibilityMi: number | null;
+  ceilingFt: number | null;  // lowest broken/overcast layer; null = none reported
+  tempC: number | null;
+  dewpointC: number | null;
+  altimeterInHg: number | null;
+  weather: string;           // decoded present-weather phrase ("light rain, mist")
+  clouds: { cover: string; baseFt: number | null }[];
+  summary: string;           // plain-English one-liner
+}
+
+export interface TafPeriod {
+  from: string;              // ISO
+  to: string;                // ISO
+  changeType: string;        // "" | "BECMG" | "TEMPO" | "FM" | "PROB30" ...
+  flightCategory: FlightCategory;
+  summary: string;           // plain-English line for this period
+}
+
+export interface TafReport {
+  icao: string;
+  issuedAt: string;          // ISO
+  raw: string;
+  periods: TafPeriod[];
+}
+
+export interface StationWx {
+  icao: string;
+  metar: MetarObs | null;
+  taf: TafReport | null;
+  error?: string;            // set when the station couldn't be fetched/decoded
 }
 
 export interface VipSuggestion {

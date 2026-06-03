@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { TrackedLocation } from "@/lib/types";
+import { TrackedLocation, MetarStation } from "@/lib/types";
 import LocationCard from "./LocationCard";
 import AlertsPanel from "./AlertsPanel";
 import SpaceWeatherCard from "./SpaceWeatherCard";
+import MetarPanel from "./MetarPanel";
 
 type Overlay = "wind" | "rain" | "temp" | "clouds" | "pressure";
 
@@ -14,17 +15,6 @@ const OVERLAYS: { id: Overlay; label: string; icon: string }[] = [
   { id: "temp",     label: "Temp",     icon: "◎" },
   { id: "clouds",   label: "Clouds",   icon: "◌" },
   { id: "pressure", label: "Pressure", icon: "◉" },
-];
-
-const METAR_LINKS = [
-  { icao: "KCOS", label: "Peterson/CSAF (CO)" },
-  { icao: "KADW", label: "Andrews AFB (MD)" },
-  { icao: "KNGU", label: "Norfolk NAS (VA)" },
-  { icao: "KFAF", label: "Langley AFB (VA)" },
-  { icao: "KLCH", label: "Barksdale AFB (LA)" },
-  { icao: "KDYS", label: "Dyess AFB (TX)" },
-  { icao: "PHIK", label: "Hickam AFB (HI)" },
-  { icao: "RODN", label: "Kadena AB (JPN)" },
 ];
 
 function buildWindyUrl(lat: number, lon: number, zoom: number, overlay: Overlay): string {
@@ -56,6 +46,7 @@ export default function WeatherTab() {
   const [overlay, setOverlay] = useState<Overlay>("wind");
   const [home, setHome] = useState<TrackedLocation | null>(null);
   const [extras, setExtras] = useState<TrackedLocation[]>([]);
+  const [metarStations, setMetarStations] = useState<MetarStation[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
@@ -75,6 +66,7 @@ export default function WeatherTab() {
           });
         }
         if (Array.isArray(prefs?.trackedLocations)) setExtras(prefs.trackedLocations);
+        if (Array.isArray(prefs?.metarStations)) setMetarStations(prefs.metarStations);
       })
       .catch(() => {});
   }, []);
@@ -184,33 +176,8 @@ export default function WeatherTab() {
         </>
       )}
 
-      {/* METAR quick links */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3">METAR / TAF — Quick Links</h3>
-        <div className="flex flex-wrap gap-2">
-          {METAR_LINKS.map(({ icao, label }) => (
-            <a
-              key={icao}
-              href={`https://metar-taf.com/${icao}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`METAR/TAF for ${label}`}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 rounded-md transition-all group"
-            >
-              <span className="text-[10px] font-mono font-bold text-slate-300 group-hover:text-white">{icao}</span>
-              <span className="text-[9px] text-slate-600 group-hover:text-slate-400 hidden sm:inline">{label}</span>
-            </a>
-          ))}
-          <a
-            href="https://aviationweather.gov/sigmet"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-md transition-all"
-          >
-            <span className="text-[10px] font-mono font-bold text-amber-400">SIGMET</span>
-          </a>
-        </div>
-      </div>
+      {/* Decoded METAR / TAF for configured airfields */}
+      <MetarPanel stations={metarStations} refreshKey={refreshKey} />
 
       <p className="text-[10px] text-slate-700 text-right">
         Weather data by{" "}
