@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { TickerEntry } from "@/lib/types";
+import { TickerEntry, NewsItem } from "@/lib/types";
 import ContractsPanel from "./ContractsPanel";
+import MacroBriefPanel from "./MacroBriefPanel";
 
 const INDICES: TickerEntry[] = [
   { symbol: "FOREXCOM:SPXUSD", label: "S&P 500" },
@@ -171,7 +172,7 @@ function formatUpdated(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export default function MarketsTab() {
+export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] }) {
   const [watchlist, setWatchlist] = useState<TickerEntry[]>([]);
   const [widgetKey, setWidgetKey] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
@@ -218,6 +219,9 @@ export default function MarketsTab() {
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden min-h-[56px]">
         <TVWidget widgetType="ticker-tape" configJson={tickerCfg} keyVer={widgetKey} />
       </div>
+
+      {/* AI macro brief (news-driven) */}
+      <MacroBriefPanel articles={articles} />
 
       {/* Market overview (with user's watchlist as first tab) */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 540 }}>

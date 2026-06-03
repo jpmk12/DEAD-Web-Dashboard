@@ -278,7 +278,7 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "markets" ? "hidden" : ""}>
-          <MarketsTab />
+          <MarketsTab articles={articles} />
         </div>
 
         <div className={activeTab !== "weather" ? "hidden" : ""}>

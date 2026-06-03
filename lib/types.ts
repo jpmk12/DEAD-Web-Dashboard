@@ -157,6 +157,7 @@ export type AiFeature =
   | "threads"        // /api/threads
   | "news_overview"  // /api/news/curated
   | "quick_capture"  // /api/quick-capture
+  | "markets_brief"  // /api/markets/brief
   | "memory";        // background memory consolidation
 
 export interface AiUsageRow {
