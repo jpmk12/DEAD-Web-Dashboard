@@ -11,7 +11,7 @@ import { Crosshair } from "@/lib/icons";
 const AircraftMap = dynamic(() => import("./AircraftMap"), {
   ssr: false,
   loading: () => (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono" style={{ height: 600 }}>
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono h-[58vh] min-h-[360px] lg:h-[600px]">
       Loading map…
     </div>
   ),
@@ -19,7 +19,7 @@ const AircraftMap = dynamic(() => import("./AircraftMap"), {
 const MaritimeMap = dynamic(() => import("./MaritimeMap"), {
   ssr: false,
   loading: () => (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono" style={{ height: 600 }}>
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono h-[58vh] min-h-[360px] lg:h-[600px]">
       Loading map…
     </div>
   ),
@@ -769,7 +769,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               Open ↗
             </a>
           </div>
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden h-[58vh] min-h-[360px] lg:h-[600px]">
             <iframe
               key={aircraftCfg.id}
               src={aircraftCfg.url(homeLat, homeLon)}
@@ -866,7 +866,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               Open ↗
             </a>
           </div>
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 600 }}>
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden h-[58vh] min-h-[360px] lg:h-[600px]">
             <iframe
               key={maritimeCfg.id}
               src={maritimeCfg.url(homeLat, homeLon)}

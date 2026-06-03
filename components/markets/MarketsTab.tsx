@@ -5,6 +5,7 @@ import { TickerEntry, NewsItem } from "@/lib/types";
 import ContractsPanel from "./ContractsPanel";
 import MacroBriefPanel from "./MacroBriefPanel";
 import { CandlestickChart } from "@/lib/icons";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const INDICES: TickerEntry[] = [
   { symbol: "FOREXCOM:SPXUSD", label: "S&P 500" },
@@ -178,6 +179,11 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
   const [widgetKey, setWidgetKey] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
 
+  // Shorter widget heights on phones so the page isn't an endless scroll.
+  const isMobile = useIsMobile();
+  const overviewH = isMobile ? 440 : 540;
+  const eventsH = isMobile ? 380 : 460;
+
   useEffect(() => {
     fetch("/api/user-prefs")
       .then((r) => r.json())
@@ -225,8 +231,8 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
       <MacroBriefPanel articles={articles} />
 
       {/* Market overview (with user's watchlist as first tab) */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 540 }}>
-        <TVWidget widgetType="market-overview" configJson={overviewCfg} height={540} keyVer={widgetKey} />
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: overviewH }}>
+        <TVWidget widgetType="market-overview" configJson={overviewCfg} height={overviewH} keyVer={widgetKey} />
       </div>
 
       {/* Economic calendar — CPI, central-bank decisions, jobs, GDP across major economies */}
@@ -234,8 +240,8 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5 px-1">
           Economic calendar
         </p>
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 460 }}>
-          <TVWidget widgetType="events" configJson={eventsCfg} height={460} keyVer={widgetKey} />
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: eventsH }}>
+          <TVWidget widgetType="events" configJson={eventsCfg} height={eventsH} keyVer={widgetKey} />
         </div>
       </div>
 
