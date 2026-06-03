@@ -96,6 +96,7 @@ export default function ArticleThesis({ article, className = "" }: { article: Ar
     <button
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); run(); }}
       disabled={state.phase === "loading"}
+      title="Generate the article's core thesis with AI (Claude reads the article)"
       className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border transition-colors ${
         state.phase === "loading"
           ? "border-violet-500/30 text-violet-300/70 cursor-wait"

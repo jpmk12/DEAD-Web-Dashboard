@@ -21,6 +21,7 @@ import ArticleThesis from "@/components/news/ArticleThesis";
 const EMAIL_CACHE_KEY = "gmail:emails";        // set by EmailTab → EmailMessage[]
 const BRIEFING_CACHE_KEY = "briefing:result";  // set by briefingPrefetch → Briefing
 const CURATED_CACHE_KEY = "news:curated";      // set by NewsFeed overview → {critical,discover}
+const RADAR_BASELINE_KEY = "glance:radar:baseline"; // last-seen "On your radar" values
 
 // Mirror of the Briefing shape rendered by BriefingModal (not exported there).
 interface Briefing {
@@ -180,6 +181,13 @@ export default function GlanceTab({
 
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
   const [threats, setThreats] = useState<WeatherThreats | null>(null);
+
+  // Last-seen "On your radar" values, persisted so rises since your last look
+  // can be highlighted. Frozen for this session (read once on mount).
+  const [radarBaseline] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem(RADAR_BASELINE_KEY) || "{}") || {}; } catch { return {}; }
+  });
 
   // Severe-weather threats for the user's locations (+ active tropical systems),
   // from the shared /api/weather/threats endpoint. Surfaced in "Needs you now".
@@ -364,6 +372,72 @@ export default function GlanceTab({
 
   const warming = articles.length === 0 && emails.length === 0 && calendarEvents.length === 0;
 
+  // ── On-your-radar metrics + change detection ─────────────────────────────
+  // Baseline = the values the last time you viewed Glance, so we can highlight
+  // what has risen since. Read once (frozen for this session).
+  const radarMetricsRaw: { key: string; label: string; value: number; display: string; tier: RadarTier; onClick: () => void }[] = [
+    {
+      key: "osint", label: "OSINT signals",
+      value: osintSignals, display: `${osintSignals} new`,
+      tier: osintSignals > 0 ? "attention" : "quiet",
+      onClick: () => onNavigate("osint"),
+    },
+  ];
+  if (threats && (threats.summary.total > 0 || threats.tropical.length > 0)) {
+    radarMetricsRaw.push({
+      key: "severe", label: "Severe weather",
+      value: threats.summary.total + threats.tropical.length,
+      display:
+        threats.summary.lifeThreatening > 0
+          ? `${threats.summary.lifeThreatening} life-threatening`
+          : threats.tropical.length > 0
+          ? `${threats.tropical.length} tropical system${threats.tropical.length === 1 ? "" : "s"}`
+          : `${threats.summary.total} alert${threats.summary.total === 1 ? "" : "s"}`,
+      tier: threats.summary.lifeThreatening > 0 ? "critical" : "attention",
+      onClick: () => onNavigate("weather"),
+    });
+  }
+  if (threats && threats.summary.disasters > 0) {
+    radarMetricsRaw.push({
+      key: "disasters", label: "Disasters",
+      value: threats.summary.disasters,
+      display: `${threats.summary.disasters} active${threats.summary.disastersRed > 0 ? ` · ${threats.summary.disastersRed} red` : ""}`,
+      tier: threats.summary.disastersRed > 0 ? "critical" : "attention",
+      onClick: () => onNavigate("weather"),
+    });
+  }
+
+  const TIER_RANK: Record<RadarTier, number> = { critical: 0, attention: 1, quiet: 2 };
+  const radarMetrics = radarMetricsRaw
+    .map((m) => {
+      const delta = m.value - (radarBaseline[m.key] ?? 0);
+      const changed = delta > 0;
+      // A rise on an otherwise-quiet metric still deserves an amber nudge.
+      const tier: RadarTier = changed && m.tier === "quiet" ? "attention" : m.tier;
+      return { ...m, delta, changed, tier };
+    })
+    .sort(
+      (a, b) =>
+        TIER_RANK[a.tier] - TIER_RANK[b.tier] ||
+        Number(b.changed) - Number(a.changed) ||
+        b.value - a.value,
+    );
+  const radarNewCount = radarMetrics.filter((m) => m.changed).length;
+
+  // Acknowledge the changes after a short dwell (a quick tab-flip won't reset
+  // the highlights; an actual look will). Writes the new baseline for next time.
+  const radarValuesKey = radarMetricsRaw.map((m) => `${m.key}:${m.value}`).join(",");
+  useEffect(() => {
+    if (!active || typeof window === "undefined") return;
+    const snapshot: Record<string, number> = {};
+    for (const m of radarMetricsRaw) snapshot[m.key] = m.value;
+    const t = setTimeout(() => {
+      try { localStorage.setItem(RADAR_BASELINE_KEY, JSON.stringify(snapshot)); } catch { /* ignore */ }
+    }, 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, radarValuesKey]);
+
   return (
     <div className="space-y-6">
       {/* ── Header: greeting + since-you-looked ── */}
@@ -489,7 +563,7 @@ export default function GlanceTab({
                         className="group block px-3 py-2.5 hover:bg-slate-800/40 transition-colors"
                       >
                         <div className="flex items-start gap-2">
-                          {unseen && <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />}
+                          {unseen && <span title="New since your last visit" className="mt-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-slate-200 leading-snug group-hover:text-emerald-400 line-clamp-2">
                               {n.title}
@@ -499,7 +573,7 @@ export default function GlanceTab({
                               <span className="text-slate-700">·</span>
                               <span className="flex-shrink-0">{relTime(n.pubDate)}</span>
                               {fresh && (
-                                <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1 py-px">
+                                <span title="Published in the last 45 minutes" className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1 py-px">
                                   Live
                                 </span>
                               )}
@@ -571,7 +645,19 @@ export default function GlanceTab({
           </Panel>
 
           {/* Context */}
-          <Panel title="On your radar">
+          <Panel
+            title="On your radar"
+            badge={
+              radarNewCount > 0 ? (
+                <span
+                  title={`${radarNewCount} signal${radarNewCount === 1 ? "" : "s"} changed since you last looked`}
+                  className="text-[9px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-0.5 animate-pulse"
+                >
+                  {radarNewCount} new
+                </span>
+              ) : undefined
+            }
+          >
             <div className="px-3 py-3 space-y-3">
               {recentNewsletters.length > 0 && (
                 <div>
@@ -593,36 +679,20 @@ export default function GlanceTab({
                 </div>
               )}
 
-              <RadarLine
-                label="OSINT signals"
-                value={`${osintSignals} new`}
-                tone={osintSignals > 0 ? "red" : "muted"}
-                onClick={() => onNavigate("osint")}
-              />
-
-              {threats && (threats.summary.total > 0 || threats.tropical.length > 0) && (
-                <RadarLine
-                  label="Severe weather"
-                  value={
-                    threats.summary.lifeThreatening > 0
-                      ? `${threats.summary.lifeThreatening} life-threatening`
-                      : threats.tropical.length > 0
-                      ? `${threats.tropical.length} tropical system${threats.tropical.length === 1 ? "" : "s"}`
-                      : `${threats.summary.total} alert${threats.summary.total === 1 ? "" : "s"}`
-                  }
-                  tone={threats.summary.lifeThreatening > 0 ? "red" : "muted"}
-                  onClick={() => onNavigate("weather")}
-                />
-              )}
-
-              {threats && threats.summary.disasters > 0 && (
-                <RadarLine
-                  label="Disasters"
-                  value={`${threats.summary.disasters} active${threats.summary.disastersRed > 0 ? ` · ${threats.summary.disastersRed} red` : ""}`}
-                  tone={threats.summary.disastersRed > 0 ? "red" : "muted"}
-                  onClick={() => onNavigate("weather")}
-                />
-              )}
+              {/* Live signals, sorted most-urgent first with change highlights. */}
+              <div className="space-y-1.5">
+                {radarMetrics.map((m) => (
+                  <RadarLine
+                    key={m.key}
+                    label={m.label}
+                    value={m.display}
+                    tier={m.tier}
+                    changed={m.changed}
+                    delta={m.delta}
+                    onClick={m.onClick}
+                  />
+                ))}
+              </div>
 
               {watchlist.length > 0 && (
                 <div>
@@ -702,22 +772,27 @@ function Panel({
   children,
   accent,
   onJump,
+  badge,
 }: {
   title: string;
   children: React.ReactNode;
   accent?: boolean;
   onJump?: () => void;
+  badge?: React.ReactNode;
 }) {
   return (
     <section className="rounded-lg border border-slate-800 bg-slate-900/40 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 bg-slate-800/30">
-        <h3 className={`text-[11px] font-bold uppercase tracking-widest ${accent ? "text-emerald-400" : "text-slate-400"}`}>
-          {title}
-        </h3>
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className={`text-[11px] font-bold uppercase tracking-widest ${accent ? "text-emerald-400" : "text-slate-400"}`}>
+            {title}
+          </h3>
+          {badge}
+        </div>
         {onJump && (
           <button
             onClick={onJump}
-            className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-emerald-400 transition-colors"
+            className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-emerald-400 transition-colors flex-shrink-0"
           >
             View all →
           </button>
@@ -732,24 +807,43 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <p className="px-3 py-6 text-center text-xs text-slate-500">{children}</p>;
 }
 
+type RadarTier = "quiet" | "attention" | "critical";
+
 function RadarLine({
   label,
   value,
-  tone,
+  tier,
+  changed,
+  delta,
   onClick,
 }: {
   label: string;
   value: string;
-  tone: "red" | "muted";
+  tier: RadarTier;
+  changed: boolean;
+  delta: number;
   onClick: () => void;
 }) {
+  const valueTone =
+    tier === "critical" ? "text-red-400" : tier === "attention" ? "text-amber-400" : "text-slate-500";
+  const showDot = tier === "critical" || changed;
+  const dotColor = tier === "critical" ? "bg-red-500" : "bg-amber-400";
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-between text-left group"
+      title={changed ? `Up ${delta} since you last looked` : undefined}
+      className="w-full flex items-center justify-between text-left group gap-2"
     >
-      <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">{label}</span>
-      <span className={`text-xs font-semibold ${tone === "red" ? "text-red-400" : "text-slate-500"}`}>{value}</span>
+      <span className="flex items-center gap-1.5 min-w-0">
+        {showDot && (
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor} ${changed ? "animate-pulse" : ""}`} />
+        )}
+        <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors truncate">{label}</span>
+      </span>
+      <span className="flex items-center gap-1.5 flex-shrink-0">
+        {changed && delta > 0 && <span className="text-[10px] font-bold text-emerald-400">▲ +{delta}</span>}
+        <span className={`text-xs font-semibold ${valueTone}`}>{value}</span>
+      </span>
     </button>
   );
 }
