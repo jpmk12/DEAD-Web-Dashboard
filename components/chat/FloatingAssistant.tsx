@@ -50,7 +50,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
           title="Open AI assistant"
           className="fixed bottom-5 right-5 z-40 flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold uppercase tracking-wider px-4 py-3 rounded-full shadow-lg glow-green transition-all"
         >
-          <span className="text-base leading-none">◈</span>
+          <span className="text-base leading-none">❖</span>
           Assistant
         </button>
       )}
@@ -62,7 +62,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
           <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-[420px] bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 flex-shrink-0">
               <h2 className="text-xs font-bold uppercase tracking-widest text-slate-200 flex items-center gap-2">
-                <span className="text-emerald-400">◈</span> AI Assistant
+                <span className="text-emerald-400">❖</span> AI Assistant
               </h2>
               <button
                 onClick={() => setOpen(false)}

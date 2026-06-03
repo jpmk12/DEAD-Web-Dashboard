@@ -326,7 +326,7 @@ export default function GlanceTab({
       id: `osint-${s.title}`,
       rank: 2,
       tone: "red",
-      icon: "⊕",
+      icon: "⌖",
       label: s.title,
       sub: s.reason || `${s.sources} source${s.sources === 1 ? "" : "s"}`,
       meta: "OSINT",
@@ -376,6 +376,18 @@ export default function GlanceTab({
   // Baseline = the values the last time you viewed Glance, so we can highlight
   // what has risen since. Read once (frozen for this session).
   const radarMetricsRaw: { key: string; label: string; value: number; display: string; tier: RadarTier; onClick: () => void }[] = [
+    {
+      key: "news", label: "New stories",
+      value: newStories, display: `${newStories} new`,
+      tier: newStories > 0 ? "attention" : "quiet",
+      onClick: () => onNavigate("news"),
+    },
+    {
+      key: "email", label: "Priority email",
+      value: newEmails, display: `${newEmails} new`,
+      tier: newEmails > 0 ? "attention" : "quiet",
+      onClick: () => onNavigate("email"),
+    },
     {
       key: "osint", label: "OSINT signals",
       value: osintSignals, display: `${osintSignals} new`,

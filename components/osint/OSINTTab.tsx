@@ -607,7 +607,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-md bg-violet-500/10 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-violet-400 text-xs">⊕</span>
+            <span className="text-violet-400 text-xs">⌖</span>
           </div>
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">OSINT</h2>
