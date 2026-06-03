@@ -110,6 +110,16 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) && v !== "" && v != null ? n : null;
 }
 
+// NHC storm graphics page from a bin number, e.g. "EP1"/"EP01" ->
+// https://www.nhc.noaa.gov/graphics_ep1.shtml (cone + advisories/discussion).
+// Falls back to the active-cyclones overview when the bin can't be parsed.
+function nhcStormLink(binNumber: unknown): string {
+  const m = String(binNumber ?? "").match(/^([A-Za-z]+)0*(\d+)$/);
+  return m
+    ? `https://www.nhc.noaa.gov/graphics_${m[1].toLowerCase()}${m[2]}.shtml`
+    : "https://www.nhc.noaa.gov/cyclones/";
+}
+
 export async function fetchActiveTropical(): Promise<TropicalSystem[]> {
   try {
     const res = await fetch("https://www.nhc.noaa.gov/CurrentStorms.json", {
@@ -134,6 +144,7 @@ export async function fetchActiveTropical(): Promise<TropicalSystem[]> {
         lon: parseCoord(r.longitudeNumeric ?? r.longitude),
         movement: [r.movementDir, r.movementSpeed ? `${r.movementSpeed} kt` : ""].filter(Boolean).join(" at "),
         lastUpdate: String(r.lastUpdate ?? ""),
+        link: nhcStormLink(r.binNumber),
       }];
     });
   } catch {

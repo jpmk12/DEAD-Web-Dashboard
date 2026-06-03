@@ -293,6 +293,7 @@ export interface TropicalSystem {
   lon: number | null;
   movement: string;
   lastUpdate: string;
+  link: string;                        // NHC storm page ("learn more")
 }
 
 // A humanitarian / natural-disaster event (GDACS, USGS, ReliefWeb, tsunami

@@ -134,10 +134,13 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
           <ul className="space-y-1">
             {tropical.map((s) => (
               <li key={s.id} className="text-[11px] text-slate-300 flex flex-wrap items-baseline gap-x-2">
-                <span className="font-bold text-sky-300">{s.category} {s.name}</span>
+                <a href={s.link} target="_blank" rel="noopener noreferrer" className="font-bold text-sky-300 hover:text-sky-200 hover:underline transition-colors">
+                  {s.category} {s.name}
+                </a>
                 {s.intensityKt != null && <span className="text-slate-400 font-mono text-[10px]">{s.intensityKt} kt</span>}
                 {s.pressureMb != null && <span className="text-slate-500 font-mono text-[10px]">{s.pressureMb} mb</span>}
                 {s.movement && <span className="text-slate-500 text-[10px]">moving {s.movement}</span>}
+                <span className="text-slate-700 text-[9px] font-mono">NHC ↗</span>
               </li>
             ))}
           </ul>
