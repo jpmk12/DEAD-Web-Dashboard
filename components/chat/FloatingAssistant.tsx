@@ -49,7 +49,8 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
         <button
           onClick={() => setOpen(true)}
           title="Open AI assistant"
-          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold uppercase tracking-wider px-4 py-3 rounded-full shadow-lg glow-green transition-all"
+          style={{ bottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
+          className="fixed right-5 z-40 flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold uppercase tracking-wider px-4 py-3 rounded-full shadow-lg glow-green transition-all touch-manipulation"
         >
           <AssistantIcon size={16} strokeWidth={2.5} className="leading-none" />
           Assistant
