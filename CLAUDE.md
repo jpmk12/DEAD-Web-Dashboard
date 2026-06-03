@@ -403,15 +403,23 @@ ESLint is **not** required at build time — `next.config.ts` sets
 `eslint.ignoreDuringBuilds: true`, so `eslint` / `eslint-config-next` may stay in
 `devDependencies` (used only by local `npm run lint`).
 
-### Critical: `.npmrc` pins production installs (`omit=dev`)
-A deploy once failed at archive-extract time with `tar: can't create hardlink
-'./node_modules/esbuild/bin/esbuild' to './node_modules/@esbuild/linux-x64/bin/esbuild'`.
-Root cause: the platform had installed **devDependencies**, which pull in
-`vitest → vite → esbuild`, and esbuild ships its binary as a hardlink the
-platform's `tar` can't recreate on extract. The committed `.npmrc` (`omit=dev`)
-forces a runtime-only install so that chain is never present — **keep it**. To
-run the test suite locally, install with `npm install --include=dev`. Do not
-move `vitest` / `eslint` into `dependencies`.
+### Critical: do NOT add `vitest` (or anything pulling in `esbuild`) to package.json
+Deploys failed twice on `esbuild`, which `vitest` pulls in via `vite`:
+1. Archive extract: `tar: can't create hardlink './node_modules/esbuild/bin/esbuild'
+   to './node_modules/@esbuild/linux-x64/bin/esbuild'` — esbuild ships its binary
+   as a hardlink the platform's `tar` can't recreate.
+2. Fresh install: esbuild's postinstall (`node install.js` → `esbuild --version`)
+   dies with `EACCES` because the platform sandbox won't execute the binary.
+
+Fix: **`vitest` is intentionally NOT a dependency.** The test runner is invoked
+on demand via `npm test` → `npx --yes vitest@^2 run`, so esbuild never enters the
+installed tree (package.json *and* package-lock.json). Running tests needs network
+(npx fetches vitest). Do not add `vitest`/`vite`/`esbuild` to dependencies or
+devDependencies, and if you regenerate the lockfile, confirm it has zero esbuild
+entries: `grep -c esbuild package-lock.json` → `0`.
+
+The committed `.npmrc` (`omit=dev`) is kept as defense-in-depth (keeps the prod
+install runtime-only) but is no longer load-bearing for the esbuild issue.
 
 ### Database
 - Uses the managed MySQL via `mysql2` (`lib/db.ts`), reading
