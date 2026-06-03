@@ -18,13 +18,40 @@ const ENERGY: TickerEntry[] = [
   { symbol: "COMEX:SI1!", label: "Silver" },
 ];
 
+// Major ex-US equity indices — the global picture (Tokyo / HK / China / London / EU).
+const GLOBAL: TickerEntry[] = [
+  { symbol: "TVC:NI225",  label: "Nikkei 225 (Tokyo)" },
+  { symbol: "TVC:HSI",    label: "Hang Seng (HK)" },
+  { symbol: "TVC:SHCOMP", label: "Shanghai Composite" },
+  { symbol: "TVC:UKX",    label: "FTSE 100 (London)" },
+  { symbol: "TVC:DAX",    label: "DAX (Frankfurt)" },
+  { symbol: "TVC:SX5E",   label: "Euro Stoxx 50" },
+];
+
+// Rates, FX, and a growth proxy (copper) — where macro trends actually show up.
+const RATES_FX: TickerEntry[] = [
+  { symbol: "TVC:DXY",    label: "US Dollar Index" },
+  { symbol: "TVC:US10Y",  label: "US 10Y Yield" },
+  { symbol: "TVC:US02Y",  label: "US 2Y Yield" },
+  { symbol: "FX:USDJPY",  label: "USD/JPY" },
+  { symbol: "FX:USDCNH",  label: "USD/CNH" },
+  { symbol: "FX:EURUSD",  label: "EUR/USD" },
+  { symbol: "FX:GBPUSD",  label: "GBP/USD" },
+  { symbol: "COMEX:HG1!", label: "Copper" },
+];
+
 const TICKER_TAPE_DEFAULT = [
   { proName: "FOREXCOM:SPXUSD", title: "S&P 500" },
   { proName: "DJ:DJI",          title: "DOW" },
   { proName: "NASDAQ:NDX",      title: "NASDAQ" },
-  { proName: "CBOE:VIX",        title: "VIX" },
+  { proName: "TVC:NI225",       title: "Nikkei" },
+  { proName: "TVC:HSI",         title: "Hang Seng" },
+  { proName: "TVC:UKX",         title: "FTSE" },
+  { proName: "TVC:DXY",         title: "DXY" },
+  { proName: "TVC:US10Y",       title: "US 10Y" },
   { proName: "NYMEX:CL1!",      title: "WTI Oil" },
   { proName: "COMEX:GC1!",      title: "Gold" },
+  { proName: "CBOE:VIX",        title: "VIX" },
 ];
 
 function buildTickerCfg(extraTickers: TickerEntry[]): string {
@@ -71,11 +98,34 @@ function buildOverviewCfg(watchlist: TickerEntry[]): string {
         originalTitle: "Indices",
       },
       {
+        title: "Global",
+        symbols: GLOBAL.map((t) => ({ s: t.symbol, d: t.label })),
+        originalTitle: "Global",
+      },
+      {
+        title: "Rates & FX",
+        symbols: RATES_FX.map((t) => ({ s: t.symbol, d: t.label })),
+        originalTitle: "Rates & FX",
+      },
+      {
         title: "Energy & Metals",
         symbols: ENERGY.map((t) => ({ s: t.symbol, d: t.label })),
         originalTitle: "Energy",
       },
     ],
+  });
+}
+
+// Economic calendar (CPI, rate decisions, jobs, GDP) across the major economies.
+function buildEventsCfg(): string {
+  return JSON.stringify({
+    colorTheme: "dark",
+    isTransparent: true,
+    width: "100%",
+    height: 460,
+    locale: "en",
+    importanceFilter: "0,1",            // medium + high importance only
+    countryFilter: "us,eu,jp,cn,gb,de,fr,kr,in",
   });
 }
 
@@ -135,6 +185,7 @@ export default function MarketsTab() {
 
   const tickerCfg = useMemo(() => buildTickerCfg(watchlist), [watchlist]);
   const overviewCfg = useMemo(() => buildOverviewCfg(watchlist), [watchlist]);
+  const eventsCfg = useMemo(() => buildEventsCfg(), []);
 
   return (
     <div className="space-y-4">
@@ -147,7 +198,7 @@ export default function MarketsTab() {
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Markets</h2>
             <p className="text-[10px] text-slate-600 font-mono">
-              {watchlist.length} watchlist tickers · DOD daily contracts
+              {watchlist.length} watchlist · global indices · rates &amp; FX · econ calendar · DOD contracts
             </p>
           </div>
         </div>
@@ -171,6 +222,16 @@ export default function MarketsTab() {
       {/* Market overview (with user's watchlist as first tab) */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 540 }}>
         <TVWidget widgetType="market-overview" configJson={overviewCfg} height={540} keyVer={widgetKey} />
+      </div>
+
+      {/* Economic calendar — CPI, central-bank decisions, jobs, GDP across major economies */}
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5 px-1">
+          Economic calendar
+        </p>
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: 460 }}>
+          <TVWidget widgetType="events" configJson={eventsCfg} height={460} keyVer={widgetKey} />
+        </div>
       </div>
 
       {/* DOD contract awards feed */}
