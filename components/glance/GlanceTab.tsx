@@ -254,6 +254,21 @@ export default function GlanceTab({
     });
   }
 
+  // Red disasters and anything near a base — humanitarian/natural events.
+  for (const d of (threats?.disasters ?? []).filter((d) => d.severity === "red" || d.nearLocations.length > 0).slice(0, 3)) {
+    const near = d.nearLocations.length > 0;
+    urgent.push({
+      id: `disaster-${d.id}`,
+      rank: near ? -1 : 0,
+      tone: "red",
+      icon: "⊕",
+      label: d.title,
+      sub: near ? `Near ${d.nearLocations.join(", ")}` : (d.country || d.type),
+      meta: "Disaster",
+      onClick: () => onNavigate("weather"),
+    });
+  }
+
   for (const { t, state } of dueTasks) {
     const overdue = state === "overdue";
     urgent.push({
@@ -548,6 +563,15 @@ export default function GlanceTab({
                       : `${threats.summary.total} alert${threats.summary.total === 1 ? "" : "s"}`
                   }
                   tone={threats.summary.lifeThreatening > 0 ? "red" : "muted"}
+                  onClick={() => onNavigate("weather")}
+                />
+              )}
+
+              {threats && threats.summary.disasters > 0 && (
+                <RadarLine
+                  label="Disasters"
+                  value={`${threats.summary.disasters} active${threats.summary.disastersRed > 0 ? ` · ${threats.summary.disastersRed} red` : ""}`}
+                  tone={threats.summary.disastersRed > 0 ? "red" : "muted"}
                   onClick={() => onNavigate("weather")}
                 />
               )}

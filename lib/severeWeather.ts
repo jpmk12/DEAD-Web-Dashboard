@@ -3,6 +3,7 @@
 // (later) the Glance tab + morning brief.
 
 import type { WeatherAlert, SevereThreat, TropicalSystem, WeatherThreats } from "./types";
+import { getDisasters, haversineKm } from "./disasters";
 
 const NWS_HEADERS = { "User-Agent": "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)", Accept: "application/geo+json" };
 
@@ -140,17 +141,35 @@ export async function fetchActiveTropical(): Promise<TropicalSystem[]> {
   }
 }
 
+// Tag a disaster with any tracked locations within this radius (km).
+const NEAR_KM = 500;
+
 export async function getWeatherThreats(locations: NamedPoint[]): Promise<WeatherThreats> {
-  const [threats, tropical] = await Promise.all([
+  const [threats, tropical, disastersRaw] = await Promise.all([
     locations.length > 0 ? aggregateThreats(locations) : Promise.resolve([] as SevereThreat[]),
     fetchActiveTropical(),
+    getDisasters(),
   ]);
+
+  // Flag disasters near the user's bases — then sort those near-base first so
+  // a quake/typhoon by Kadena outranks a distant one of equal severity.
+  const disasters = disastersRaw.map((d) => {
+    if (d.lat == null || d.lon == null) return d;
+    const near = locations
+      .filter((loc) => haversineKm(d.lat as number, d.lon as number, loc.lat, loc.lon) <= NEAR_KM)
+      .map((loc) => loc.label);
+    return near.length ? { ...d, nearLocations: near } : d;
+  });
+  disasters.sort((a, b) => (b.nearLocations.length > 0 ? 1 : 0) - (a.nearLocations.length > 0 ? 1 : 0));
+
   const summary = {
     extreme: threats.filter((t) => t.severity === "Extreme").length,
     severe: threats.filter((t) => t.severity === "Severe").length,
     lifeThreatening: threats.filter((t) => t.lifeThreatening).length,
     total: threats.length,
     topEvent: threats[0]?.event ?? null,
+    disasters: disasters.length,
+    disastersRed: disasters.filter((d) => d.severity === "red").length,
   };
-  return { threats, tropical, summary };
+  return { threats, tropical, disasters, summary };
 }

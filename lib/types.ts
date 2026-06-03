@@ -295,10 +295,29 @@ export interface TropicalSystem {
   lastUpdate: string;
 }
 
+// A humanitarian / natural-disaster event (GDACS, USGS, ReliefWeb).
+export interface DisasterEvent {
+  id: string;
+  type: "earthquake" | "cyclone" | "flood" | "volcano" | "drought" | "tsunami" | "epidemic" | "wildfire" | "other";
+  title: string;
+  severity: "red" | "orange" | "green" | "unknown";
+  country: string;
+  lat: number | null;
+  lon: number | null;
+  time: string;                // ISO
+  magnitude: number | null;    // earthquake magnitude when applicable
+  tsunami: boolean;
+  summary: string;
+  source: "GDACS" | "USGS" | "ReliefWeb";
+  link: string;
+  nearLocations: string[];     // tracked-location labels within ~500 km
+}
+
 export interface WeatherThreats {
   threats: SevereThreat[];
   tropical: TropicalSystem[];
-  summary: { extreme: number; severe: number; lifeThreatening: number; total: number; topEvent: string | null };
+  disasters: DisasterEvent[];
+  summary: { extreme: number; severe: number; lifeThreatening: number; total: number; topEvent: string | null; disasters: number; disastersRed: number };
 }
 
 export interface VipSuggestion {
