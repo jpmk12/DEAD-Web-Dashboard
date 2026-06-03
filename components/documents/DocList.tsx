@@ -277,7 +277,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
   }, [docs]);
 
   return (
-    <div className="w-72 flex-shrink-0 flex flex-col bg-slate-950 border-r border-slate-800 min-h-0">
+    <div className="w-full lg:w-72 lg:flex-shrink-0 flex flex-col bg-slate-950 border-r border-slate-800 min-h-0">
       {/* Top controls */}
       <div className="p-3 border-b border-slate-800 space-y-2">
         <button

@@ -5,6 +5,7 @@ import DocList from "./DocList";
 import DocEditor from "./DocEditor";
 import FilesPanel from "./FilesPanel";
 import FileViewer from "./FileViewer";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const LAST_SELECTED_KEY = "docs-last-selected";
 const LAST_PANE_KEY = "docs-last-pane";
@@ -26,6 +27,9 @@ type Pane = "docs" | "files";
 // localStorage so reopening the tab restores context.
 export default function DocumentsTab() {
   const [pane, setPane] = useState<Pane>("docs");
+  // On phones the list and the editor/viewer are mutually exclusive screens
+  // (list → tap → detail → back), instead of the desktop side-by-side layout.
+  const isMobile = useIsMobile();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [listRefreshKey, setListRefreshKey] = useState(0);
@@ -144,15 +148,23 @@ export default function DocumentsTab() {
       <div className="flex flex-1 min-h-0">
         {pane === "docs" ? (
           <>
-            <DocList
-              selectedId={selectedId}
-              onSelect={select}
-              onCreate={createNew}
-              refreshKey={listRefreshKey}
-              onRefresh={() => setListRefreshKey((k) => k + 1)}
-            />
+            {!(isMobile && selectedId) && (
+              <DocList
+                selectedId={selectedId}
+                onSelect={select}
+                onCreate={createNew}
+                refreshKey={listRefreshKey}
+                onRefresh={() => setListRefreshKey((k) => k + 1)}
+              />
+            )}
             {selectedId ? (
               <div className="flex-1 flex flex-col min-w-0">
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="lg:hidden flex items-center gap-1.5 px-3 py-2 border-b border-slate-800 bg-slate-900/40 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-400 transition-colors touch-manipulation flex-shrink-0"
+                >
+                  ← All documents
+                </button>
                 {recentForStrip.length > 0 && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-slate-800 bg-slate-900/40 overflow-x-auto flex-shrink-0">
                     <span className="text-[10px] uppercase tracking-widest text-slate-600 font-bold flex-shrink-0 mr-1">Recent</span>
@@ -180,7 +192,7 @@ export default function DocumentsTab() {
                 />
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
+              <div className="hidden lg:flex flex-1 flex-col items-center justify-center text-center px-8">
                 <p className="text-2xl mb-2">📝</p>
                 <p className="text-sm font-bold text-slate-300 mb-1">No document selected</p>
                 <p className="text-xs text-slate-500 max-w-sm">
@@ -195,26 +207,36 @@ export default function DocumentsTab() {
           </>
         ) : (
           <>
-            <FilesPanel
-              selectedId={selectedFileId}
-              onSelect={selectFile}
-              refreshKey={filesRefreshKey}
-              onRefresh={() => setFilesRefreshKey((k) => k + 1)}
-              // When a doc is open in the Docs pane, auto-attach uploads to
-              // it. Switching panes doesn't clear this — the doc id stays
-              // around so a quick Docs → Files → upload trip keeps the
-              // attachment intent.
-              attachToDocId={selectedId}
-            />
-            {selectedFileId ? (
-              <FileViewer
-                key={selectedFileId}
-                fileId={selectedFileId}
-                onChanged={() => setFilesRefreshKey((k) => k + 1)}
-                onDeleted={() => selectFile(null)}
+            {!(isMobile && selectedFileId) && (
+              <FilesPanel
+                selectedId={selectedFileId}
+                onSelect={selectFile}
+                refreshKey={filesRefreshKey}
+                onRefresh={() => setFilesRefreshKey((k) => k + 1)}
+                // When a doc is open in the Docs pane, auto-attach uploads to
+                // it. Switching panes doesn't clear this — the doc id stays
+                // around so a quick Docs → Files → upload trip keeps the
+                // attachment intent.
+                attachToDocId={selectedId}
               />
+            )}
+            {selectedFileId ? (
+              <div className="flex-1 flex flex-col min-w-0">
+                <button
+                  onClick={() => selectFile(null)}
+                  className="lg:hidden flex items-center gap-1.5 px-3 py-2 border-b border-slate-800 bg-slate-900/40 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-400 transition-colors touch-manipulation flex-shrink-0"
+                >
+                  ← All files
+                </button>
+                <FileViewer
+                  key={selectedFileId}
+                  fileId={selectedFileId}
+                  onChanged={() => setFilesRefreshKey((k) => k + 1)}
+                  onDeleted={() => selectFile(null)}
+                />
+              </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
+              <div className="hidden lg:flex flex-1 flex-col items-center justify-center text-center px-8">
                 <p className="text-2xl mb-2">📁</p>
                 <p className="text-sm font-bold text-slate-300 mb-1">No file selected</p>
                 <p className="text-xs text-slate-500 max-w-sm">

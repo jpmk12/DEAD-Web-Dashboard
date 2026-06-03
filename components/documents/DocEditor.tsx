@@ -7,6 +7,7 @@ import DocChatPanel from "./DocChatPanel";
 import DocToolbar from "./DocToolbar";
 import DocTOC from "./DocTOC";
 import DocHistoryModal from "./DocHistoryModal";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 interface DocFull {
   id: string;
@@ -86,6 +87,11 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [splitView, setSplitView] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
+  // On phones the multi-pane grid collapses to one full-width pane at a time,
+  // chosen by a segmented switcher (the desktop toc/split/chat flags above
+  // drive the side-by-side layout only at lg+).
+  const isMobile = useIsMobile();
+  const [mobilePane, setMobilePane] = useState<"editor" | "preview" | "toc" | "chat">("editor");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [slashState, setSlashState] = useState<{ open: boolean; query: string; pos: number; selectedIdx: number }>({
     open: false, query: "", pos: -1, selectedIdx: 0,
@@ -548,35 +554,60 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
                saveState === "error"  ? "✗ Save failed" :
                updatedLabel ? `Updated ${updatedLabel}` : ""}
             </span>
-            <button
-              onClick={() => setTocOpen((v) => !v)}
-              title={tocOpen ? "Hide outline" : "Show outline (TOC)"}
-              className={`text-[10px] font-mono px-2 py-0.5 rounded transition-all border ${
-                tocOpen
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                  : "text-slate-500 hover:text-slate-300 border-slate-700 hover:border-slate-500"
-              }`}
-            >
-              ≣ TOC
-            </button>
-            <button
-              onClick={() => setSplitView((v) => !v)}
-              title={splitView ? "Editor only" : "Split view"}
-              className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
-            >
-              {splitView ? "◫ Split" : "▭ Edit"}
-            </button>
-            <button
-              onClick={() => setChatOpen((v) => !v)}
-              title={chatOpen ? "Close chat panel" : "Ask Claude about this doc"}
-              className={`text-[10px] font-mono px-2 py-0.5 rounded transition-all border ${
-                chatOpen
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                  : "text-slate-500 hover:text-slate-300 border-slate-700 hover:border-slate-500"
-              }`}
-            >
-              💬 Ask
-            </button>
+            {/* Desktop pane toggles (side-by-side layout) */}
+            <div className="hidden lg:flex items-center gap-2">
+              <button
+                onClick={() => setTocOpen((v) => !v)}
+                title={tocOpen ? "Hide outline" : "Show outline (TOC)"}
+                className={`text-[10px] font-mono px-2 py-0.5 rounded transition-all border ${
+                  tocOpen
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                    : "text-slate-500 hover:text-slate-300 border-slate-700 hover:border-slate-500"
+                }`}
+              >
+                ≣ TOC
+              </button>
+              <button
+                onClick={() => setSplitView((v) => !v)}
+                title={splitView ? "Editor only" : "Split view"}
+                className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
+              >
+                {splitView ? "◫ Split" : "▭ Edit"}
+              </button>
+              <button
+                onClick={() => setChatOpen((v) => !v)}
+                title={chatOpen ? "Close chat panel" : "Ask Claude about this doc"}
+                className={`text-[10px] font-mono px-2 py-0.5 rounded transition-all border ${
+                  chatOpen
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                    : "text-slate-500 hover:text-slate-300 border-slate-700 hover:border-slate-500"
+                }`}
+              >
+                💬 Ask
+              </button>
+            </div>
+
+            {/* Phone pane switcher — one full-width pane at a time */}
+            <div className="flex lg:hidden items-center gap-0.5 rounded-md border border-slate-700 p-0.5">
+              {([
+                ["editor", "Edit"],
+                ["preview", "View"],
+                ["toc", "TOC"],
+                ["chat", "Ask"],
+              ] as const).map(([pane, label]) => (
+                <button
+                  key={pane}
+                  onClick={() => setMobilePane(pane)}
+                  className={`text-[10px] font-mono px-2 py-1 rounded transition-all touch-manipulation ${
+                    mobilePane === pane
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setHistoryOpen(true)}
               title="Version history — snapshots are saved on edits, last 25 kept"
@@ -636,6 +667,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
           preview share the centre as 1fr each; chat docks on the right
           with min/max constraints to stay readable. */}
       <div className={`flex-1 min-h-0 grid divide-x divide-slate-800 ${
+        isMobile ? "grid-cols-1" :
         tocOpen && splitView && chatOpen ? "grid-cols-[minmax(160px,200px)_1fr_1fr_minmax(320px,420px)]" :
         tocOpen && splitView             ? "grid-cols-[minmax(160px,200px)_1fr_1fr]" :
         tocOpen && chatOpen              ? "grid-cols-[minmax(160px,200px)_1fr_minmax(320px,420px)]" :
@@ -645,13 +677,13 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
         chatOpen                         ? "grid-cols-[1fr_minmax(320px,420px)]" :
                                            "grid-cols-1"
       }`}>
-        {tocOpen && (
+        {(isMobile ? mobilePane === "toc" : tocOpen) && (
           <DocTOC text={doc.content} onJumpToLine={jumpToLine} onClose={() => setTocOpen(false)} />
         )}
         {/* Editor pane is relative so the slash-command popover anchors here.
             DocToolbar sits at the top of the column; the textarea fills the
             remaining height via flex. */}
-        <div className="relative h-full min-h-0 flex flex-col">
+        <div className={`relative h-full min-h-0 flex flex-col ${isMobile && mobilePane !== "editor" ? "hidden" : ""}`}>
           <DocToolbar
             onBold       ={() => wrapSelection("**")}
             onItalic     ={() => wrapSelection("*")}
@@ -784,12 +816,12 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
             </div>
           )}
         </div>
-        {splitView && (
+        {(isMobile ? mobilePane === "preview" : splitView) && (
           <div className="h-full overflow-y-auto p-5 bg-slate-900/40">
             <MarkdownPreview text={doc.content} onWikiLink={onOpenByTitle} onTaskToggle={onTaskToggle} />
           </div>
         )}
-        {chatOpen && (
+        {(isMobile ? mobilePane === "chat" : chatOpen) && (
           // Key on docId so switching docs forces a clean panel — the chat
           // history is doc-scoped and shouldn't carry over.
           <DocChatPanel key={docId} docId={docId} docTitle={doc.title} onClose={() => setChatOpen(false)} />
