@@ -43,6 +43,14 @@ const nextBin = require.resolve("next/dist/bin/next");
 const prerenderManifest = path.join(__dirname, ".next", "prerender-manifest.json");
 if (!fs.existsSync(prerenderManifest)) {
   console.log("[startup] no production build found (.next/prerender-manifest.json missing) — running 'next build'");
+  // Wipe any stale/partial .next first. The platform skips cleanup between
+  // deploys (cleanAppDirBeforeExtract: false), so a previous deploy's .next
+  // lingers in /app on a different overlay layer; building on top of it makes
+  // next's export step fail with "EXDEV: cross-device link not permitted,
+  // rename '.next/export/500.html' -> '.next/server/pages/500.html'". A clean
+  // .next on the writable layer keeps that rename intra-device. (build.js wipes
+  // for the same reason.)
+  fs.rmSync(path.join(__dirname, ".next"), { recursive: true, force: true });
   const build = spawnSync(process.execPath, [nextBin, "build"], {
     stdio: "inherit",
     env: { ...process.env, NODE_ENV: "production" },
