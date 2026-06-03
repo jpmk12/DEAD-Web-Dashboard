@@ -271,7 +271,7 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
   // Counts per view, computed once over the full doc set. Shown beside each
   // view label so the user can see at a glance which views have anything.
   const viewCounts = useMemo(() => {
-    const m: Record<ViewKey, number> = { all: 0, pinned: 0, recent: 0, untagged: 0, email: 0, osint: 0, news: 0, actions: 0 };
+    const m: Record<ViewKey, number> = { all: 0, pinned: 0, recent: 0, stale: 0, untagged: 0, email: 0, osint: 0, news: 0, actions: 0, archived: 0 };
     for (const d of docs) for (const v of VIEWS) if (viewPredicate(v.key, d)) m[v.key]++;
     return m;
   }, [docs]);

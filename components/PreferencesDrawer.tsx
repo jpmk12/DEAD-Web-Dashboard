@@ -1822,7 +1822,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               key={g.key}
               type="button"
               onClick={() => openAndScrollTo(g.key)}
-              title={g.subtitle}
               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded transition-all border flex-shrink-0 ${
                 openGroups[g.key]
                   ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"

@@ -44,7 +44,7 @@ export function trimBodyForClassifier(body: string): string {
     .split(/\n-- ?\n/)[0]                  // standard sig delimiter
     .split(/\nSent from my /)[0]           // mobile sig
     .split(/\nOn .{1,80}wrote:\n/)[0]      // Gmail/Outlook quoted-reply preamble
-    .replace(/(\n>[^\n]*){3,}.*$/s, "")    // long quoted-reply chains
+    .replace(/(\n>[^\n]*){3,}[\s\S]*$/, "")    // long quoted-reply chains ([\s\S] avoids the ES2018 /s flag)
     .trim()
     .slice(0, 400);
 }

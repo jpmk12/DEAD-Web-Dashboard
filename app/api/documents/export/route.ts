@@ -46,7 +46,9 @@ export async function GET(req: Request) {
 
   const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
   const stamp = format(new Date(), "yyyyMMdd-HHmm");
-  return new NextResponse(bytes, {
+  // `bytes` is a real ArrayBuffer-backed Uint8Array; the cast only sidesteps
+  // the lib's over-strict ArrayBufferLike (incl. SharedArrayBuffer) generic.
+  return new NextResponse(bytes as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="docs-${stamp}.zip"`,

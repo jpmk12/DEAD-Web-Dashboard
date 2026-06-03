@@ -176,7 +176,8 @@ export async function createDocument(input: { title: string; content?: string; t
   );
   await rebuildLinksForDoc(id, content);
   return {
-    id, title, content, tags, pinned: false,
+    id, title, content, tags, pinned: false, archived: false,
+    wordCount: Math.round(content.length / 5),
     createdAt: now.toISOString(), updatedAt: now.toISOString(),
   };
 }

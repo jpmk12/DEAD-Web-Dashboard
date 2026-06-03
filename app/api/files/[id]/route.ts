@@ -13,7 +13,9 @@ export async function GET(_req: Request, ctx: RouteCtx) {
   if (!file) return NextResponse.json({ error: "Not found" }, { status: 404 });
   // Quote filename to defend against unusual chars in headers.
   const safeName = file.filename.replace(/[\r\n"]/g, "");
-  return new NextResponse(file.data, {
+  // Cast sidesteps the lib's over-strict ArrayBufferLike generic; file.data is
+  // a real ArrayBuffer-backed Buffer and a valid response body at runtime.
+  return new NextResponse(file.data as unknown as BodyInit, {
     headers: {
       "Content-Type": file.mimeType,
       "Content-Disposition": `attachment; filename="${safeName}"`,
