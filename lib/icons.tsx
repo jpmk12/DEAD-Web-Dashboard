@@ -25,6 +25,7 @@ import {
   List,
   Network,
   History,
+  Menu,
   type LucideIcon,
 } from "lucide-react";
 
@@ -48,6 +49,7 @@ export const DigestIcon = BookOpen; // weekly reading digest
 export const CaptureIcon = Plus; // quick capture (⌘K)
 export const PreferencesIcon = Settings;
 export const AssistantIcon = Bot; // floating AI assistant
+export const MenuIcon = Menu; // phone hamburger
 
 // News view-mode toggles.
 export const FeedViewIcon = List;

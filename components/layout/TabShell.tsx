@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import TabBar, { Tab } from "./TabBar";
-import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon } from "@/lib/icons";
+import MobileNavDrawer from "./MobileNavDrawer";
+import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon, MenuIcon } from "@/lib/icons";
 import NewsShell from "@/components/news/NewsShell";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import CalendarRail from "@/components/calendar/CalendarRail";
@@ -33,6 +34,7 @@ export default function TabShell() {
   const [briefingOpen, setBriefingOpen] = useState(false);
   const [briefingMode, setBriefingMode] = useState<"briefing" | "digest">("briefing");
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
 
@@ -175,6 +177,8 @@ export default function TabShell() {
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Desktop actions; on phones these live in the nav drawer instead */}
+            <div className="hidden lg:flex items-center gap-2">
             {/* Primary CTA: Morning Brief */}
             <button
               onClick={openBriefing}
@@ -213,11 +217,36 @@ export default function TabShell() {
             >
               <PreferencesIcon size={16} strokeWidth={2.25} />
             </button>
+            </div>
+
+            {/* Phone hamburger — opens the full nav + actions drawer */}
+            <button
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+              className="lg:hidden w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-md transition-all touch-manipulation"
+            >
+              <MenuIcon size={20} strokeWidth={2.25} />
+            </button>
           </div>
         </div>
 
-        <TabBar activeTab={activeTab} onTabChange={setActiveTab} badges={{ osint: osintSignals }} />
+        {/* Desktop tab row; phones use the hamburger drawer instead */}
+        <div className="hidden lg:block">
+          <TabBar activeTab={activeTab} onTabChange={setActiveTab} badges={{ osint: osintSignals }} />
+        </div>
       </header>
+
+      <MobileNavDrawer
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        badges={{ osint: osintSignals }}
+        onBrief={openBriefing}
+        onDigest={openDigest}
+        onCapture={() => setCaptureOpen(true)}
+        onPreferences={() => setPrefsOpen(true)}
+      />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6">
         {/* All tabs stay mounted — CSS hidden keeps them alive for instant switching and parallel pre-fetch */}

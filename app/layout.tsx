@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import ThemeApplicator from "@/components/ThemeApplicator";
@@ -9,6 +9,15 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "DEAD's Dashboard",
   description: "National security news, calendar, and email — all in one place.",
+};
+
+// Mobile: scale to device width, allow user zoom (accessibility), and extend
+// under the notch/home-indicator so safe-area insets can be honored in CSS.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#020617", // slate-950, matches the app background
 };
 
 // Runs before React hydrates to apply the saved theme from localStorage,

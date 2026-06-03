@@ -10,7 +10,7 @@ interface TabBarProps {
   badges?: Partial<Record<Tab, number>>;
 }
 
-const TABS: { id: Tab; label: string }[] = [
+export const TABS: { id: Tab; label: string }[] = [
   { id: "glance",   label: "Glance" },
   { id: "news",     label: "News" },
   { id: "calendar", label: "Calendar" },
