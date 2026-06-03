@@ -8,7 +8,9 @@
 // - Forces a standard NODE_ENV: the platform injects a non-standard value,
 //   which otherwise makes Next/React use development runtimes.
 // - Binds 0.0.0.0 on the platform-provided PORT so the proxy can reach it.
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
 // Startup diagnostic: log which required env vars are present (names only,
 // never values). A missing one is the usual cause of Auth.js's
@@ -32,6 +34,24 @@ for (const [name, val] of Object.entries(checks)) {
 
 const port = String(process.env.PORT || 3000);
 const nextBin = require.resolve("next/dist/bin/next");
+
+// Self-heal a missing production build. If the platform's build step didn't run
+// or failed, `.next/prerender-manifest.json` is absent and `next start` crashes
+// with "ENOENT .next/prerender-manifest.json". Build once, synchronously, before
+// starting. When the build ran normally this is a cheap existence check and a
+// no-op.
+const prerenderManifest = path.join(__dirname, ".next", "prerender-manifest.json");
+if (!fs.existsSync(prerenderManifest)) {
+  console.log("[startup] no production build found (.next/prerender-manifest.json missing) — running 'next build'");
+  const build = spawnSync(process.execPath, [nextBin, "build"], {
+    stdio: "inherit",
+    env: { ...process.env, NODE_ENV: "production" },
+  });
+  if (build.status !== 0) {
+    console.error("[startup] 'next build' failed; cannot start without a production build");
+    process.exit(build.status ?? 1);
+  }
+}
 
 // The platform's proxy hands the app an internal host (e.g. 0.0.0.0:PORT).
 // Auth.js builds OAuth redirect URLs from AUTH_URL/NEXTAUTH_URL when set, and

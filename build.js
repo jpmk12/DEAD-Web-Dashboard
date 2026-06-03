@@ -13,9 +13,15 @@ const { spawnSync } = require("child_process");
 
 rmSync(".next", { recursive: true, force: true });
 
-const result = spawnSync("next build", {
+// Resolve Next's CLI directly instead of relying on `next` being on PATH or in
+// node_modules/.bin — neither is reliable on this platform (same reason start.js
+// resolves it this way). A shelled-out `next build` here failed silently, which
+// left no production build and made `next start` crash with
+// "ENOENT .next/prerender-manifest.json".
+const nextBin = require.resolve("next/dist/bin/next");
+
+const result = spawnSync(process.execPath, [nextBin, "build"], {
   stdio: "inherit",
-  shell: true,
   env: { ...process.env, NODE_ENV: "production" },
 });
 
