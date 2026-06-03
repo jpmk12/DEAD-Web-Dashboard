@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TrackedLocation, MetarStation } from "@/lib/types";
 import LocationCard from "./LocationCard";
-import AlertsPanel from "./AlertsPanel";
+import ThreatBoard from "./ThreatBoard";
 import SpaceWeatherCard from "./SpaceWeatherCard";
 import MetarPanel from "./MetarPanel";
 
@@ -131,8 +131,8 @@ export default function WeatherTab() {
         </div>
       )}
 
-      {/* Severe-weather alerts across all tracked locations */}
-      {allLocations.length > 0 && <AlertsPanel locations={allLocations} />}
+      {/* Severe-weather threat board (alerts across all locations + tropical systems) */}
+      <ThreatBoard refreshKey={refreshKey} />
 
       {/* Space weather */}
       <SpaceWeatherCard />

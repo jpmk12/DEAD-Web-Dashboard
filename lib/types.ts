@@ -265,6 +265,40 @@ export interface StationWx {
   error?: string;            // set when the station couldn't be fetched/decoded
 }
 
+// A severe-weather alert aggregated across the user's tracked locations.
+export interface SevereThreat {
+  id: string;
+  event: string;                       // "Tornado Warning"
+  severity: WeatherAlert["severity"];
+  tier: "warning" | "watch" | "advisory" | "statement" | "other";
+  lifeThreatening: boolean;            // tornado/hurricane/severe-tstorm/flash-flood warnings, etc.
+  headline: string;
+  areaDesc: string;
+  effective: string;
+  expires: string;
+  locations: string[];                 // tracked-location labels this alert covers
+}
+
+// An active tropical cyclone from the National Hurricane Center.
+export interface TropicalSystem {
+  id: string;
+  name: string;
+  classification: string;              // raw code: HU / TS / TD / STS / TY ...
+  category: string;                    // human label
+  intensityKt: number | null;
+  pressureMb: number | null;
+  lat: number | null;
+  lon: number | null;
+  movement: string;
+  lastUpdate: string;
+}
+
+export interface WeatherThreats {
+  threats: SevereThreat[];
+  tropical: TropicalSystem[];
+  summary: { extreme: number; severe: number; lifeThreatening: number; total: number; topEvent: string | null };
+}
+
 export interface VipSuggestion {
   email: string;
   count: number;        // number of replies in the lookback window
