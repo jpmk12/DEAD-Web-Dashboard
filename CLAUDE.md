@@ -403,6 +403,16 @@ ESLint is **not** required at build time — `next.config.ts` sets
 `eslint.ignoreDuringBuilds: true`, so `eslint` / `eslint-config-next` may stay in
 `devDependencies` (used only by local `npm run lint`).
 
+### Critical: `.npmrc` pins production installs (`omit=dev`)
+A deploy once failed at archive-extract time with `tar: can't create hardlink
+'./node_modules/esbuild/bin/esbuild' to './node_modules/@esbuild/linux-x64/bin/esbuild'`.
+Root cause: the platform had installed **devDependencies**, which pull in
+`vitest → vite → esbuild`, and esbuild ships its binary as a hardlink the
+platform's `tar` can't recreate on extract. The committed `.npmrc` (`omit=dev`)
+forces a runtime-only install so that chain is never present — **keep it**. To
+run the test suite locally, install with `npm install --include=dev`. Do not
+move `vitest` / `eslint` into `dependencies`.
+
 ### Database
 - Uses the managed MySQL via `mysql2` (`lib/db.ts`), reading
   `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` from `process.env`.
