@@ -134,9 +134,6 @@ export default function WeatherTab() {
       {/* Severe-weather threat board (alerts across all locations + tropical systems) */}
       <ThreatBoard refreshKey={refreshKey} />
 
-      {/* Space weather */}
-      <SpaceWeatherCard />
-
       {/* Map controls + Windy embed centred on the selected location */}
       {selected && (
         <>
@@ -178,6 +175,9 @@ export default function WeatherTab() {
 
       {/* Decoded METAR / TAF for configured airfields */}
       <MetarPanel stations={metarStations} refreshKey={refreshKey} />
+
+      {/* Space weather — kept at the bottom of the tab */}
+      <SpaceWeatherCard />
 
       <p className="text-[10px] text-slate-700 text-right">
         Weather data by{" "}

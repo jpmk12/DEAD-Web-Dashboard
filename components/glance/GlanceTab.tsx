@@ -70,6 +70,21 @@ function endOfToday(): number {
 function isToday(ms: number): boolean {
   return ms >= startOfToday() && ms <= endOfToday();
 }
+function startOfTomorrow(): number {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+function endOfTomorrow(): number {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
+function isTomorrow(ms: number): boolean {
+  return ms >= startOfTomorrow() && ms <= endOfTomorrow();
+}
 function ms(iso?: string): number {
   if (!iso) return 0;
   const t = Date.parse(iso);
@@ -319,6 +334,10 @@ export default function GlanceTab({
     .filter((e) => isToday(ms(e.start)) || (ms(e.start) < startOfToday() && ms(e.end) > startOfToday()))
     .sort((a, b) => ms(a.start) - ms(b.start))
     .slice(0, 6);
+  const tomorrowEvents = calendarEvents
+    .filter((e) => isTomorrow(ms(e.start)) || (ms(e.start) < startOfTomorrow() && ms(e.end) > startOfTomorrow()))
+    .sort((a, b) => ms(a.start) - ms(b.start))
+    .slice(0, 6);
 
   // ── Derived: breaking & critical ──
   const criticalSource =
@@ -508,6 +527,31 @@ export default function GlanceTab({
             ) : (
               <ul className="divide-y divide-slate-800/60">
                 {todayEvents.map((e) => (
+                  <li key={e.id}>
+                    <button
+                      onClick={() => onNavigate("calendar")}
+                      className="group w-full text-left flex items-baseline gap-3 px-3 py-2.5 hover:bg-slate-800/40 transition-colors"
+                    >
+                      <span className="text-[11px] font-mono font-semibold text-emerald-400 w-16 flex-shrink-0">
+                        {e.isAllDay ? "All day" : clockTime(e.start)}
+                      </span>
+                      <span className="text-sm text-slate-200 truncate group-hover:text-slate-100">
+                        {e.title}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          {/* Tomorrow */}
+          <Panel title="Tomorrow" onJump={() => onNavigate("calendar")}>
+            {tomorrowEvents.length === 0 ? (
+              <Empty>Nothing on the calendar tomorrow.</Empty>
+            ) : (
+              <ul className="divide-y divide-slate-800/60">
+                {tomorrowEvents.map((e) => (
                   <li key={e.id}>
                     <button
                       onClick={() => onNavigate("calendar")}
