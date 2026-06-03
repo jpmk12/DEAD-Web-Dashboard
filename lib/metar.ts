@@ -122,7 +122,7 @@ interface AwcMetar {
   icaoId?: string; name?: string; rawOb?: string; obsTime?: number;
   temp?: number | null; dewp?: number | null; wdir?: number | string | null;
   wspd?: number | null; wgst?: number | null; visib?: number | string | null;
-  altim?: number | null; wxString?: string | null; clouds?: AwcCloud[];
+  altim?: number | null; presTend?: number | null; wxString?: string | null; clouds?: AwcCloud[];
 }
 
 export function decodeMetar(m: AwcMetar): MetarObs {
@@ -161,6 +161,7 @@ export function decodeMetar(m: AwcMetar): MetarObs {
     windDir, windVariable: wdirRaw === "VRB",
     windSpeedKt, windGustKt,
     visibilityMi, ceilingFt, tempC, dewpointC, altimeterInHg,
+    pressureTendency: num(m.presTend),
     weather, clouds,
     summary: bits.join(" "),
   };

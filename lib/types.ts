@@ -238,6 +238,7 @@ export interface MetarObs {
   tempC: number | null;
   dewpointC: number | null;
   altimeterInHg: number | null;
+  pressureTendency: number | null; // 3-hr pressure change (sign = rising/falling)
   weather: string;           // decoded present-weather phrase ("light rain, mist")
   clouds: { cover: string; baseFt: number | null }[];
   summary: string;           // plain-English one-liner

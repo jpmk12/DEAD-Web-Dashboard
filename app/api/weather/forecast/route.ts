@@ -44,7 +44,7 @@ async function fetchForecast(lat: number, lon: number): Promise<ForecastPeriod[]
   if (!forecastRes.ok) throw new Error(`forecast: ${forecastRes.status}`);
   const forecast = await forecastRes.json();
   const periods: NwsPeriod[] = forecast?.properties?.periods ?? [];
-  return periods.slice(0, 8).map((p) => ({
+  return periods.slice(0, 14).map((p) => ({
     name: String(p.name ?? ""),
     startTime: String(p.startTime ?? ""),
     isDaytime: Boolean(p.isDaytime),

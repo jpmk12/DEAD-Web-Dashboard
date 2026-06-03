@@ -75,6 +75,9 @@ function StationCard({ station, wx }: { station: MetarStation; wx: StationWx | u
             <Chip label="ceil" value={m.ceilingFt != null ? `${m.ceilingFt.toLocaleString()} ft` : "none"} />
             {m.tempC != null && <Chip label="temp" value={`${m.tempC}°C`} />}
             {m.altimeterInHg != null && <Chip label="alt" value={`${m.altimeterInHg.toFixed(2)}"`} />}
+            {m.pressureTendency != null && m.pressureTendency !== 0 && (
+              <Chip label="baro" value={m.pressureTendency > 0 ? "↑ rising" : "↓ falling"} />
+            )}
           </div>
 
           {m.weather && <p className="mt-1.5 text-[10px] text-amber-400">⚠ {m.weather}</p>}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ForecastPeriod, WeatherAlert, TrackedLocation } from "@/lib/types";
+import { Sparkline, PrecipBars } from "./Sparkline";
 
 interface LocationCardProps {
   location: TrackedLocation;
@@ -109,6 +110,27 @@ export default function LocationCard({ location, active, onSelect }: LocationCar
               </div>
             ))}
           </div>
+
+          {/* 7-day trend: temperature sparkline + precip-probability bars */}
+          {periods.length >= 4 && (() => {
+            const temps = periods.map((p) => p.tempF);
+            const precip = periods.map((p) => p.precipPercent ?? 0);
+            const maxTemp = Math.max(...temps);
+            const minTemp = Math.min(...temps);
+            const maxPrecip = Math.max(...precip);
+            return (
+              <div className="mt-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-[8px] uppercase tracking-widest text-slate-600">7-day trend</span>
+                  <span className="text-[9px] font-mono text-slate-500">
+                    {minTemp}°–{maxTemp}°{maxPrecip > 0 ? ` · ${maxPrecip}% precip` : ""}
+                  </span>
+                </div>
+                <Sparkline values={temps} width={170} height={26} />
+                {maxPrecip > 0 && <PrecipBars values={precip} width={170} height={10} />}
+              </div>
+            );
+          })()}
         </>
       )}
     </button>
