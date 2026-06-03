@@ -4,6 +4,7 @@ import { useState } from "react";
 import { NewsItem } from "@/lib/types";
 import { safeHttpHref } from "@/lib/url";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import ArticleThesis from "./ArticleThesis";
 
 interface NewsCardProps {
   item: NewsItem;
@@ -13,6 +14,7 @@ interface NewsCardProps {
   onUnsave?: (id: string) => void;
   watchlist?: string[];
   previousSeen?: number;
+  showThesis?: boolean;
 }
 
 // Per-article cooldown for the implicit "opened" signal so refresh / re-click
@@ -49,7 +51,7 @@ const CATEGORY_STYLE: Record<string, { badge: string; bar: string }> = {
 };
 const DEFAULT_STYLE = { badge: "bg-slate-700/40 text-slate-400 border border-slate-700", bar: "bg-slate-600" };
 
-export default function NewsCard({ item, onFeedback, isSaved = false, onSave, onUnsave, watchlist = [], previousSeen = 0 }: NewsCardProps) {
+export default function NewsCard({ item, onFeedback, isSaved = false, onSave, onUnsave, watchlist = [], previousSeen = 0, showThesis = false }: NewsCardProps) {
   const [rated, setRated] = useState<"useful" | "not_useful" | null>(null);
   const [notingState, setNotingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const style = CATEGORY_STYLE[item.category] ?? DEFAULT_STYLE;
@@ -193,6 +195,8 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
       {item.summary && (
         <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed mb-4">{item.summary}</p>
       )}
+
+      {showThesis && <ArticleThesis article={item} className="mb-4" />}
 
       {/* Feedback row */}
       <div className="flex items-center gap-2 pt-2.5 border-t border-slate-800/80 mt-auto">

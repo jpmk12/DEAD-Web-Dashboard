@@ -13,6 +13,7 @@ import {
   WeatherThreats,
 } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
+import ArticleThesis from "@/components/news/ArticleThesis";
 
 // ── Cache keys owned by the source tabs. Glance is read-only here: it peeks
 //    the same in-memory entries the other tabs populate, so it never triggers
@@ -487,6 +488,9 @@ export default function GlanceTab({
                           </div>
                         </div>
                       </a>
+                      <div className="px-3 pb-2.5 -mt-1">
+                        <ArticleThesis article={n} />
+                      </div>
                     </li>
                   );
                 })}

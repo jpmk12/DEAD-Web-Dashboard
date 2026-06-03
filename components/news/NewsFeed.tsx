@@ -288,7 +288,7 @@ export default function NewsFeed({
 
   const failedCount = Object.keys(sourceErrors).length;
 
-  const renderCard = (item: NewsItem) => (
+  const renderCard = (item: NewsItem, showThesis = false) => (
     <NewsCard
       key={item.id}
       item={item}
@@ -298,6 +298,7 @@ export default function NewsFeed({
       onUnsave={handleUnsave}
       watchlist={watchlist}
       previousSeen={previousSeen}
+      showThesis={showThesis}
     />
   );
 
@@ -385,7 +386,7 @@ export default function NewsFeed({
                 </span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {criticalItems.map(renderCard)}
+                {criticalItems.map((it) => renderCard(it, true))}
               </div>
             </>
           )}
@@ -407,7 +408,7 @@ export default function NewsFeed({
               </button>
               {showDiscover && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {discoverItems.map(renderCard)}
+                  {discoverItems.map((it) => renderCard(it))}
                 </div>
               )}
             </div>
@@ -417,7 +418,7 @@ export default function NewsFeed({
 
       {!loading && !error && tab !== "overview" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visible.map(renderCard)}
+          {visible.map((it) => renderCard(it))}
           {visible.length === 0 && (
             <div className="col-span-full text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">
               {tab === "saved" ? "No saved articles yet — star articles to save them" : `No ${tab === "all" ? "" : tab + " "}articles loaded`}
