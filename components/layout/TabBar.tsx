@@ -9,14 +9,14 @@ interface TabBarProps {
 }
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "glance",   label: "Glance",       icon: "◆" },
-  { id: "news",     label: "News",         icon: "◉" },
-  { id: "calendar", label: "Calendar & AI", icon: "◈" },
-  { id: "email",    label: "Email",         icon: "◎" },
-  { id: "docs",     label: "Docs",          icon: "▤" },
-  { id: "osint",    label: "OSINT",         icon: "⊕" },
-  { id: "markets",  label: "Markets",       icon: "◈" },
-  { id: "weather",  label: "Weather",       icon: "〜" },
+  { id: "glance",   label: "Glance",   icon: "◆" },
+  { id: "news",     label: "News",     icon: "◉" },
+  { id: "calendar", label: "Calendar", icon: "◈" },
+  { id: "email",    label: "Email",    icon: "◎" },
+  { id: "osint",    label: "OSINT",    icon: "⊕" },
+  { id: "weather",  label: "Weather",  icon: "〜" },
+  { id: "docs",     label: "Docs",     icon: "▤" },
+  { id: "markets",  label: "Markets",  icon: "◈" },
 ];
 
 export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) {

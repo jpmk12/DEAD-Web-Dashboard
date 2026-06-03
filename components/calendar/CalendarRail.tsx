@@ -11,6 +11,8 @@ interface CalendarRailProps {
   newsletters: NewsletterSummary[];
   onTaskAdded: () => void;
   tasksRefreshKey: number;
+  // Bubble loaded tasks up so the global floating assistant shares this context.
+  onTasksLoaded?: (tasks: GoogleTask[]) => void;
 }
 
 type RailTab = "tasks" | "assistant";
@@ -21,6 +23,7 @@ export default function CalendarRail({
   newsletters,
   onTaskAdded,
   tasksRefreshKey,
+  onTasksLoaded,
 }: CalendarRailProps) {
   const [open, setOpen] = useState(true);
   const [railTab, setRailTab] = useState<RailTab>("tasks");
@@ -60,7 +63,7 @@ export default function CalendarRail({
       <div className={`h-full ${railTab !== "tasks" ? "hidden" : ""}`}>
         <TasksPanel
           refreshKey={tasksRefreshKey}
-          onTasksLoaded={setTasksForChat}
+          onTasksLoaded={(t) => { setTasksForChat(t); onTasksLoaded?.(t); }}
         />
       </div>
       <div className={`h-full ${railTab !== "assistant" ? "hidden" : ""}`}>

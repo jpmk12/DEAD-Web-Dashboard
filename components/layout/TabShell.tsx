@@ -14,7 +14,8 @@ import GlanceTab from "@/components/glance/GlanceTab";
 import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
-import { CalendarEvent, NewsItem, NewsletterSummary, TickerEntry } from "@/lib/types";
+import FloatingAssistant from "@/components/chat/FloatingAssistant";
+import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, TickerEntry } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
 
@@ -23,6 +24,7 @@ const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "docs", "osint
 export default function TabShell() {
   const [activeTab, setActiveTab] = useState<Tab>("glance");
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [tasks, setTasks] = useState<GoogleTask[]>([]);
   const [tasksRefreshKey, setTasksRefreshKey] = useState(0);
   const [articles, setArticles] = useState<NewsItem[]>([]);
   const [newsletters, setNewsletters] = useState<NewsletterSummary[]>([]);
@@ -256,6 +258,7 @@ export default function TabShell() {
               newsletters={newsletters}
               onTaskAdded={() => setTasksRefreshKey((k) => k + 1)}
               tasksRefreshKey={tasksRefreshKey}
+              onTasksLoaded={setTasks}
             />
           </div>
         </div>
@@ -309,6 +312,15 @@ export default function TabShell() {
           // happens on tab switch.
           if (kind === "task") setTasksRefreshKey((k) => k + 1);
         }}
+      />
+
+      {/* Global AI assistant — reachable from every tab. */}
+      <FloatingAssistant
+        calendarEvents={calendarEvents}
+        tasks={tasks}
+        articles={articles}
+        newsletters={newsletters}
+        onTaskAdded={() => setTasksRefreshKey((k) => k + 1)}
       />
     </div>
   );

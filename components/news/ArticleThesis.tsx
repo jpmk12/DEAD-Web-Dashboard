@@ -10,6 +10,22 @@ type ArticleLike = Pick<NewsItem, "title" | "source" | "summary" | "link">;
 // round-trip.
 const sessionCache = new Map<string, { thesis: string; basedOn: "full-text" | "summary" }>();
 
+// Articles we've already reported interest in this session, so repeated thesis
+// clicks don't spam the feedback signal.
+const interestFired = new Set<string>();
+
+// Clicking "Thesis" is a deliberate engagement signal — feed it to the ranking
+// model as an implicit "opened"/interest, the same channel as clicking through.
+function reportInterest(article: ArticleLike, key: string) {
+  if (interestFired.has(key)) return;
+  interestFired.add(key);
+  fetch("/api/article-feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: article.title, source: article.source, action: "opened" }),
+  }).catch(() => {});
+}
+
 type State =
   | { phase: "idle" }
   | { phase: "loading" }
@@ -24,6 +40,7 @@ export default function ArticleThesis({ article, className = "" }: { article: Ar
   );
 
   const run = async () => {
+    reportInterest(article, key);
     setState({ phase: "loading" });
     try {
       const res = await fetch("/api/news/thesis", {
