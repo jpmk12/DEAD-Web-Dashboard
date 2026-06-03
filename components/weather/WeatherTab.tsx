@@ -6,6 +6,7 @@ import LocationCard from "./LocationCard";
 import ThreatBoard from "./ThreatBoard";
 import SpaceWeatherCard from "./SpaceWeatherCard";
 import MetarPanel from "./MetarPanel";
+import { CloudSun } from "@/lib/icons";
 
 type Overlay = "wind" | "rain" | "temp" | "clouds" | "pressure";
 
@@ -87,7 +88,7 @@ export default function WeatherTab() {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-md bg-sky-500/10 border border-sky-500/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-sky-400 text-xs">〜</span>
+            <CloudSun size={15} strokeWidth={2.25} className="text-sky-400" />
           </div>
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Weather</h2>

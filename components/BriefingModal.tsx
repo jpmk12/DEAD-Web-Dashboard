@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPrefetch";
+import { BriefIcon, DigestIcon } from "@/lib/icons";
 import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
 import { buildBriefingHTML, buildDigestHTML, openPrintWindow, downloadHTML } from "@/lib/exports";
 
@@ -171,9 +172,11 @@ export default function BriefingModal({
             <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
               isBriefing ? "bg-emerald-500/15 border border-emerald-500/30" : "bg-slate-800 border border-slate-700"
             }`}>
-              <span className={`text-sm ${isBriefing ? "text-emerald-400" : "text-slate-400"}`}>
-                {isBriefing ? "◆" : "◈"}
-              </span>
+              {isBriefing ? (
+                <BriefIcon size={16} strokeWidth={2.5} className="text-emerald-400" />
+              ) : (
+                <DigestIcon size={16} strokeWidth={2.25} className="text-slate-400" />
+              )}
             </div>
             <div>
               <h2 className="text-sm font-bold uppercase tracking-widest text-slate-100">

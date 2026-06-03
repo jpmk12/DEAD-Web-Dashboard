@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import TabBar, { Tab } from "./TabBar";
+import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon } from "@/lib/icons";
 import NewsShell from "@/components/news/NewsShell";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import CalendarRail from "@/components/calendar/CalendarRail";
@@ -180,7 +181,7 @@ export default function TabShell() {
               title="Generate morning brief from loaded news"
               className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all glow-green"
             >
-              <span className="text-base leading-none">◆</span>
+              <BriefIcon size={15} strokeWidth={2.5} className="leading-none" />
               <span className="hidden sm:inline">Brief</span>
             </button>
 
@@ -190,7 +191,7 @@ export default function TabShell() {
               title="Weekly reading digest"
               className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-300 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all"
             >
-              <span className="text-base leading-none">◈</span>
+              <DigestIcon size={15} strokeWidth={2.25} className="leading-none" />
               <span className="hidden sm:inline">Digest</span>
             </button>
 
@@ -200,7 +201,7 @@ export default function TabShell() {
               title="Quick capture (⌘K) — task, event, or note"
               className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-400 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all"
             >
-              <span className="text-base leading-none">⚡</span>
+              <CaptureIcon size={15} strokeWidth={2.5} className="leading-none" />
               <span className="hidden sm:inline">Capture</span>
             </button>
 
@@ -208,9 +209,9 @@ export default function TabShell() {
             <button
               onClick={() => setPrefsOpen(true)}
               title="Preferences & accounts"
-              className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 rounded-md transition-all text-sm"
+              className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 rounded-md transition-all"
             >
-              ⚙
+              <PreferencesIcon size={16} strokeWidth={2.25} />
             </button>
           </div>
         </div>

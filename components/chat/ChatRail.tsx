@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { BriefIcon } from "@/lib/icons";
 
 interface ChatRailProps {
   label: string;
-  icon?: string;
+  icon?: React.ReactNode;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }
 
 export default function ChatRail({
   label,
-  icon = "◆",
+  icon = <BriefIcon size={14} strokeWidth={2.25} className="inline-block align-[-2px]" />,
   defaultOpen = false,
   children,
 }: ChatRailProps) {

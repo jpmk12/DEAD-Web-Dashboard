@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
 import ChatPanel from "./ChatPanel";
+import { AssistantIcon } from "@/lib/icons";
 
 interface FloatingAssistantProps {
   calendarEvents: CalendarEvent[];
@@ -50,7 +51,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
           title="Open AI assistant"
           className="fixed bottom-5 right-5 z-40 flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold uppercase tracking-wider px-4 py-3 rounded-full shadow-lg glow-green transition-all"
         >
-          <span className="text-base leading-none">❖</span>
+          <AssistantIcon size={16} strokeWidth={2.5} className="leading-none" />
           Assistant
         </button>
       )}
@@ -62,7 +63,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
           <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-[420px] bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 flex-shrink-0">
               <h2 className="text-xs font-bold uppercase tracking-widest text-slate-200 flex items-center gap-2">
-                <span className="text-emerald-400">❖</span> AI Assistant
+                <AssistantIcon size={15} strokeWidth={2.25} className="inline-block align-[-2px] text-emerald-400" /> AI Assistant
               </h2>
               <button
                 onClick={() => setOpen(false)}

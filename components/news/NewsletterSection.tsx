@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { NewsletterSummary } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
+import { DigestIcon } from "@/lib/icons";
 import { gmailMessageUrl } from "@/lib/gmailLink";
 import { formatDistanceToNow, parseISO } from "date-fns";
 
@@ -401,7 +402,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                 : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300 bg-slate-800/50"
             }`}
           >
-            <span className="text-base leading-none">▤</span>
+            <DigestIcon size={14} strokeWidth={2.25} className="leading-none" />
             Digest
           </button>
         )}

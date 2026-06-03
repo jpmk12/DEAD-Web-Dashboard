@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import dynamic from "next/dynamic";
+import { Crosshair } from "@/lib/icons";
 
 // Leaflet uses window/document at import time, so we have to load the map
 // component client-only. Without ssr: false the build fails with a
@@ -607,7 +608,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-md bg-violet-500/10 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-violet-400 text-xs">⌖</span>
+            <Crosshair size={15} strokeWidth={2.25} className="text-violet-400" />
           </div>
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">OSINT</h2>

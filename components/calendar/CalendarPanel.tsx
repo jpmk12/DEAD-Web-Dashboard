@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { format, parseISO } from "date-fns";
 import { CalendarEvent } from "@/lib/types";
+import { Calendar } from "@/lib/icons";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import SignInButton from "./SignInButton";
 
@@ -299,7 +300,7 @@ export default function CalendarPanel({ onEventsLoaded }: CalendarPanelProps) {
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-900/80">
         <div className="flex items-center gap-2">
-          <span className="text-emerald-400 text-xs">⊞</span>
+          <Calendar size={14} strokeWidth={2.25} className="text-emerald-400" />
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">Upcoming</h2>
         </div>
         <div className="flex items-center gap-3">

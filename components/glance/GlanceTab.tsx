@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
+import { BriefIcon } from "@/lib/icons";
 import {
   NewsItem,
   NewsletterSummary,
@@ -481,7 +482,7 @@ export default function GlanceTab({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-emerald-400 text-[11px] font-bold uppercase tracking-widest mb-2">
-              <span className="text-base leading-none">◆</span> Morning Brief
+              <BriefIcon size={15} strokeWidth={2.5} className="leading-none" /> Morning Brief
             </div>
             {briefing ? (
               <>

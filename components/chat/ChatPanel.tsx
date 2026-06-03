@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CalendarEvent, ChatMessage as ChatMessageType, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
 import ChatMessage from "./ChatMessage";
+import { AssistantIcon } from "@/lib/icons";
 import ChatInput from "./ChatInput";
 
 interface ChatPanelProps {
@@ -359,7 +360,7 @@ export default function ChatPanel({
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800/80 bg-slate-900/80">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-emerald-400 text-xs">❖</span>
+            <AssistantIcon size={13} strokeWidth={2.25} className="text-emerald-400" />
           </div>
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">AI Assistant</h2>
         </div>

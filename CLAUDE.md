@@ -421,6 +421,17 @@ entries: `grep -c esbuild package-lock.json` → `0`.
 The committed `.npmrc` (`omit=dev`) is kept as defense-in-depth (keeps the prod
 install runtime-only) but is no longer load-bearing for the esbuild issue.
 
+### Icons (`lucide-react`)
+Navigation tabs, primary action buttons, and major section headers use
+`lucide-react` SVG icons. The vocabulary lives in `lib/icons.tsx` (one icon per
+tab via `TAB_ICONS`, plus named exports for actions/headers) — change icons
+there, not at call sites, so one glyph keeps one meaning. `lucide-react` is a
+**runtime `dependency`** (not dev) because `.npmrc` has `omit=dev` and the icons
+render in the shipped UI. It is pure React components with no postinstall/binary,
+so it does **not** add esbuild — keep `grep -c esbuild package-lock.json` at `0`.
+Dense inline markers (disaster types, weather overlays, severity dots, trend
+arrows, voting, affordances) deliberately stay Unicode glyphs.
+
 ### Database
 - Uses the managed MySQL via `mysql2` (`lib/db.ts`), reading
   `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` from `process.env`.

@@ -1,3 +1,5 @@
+import { TAB_ICONS } from "@/lib/icons";
+
 export type Tab = "glance" | "news" | "calendar" | "email" | "docs" | "osint" | "markets" | "weather";
 
 interface TabBarProps {
@@ -8,15 +10,15 @@ interface TabBarProps {
   badges?: Partial<Record<Tab, number>>;
 }
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "glance",   label: "Glance",   icon: "◆" },
-  { id: "news",     label: "News",     icon: "◉" },
-  { id: "calendar", label: "Calendar", icon: "⊞" },
-  { id: "email",    label: "Email",    icon: "◎" },
-  { id: "osint",    label: "OSINT",    icon: "⌖" },
-  { id: "weather",  label: "Weather",  icon: "〜" },
-  { id: "docs",     label: "Docs",     icon: "▤" },
-  { id: "markets",  label: "Markets",  icon: "◈" },
+const TABS: { id: Tab; label: string }[] = [
+  { id: "glance",   label: "Glance" },
+  { id: "news",     label: "News" },
+  { id: "calendar", label: "Calendar" },
+  { id: "email",    label: "Email" },
+  { id: "osint",    label: "OSINT" },
+  { id: "weather",  label: "Weather" },
+  { id: "docs",     label: "Docs" },
+  { id: "markets",  label: "Markets" },
 ];
 
 export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) {
@@ -25,6 +27,7 @@ export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) 
       <nav className="flex gap-1 pt-1" aria-label="Tabs">
         {TABS.map((tab) => {
           const badge = badges?.[tab.id] ?? 0;
+          const Icon = TAB_ICONS[tab.id];
           return (
           <button
             key={tab.id}
@@ -35,11 +38,13 @@ export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) 
                 : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
             }`}
           >
-            <span className={`text-sm leading-none transition-colors ${
-              activeTab === tab.id ? "text-emerald-400" : "text-slate-600"
-            }`}>
-              {tab.icon}
-            </span>
+            <Icon
+              size={15}
+              strokeWidth={2.25}
+              className={`leading-none transition-colors ${
+                activeTab === tab.id ? "text-emerald-400" : "text-slate-600"
+              }`}
+            />
             {tab.label}
             {badge > 0 && activeTab !== tab.id && (
               <span

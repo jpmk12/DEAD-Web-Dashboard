@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { EmailMessage, EmailPriority, ActionItem, VipSuggestion } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
+import { Mail } from "@/lib/icons";
 import EmailCard from "./EmailCard";
 import AddAccountButton from "./AddAccountButton";
 import BulkActionBar from "./BulkActionBar";
@@ -470,7 +471,7 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-emerald-500 text-xs">◎</span>
+            <Mail size={14} strokeWidth={2.25} className="text-emerald-500" />
             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">Inbox</h2>
           </div>
           {!loading && (

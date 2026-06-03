@@ -7,6 +7,7 @@ import NewsChatPanel from "./NewsChatPanel";
 import ThreadsView from "./ThreadsView";
 import ThreadHistoryPanel from "./ThreadHistoryPanel";
 import ChatRail from "@/components/chat/ChatRail";
+import { FeedViewIcon, ThreadsViewIcon, HistoryViewIcon } from "@/lib/icons";
 import { NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 
 interface NewsShellProps {
@@ -122,7 +123,7 @@ export default function NewsShell({
                   : "text-slate-500 hover:text-slate-300"
               }`}
             >
-              <span className="text-sm leading-none">▦</span>
+              <FeedViewIcon size={14} strokeWidth={2.25} className="leading-none" />
               Feed
             </button>
             <button
@@ -134,7 +135,7 @@ export default function NewsShell({
                   : "text-slate-500 hover:text-slate-300"
               }`}
             >
-              <span className="text-sm leading-none">◈</span>
+              <ThreadsViewIcon size={14} strokeWidth={2.25} className="leading-none" />
               Threads
               {threadsLoading && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
             </button>
@@ -146,7 +147,7 @@ export default function NewsShell({
                   : "text-slate-500 hover:text-slate-300"
               }`}
             >
-              <span className="text-sm leading-none">⚡</span>
+              <HistoryViewIcon size={14} strokeWidth={2.25} className="leading-none" />
               History
             </button>
           </div>
@@ -260,7 +261,7 @@ export default function NewsShell({
       </div>
 
       {/* ── Right: Claude chat (slim rail) ─────────────────────────────────── */}
-      <ChatRail label="Analyst" icon="◆">
+      <ChatRail label="Analyst">
         <NewsChatPanel articles={articles} newsletters={newsletters} threads={threads} />
       </ChatRail>
     </div>

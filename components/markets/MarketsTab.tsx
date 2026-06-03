@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TickerEntry, NewsItem } from "@/lib/types";
 import ContractsPanel from "./ContractsPanel";
 import MacroBriefPanel from "./MacroBriefPanel";
+import { CandlestickChart } from "@/lib/icons";
 
 const INDICES: TickerEntry[] = [
   { symbol: "FOREXCOM:SPXUSD", label: "S&P 500" },
@@ -194,7 +195,7 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-md bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-emerald-400 text-xs">◈</span>
+            <CandlestickChart size={15} strokeWidth={2.25} className="text-emerald-400" />
           </div>
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Markets</h2>

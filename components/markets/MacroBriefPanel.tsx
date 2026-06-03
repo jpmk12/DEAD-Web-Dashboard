@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { NewsItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
+import { BriefIcon } from "@/lib/icons";
 
 interface MacroBrief {
   marketRead: string;
@@ -52,7 +53,7 @@ export default function MacroBriefPanel({ articles }: { articles: NewsItem[] }) 
     <div className="bg-slate-900/60 border border-emerald-500/20 rounded-xl p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
-          <span>◆</span> Macro Brief
+          <BriefIcon size={13} strokeWidth={2.5} className="leading-none" /> Macro Brief
         </h3>
         <div className="flex items-center gap-2">
           {loading && <span className="text-[9px] text-slate-600 font-mono animate-pulse">analysing…</span>}
