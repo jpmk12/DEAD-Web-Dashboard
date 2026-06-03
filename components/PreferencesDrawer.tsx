@@ -81,18 +81,36 @@ function TagInput({
 
 // ─── Tracked locations editor (Weather tab) ──────────────────────────────────
 
+// Parse a coordinate the lenient way users actually type them: decimal degrees
+// with optional sign, N/S/E/W suffix or prefix, degree symbol, stray spaces, or
+// a comma decimal separator. Returns null if there's no number to read.
+function parseCoordInput(raw: string): number | null {
+  let s = raw.trim().toUpperCase();
+  if (!s) return null;
+  const dir = s.match(/[NSEW]/);
+  s = s.replace(/[NSEW°º\s]/g, "").replace(",", ".");
+  const n = parseFloat(s);
+  if (!Number.isFinite(n)) return null;
+  // A direction letter wins over any typed sign (e.g. "26.3S" -> -26.3).
+  return dir ? (dir[0] === "S" || dir[0] === "W" ? -1 : 1) * Math.abs(n) : n;
+}
+
 function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; }) {
   const [label, setLabel] = useState("");
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const add = () => {
-    const la = parseFloat(lat);
-    const lo = parseFloat(lon);
-    if (!label.trim() || !Number.isFinite(la) || !Number.isFinite(lo)) return;
-    if (Math.abs(la) > 90 || Math.abs(lo) > 180) return;
+    if (value.length >= 10) { setError("Maximum of 10 tracked locations reached."); return; }
+    if (!label.trim()) { setError("Enter a label for this location."); return; }
+    const la = parseCoordInput(lat);
+    const lo = parseCoordInput(lon);
+    if (la === null || lo === null) { setError("Enter latitude and longitude as decimal degrees, e.g. 26.35 and 127.77."); return; }
+    if (Math.abs(la) > 90) { setError(`Latitude must be between -90 and 90 (got ${la}). Did you swap lat and lon?`); return; }
+    if (Math.abs(lo) > 180) { setError(`Longitude must be between -180 and 180 (got ${lo}).`); return; }
     onChange([...value, { id: `${la.toFixed(2)},${lo.toFixed(2)}-${Date.now()}`, label: label.trim().slice(0, 60), lat: la, lon: lo }]);
-    setLabel(""); setLat(""); setLon("");
+    setLabel(""); setLat(""); setLon(""); setError(null);
   };
 
   return (
@@ -125,28 +143,32 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
 
       <div className="flex gap-1.5">
         <input
-          value={label} onChange={(e) => setLabel(e.target.value)}
+          value={label} onChange={(e) => { setLabel(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Label (e.g. Kadena AB)"
           className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
         />
         <input
-          value={lat} onChange={(e) => setLat(e.target.value)}
+          value={lat} onChange={(e) => { setLat(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Lat"
           className="w-16 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <input
-          value={lon} onChange={(e) => setLon(e.target.value)}
+          value={lon} onChange={(e) => { setLon(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Lon"
           className="w-16 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <button
           onClick={add}
-          disabled={!label.trim() || value.length >= 10}
+          disabled={value.length >= 10}
           className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
         >
           Add
         </button>
       </div>
+      {error && <p className="mt-1.5 text-[10px] text-red-400">{error}</p>}
     </div>
   );
 }
