@@ -4,9 +4,15 @@
 // epidemics / pandemics / complex emergencies. Every source fails to [] so a
 // bad endpoint never breaks the threat board.
 
+import Parser from "rss-parser";
 import type { DisasterEvent } from "./types";
+import { classifyAor } from "./aor";
 
 const UA = "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)";
+
+// Source functions build everything except `aor`, which getDisasters() assigns
+// centrally so the classification rule lives in one place.
+type RawDisaster = Omit<DisasterEvent, "aor">;
 
 function num(v: unknown): number | null {
   const n = Number(v);
@@ -18,7 +24,7 @@ const GDACS_TYPE: Record<string, DisasterEvent["type"]> = {
   EQ: "earthquake", TC: "cyclone", FL: "flood", VO: "volcano", DR: "drought", WF: "wildfire", TS: "tsunami",
 };
 
-async function fetchGdacs(): Promise<DisasterEvent[]> {
+async function fetchGdacs(): Promise<RawDisaster[]> {
   try {
     const res = await fetch("https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP", {
       headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store",
@@ -26,7 +32,7 @@ async function fetchGdacs(): Promise<DisasterEvent[]> {
     if (!res.ok) return [];
     const data = await res.json();
     const feats: unknown[] = data?.features ?? [];
-    return feats.flatMap((f): DisasterEvent[] => {
+    return feats.flatMap((f): RawDisaster[] => {
       if (!f || typeof f !== "object") return [];
       const p = (f as { properties?: Record<string, unknown> }).properties ?? {};
       const geom = (f as { geometry?: { coordinates?: unknown[] } }).geometry;
@@ -63,7 +69,7 @@ async function fetchGdacs(): Promise<DisasterEvent[]> {
 }
 
 // ── USGS: fast, precise earthquakes (mag 4.5+, last day) ──
-async function fetchUsgsQuakes(): Promise<DisasterEvent[]> {
+async function fetchUsgsQuakes(): Promise<RawDisaster[]> {
   try {
     const res = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson", {
       headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store",
@@ -71,7 +77,7 @@ async function fetchUsgsQuakes(): Promise<DisasterEvent[]> {
     if (!res.ok) return [];
     const data = await res.json();
     const feats: unknown[] = data?.features ?? [];
-    return feats.flatMap((f): DisasterEvent[] => {
+    return feats.flatMap((f): RawDisaster[] => {
       if (!f || typeof f !== "object") return [];
       const p = (f as { properties?: Record<string, unknown> }).properties ?? {};
       const coords = (f as { geometry?: { coordinates?: unknown[] } }).geometry?.coordinates ?? [];
@@ -103,7 +109,7 @@ async function fetchUsgsQuakes(): Promise<DisasterEvent[]> {
 }
 
 // ── ReliefWeb: epidemics / pandemics / complex emergencies (humanitarian) ──
-async function fetchReliefWeb(): Promise<DisasterEvent[]> {
+async function fetchReliefWeb(): Promise<RawDisaster[]> {
   try {
     const url = "https://api.reliefweb.int/v1/disasters?appname=dead-web-dashboard&profile=list&preset=latest&limit=25"
       + "&fields[include][]=name&fields[include][]=status&fields[include][]=primary_type"
@@ -112,7 +118,7 @@ async function fetchReliefWeb(): Promise<DisasterEvent[]> {
     if (!res.ok) return [];
     const data = await res.json();
     const rows: unknown[] = data?.data ?? [];
-    return rows.flatMap((row): DisasterEvent[] => {
+    return rows.flatMap((row): RawDisaster[] => {
       if (!row || typeof row !== "object") return [];
       const fields = (row as { fields?: Record<string, unknown> }).fields ?? {};
       const ptype = String((fields.primary_type as { name?: string })?.name ?? "");
@@ -141,15 +147,138 @@ async function fetchReliefWeb(): Promise<DisasterEvent[]> {
   } catch { return []; }
 }
 
+// ── Tsunami Warning Centers: NOAA CAP/Atom feeds (tsunami.gov) ──
+// NTWC (Palmer, AK) covers the US/Canada coasts incl. Caribbean & Atlantic;
+// PTWC (Honolulu) covers the Pacific & Indian Ocean basins. The feeds carry a
+// CAP entry per bulletin; we surface Warnings/Watches/Advisories and drop the
+// routine "no tsunami / information statement" entries to cut noise.
+const capParser: Parser<unknown, { capEvent?: string; capSeverity?: string; capArea?: string; capEffective?: string; geoPoint?: string }> =
+  new Parser({
+    customFields: {
+      item: [
+        ["cap:event", "capEvent"], ["cap:severity", "capSeverity"],
+        ["cap:areaDesc", "capArea"], ["cap:effective", "capEffective"],
+        ["georss:point", "geoPoint"],
+      ],
+    },
+  });
+
+const TSUNAMI_CENTERS: { code: "NTWC" | "PTWC"; url: string }[] = [
+  { code: "NTWC", url: "https://www.tsunami.gov/events/xml/PAAQAtom.xml" },
+  { code: "PTWC", url: "https://www.tsunami.gov/events/xml/PHEBAtom.xml" },
+];
+
+async function fetchTsunamiCenters(): Promise<RawDisaster[]> {
+  const results = await Promise.all(
+    TSUNAMI_CENTERS.map(async ({ code, url }): Promise<RawDisaster[]> => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10_000);
+        let text: string;
+        try {
+          const res = await fetch(url, { signal: controller.signal, headers: { "User-Agent": UA, Accept: "application/xml, application/atom+xml, */*" } });
+          if (!res.ok) return [];
+          text = await res.text();
+        } finally { clearTimeout(timer); }
+        const feed = await capParser.parseString(text);
+        return (feed.items ?? []).flatMap((item): RawDisaster[] => {
+          const headline = `${item.capEvent ?? item.title ?? ""}`;
+          // Keep only actionable bulletins; skip routine info / "no tsunami".
+          if (!/warning|watch|advisory/i.test(headline) || /no tsunami|information statement|cancel/i.test(headline)) return [];
+          const severity: DisasterEvent["severity"] =
+            /warning/i.test(headline) ? "red" : /watch/i.test(headline) ? "orange" : "green";
+          const [plat, plon] = (item.geoPoint ?? "").split(/\s+/).map(Number);
+          return [{
+            id: `tsunami-${code}-${item.guid || item.link || item.capEffective || Math.random().toString(36).slice(2)}`,
+            type: "tsunami",
+            title: String(item.title ?? headline),
+            severity,
+            country: String(item.capArea ?? "").slice(0, 80),
+            lat: Number.isFinite(plat) ? plat : null,
+            lon: Number.isFinite(plon) ? plon : null,
+            time: String(item.capEffective ?? item.isoDate ?? item.pubDate ?? ""),
+            magnitude: null,
+            tsunami: true,
+            summary: String(item.contentSnippet ?? item.content ?? headline).replace(/<[^>]+>/g, "").slice(0, 240),
+            source: code,
+            link: String(item.link ?? "https://www.tsunami.gov"),
+            nearLocations: [],
+          }];
+        });
+      } catch { return []; }
+    }),
+  );
+  return results.flat();
+}
+
+// ── Volcanic ash: USGS Volcano Hazards Program aviation color codes ──
+// Covers the U.S. VAAC mission domains (Anchorage = Alaska/Aleutians,
+// Washington = Cascades/Marianas). Aviation color ORANGE/RED = ash hazard to
+// flight. Non-U.S. volcanoes continue to arrive via GDACS (VO).
+async function fetchVolcanicAsh(): Promise<RawDisaster[]> {
+  try {
+    const res = await fetch("https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes", {
+      headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rows: unknown[] = Array.isArray(data) ? data : (data?.data ?? []);
+    return rows.flatMap((row): RawDisaster[] => {
+      if (!row || typeof row !== "object") return [];
+      const r = row as Record<string, unknown>;
+      const color = String(r.color_code ?? r.cc ?? "").toUpperCase();
+      if (color !== "ORANGE" && color !== "RED") return []; // ash hazard only
+      const name = String(r.volcano_name ?? r.volcano ?? "Volcano");
+      const level = String(r.alert_level ?? r.alevel ?? "");
+      return [{
+        id: `vhp-${r.vnum ?? r.volcano_name ?? Math.random().toString(36).slice(2)}`,
+        type: "volcano",
+        title: `${name}${level ? ` — ${level}` : ""}`,
+        severity: color === "RED" ? "red" : "orange",
+        country: "United States",
+        lat: num(r.latitude ?? r.lat),
+        lon: num(r.longitude ?? r.lon),
+        time: String(r.synopsis_date ?? r.sent ?? ""),
+        magnitude: null,
+        tsunami: false,
+        summary: `Aviation color ${color}${level ? ` · ${level}` : ""}`,
+        source: "USGS-VHP",
+        link: `https://volcanoes.usgs.gov/volcanoes/${String(r.vlink ?? "")}`,
+        nearLocations: [],
+      }];
+    });
+  } catch { return []; }
+}
+
 const SEV_RANK: Record<DisasterEvent["severity"], number> = { red: 0, orange: 1, green: 2, unknown: 3 };
 
+// Two events are the "same" if they're the same type within ~25 km — collapses
+// e.g. a GDACS volcano and the USGS-VHP entry for the same eruption.
+function dedupe(events: DisasterEvent[]): DisasterEvent[] {
+  const kept: DisasterEvent[] = [];
+  for (const e of events) {
+    const dup = kept.find(
+      (k) => k.type === e.type && k.lat != null && k.lon != null && e.lat != null && e.lon != null
+        && haversineKm(k.lat, k.lon, e.lat, e.lon) <= 25,
+    );
+    if (!dup) kept.push(e); // events arrive severity-sorted, so the first kept wins
+  }
+  return kept;
+}
+
 export async function getDisasters(): Promise<DisasterEvent[]> {
-  const [gdacs, usgs, rw] = await Promise.all([fetchGdacs(), fetchUsgsQuakes(), fetchReliefWeb()]);
-  const all = [...gdacs, ...usgs, ...rw];
-  return all.sort((a, b) => {
+  const [gdacs, usgs, rw, tsunami, ash] = await Promise.all([
+    fetchGdacs(), fetchUsgsQuakes(), fetchReliefWeb(), fetchTsunamiCenters(), fetchVolcanicAsh(),
+  ]);
+  const all: DisasterEvent[] = [...gdacs, ...usgs, ...rw, ...tsunami, ...ash].map((e) => ({
+    ...e,
+    aor: classifyAor({ lat: e.lat, lon: e.lon, name: e.country || e.title }),
+  }));
+  all.sort((a, b) => {
     if (SEV_RANK[a.severity] !== SEV_RANK[b.severity]) return SEV_RANK[a.severity] - SEV_RANK[b.severity];
     return (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0);
   });
+  return dedupe(all);
 }
 
 // Great-circle distance in km.

@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     const lines = [
       ...sig.map((t) => `[${t.severity}] ${t.event} — ${t.locations.join(", ")}`),
       ...tropical.slice(0, 4).map((s) => `Active: ${s.category} ${s.name}${s.intensityKt ? ` (${s.intensityKt} kt)` : ""}`),
-      ...dsig.map((d) => `[${d.severity.toUpperCase()}] ${d.type}: ${d.title}${d.country ? ` (${d.country})` : ""}${d.nearLocations.length ? ` — near ${d.nearLocations.join(", ")}` : ""}`),
+      ...dsig.map((d) => `[${d.severity.toUpperCase()}] ${d.type}: ${d.title}${d.country ? ` (${d.country})` : ""}${d.aor !== "UNKNOWN" ? ` · ${d.aor}` : ""}${d.nearLocations.length ? ` — near ${d.nearLocations.join(", ")}` : ""}`),
     ];
     if (lines.length) weatherLine = lines.join("\n");
   } catch { /* weather/disasters are best-effort in the brief */ }

@@ -295,20 +295,22 @@ export interface TropicalSystem {
   lastUpdate: string;
 }
 
-// A humanitarian / natural-disaster event (GDACS, USGS, ReliefWeb).
+// A humanitarian / natural-disaster event (GDACS, USGS, ReliefWeb, tsunami
+// warning centers, volcanic-ash sources).
 export interface DisasterEvent {
   id: string;
   type: "earthquake" | "cyclone" | "flood" | "volcano" | "drought" | "tsunami" | "epidemic" | "wildfire" | "other";
   title: string;
   severity: "red" | "orange" | "green" | "unknown";
   country: string;
+  aor: import("./aor").Aor;    // U.S. combatant-command AOR (UCP-aligned, coarse)
   lat: number | null;
   lon: number | null;
   time: string;                // ISO
   magnitude: number | null;    // earthquake magnitude when applicable
   tsunami: boolean;
   summary: string;
-  source: "GDACS" | "USGS" | "ReliefWeb";
+  source: "GDACS" | "USGS" | "ReliefWeb" | "NTWC" | "PTWC" | "USGS-VHP";
   link: string;
   nearLocations: string[];     // tracked-location labels within ~500 km
 }

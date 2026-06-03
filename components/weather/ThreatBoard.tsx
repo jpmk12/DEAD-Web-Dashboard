@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { WeatherThreats, SevereThreat, DisasterEvent } from "@/lib/types";
+import type { Aor } from "@/lib/aor";
 
 const DISASTER_ICON: Record<DisasterEvent["type"], string> = {
   earthquake: "⊕", cyclone: "🌀", flood: "≈", volcano: "⛰", drought: "☼",
@@ -25,6 +26,7 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [aorFilter, setAorFilter] = useState<Aor | "ALL">("ALL");
 
   useEffect(() => {
     setLoading(true);
@@ -38,6 +40,15 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
   }, [refreshKey]);
 
   const { threats, tropical, disasters, summary } = data;
+
+  // AORs present among current disasters, ordered by event count (desc).
+  const aorsPresent = useMemo(() => {
+    const counts = new Map<Aor, number>();
+    for (const d of disasters) if (d.aor !== "UNKNOWN") counts.set(d.aor, (counts.get(d.aor) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([a]) => a);
+  }, [disasters]);
+  const shownDisasters = aorFilter === "ALL" ? disasters : disasters.filter((d) => d.aor === aorFilter);
+
   if (loading && threats.length === 0 && tropical.length === 0 && disasters.length === 0) return null;
 
   const allClear = threats.length === 0 && tropical.length === 0 && disasters.length === 0;
@@ -68,18 +79,42 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
         )}
       </div>
 
-      {/* Global disaster watch (GDACS / USGS / ReliefWeb) */}
+      {/* Global disaster watch (GDACS / USGS / ReliefWeb / tsunami / volcanic ash) */}
       {disasters.length > 0 && (
         <div className="rounded-md border border-orange-500/30 bg-orange-500/5 px-3 py-2">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-orange-400 mb-1">Global Disaster Watch</p>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-orange-400">Global Disaster Watch</p>
+            {aorsPresent.length > 1 && (
+              <div className="flex flex-wrap gap-1 justify-end">
+                {(["ALL", ...aorsPresent] as const).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => setAorFilter(a)}
+                    className={`text-[8px] font-mono uppercase tracking-wider rounded px-1 py-0.5 border transition-colors ${
+                      aorFilter === a
+                        ? "border-orange-400 bg-orange-500/20 text-orange-200"
+                        : "border-slate-700 text-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    {a === "ALL" ? "All AORs" : a}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <ul className="space-y-1">
-            {disasters.slice(0, 8).map((d) => (
+            {shownDisasters.slice(0, 8).map((d) => (
               <li key={d.id} className="text-[11px] flex flex-wrap items-baseline gap-x-2">
                 <span className={`flex-shrink-0 ${DISASTER_SEV[d.severity]}`}>{DISASTER_ICON[d.type]}</span>
                 <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-slate-300 hover:text-emerald-400 transition-colors">
                   {d.title}
                 </a>
                 {d.country && <span className="text-slate-500 text-[10px]">{d.country}</span>}
+                {d.aor !== "UNKNOWN" && (
+                  <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1">
+                    {d.aor}
+                  </span>
+                )}
                 {d.nearLocations.length > 0 && (
                   <span className="text-[9px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1">
                     near {d.nearLocations.join(", ")}

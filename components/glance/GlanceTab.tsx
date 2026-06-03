@@ -263,8 +263,8 @@ export default function GlanceTab({
       tone: "red",
       icon: "⊕",
       label: d.title,
-      sub: near ? `Near ${d.nearLocations.join(", ")}` : (d.country || d.type),
-      meta: "Disaster",
+      sub: near ? `Near ${d.nearLocations.join(", ")}` : [d.country || d.type, d.aor !== "UNKNOWN" ? d.aor : null].filter(Boolean).join(" · "),
+      meta: d.aor !== "UNKNOWN" ? d.aor : "Disaster",
       onClick: () => onNavigate("weather"),
     });
   }
