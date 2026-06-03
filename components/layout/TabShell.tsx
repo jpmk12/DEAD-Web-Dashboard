@@ -253,10 +253,6 @@ export default function TabShell() {
               <CalendarPanel onEventsLoaded={setCalendarEvents} />
             </div>
             <CalendarRail
-              calendarEvents={calendarEvents}
-              articles={articles}
-              newsletters={newsletters}
-              onTaskAdded={() => setTasksRefreshKey((k) => k + 1)}
               tasksRefreshKey={tasksRefreshKey}
               onTasksLoaded={setTasks}
             />
