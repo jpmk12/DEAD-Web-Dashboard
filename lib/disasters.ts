@@ -215,6 +215,19 @@ async function fetchTsunamiCenters(): Promise<RawDisaster[]> {
 // Covers the U.S. VAAC mission domains (Anchorage = Alaska/Aleutians,
 // Washington = Cascades/Marianas). Aviation color ORANGE/RED = ash hazard to
 // flight. Non-U.S. volcanoes continue to arrive via GDACS (VO).
+
+// USGS volcano page URL from a name, e.g. "Great Sitkin" -> ".../great-sitkin".
+// The HANS feed carries no ready-made link, so build the modern usgs.gov slug;
+// fall back to the volcano index if a name can't be slugged.
+function usgsVolcanoUrl(name: string): string {
+  const slug = name
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // strip combining diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug ? `https://www.usgs.gov/volcanoes/${slug}` : "https://www.usgs.gov/volcanoes";
+}
+
 async function fetchVolcanicAsh(): Promise<RawDisaster[]> {
   try {
     const res = await fetch("https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes", {
@@ -243,7 +256,7 @@ async function fetchVolcanicAsh(): Promise<RawDisaster[]> {
         tsunami: false,
         summary: `Aviation color ${color}${level ? ` · ${level}` : ""}`,
         source: "USGS-VHP",
-        link: `https://volcanoes.usgs.gov/volcanoes/${String(r.vlink ?? "")}`,
+        link: usgsVolcanoUrl(name),
         nearLocations: [],
       }];
     });
