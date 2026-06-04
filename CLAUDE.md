@@ -448,13 +448,25 @@ Not our scripts: `build.js`/`start.js` only wipe `.next` via Node's recursive
 empty). There is no repo-side fix because the extraction/cleanup step is fully
 platform-managed (no Docker/CI config on this host).
 
-Remedy when a deploy gets wedged on these: force a **clean slate** so there's no
-stale `node_modules` to trip over — use the Node.js Hosting UI's clean-redeploy /
-clear-build-cache option, or delete & recreate the preview environment; if
-neither exists, ask GoDaddy support to clear the stale preview app dir. A
-half-cleaned `node_modules` (old + new `next` files mixed) can cause subtle
-runtime breakage even when the deploy "completes," so prefer the clean redeploy
-over ignoring the warnings.
+These can be **fatal**, not just noise: when the `rm` can't clear the prior
+deploy's `node_modules/next/dist`, the new archive extracts on top and you get a
+half-old/half-new `next` module, which makes the platform's `next build` (or the
+runtime) fail — surfacing as a generic "build failed" even though the code is
+fine. Confirmed clean on our side: a fresh `npm install` under `.npmrc`'s
+`omit=dev` (exactly the platform's install — no devDependencies, no esbuild)
+followed by `node build.js` produces a valid `.next/BUILD_ID`. So when the
+platform build fails right after these `rm` lines, the corruption is the cause,
+not our code.
+
+Remedy — force a **clean slate** so there's no stale `node_modules` to extract
+over (in rough order of reliability):
+1. **Delete & recreate the preview environment** (wipes
+   `/alloc/customer-app/<id>/preview/` entirely) — most reliable.
+2. The Node.js Hosting UI's **clean-redeploy / clear-build-cache** option, if present.
+3. **GoDaddy support**: "preview deploy can't clean a stale
+   `node_modules/next/dist` (Directory not empty) and the build fails — please
+   clear the preview app dir." Re-pushing without clearing usually just hits the
+   same un-removable stale dir again.
 
 ### Icons (`lucide-react`)
 Navigation tabs, primary action buttons, and major section headers use
