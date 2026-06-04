@@ -6,6 +6,7 @@ import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, Newslette
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, allKnownNewsSources, type NewsSource } from "@/lib/newsSources";
+import { AMC_HUBS, type AmcHub } from "@/lib/amcHubs";
 import { clientCache } from "@/lib/clientCache";
 import { applyTheme } from "@/components/ThemeApplicator";
 
@@ -103,7 +104,7 @@ function parseCoordInput(raw: string): number | null {
 
 interface GeoResult { lat: number; lon: number; displayName: string }
 
-function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; }) {
+function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; onAddMetar?: (s: MetarStation) => void; }) {
   const [label, setLabel] = useState("");
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
@@ -112,6 +113,25 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
   const [geoQuery, setGeoQuery] = useState("");
   const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
   const [geoBusy, setGeoBusy] = useState(false);
+  // AMC hub quick-add (collapsed by default).
+  const [hubsOpen, setHubsOpen] = useState(false);
+
+  // A hub is "on the map" if a tracked location already sits on its coords.
+  const hubOnMap = (h: AmcHub) => value.some((v) => Math.abs(v.lat - h.lat) < 0.05 && Math.abs(v.lon - h.lon) < 0.05);
+
+  // One tap adds the hub as a tracked location (map + AOR threat board) AND
+  // registers its ICAO for global METAR/TAF (the aviation weather that works
+  // worldwide, unlike the US-only NWS forecast).
+  const addHub = (h: AmcHub) => {
+    onAddMetar?.({ icao: h.icao, label: h.name }); // parent dedupes by ICAO
+    if (hubOnMap(h)) { setError(null); return; }
+    if (value.length >= 10) {
+      setError(`Added ${h.icao} aviation weather. Tracked-location map is full (10 max) — remove one to also pin this hub.`);
+      return;
+    }
+    onChange([...value, { id: `${h.lat.toFixed(2)},${h.lon.toFixed(2)}-${Date.now()}`, label: h.name.slice(0, 60), lat: h.lat, lon: h.lon }]);
+    setError(null);
+  };
 
   const add = () => {
     if (value.length >= 10) { setError("Maximum of 10 tracked locations reached."); return; }
@@ -180,6 +200,48 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
             </li>
           ))}
         </ul>
+      )}
+
+      {/* AMC hub quick-add — adds the en route/staging base as a map location
+          AND its ICAO for global METAR/TAF (works OCONUS where NWS doesn't). */}
+      <button
+        onClick={() => setHubsOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-300 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-500 rounded-md px-2.5 py-1.5 transition-all mb-2"
+      >
+        <span>✈ Add AMC hub</span>
+        <span className="text-slate-500">{hubsOpen ? "▴" : "▾"}</span>
+      </button>
+      {hubsOpen && (
+        <div className="mb-3 border border-slate-800 rounded-md p-2.5 bg-slate-900/40 max-h-60 overflow-y-auto">
+          <p className="text-[10px] text-slate-600 mb-2 leading-snug">
+            One tap pins the base on the map/threat board <span className="text-slate-500">and</span> adds its ICAO
+            for global METAR/TAF — the aviation weather that works worldwide.
+          </p>
+          {AMC_HUBS.map(({ region, hubs }) => (
+            <div key={region} className="mb-2 last:mb-0">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">{region}</p>
+              <div className="flex flex-wrap gap-1">
+                {hubs.map((h: AmcHub) => {
+                  const on = hubOnMap(h);
+                  return (
+                    <button
+                      key={h.icao}
+                      onClick={() => addHub(h)}
+                      title={on ? `${h.name} — already pinned · ${h.icao}` : `Add ${h.name} (${h.icao})`}
+                      className={`text-[10px] px-2 py-1 rounded border font-mono transition-all touch-manipulation ${
+                        on
+                          ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
+                          : "border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-400 hover:bg-emerald-500/10"
+                      }`}
+                    >
+                      {on ? "✓ " : "+ "}{h.name.split(",")[0]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Search by place name, address, or ZIP — geocodes to coordinates */}
@@ -2168,7 +2230,15 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             </button>
             {openGroups.sources && (
               <div className="px-4 py-4 border-t border-slate-800 space-y-5">
-                <TrackedLocationsEditor value={trackedLocations} onChange={setTrackedLocations} />
+                <TrackedLocationsEditor
+                  value={trackedLocations}
+                  onChange={setTrackedLocations}
+                  onAddMetar={(s) =>
+                    setMetarStations((prev) =>
+                      prev.length >= 12 || prev.some((x) => x.icao === s.icao) ? prev : [...prev, s]
+                    )
+                  }
+                />
                 <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
                 <NewsSourcesEditor
                   value={disabledNewsSources}
