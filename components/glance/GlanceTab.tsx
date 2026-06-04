@@ -19,6 +19,7 @@ import {
   GoogleTask,
   TickerEntry,
   WeatherThreats,
+  TravelAdvisory,
 } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 import ArticleThesis from "@/components/news/ArticleThesis";
@@ -189,6 +190,7 @@ export default function GlanceTab({
 
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
   const [threats, setThreats] = useState<WeatherThreats | null>(null);
+  const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
 
   // Last-seen "On your radar" values, persisted so rises since your last look
   // can be highlighted. Frozen for this session (read once on mount).
@@ -211,6 +213,18 @@ export default function GlanceTab({
     load();
     const id = setInterval(load, 3 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); };
+  }, [active, status]);
+
+  // NEO / evacuation watch — State Dept Level-4 + embassy-departure advisories,
+  // fused into "Global Reach Watch". Cached 30 min server-side, so poll slowly.
+  useEffect(() => {
+    if (!active || status !== "authenticated") return;
+    let cancelled = false;
+    fetch("/api/state-advisories")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { advisories?: TravelAdvisory[] } | null) => { if (!cancelled && d?.advisories) setAdvisories(d.advisories); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [active, status]);
 
   // Tasks are the one "needs you now" source with no shared client cache, so
@@ -349,7 +363,7 @@ export default function GlanceTab({
   //    impede airlift) + the AOR disaster watch (could pull HADR/NEO airlift),
   //    ranked into one "look here first" list. Proximity to a base outranks
   //    raw severity, then severity. ──
-  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number }[] = [];
+  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string }[] = [];
   for (const d of threats?.disasters ?? []) {
     const near = d.nearLocations.length > 0;
     if (!(d.severity === "red" || near)) continue; // only base-relevant / extreme
@@ -375,6 +389,32 @@ export default function GlanceTab({
       score: h.severity === "severe" ? 75 : 45,
     });
   }
+  // NEO / evacuation watch: embassy ordered/authorized departures are active
+  // evacuation triggers (top relevance); recent Level-4 "Do Not Travel" updates
+  // (≤14 d, capped) signal escalation. Standing Level-4 status is intentionally
+  // not surfaced here — it's context, not an alert.
+  let l4shown = 0;
+  for (const a of advisories) {
+    const evac = a.orderedDeparture || a.authorizedDeparture;
+    const recentL4 = a.level === 4 && !!a.pubDate && Date.now() - Date.parse(a.pubDate) < 14 * 86_400_000;
+    if (!evac && !recentL4) continue;
+    if (!evac && recentL4) { if (l4shown >= 2) continue; l4shown++; }
+    reach.push({
+      id: `reach-a-${a.country}`,
+      tone: a.orderedDeparture ? "red" : "amber",
+      icon: evac ? "🛫" : "⛔",
+      title: a.country,
+      sub: a.orderedDeparture
+        ? `Ordered departure — evacuation${a.level ? ` · Level ${a.level}` : ""}`
+        : a.authorizedDeparture
+        ? `Authorized departure${a.level ? ` · Level ${a.level}` : ""}`
+        : "Level 4 — Do Not Travel (recent update)",
+      tag: a.aor !== "UNKNOWN" ? a.aor : "NEO",
+      score: a.orderedDeparture ? 120 : a.authorizedDeparture ? 85 : 50,
+      href: a.link,
+    });
+  }
+
   reach.sort((a, b) => b.score - a.score);
   const reachTop = reach.slice(0, 6);
 
@@ -580,23 +620,30 @@ export default function GlanceTab({
             </span>
           </div>
           <ul className="space-y-1.5">
-            {reachTop.map((r) => (
-              <li key={r.id}>
-                <button
-                  onClick={() => onNavigate("weather")}
-                  className={`group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${
-                    r.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"
-                  } hover:bg-slate-800/40 transition-colors rounded-r`}
-                >
+            {reachTop.map((r) => {
+              const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${
+                r.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"
+              } hover:bg-slate-800/40 transition-colors rounded-r`;
+              const inner = (
+                <>
                   <span className={`mt-0.5 flex-shrink-0 ${r.tone === "red" ? "text-red-400" : "text-amber-400"}`}>{r.icon}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-slate-200 truncate group-hover:text-emerald-400 transition-colors">{r.title}</span>
                     {r.sub && <span className="block text-[11px] text-slate-500 truncate">{r.sub}</span>}
                   </span>
                   <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">{r.tag}</span>
-                </button>
-              </li>
-            ))}
+                </>
+              );
+              return (
+                <li key={r.id}>
+                  {r.href ? (
+                    <a href={r.href} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
+                  ) : (
+                    <button onClick={() => onNavigate("weather")} className={`${cls} w-full`}>{inner}</button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

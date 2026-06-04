@@ -1,3 +1,17 @@
+// A U.S. State Dept travel advisory of NEO interest — Level-4 ("Do Not Travel")
+// and especially embassy ordered/authorized departures, which are the literal
+// triggers for noncombatant evacuation airlift. `aor` is the COCOM code string.
+export interface TravelAdvisory {
+  country: string;
+  level: number | null; // 1–4 (4 = Do Not Travel)
+  aor: string;
+  orderedDeparture: boolean;
+  authorizedDeparture: boolean;
+  title: string;
+  link: string;
+  pubDate: string;
+}
+
 export interface NewsItem {
   id: string;
   title: string;
