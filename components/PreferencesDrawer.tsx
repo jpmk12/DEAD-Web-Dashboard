@@ -81,36 +81,75 @@ function TagInput({
 
 // ─── Tracked locations editor (Weather tab) ──────────────────────────────────
 
-// Parse a coordinate the lenient way users actually type them: decimal degrees
-// with optional sign, N/S/E/W suffix or prefix, degree symbol, stray spaces, or
-// a comma decimal separator. Returns null if there's no number to read.
+// Parse a coordinate the lenient way users actually type them. Handles:
+//   • decimal degrees ........ 34.6679 · -99.2677 · 34.6679° N · 34,6679 (EU)
+//   • deg-min-sec (DMS) ...... 34°40′05″N · 99 16 04 W · 34d40m05sW
+//   • deg-decimal-min ........ 34°40.083′N
+// Any N/S/E/W letter wins over a typed minus sign (e.g. "26.3S" -> -26.3).
+// Returns null only when there's no number to read.
 function parseCoordInput(raw: string): number | null {
-  let s = raw.trim().toUpperCase();
+  const s = raw.trim().toUpperCase();
   if (!s) return null;
   const dir = s.match(/[NSEW]/);
-  s = s.replace(/[NSEW°º\s]/g, "").replace(",", ".");
-  const n = parseFloat(s);
-  if (!Number.isFinite(n)) return null;
-  // A direction letter wins over any typed sign (e.g. "26.3S" -> -26.3).
-  return dir ? (dir[0] === "S" || dir[0] === "W" ? -1 : 1) * Math.abs(n) : n;
+  const negSign = /^\s*-/.test(raw);
+  // Pull the numeric runs in order: degrees [, minutes [, seconds]]. A comma is
+  // treated as a decimal separator before extracting (so "34,6679" -> "34.6679").
+  const nums = (s.replace(",", ".").match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+  if (nums.length === 0) return null;
+  const deg = (nums[0] ?? 0) + (nums[1] ?? 0) / 60 + (nums[2] ?? 0) / 3600;
+  const sign = dir ? (dir[0] === "S" || dir[0] === "W" ? -1 : 1) : negSign ? -1 : 1;
+  return sign * deg;
 }
+
+interface GeoResult { lat: number; lon: number; displayName: string }
 
 function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; }) {
   const [label, setLabel] = useState("");
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Place / ZIP search (geocoded via /api/osint/geocode → Nominatim).
+  const [geoQuery, setGeoQuery] = useState("");
+  const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
+  const [geoBusy, setGeoBusy] = useState(false);
 
   const add = () => {
     if (value.length >= 10) { setError("Maximum of 10 tracked locations reached."); return; }
     if (!label.trim()) { setError("Enter a label for this location."); return; }
     const la = parseCoordInput(lat);
     const lo = parseCoordInput(lon);
-    if (la === null || lo === null) { setError("Enter latitude and longitude as decimal degrees, e.g. 26.35 and 127.77."); return; }
-    if (Math.abs(la) > 90) { setError(`Latitude must be between -90 and 90 (got ${la}). Did you swap lat and lon?`); return; }
-    if (Math.abs(lo) > 180) { setError(`Longitude must be between -180 and 180 (got ${lo}).`); return; }
+    if (la === null || lo === null) { setError("Enter coordinates as decimal (34.67, -99.27) or DMS (34°40′05″N), or use the place search above."); return; }
+    if (Math.abs(la) > 90) { setError(`Latitude must be between -90 and 90 (got ${la.toFixed(4)}). Did you swap lat and lon?`); return; }
+    if (Math.abs(lo) > 180) { setError(`Longitude must be between -180 and 180 (got ${lo.toFixed(4)}).`); return; }
     onChange([...value, { id: `${la.toFixed(2)},${lo.toFixed(2)}-${Date.now()}`, label: label.trim().slice(0, 60), lat: la, lon: lo }]);
     setLabel(""); setLat(""); setLon(""); setError(null);
+  };
+
+  // Geocode a free-text place name, address, or ZIP/postal code to candidate
+  // coordinates. Clicking a result prefills the label + lat/lon below so the
+  // user can rename it and confirm with Add.
+  const searchPlace = async () => {
+    const q = geoQuery.trim();
+    if (q.length < 2) return;
+    setGeoBusy(true); setError(null); setGeoResults([]);
+    try {
+      const res = await fetch(`/api/osint/geocode?q=${encodeURIComponent(q)}`);
+      const data = await res.json().catch(() => ({}));
+      const results: GeoResult[] = Array.isArray(data?.results) ? data.results : [];
+      setGeoResults(results);
+      if (results.length === 0) setError("No match found. Try a city, full address, or ZIP/postal code.");
+    } catch {
+      setError("Place lookup failed — check your connection, or enter coordinates manually below.");
+    } finally {
+      setGeoBusy(false);
+    }
+  };
+
+  const pickResult = (r: GeoResult) => {
+    setLabel((prev) => prev.trim() || r.displayName.split(",")[0].trim().slice(0, 60));
+    setLat(r.lat.toFixed(4));
+    setLon(r.lon.toFixed(4));
+    setGeoResults([]); setGeoQuery(""); setError(null);
   };
 
   return (
@@ -120,7 +159,8 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
       </label>
       <p className="text-[10px] text-slate-600 mb-3">
         Extra locations shown alongside your home on the Weather tab. Each gets a forecast card,
-        active NWS alerts, and feeds the alerts aggregator. Up to 10.
+        active NWS alerts, and feeds the alerts aggregator. Up to 10. Search by place or ZIP, or
+        enter coordinates (decimal or DMS) manually.
       </p>
 
       {value.length > 0 && (
@@ -141,6 +181,42 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
         </ul>
       )}
 
+      {/* Search by place name, address, or ZIP — geocodes to coordinates */}
+      <div className="flex gap-1.5">
+        <input
+          value={geoQuery}
+          onChange={(e) => { setGeoQuery(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchPlace(); } }}
+          placeholder="Search city, address, or ZIP…"
+          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <button
+          onClick={searchPlace}
+          disabled={geoBusy || geoQuery.trim().length < 2}
+          className="text-[11px] font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40"
+        >
+          {geoBusy ? "…" : "Find"}
+        </button>
+      </div>
+
+      {geoResults.length > 0 && (
+        <ul className="mt-1.5 space-y-1">
+          {geoResults.map((r, i) => (
+            <li key={i}>
+              <button
+                onClick={() => pickResult(r)}
+                title="Use these coordinates"
+                className="w-full text-left flex items-center gap-2 bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-500 rounded-md px-2.5 py-1.5 transition-colors"
+              >
+                <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{r.displayName}</span>
+                <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">{r.lat.toFixed(2)}, {r.lon.toFixed(2)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-[10px] text-slate-700 mt-2 mb-1.5">…or enter coordinates manually:</p>
       <div className="flex gap-1.5">
         <input
           value={label} onChange={(e) => { setLabel(e.target.value); setError(null); }}
@@ -152,13 +228,15 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
           value={lat} onChange={(e) => { setLat(e.target.value); setError(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Lat"
-          className="w-16 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+          title="Decimal (34.6679) or DMS (34°40′05″N)"
+          className="w-20 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <input
           value={lon} onChange={(e) => { setLon(e.target.value); setError(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Lon"
-          className="w-16 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+          title="Decimal (-99.2677) or DMS (99°16′04″W)"
+          className="w-20 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <button
           onClick={add}
