@@ -12,7 +12,7 @@ const UA = "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)";
 
 // Source functions build everything except `aor`, which getDisasters() assigns
 // centrally so the classification rule lives in one place.
-type RawDisaster = Omit<DisasterEvent, "aor">;
+type RawDisaster = Omit<DisasterEvent, "aor" | "hadrScore">;
 
 function num(v: unknown): number | null {
   const n = Number(v);
@@ -63,6 +63,7 @@ async function fetchGdacs(): Promise<RawDisaster[]> {
         source: "GDACS",
         link,
         nearLocations: [],
+        alertScore: num(p.alertscore),
       }];
     });
   } catch { return []; }
@@ -275,14 +276,43 @@ function dedupe(events: DisasterEvent[]): DisasterEvent[] {
   return kept;
 }
 
+// Coarse DoD-HADR-airlift relevance (0–100) — how likely an event is to draw a
+// U.S. military humanitarian-airlift response, before factoring base proximity.
+// GDACS's alertscore already blends hazard × population-exposure × country
+// vulnerability, so use it when present; otherwise fall back to the red/orange
+// level. Then weight by event type (sudden-onset events get airlift far more
+// than slow-onset drought) and by AOR (partner-nation HADR is more likely in
+// some commands; domestic NORTHCOM events flow through different channels).
+// Awareness only — not a tasking or prediction model.
+const HADR_TYPE_W: Record<DisasterEvent["type"], number> = {
+  earthquake: 1, cyclone: 1, tsunami: 1, flood: 0.95,
+  volcano: 0.8, epidemic: 0.6, wildfire: 0.5, drought: 0.4, other: 0.5,
+};
+const HADR_AOR_W: Partial<Record<DisasterEvent["aor"], number>> = {
+  INDOPACOM: 1, SOUTHCOM: 1, AFRICOM: 1, CENTCOM: 0.95, EUCOM: 0.85, NORTHCOM: 0.8,
+};
+export function computeHadrScore(d: {
+  type: DisasterEvent["type"];
+  severity: DisasterEvent["severity"];
+  aor: DisasterEvent["aor"];
+  alertScore?: number | null;
+}): number {
+  const base =
+    d.alertScore != null && Number.isFinite(d.alertScore)
+      ? Math.min(Math.max(d.alertScore, 0) / 3, 1) * 70 // GDACS score is ~0–3
+      : d.severity === "red" ? 60 : d.severity === "orange" ? 35 : 12;
+  const scaled = base * (HADR_TYPE_W[d.type] ?? 0.5) * (HADR_AOR_W[d.aor] ?? 0.9);
+  return Math.round(Math.min(100, scaled));
+}
+
 export async function getDisasters(): Promise<DisasterEvent[]> {
   const [gdacs, usgs, rw, tsunami, ash] = await Promise.all([
     fetchGdacs(), fetchUsgsQuakes(), fetchReliefWeb(), fetchTsunamiCenters(), fetchVolcanicAsh(),
   ]);
-  const all: DisasterEvent[] = [...gdacs, ...usgs, ...rw, ...tsunami, ...ash].map((e) => ({
-    ...e,
-    aor: classifyAor({ lat: e.lat, lon: e.lon, name: e.country || e.title }),
-  }));
+  const all: DisasterEvent[] = [...gdacs, ...usgs, ...rw, ...tsunami, ...ash].map((e) => {
+    const aor = classifyAor({ lat: e.lat, lon: e.lon, name: e.country || e.title });
+    return { ...e, aor, hadrScore: computeHadrScore({ type: e.type, severity: e.severity, aor, alertScore: e.alertScore }) };
+  });
   all.sort((a, b) => {
     if (SEV_RANK[a.severity] !== SEV_RANK[b.severity]) return SEV_RANK[a.severity] - SEV_RANK[b.severity];
     return (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0);

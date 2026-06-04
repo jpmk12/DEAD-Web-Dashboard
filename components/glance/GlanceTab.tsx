@@ -366,15 +366,19 @@ export default function GlanceTab({
   const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string }[] = [];
   for (const d of threats?.disasters ?? []) {
     const near = d.nearLocations.length > 0;
-    if (!(d.severity === "red" || near)) continue; // only base-relevant / extreme
+    const hadr = d.hadrScore ?? (d.severity === "red" ? 60 : d.severity === "orange" ? 35 : 12);
+    // Surface red, near-base, OR high HADR-relevance events (a big cyclone can
+    // be "orange" yet very airlift-relevant). Distant low-relevance noise stays
+    // on the Weather tab.
+    if (!(d.severity === "red" || near || hadr >= 50)) continue;
     reach.push({
       id: `reach-d-${d.id}`,
-      tone: d.severity === "red" ? "red" : "amber",
+      tone: d.severity === "red" || hadr >= 60 ? "red" : "amber",
       icon: REACH_DISASTER_GLYPH[d.type] ?? "⊕",
       title: d.title,
-      sub: near ? `Near ${d.nearLocations.join(", ")}` : (d.country || d.type),
+      sub: near ? `Near ${d.nearLocations.join(", ")}` : [d.country || d.type, hadr >= 55 ? "HADR-relevant" : null].filter(Boolean).join(" · "),
       tag: d.aor !== "UNKNOWN" ? d.aor : "DISASTER",
-      score: (d.severity === "red" ? 80 : 40) + (near ? 50 : 0),
+      score: hadr + (near ? 55 : 0),
     });
   }
   for (const h of threats?.hazards ?? []) {

@@ -152,6 +152,14 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
                     {d.aor}
                   </span>
                 )}
+                {(d.hadrScore ?? 0) >= 55 && (
+                  <span
+                    className="text-[8px] font-mono uppercase tracking-wider text-orange-300 border border-orange-500/40 rounded px-1"
+                    title="Coarse DoD HADR-airlift relevance — GDACS alert score (hazard × exposure × vulnerability) weighted by event type and AOR. Awareness only, not a tasking model."
+                  >
+                    HADR
+                  </span>
+                )}
                 {d.nearLocations.length > 0 && (
                   <span
                     className="text-[9px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1"

@@ -329,6 +329,8 @@ export interface DisasterEvent {
   source: "GDACS" | "USGS" | "ReliefWeb" | "NTWC" | "PTWC" | "USGS-VHP";
   link: string;
   nearLocations: string[];     // tracked-location labels within ~500 km
+  alertScore?: number | null;  // GDACS alertscore (hazard×exposure×vulnerability), when present
+  hadrScore: number;           // intrinsic DoD-HADR-airlift relevance 0–100 (coarse; pre-proximity)
 }
 
 // Model-derived (Open-Meteo) aviation/ops hazard read at a tracked point. Fills
