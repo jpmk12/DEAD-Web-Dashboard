@@ -216,17 +216,13 @@ async function fetchTsunamiCenters(): Promise<RawDisaster[]> {
 // Washington = Cascades/Marianas). Aviation color ORANGE/RED = ash hazard to
 // flight. Non-U.S. volcanoes continue to arrive via GDACS (VO).
 
-// USGS volcano page URL from a name, e.g. "Great Sitkin" -> ".../great-sitkin".
-// The HANS feed carries no ready-made link, so build the modern usgs.gov slug;
-// fall back to the volcano index if a name can't be slugged.
-function usgsVolcanoUrl(name: string): string {
-  const slug = name
-    .normalize("NFD").replace(/[̀-ͯ]/g, "") // strip combining diacritics
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug ? `https://www.usgs.gov/volcanoes/${slug}` : "https://www.usgs.gov/volcanoes";
-}
+// USGS link for an elevated-volcano alert.
+// The HANS feed carries no ready-made link, and the modern per-volcano
+// usgs.gov slug (e.g. /volcanoes/great-sitkin) now 404s. The VHP
+// "volcano-updates" page is the stable, maintained landing page that lists
+// current activity/alert levels for all elevated U.S. volcanoes, so point
+// every VHP alert there.
+const VHP_UPDATES_URL = "https://www.usgs.gov/programs/VHP/volcano-updates";
 
 async function fetchVolcanicAsh(): Promise<RawDisaster[]> {
   try {
@@ -256,7 +252,7 @@ async function fetchVolcanicAsh(): Promise<RawDisaster[]> {
         tsunami: false,
         summary: `Aviation color ${color}${level ? ` · ${level}` : ""}`,
         source: "USGS-VHP",
-        link: usgsVolcanoUrl(name),
+        link: VHP_UPDATES_URL,
         nearLocations: [],
       }];
     });
