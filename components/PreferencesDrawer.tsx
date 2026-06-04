@@ -125,9 +125,8 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
     setLabel(""); setLat(""); setLon(""); setError(null);
   };
 
-  // Geocode a free-text place name, address, or ZIP/postal code to candidate
-  // coordinates. Clicking a result prefills the label + lat/lon below so the
-  // user can rename it and confirm with Add.
+  // Geocode a free-text place name, address, or ZIP/postal code. Clicking a
+  // result adds it to the list immediately (one tap) — see addFromResult.
   const searchPlace = async () => {
     const q = geoQuery.trim();
     if (q.length < 2) return;
@@ -145,10 +144,12 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
     }
   };
 
-  const pickResult = (r: GeoResult) => {
-    setLabel((prev) => prev.trim() || r.displayName.split(",")[0].trim().slice(0, 60));
-    setLat(r.lat.toFixed(4));
-    setLon(r.lon.toFixed(4));
+  // Clicking a search result adds the location straight to the list (the list
+  // is staged; the drawer's Save button persists it). No extra Add step.
+  const addFromResult = (r: GeoResult) => {
+    if (value.length >= 10) { setError("Maximum of 10 tracked locations reached."); return; }
+    const lbl = r.displayName.split(",").slice(0, 2).join(",").trim().slice(0, 60) || "Location";
+    onChange([...value, { id: `${r.lat.toFixed(2)},${r.lon.toFixed(2)}-${Date.now()}`, label: lbl, lat: r.lat, lon: r.lon }]);
     setGeoResults([]); setGeoQuery(""); setError(null);
   };
 
@@ -204,44 +205,45 @@ function TrackedLocationsEditor({ value, onChange }: { value: TrackedLocation[];
           {geoResults.map((r, i) => (
             <li key={i}>
               <button
-                onClick={() => pickResult(r)}
-                title="Use these coordinates"
-                className="w-full text-left flex items-center gap-2 bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-500 rounded-md px-2.5 py-1.5 transition-colors"
+                onClick={() => addFromResult(r)}
+                title="Add this location"
+                className="w-full text-left flex items-center gap-2 bg-slate-800/40 hover:bg-emerald-500/10 border border-slate-700/60 hover:border-emerald-500/40 rounded-md px-2.5 py-1.5 transition-colors group"
               >
+                <span className="text-emerald-400 font-bold text-sm leading-none flex-shrink-0">+</span>
                 <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{r.displayName}</span>
-                <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">{r.lat.toFixed(2)}, {r.lon.toFixed(2)}</span>
+                <span className="text-[10px] text-slate-500 group-hover:text-emerald-400/80 font-mono flex-shrink-0">{r.lat.toFixed(2)}, {r.lon.toFixed(2)}</span>
               </button>
             </li>
           ))}
         </ul>
       )}
 
-      <p className="text-[10px] text-slate-700 mt-2 mb-1.5">…or enter coordinates manually:</p>
+      <p className="text-[10px] text-slate-700 mt-3 mb-1.5">…or add by coordinates manually:</p>
+      <input
+        value={label} onChange={(e) => { setLabel(e.target.value); setError(null); }}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+        placeholder="Label (e.g. Kadena AB)"
+        className="w-full bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 mb-1.5"
+      />
       <div className="flex gap-1.5">
-        <input
-          value={label} onChange={(e) => { setLabel(e.target.value); setError(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="Label (e.g. Kadena AB)"
-          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
         <input
           value={lat} onChange={(e) => { setLat(e.target.value); setError(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Lat"
           title="Decimal (34.6679) or DMS (34°40′05″N)"
-          className="w-20 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <input
           value={lon} onChange={(e) => { setLon(e.target.value); setError(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Lon"
           title="Decimal (-99.2677) or DMS (99°16′04″W)"
-          className="w-20 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
+          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <button
           onClick={add}
           disabled={value.length >= 10}
-          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
+          className="flex-shrink-0 text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-4 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
         >
           Add
         </button>
