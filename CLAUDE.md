@@ -421,6 +421,41 @@ entries: `grep -c esbuild package-lock.json` → `0`.
 The committed `.npmrc` (`omit=dev`) is kept as defense-in-depth (keeps the prod
 install runtime-only) but is no longer load-bearing for the esbuild issue.
 
+### Deploy logs: stale-`node_modules` cleanup warnings (platform-side, usually benign)
+A deploy/preview build may print lines like:
+
+```
+WARN airo-sandbox: user-specified path does not exist, skipping path=/git-repo …
+WARN airo-sandbox: user-specified path does not exist, skipping path=/node_modules …
+rm: can't remove '/alloc/customer-app/<id>/preview/node_modules/next/dist/…': Directory not empty
+```
+
+What they are — **all platform-side, not our code**:
+- The `airo-sandbox … path does not exist, skipping` lines are the deploy
+  sandbox trying to bind-mount paths that aren't present at that stage. Benign
+  setup noise.
+- The `rm: can't remove … node_modules/next/dist/… Directory not empty` lines
+  are the platform cleaning the **previous** deploy's `node_modules` before
+  extracting the new one, with a shallow (busybox) `rm` that fails on a
+  non-empty tree. The platform runs with `cleanAppDirBeforeExtract: false`, so a
+  prior deploy's `node_modules/next/dist` lingers and the naive `rm` can't
+  remove it. Same family as the esbuild-hardlink / EXDEV-rename quirks above.
+
+Not our scripts: `build.js`/`start.js` only wipe `.next` via Node's recursive
+`fs.rmSync(..., { recursive: true, force: true })` — they never shell out to the
+`rm` shown here, and nothing from `node_modules/` or `.next/` is committed
+(`.gitignore` covers both; `git ls-files | grep -E '^node_modules/|^\.next/'` is
+empty). There is no repo-side fix because the extraction/cleanup step is fully
+platform-managed (no Docker/CI config on this host).
+
+Remedy when a deploy gets wedged on these: force a **clean slate** so there's no
+stale `node_modules` to trip over — use the Node.js Hosting UI's clean-redeploy /
+clear-build-cache option, or delete & recreate the preview environment; if
+neither exists, ask GoDaddy support to clear the stale preview app dir. A
+half-cleaned `node_modules` (old + new `next` files mixed) can cause subtle
+runtime breakage even when the deploy "completes," so prefer the clean redeploy
+over ignoring the warnings.
+
 ### Icons (`lucide-react`)
 Navigation tabs, primary action buttons, and major section headers use
 `lucide-react` SVG icons. The vocabulary lives in `lib/icons.tsx` (one icon per
