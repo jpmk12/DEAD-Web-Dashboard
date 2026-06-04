@@ -731,7 +731,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
                 type="button"
                 onClick={() => setFindState((s) => ({ ...s, caseSensitive: !s.caseSensitive }))}
                 title="Case sensitive"
-                className={`text-[10px] font-mono font-bold w-7 h-7 rounded transition-all border ${
+                className={`text-[10px] font-mono font-bold w-9 h-9 lg:w-7 lg:h-7 rounded transition-all border ${
                   findState.caseSensitive
                     ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
                     : "text-slate-500 border-slate-700 hover:text-slate-300 hover:border-slate-500"
@@ -770,7 +770,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
                 type="button"
                 onClick={closeFind}
                 title="Close (Esc)"
-                className="text-slate-600 hover:text-slate-300 w-6 h-6 flex items-center justify-center text-lg leading-none rounded hover:bg-slate-800 transition-all"
+                className="text-slate-600 hover:text-slate-300 w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center text-lg leading-none rounded hover:bg-slate-800 transition-all"
               >
                 ×
               </button>

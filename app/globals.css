@@ -303,3 +303,28 @@
 
 [data-theme="mission"] .from-emerald-400 { --tw-gradient-from: #378ADD; }
 [data-theme="mission"] .via-emerald-500  { --tw-gradient-via:  #185FA5; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE TOUCH ERGONOMICS
+   Coarse-pointer (touch) refinements only — desktop is untouched because
+   these rules are gated on `(pointer: coarse)`. Part of the mobile sweep.
+   ═══════════════════════════════════════════════════════════════════ */
+@media (pointer: coarse) {
+  /* Remove the ~300ms tap delay and double-tap-to-zoom on interactive
+     controls. Pure behavior change, no layout impact. Uses element selectors
+     so it cooperates with (rather than fights) Tailwind's touch-* utilities. */
+  button,
+  a[href],
+  [role="button"],
+  label,
+  summary,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+}
+
+/* Suppress the grey tap-flash overlay on touch; the app supplies its own
+   active/hover states. Harmless on desktop (no tap highlight exists there). */
+* { -webkit-tap-highlight-color: transparent; }

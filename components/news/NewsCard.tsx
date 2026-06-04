@@ -149,7 +149,7 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
               notingState === "error" ? "Failed — click to retry" :
               "Save excerpt to Docs tab"
             }
-            className={`w-6 h-6 flex items-center justify-center rounded-md transition-all text-sm ${
+            className={`w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center rounded-md transition-all text-sm ${
               notingState === "saved"
                 ? "text-emerald-400 bg-emerald-500/10"
                 : notingState === "error"
@@ -164,7 +164,7 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
           <button
             onClick={toggleSave}
             title={isSaved ? "Remove bookmark" : "Save for later"}
-            className={`w-6 h-6 flex items-center justify-center rounded-md transition-all text-base ${
+            className={`w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center rounded-md transition-all text-base ${
               isSaved
                 ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
                 : "text-slate-600 hover:text-amber-400 hover:bg-amber-500/10"
@@ -205,7 +205,7 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
           onClick={() => rate("useful")}
           disabled={!!rated}
           title="Mark as relevant"
-          className={`text-xs px-2 py-0.5 rounded-md transition-all ${
+          className={`text-xs px-2 py-1.5 lg:py-0.5 rounded-md transition-all ${
             rated === "useful"
               ? "text-emerald-400 bg-emerald-500/15 border border-emerald-500/30"
               : rated
@@ -219,7 +219,7 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
           onClick={() => rate("not_useful")}
           disabled={!!rated}
           title="Mark as irrelevant"
-          className={`text-xs px-2 py-0.5 rounded-md transition-all ${
+          className={`text-xs px-2 py-1.5 lg:py-0.5 rounded-md transition-all ${
             rated === "not_useful"
               ? "text-red-400 bg-red-500/15 border border-red-500/30"
               : rated
