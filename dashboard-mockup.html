@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DEAD's Dashboard — Desktop Demo</title>
+<style>
+  :root{
+    --bg:#020617; --bg2:#0b1220; --panel:#0f172a; --panel2:#111c34;
+    --bd:#1e293b; --bd2:#334155; --txt:#e2e8f0; --txt2:#cbd5e1; --mut:#64748b; --mut2:#475569;
+    --acc:#34d399; --acc2:#10b981; --accbg:rgba(16,185,129,.10); --accbd:rgba(16,185,129,.30);
+    --red:#f87171; --amber:#fbbf24; --sky:#38bdf8; --violet:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace}
+  h1,h2,h3{margin:0}
+  a{color:inherit}
+  ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}::-webkit-scrollbar-track{background:transparent}
+  .ic{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle}
+  .ic svg{display:block}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+  /* banner */
+  .banner{background:var(--accbg);border-bottom:1px solid var(--accbd);color:#6ee7b7;font-size:11px;text-align:center;padding:6px 0;letter-spacing:.08em;text-transform:uppercase}
+  /* header */
+  header{background:rgba(15,23,42,.96);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:30;backdrop-filter:blur(6px)}
+  .accentline{height:2px;background:linear-gradient(90deg,#10b981,#4ade80,transparent)}
+  .hrow{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:28px;height:28px;border-radius:6px;background:var(--accbg);border:1px solid var(--accbd);display:flex;align-items:center;justify-content:center;color:var(--acc);font-size:12px}
+  .title{font-size:13px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
+  .actions{display:flex;align-items:center;gap:8px}
+  .btn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:7px 12px;border-radius:6px;border:1px solid var(--bd2);background:var(--panel);color:var(--txt2);cursor:pointer}
+  .btn:hover{background:#1e293b}
+  .btn.primary{background:var(--acc2);border-color:var(--acc2);color:#022c22;box-shadow:0 0 14px -2px rgba(16,185,129,.35)}
+  .btn.icon-only{padding:7px;width:32px;height:32px;justify-content:center}
+  /* tabs */
+  nav.tabs{display:flex;gap:4px;padding-top:4px;overflow-x:auto}
+  .tab{position:relative;display:inline-flex;align-items:center;gap:8px;padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);background:transparent;border:0;border-radius:6px 6px 0 0;cursor:pointer;white-space:nowrap}
+  .tab:hover{color:var(--txt2)}
+  .tab.active{color:var(--acc);background:var(--bg)}
+  .tab .tabline{position:absolute;left:8px;right:8px;bottom:0;height:2px;background:var(--acc2);border-radius:2px;opacity:0}
+  .tab.active .tabline{opacity:1}
+  .tab .badge{min-width:16px;height:16px;padding:0 4px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#ef4444;color:#fff;font-size:9px;font-weight:700}
+  /* layout */
+  main{padding:24px 0 8px}
+  [data-panel]{display:none}[data-panel].active{display:block}
+  .grid{display:grid;gap:24px}
+  .g-3{grid-template-columns:2fr 1fr}
+  .g-rail{grid-template-columns:1fr 320px}
+  .g-2{grid-template-columns:1fr 1fr}
+  .g-3c{grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:900px){.g-3,.g-rail,.g-2,.g-3c{grid-template-columns:1fr}}
+  .card{border:1px solid var(--bd);background:rgba(15,23,42,.5);border-radius:12px}
+  .card.pad{padding:16px}
+  .card-h{padding:10px 16px;border-bottom:1px solid var(--bd);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+  .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--acc)}
+  .muted{color:var(--mut)} .small{font-size:11px} .xsmall{font-size:10px}
+  .row{display:flex;justify-content:space-between;align-items:center}
+  .stack>*+*{margin-top:8px}
+  .divide>*+*{border-top:1px solid rgba(30,41,59,.6)}
+  .pill{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--bd2);color:var(--mut)}
+  .pill.on{border-color:var(--accbd);background:var(--accbg);color:var(--acc)}
+  .li{padding:12px 16px}
+  .bl{border-left:2px solid var(--bd2);padding-left:10px}
+  .bl.red{border-color:rgba(248,113,113,.7)} .bl.amber{border-color:rgba(251,191,36,.7)} .bl.green{border-color:rgba(16,185,129,.7)}
+  .tag{font-size:9px;font-weight:700;text-transform:uppercase;border:1px solid;border-radius:4px;padding:1px 4px}
+  .tag.red{color:var(--red);border-color:rgba(248,113,113,.4)} .tag.amber{color:var(--amber);border-color:rgba(251,191,36,.4)} .tag.green{color:var(--acc);border-color:var(--accbd)}
+  .iconbox{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .glow{box-shadow:0 0 14px -2px rgba(16,185,129,.3)}
+  .acccard{border:1px solid var(--accbd);background:var(--accbg)}
+  .ambcard{border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.06)}
+  textarea.editor{width:100%;border:0;background:var(--bg);color:var(--txt2);font-family:ui-monospace,monospace;font-size:13px;padding:16px;resize:none;outline:none}
+  .toolbar{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--bd);color:var(--mut);font-size:12px}
+  .map{height:280px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--mut2);font-size:12px;position:relative;overflow:hidden;border:1px solid var(--bd);background:rgba(15,23,42,.6)}
+  .green{color:var(--acc)} .redt{color:var(--red)} .ambt{color:var(--amber)} .skyt{color:var(--sky)} .violett{color:var(--violet)}
+  footer{padding:24px;text-align:center;font-size:10px;color:#475569}
+  ul{margin:0;padding:0;list-style:none}
+  .prose h1{font-size:20px;font-weight:800;margin-bottom:6px}
+  .prose h2{font-size:15px;font-weight:700;margin:14px 0 4px}
+  .prose ul{list-style:disc;padding-left:20px;font-size:13px;color:var(--txt2)}
+  .prose ol{list-style:decimal;padding-left:20px;font-size:13px;color:var(--txt2)}
+  .prose p{font-size:13px;color:var(--txt2)}
+</style>
+</head>
+<body>
+<div class="banner">Interactive mockup · sample data · desktop view — click the tabs</div>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><h1 class="title">DEAD's Dashboard</h1></div>
+    <div class="actions">
+      <button class="btn primary"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></svg></span> Brief</button>
+      <button class="btn"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-book-open" aria-hidden="true"><path d="M12 7v14"></path><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"></path></svg></span> Digest</button>
+      <button class="btn"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></span> Capture</button>
+      <button class="btn icon-only"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path><circle cx="12" cy="12" r="3"></circle></svg></span></button>
+    </div>
+  </div>
+  <div class="wrap">
+    <nav class="tabs" id="tabbar">
+      <button class="tab active" data-tab="glance"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-gauge" aria-hidden="true"><path d="m12 14 4-4"></path><path d="M3.34 19a10 10 0 1 1 17.32 0"></path></svg></span> Glance<span class="tabline"></span></button>
+      <button class="tab" data-tab="news"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-newspaper" aria-hidden="true"><path d="M15 18h-5"></path><path d="M18 14h-8"></path><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2"></path><rect width="8" height="4" x="10" y="6" rx="1"></rect></svg></span> News<span class="tabline"></span></button>
+      <button class="tab" data-tab="calendar"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg></span> Calendar<span class="tabline"></span></button>
+      <button class="tab" data-tab="email"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mail" aria-hidden="true"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"></path><rect x="2" y="4" width="20" height="16" rx="2"></rect></svg></span> Email<span class="tabline"></span></button>
+      <button class="tab" data-tab="osint"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-crosshair" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="22" x2="18" y1="12" y2="12"></line><line x1="6" x2="2" y1="12" y2="12"></line><line x1="12" x2="12" y1="6" y2="2"></line><line x1="12" x2="12" y1="22" y2="18"></line></svg></span> OSINT<span class="badge">3</span><span class="tabline"></span></button>
+      <button class="tab" data-tab="weather"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-sun" aria-hidden="true"><path d="M12 2v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="M20 12h2"></path><path d="m19.07 4.93-1.41 1.41"></path><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"></path><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"></path></svg></span> Weather<span class="tabline"></span></button>
+      <button class="tab" data-tab="docs"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg></span> Docs<span class="tabline"></span></button>
+      <button class="tab" data-tab="markets"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chart-candlestick" aria-hidden="true"><path d="M9 5v4"></path><rect width="4" height="6" x="7" y="9" rx="1"></rect><path d="M9 15v2"></path><path d="M17 3v2"></path><rect width="4" height="8" x="15" y="5" rx="1"></rect><path d="M17 13v3"></path><path d="M3 3v16a2 2 0 0 0 2 2h16"></path></svg></span> Markets<span class="tabline"></span></button>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+
+  <!-- GLANCE -->
+  <section data-panel="glance" class="active">
+    <div class="card acccard glow pad" style="margin-bottom:24px">
+      <div class="hd"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></svg></span> Morning Brief</div>
+      <p style="color:var(--txt2);font-size:14px">Three threads need your attention today. A Red Sea shipping incident is escalating with two carriers rerouting, the Senate Intelligence markup moved to 14:00, and your 09:30 with J. Park now has a pre-read attached. Markets opened risk-off; Brent +2.4%.</p>
+    </div>
+    <div class="grid g-3">
+      <div class="stack">
+        <div class="card">
+          <div class="card-h">Needs you now</div>
+          <ul>
+            <li class="li bl red" style="display:flex;gap:12px"><span class="redt">⊕</span><div><div style="font-weight:600">Red Sea: second tanker reroutes around Cape of Good Hope</div><div class="small muted mono" style="margin-top:2px">Reuters · 12m ago · <span class="redt">BREAKING</span></div></div></li>
+            <li class="li bl amber" style="display:flex;gap:12px"><span class="ambt">⚑</span><div><div style="font-weight:600">Senate Intel markup rescheduled → 14:00 EDT</div><div class="small muted mono" style="margin-top:2px">Calendar · 38m ago</div></div></li>
+            <li class="li bl green" style="display:flex;gap:12px"><span class="green">✉</span><div><div style="font-weight:600">Pre-read attached for 09:30 — "Q3 posture review"</div><div class="small muted mono" style="margin-top:2px">J. Park · 1h ago · VIP</div></div></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-h">Breaking feed</div>
+          <ul class="divide">
+            <li class="li row"><span>NATO foreign ministers convene emergency session</span><span class="xsmall muted mono">23m</span></li>
+            <li class="li row"><span>Fed's Williams: "data-dependent," no pre-commitment</span><span class="xsmall muted mono">41m</span></li>
+            <li class="li row"><span>USGS: M5.8 offshore Mindanao, no tsunami warning</span><span class="xsmall muted mono">1h</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="card pad"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">Threat radar</div><div class="stack">
+          <div class="row"><span>⊕ Maritime — Red Sea</span><span class="redt" style="font-weight:700">HIGH</span></div>
+          <div class="row"><span>🌀 Cyclone — Bay of Bengal</span><span class="ambt" style="font-weight:700">WATCH</span></div>
+          <div class="row"><span>⛰ Seismic — Mindanao</span><span class="green" style="font-weight:700">LOW</span></div>
+        </div></div>
+        <div class="card pad"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">Markets</div><div class="stack mono" style="font-size:13px">
+          <div class="row"><span class="muted">Brent</span><span class="green">$84.20 ▲2.4%</span></div>
+          <div class="row"><span class="muted">S&amp;P 500</span><span class="redt">5,210 ▼0.8%</span></div>
+          <div class="row"><span class="muted">DXY</span><span class="green">104.7 ▲0.3%</span></div>
+          <div class="row"><span class="muted">VIX</span><span class="redt">18.6 ▲11%</span></div>
+        </div></div>
+        <div class="card pad"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">Today</div><ul class="stack">
+          <li><span class="green mono xsmall">09:30</span> &nbsp;Q3 posture review — J. Park</li>
+          <li><span class="green mono xsmall">14:00</span> &nbsp;Senate Intel markup (watch)</li>
+          <li><span class="green mono xsmall">16:30</span> &nbsp;Weekly sync</li>
+        </ul></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NEWS -->
+  <section data-panel="news">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="display:flex;gap:4px;border:1px solid var(--bd);border-radius:8px;padding:4px;background:rgba(15,23,42,.6)">
+        <button class="btn" style="background:#334155;color:#f1f5f9"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-list" aria-hidden="true"><path d="M3 5h.01"></path><path d="M3 12h.01"></path><path d="M3 19h.01"></path><path d="M8 5h13"></path><path d="M8 12h13"></path><path d="M8 19h13"></path></svg></span> Feed</button>
+        <button class="btn" style="border:0;background:transparent"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-network" aria-hidden="true"><rect x="16" y="16" width="6" height="6" rx="1"></rect><rect x="2" y="16" width="6" height="6" rx="1"></rect><rect x="9" y="2" width="6" height="6" rx="1"></rect><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path><path d="M12 12V8"></path></svg></span> Threads</button>
+        <button class="btn" style="border:0;background:transparent"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-history" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></span> History</button>
+      </div>
+      <span class="pill on mono">All</span><span class="pill mono">Defense</span><span class="pill mono">Cyber</span><span class="pill mono">Econ</span>
+    </div>
+    <div class="grid g-rail">
+      <div class="stack">
+        <article class="card pad"><div class="row" style="align-items:flex-start;gap:12px"><div><div class="xsmall muted mono" style="text-transform:uppercase;letter-spacing:.06em">Reuters · World · 12m ago</div><h3 style="font-size:14px;margin-top:4px">Second tanker reroutes around Cape of Good Hope as Red Sea risk premium climbs</h3><p class="small" style="color:var(--mut);margin-top:6px">Insurers lifted war-risk rates for a third straight session. Two major carriers have now suspended Suez transits, adding ~10 days to Asia–Europe routes.</p></div><span class="tag red">Breaking</span></div><div style="display:flex;gap:14px;margin-top:12px;color:var(--mut);font-size:12px"><span>▲ 24</span><span>▤ Save to Docs</span><span>↗ Open</span></div></article>
+        <article class="card pad"><div class="xsmall muted mono" style="text-transform:uppercase">Defense One · Cyber · 47m ago</div><h3 style="font-size:14px;margin-top:4px">CISA flags actively-exploited edge-device CVE; patch window 72h</h3><p class="small" style="color:var(--mut);margin-top:6px">Federal civilian agencies directed to remediate by Friday. PoC code is public and scanning has spiked across three ASNs.</p><div style="display:flex;gap:14px;margin-top:12px;color:var(--mut);font-size:12px"><span>▲ 11</span><span>▤ Save to Docs</span><span>↗ Open</span></div></article>
+        <article class="card pad"><div class="xsmall muted mono" style="text-transform:uppercase">Bloomberg · Econ · 1h ago</div><h3 style="font-size:14px;margin-top:4px">Oil's spike revives stagflation chatter; rates desks trim cut bets</h3><p class="small" style="color:var(--mut);margin-top:6px">Front-month Brent through $84 pushed breakevens higher. Swaps now price ~1.5 cuts into year-end, down from two a week ago.</p><div style="display:flex;gap:14px;margin-top:12px;color:var(--mut);font-size:12px"><span>▲ 7</span><span>▤ Save to Docs</span><span>↗ Open</span></div></article>
+      </div>
+      <aside class="card pad" style="height:fit-content">
+        <div class="hd"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></svg></span> Analyst</div>
+        <p class="small" style="color:var(--txt2)">Ask about anything in your feed.</p>
+        <div class="stack" style="margin-top:12px">
+          <div class="small muted" style="border:1px solid var(--bd);border-radius:8px;padding:8px 12px">Summarize the Red Sea thread in 3 bullets</div>
+          <div class="small muted" style="border:1px solid var(--bd);border-radius:8px;padding:8px 12px">What changed on rates this week?</div>
+        </div>
+        <div style="margin-top:16px;display:flex;align-items:center;gap:8px;border:1px solid var(--bd);border-radius:8px;padding:8px 12px"><span class="small muted">Ask the analyst…</span><span class="green" style="margin-left:auto">↑</span></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- CALENDAR -->
+  <section data-panel="calendar">
+    <div class="grid g-rail">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;padding:14px 20px;border-bottom:1px solid var(--bd)"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg></span><h2 style="font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--txt2)">Upcoming</h2></div>
+        <ul class="divide">
+          <li class="li" style="display:flex;gap:16px"><div style="text-align:center;width:48px"><div class="xsmall green mono" style="text-transform:uppercase">Today</div><div style="font-size:18px;font-weight:700">09:30</div></div><div><div style="font-weight:500">Q3 posture review</div><div class="small muted">J. Park · Conf Rm 4 · pre-read attached</div></div></li>
+          <li class="li" style="display:flex;gap:16px"><div style="text-align:center;width:48px"><div class="xsmall ambt mono" style="text-transform:uppercase">Today</div><div style="font-size:18px;font-weight:700">14:00</div></div><div><div style="font-weight:500">Senate Intel markup <span class="tag amber">WATCH</span></div><div class="small muted">Livestream · rescheduled from 10:00</div></div></li>
+          <li class="li" style="display:flex;gap:16px"><div style="text-align:center;width:48px"><div class="xsmall muted mono" style="text-transform:uppercase">Wed</div><div style="font-size:18px;font-weight:700">11:00</div></div><div><div style="font-weight:500">Coalition sync</div><div class="small muted">Recurring · 6 attendees</div></div></li>
+        </ul>
+      </div>
+      <aside class="card pad" style="height:fit-content">
+        <div class="card-h" style="border:0;padding:0;margin-bottom:12px;color:var(--txt2)">Tasks</div>
+        <ul class="stack">
+          <li style="display:flex;align-items:center;gap:8px"><span style="width:16px;height:16px;border:1px solid var(--bd2);border-radius:4px;display:inline-block"></span> Finalize posture deck</li>
+          <li style="display:flex;align-items:center;gap:8px"><span style="width:16px;height:16px;border:1px solid var(--bd2);border-radius:4px;display:inline-block"></span> Reply to coalition RFI</li>
+          <li style="display:flex;align-items:center;gap:8px;color:var(--mut);text-decoration:line-through"><span style="width:16px;height:16px;border:1px solid var(--acc2);background:rgba(16,185,129,.3);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--acc);font-size:10px">✓</span> Send weekly digest</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- EMAIL -->
+  <section data-panel="email">
+    <div class="grid g-rail">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;padding:12px 20px;border-bottom:1px solid var(--bd)"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mail" aria-hidden="true"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"></path><rect x="2" y="4" width="20" height="16" rx="2"></rect></svg></span><h2 style="font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--txt2)">Inbox</h2><span class="xsmall muted mono" style="margin-left:auto">3 priority · 18 total</span></div>
+        <ul class="divide">
+          <li class="li" style="display:flex;gap:12px"><span style="width:6px;height:6px;border-radius:50%;background:#ef4444;margin-top:8px"></span><div style="flex:1"><div class="row"><div style="font-weight:600">J. Park <span class="tag green">VIP</span></div><span class="xsmall muted mono">1h</span></div><div class="small muted">Pre-read for 09:30 — Q3 posture review</div></div></li>
+          <li class="li" style="display:flex;gap:12px"><span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-top:8px"></span><div style="flex:1"><div class="row"><div style="font-weight:600">Coalition Desk</div><span class="xsmall muted mono">2h</span></div><div class="small muted">RFI-2291: response requested by EOD</div></div></li>
+          <li class="li" style="display:flex;gap:12px"><span style="width:6px;height:6px;border-radius:50%;background:#475569;margin-top:8px"></span><div style="flex:1"><div class="row"><div style="font-weight:500;color:var(--txt2)">Newsletter — Defense Daily</div><span class="xsmall muted mono">5h</span></div><div class="small muted">12 stories summarized → see Digest</div></div></li>
+        </ul>
+      </div>
+      <aside class="card pad" style="height:fit-content">
+        <div class="hd">⚡ Action items</div>
+        <ul class="stack small" style="color:var(--txt2)">
+          <li class="bl red">Respond to RFI-2291 — <span class="muted">EOD today</span></li>
+          <li class="bl amber">Confirm 09:30 attendance — <span class="muted">J. Park</span></li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- OSINT -->
+  <section data-panel="osint">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><div class="iconbox" style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3)"><span class="violett"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-crosshair" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="22" x2="18" y1="12" y2="12"></line><line x1="6" x2="2" y1="12" y2="12"></line><line x1="12" x2="12" y1="6" y2="2"></line><line x1="12" x2="12" y1="22" y2="18"></line></svg></span></span></div><div><h2 style="font-size:14px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">OSINT</h2><div class="small muted">Open-source signals · AOR monitoring</div></div></div>
+    <div class="grid g-3">
+      <div class="stack">
+        <div class="card pad">
+          <div class="row"><span class="xsmall muted mono" style="text-transform:uppercase">Window: 24h</span><span class="xsmall muted mono" style="text-transform:uppercase">3 high-priority</span></div>
+          <div class="stack" style="margin-top:8px">
+            <div class="bl red" style="display:flex;gap:8px;padding:4px 0 4px 10px"><span class="redt">●</span><div><div>Unusual AIS gap — tanker dark off Bab-el-Mandeb</div><div class="xsmall muted mono">MarineTraffic · 18m</div></div></div>
+            <div class="bl amber" style="display:flex;gap:8px;padding:4px 0 4px 10px"><span class="ambt">●</span><div><div>Mil-air uptick — 3 tankers, eastern Med</div><div class="xsmall muted mono">ADS-B · 52m</div></div></div>
+            <div class="bl amber" style="display:flex;gap:8px;padding:4px 0 4px 10px"><span class="ambt">●</span><div><div>NOTAM issued — temporary airspace restriction</div><div class="xsmall muted mono">FAA · 1h</div></div></div>
+          </div>
+        </div>
+        <div class="map"><div style="position:absolute;inset:0;opacity:.18;background:radial-gradient(circle at 30% 40%,#7c3aed 0,transparent 40%),radial-gradient(circle at 70% 60%,#059669 0,transparent 35%)"></div><span style="position:relative">⌖ Live aircraft map (ADS-B) — interactive in app</span></div>
+      </div>
+      <div class="card pad"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">AOR contacts</div><ul class="stack mono small">
+        <li class="row"><span>RC-135 · eMed</span><span class="green">FL310</span></li>
+        <li class="row"><span>P-8A · Gulf</span><span class="green">FL250</span></li>
+        <li class="row"><span>Tanker grp · 4</span><span class="ambt">loiter</span></li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- WEATHER -->
+  <section data-panel="weather">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><div class="iconbox" style="background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3)"><span class="skyt"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-sun" aria-hidden="true"><path d="M12 2v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="M20 12h2"></path><path d="m19.07 4.93-1.41 1.41"></path><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"></path><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"></path></svg></span></span></div><div><h2 style="font-size:14px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Weather</h2><div class="small muted">Tracked locations · hazards · space weather</div></div></div>
+    <div class="grid g-3c" style="margin-bottom:16px">
+      <div class="card pad"><div class="row" style="align-items:flex-start"><div><div style="font-weight:600">Washington, DC</div><div class="small muted">Partly cloudy</div></div><span style="font-size:24px">⛅</span></div><div style="font-size:30px;font-weight:700;margin-top:8px">71°<span class="small muted" style="font-weight:400"> F</span></div><div class="xsmall muted mono" style="display:flex;gap:12px;margin-top:8px"><span>Wind 8mph</span><span>Hum 54%</span><span>UV 5</span></div></div>
+      <div class="card pad"><div class="row" style="align-items:flex-start"><div><div style="font-weight:600">Manama, BH</div><div class="small muted">Clear · hot</div></div><span style="font-size:24px">☀️</span></div><div style="font-size:30px;font-weight:700;margin-top:8px">103°<span class="small muted" style="font-weight:400"> F</span></div><div class="xsmall muted mono" style="display:flex;gap:12px;margin-top:8px"><span>Wind 12mph</span><span>Hum 38%</span><span>UV 9</span></div></div>
+      <div class="card ambcard pad"><div class="row" style="align-items:flex-start"><div><div style="font-weight:600">Bay of Bengal</div><div class="small ambt">🌀 Cyclone watch</div></div><span style="font-size:24px">🌀</span></div><div style="font-size:30px;font-weight:700;margin-top:8px">Cat 1<span class="small muted" style="font-weight:400"> est.</span></div><div class="xsmall mono" style="display:flex;gap:12px;margin-top:8px;color:rgba(251,191,36,.8)"><span>Gusts 85mph</span><span>Track NW</span></div></div>
+    </div>
+    <div class="grid g-2">
+      <div class="card pad"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">Threat board</div><div class="stack small">
+        <div class="row"><span>🌀 Tropical Cyclone 04B</span><span class="ambt">WATCH</span></div>
+        <div class="row"><span>≋ Coastal flood — Gulf coast</span><span class="green">ADVISORY</span></div>
+        <div class="row"><span>☼ Heat — Arabian Peninsula</span><span class="ambt">WARNING</span></div>
+      </div></div>
+      <div class="card pad"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">Space weather</div><div class="stack small mono">
+        <div class="row"><span class="muted">Kp index</span><span class="green">3 (quiet)</span></div>
+        <div class="row"><span class="muted">Solar wind</span><span class="txt2">412 km/s</span></div>
+        <div class="row"><span class="muted">X-ray flux</span><span class="ambt">C2.1</span></div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- DOCS -->
+  <section data-panel="docs">
+    <div class="card" style="height:560px;overflow:hidden;background:var(--bg)">
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--bd);background:rgba(15,23,42,.5)">
+        <button class="btn" style="padding:4px 8px;background:var(--accbg);border-color:var(--accbd);color:var(--acc)">📝 Docs</button>
+        <button class="btn" style="padding:4px 8px;border:0;background:transparent">📁 Files</button>
+        <span class="xsmall muted mono" style="margin-left:8px">Markdown notes with wiki-links + version history</span>
+      </div>
+      <div style="display:flex;height:519px">
+        <div style="width:256px;border-right:1px solid var(--bd);display:flex;flex-direction:column">
+          <div style="padding:12px;border-bottom:1px solid var(--bd)"><button class="btn primary" style="width:100%;justify-content:center">＋ New document</button></div>
+          <ul style="overflow-y:auto">
+            <li style="padding:10px 12px;border-left:2px solid var(--acc2);background:var(--accbg)"><div style="font-weight:500">★ Q3 Posture Review</div><div class="xsmall muted mono">edited 4m ago · #ops</div></li>
+            <li style="padding:10px 12px;border-left:2px solid transparent"><div style="color:var(--txt2)">Red Sea — running log</div><div class="xsmall muted mono">edited 1h ago · #maritime</div></li>
+            <li style="padding:10px 12px;border-left:2px solid transparent"><div style="color:var(--txt2)">Coalition RFI tracker</div><div class="xsmall muted mono">edited yest · #coalition</div></li>
+          </ul>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column">
+          <div class="toolbar"><b class="mono" style="font-size:12px">B</b><i style="font-size:12px">I</i><span style="font-size:12px">&lt;&gt;</span><span style="font-size:12px">H1 H2 H3</span><span style="font-size:12px">• 1.</span><span style="font-size:12px">[[ ]]</span><div style="margin-left:auto;display:flex;gap:6px" class="xsmall mono"><span style="padding:2px 8px;border:1px solid var(--accbd);background:var(--accbg);color:var(--acc);border-radius:4px">≣ TOC</span><span style="padding:2px 8px;border:1px solid var(--bd2);border-radius:4px">◫ Split</span><span style="padding:2px 8px;border:1px solid var(--bd2);border-radius:4px">💬 Ask</span></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;flex:1">
+            <textarea class="editor" spellcheck="false" style="border-right:1px solid var(--bd)"># Q3 Posture Review
+
+Pre-read for the 09:30 with **J. Park**.
+
+## Key judgments
+- Red Sea reroutes now structural through Q3
+- Cyber: edge-device CVE → 72h patch window
+- See [[Red Sea — running log]] for timeline
+
+## Asks
+1. Approve revised coalition RFI response
+2. Confirm posture deck v3</textarea>
+            <div class="prose" style="padding:16px;overflow-y:auto;background:rgba(15,23,42,.4)">
+              <h1>Q3 Posture Review</h1>
+              <p>Pre-read for the 09:30 with <strong>J. Park</strong>.</p>
+              <h2>Key judgments</h2>
+              <ul><li>Red Sea reroutes now structural through Q3</li><li>Cyber: edge-device CVE → 72h patch window</li><li>See <span class="green">Red Sea — running log</span> for timeline</li></ul>
+              <h2>Asks</h2>
+              <ol><li>Approve revised coalition RFI response</li><li>Confirm posture deck v3</li></ol>
+            </div>
+          </div>
+          <div style="border-top:1px solid var(--bd);padding:6px 16px;text-align:right" class="xsmall muted mono">68 words · ~1 min read · ✓ Saved</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MARKETS -->
+  <section data-panel="markets">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><div class="iconbox" style="background:var(--accbg);border:1px solid var(--accbd)"><span class="green"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chart-candlestick" aria-hidden="true"><path d="M9 5v4"></path><rect width="4" height="6" x="7" y="9" rx="1"></rect><path d="M9 15v2"></path><path d="M17 3v2"></path><rect width="4" height="8" x="15" y="5" rx="1"></rect><path d="M17 13v3"></path><path d="M3 3v16a2 2 0 0 0 2 2h16"></path></svg></span></span></div><div><h2 style="font-size:14px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Markets</h2><div class="small muted">Watchlist · macro · DoD contracts</div></div></div>
+    <div class="card" style="padding:8px 16px;margin-bottom:16px;display:flex;gap:24px;overflow-x:auto;font-size:13px" class="mono">
+      <span>S&amp;P <span class="redt">5,210 ▼0.8%</span></span><span>NASDAQ <span class="redt">16,280 ▼1.1%</span></span><span>Brent <span class="green">$84.20 ▲2.4%</span></span><span>Gold <span class="green">$2,340 ▲0.6%</span></span><span>UST10Y <span class="green">4.62% ▲6bp</span></span><span>BTC <span class="redt">$61,400 ▼2.0%</span></span>
+    </div>
+    <div class="card acccard pad" style="margin-bottom:16px"><div class="hd"><span class="ic "><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></svg></span> Macro Brief</div><p class="small" style="color:var(--txt2)">Risk-off open driven by the energy spike. Equities lower across the board, crude bid on Red Sea supply fears, and the curve cheapened as rate-cut odds were trimmed. Watch the 14:00 markup for defense-name catalysts.</p></div>
+    <div class="grid g-2">
+      <div class="map" style="height:260px">📈 Market overview widget (TradingView) — live in app</div>
+      <div class="card pad"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">Economic calendar</div><ul class="divide small">
+        <li class="li row" style="padding:8px 0"><span>🇺🇸 CPI (MoM)</span><span class="mono muted">08:30 · est 0.3%</span></li>
+        <li class="li row" style="padding:8px 0"><span>🇪🇺 ECB minutes</span><span class="mono muted">07:30</span></li>
+        <li class="li row" style="padding:8px 0"><span>🇺🇸 30Y auction</span><span class="mono muted">13:00</span></li>
+      </ul></div>
+    </div>
+    <div class="card pad" style="margin-top:16px"><div class="card-h" style="border:0;padding:0;margin-bottom:12px">DoD contract awards</div><ul class="divide small">
+      <li class="li row" style="padding:8px 0"><span>Raytheon — $1.2B missile production</span><span class="mono muted">today</span></li>
+      <li class="li row" style="padding:8px 0"><span>GDIT — $480M IT modernization</span><span class="mono muted">today</span></li>
+      <li class="li row" style="padding:8px 0"><span>Anduril — $99M autonomous systems</span><span class="mono muted">yest</span></li>
+    </ul></div>
+  </section>
+
+</main>
+<footer>DEAD's Dashboard — static demo mockup · all data shown is fictional sample content</footer>
+<script>
+  var tabs=document.querySelectorAll('.tab'),panels=document.querySelectorAll('[data-panel]');
+  tabs.forEach(function(t){t.addEventListener('click',function(){
+    tabs.forEach(function(x){x.classList.remove('active')});t.classList.add('active');
+    var id=t.getAttribute('data-tab');
+    panels.forEach(function(p){p.classList.toggle('active',p.getAttribute('data-panel')===id)});
+    window.scrollTo({top:0,behavior:'smooth'});
+  })});
+</script>
+</body>
+</html>
