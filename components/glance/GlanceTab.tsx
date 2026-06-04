@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
-import { BriefIcon } from "@/lib/icons";
+import { BriefIcon, ReachIcon } from "@/lib/icons";
+
+// Glyphs for the Global Reach Watch rows, by disaster type (matches the
+// ThreatBoard vocabulary so a quake reads the same on both surfaces).
+const REACH_DISASTER_GLYPH: Record<string, string> = {
+  earthquake: "⊕", cyclone: "🌀", flood: "≈", volcano: "⛰", drought: "☼",
+  tsunami: "≋", epidemic: "✚", wildfire: "🔥", other: "•",
+};
 import {
   NewsItem,
   NewsletterSummary,
@@ -338,6 +345,39 @@ export default function GlanceTab({
   urgent.sort((a, b) => a.rank - b.rank);
   const urgentTop = urgent.slice(0, 6);
 
+  // ── Global Reach Watch: AMC-relevance fusion of base weather hazards (could
+  //    impede airlift) + the AOR disaster watch (could pull HADR/NEO airlift),
+  //    ranked into one "look here first" list. Proximity to a base outranks
+  //    raw severity, then severity. ──
+  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number }[] = [];
+  for (const d of threats?.disasters ?? []) {
+    const near = d.nearLocations.length > 0;
+    if (!(d.severity === "red" || near)) continue; // only base-relevant / extreme
+    reach.push({
+      id: `reach-d-${d.id}`,
+      tone: d.severity === "red" ? "red" : "amber",
+      icon: REACH_DISASTER_GLYPH[d.type] ?? "⊕",
+      title: d.title,
+      sub: near ? `Near ${d.nearLocations.join(", ")}` : (d.country || d.type),
+      tag: d.aor !== "UNKNOWN" ? d.aor : "DISASTER",
+      score: (d.severity === "red" ? 80 : 40) + (near ? 50 : 0),
+    });
+  }
+  for (const h of threats?.hazards ?? []) {
+    // Hazards are at your tracked points / AMC hubs by construction.
+    reach.push({
+      id: `reach-h-${h.label}`,
+      tone: h.severity === "severe" ? "red" : "amber",
+      icon: "〜",
+      title: h.label,
+      sub: h.flags.join(" · "),
+      tag: "WX",
+      score: h.severity === "severe" ? 75 : 45,
+    });
+  }
+  reach.sort((a, b) => b.score - a.score);
+  const reachTop = reach.slice(0, 6);
+
   // ── Derived: today's schedule ──
   const todayEvents = calendarEvents
     .filter((e) => isToday(ms(e.start)) || (ms(e.start) < startOfToday() && ms(e.end) > startOfToday()))
@@ -524,6 +564,42 @@ export default function GlanceTab({
           </div>
         </div>
       </section>
+
+      {/* ── Global Reach Watch: base weather hazards + AOR disaster watch ── */}
+      {reachTop.length > 0 && (
+        <section className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-4 card-hover">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2 text-amber-400 text-[11px] font-bold uppercase tracking-widest">
+              <ReachIcon size={15} strokeWidth={2.5} className="leading-none" /> Global Reach Watch
+            </div>
+            <span
+              className="text-[10px] text-slate-600 font-mono hidden sm:block"
+              title="Crises that could pull airlift (HADR/NEO) plus weather that could impede it, ranked by proximity to your bases. Tap a row to open the Weather tab."
+            >
+              crises &amp; weather affecting reach
+            </span>
+          </div>
+          <ul className="space-y-1.5">
+            {reachTop.map((r) => (
+              <li key={r.id}>
+                <button
+                  onClick={() => onNavigate("weather")}
+                  className={`group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${
+                    r.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"
+                  } hover:bg-slate-800/40 transition-colors rounded-r`}
+                >
+                  <span className={`mt-0.5 flex-shrink-0 ${r.tone === "red" ? "text-red-400" : "text-amber-400"}`}>{r.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-slate-200 truncate group-hover:text-emerald-400 transition-colors">{r.title}</span>
+                    {r.sub && <span className="block text-[11px] text-slate-500 truncate">{r.sub}</span>}
+                  </span>
+                  <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">{r.tag}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ── Two-column body ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
