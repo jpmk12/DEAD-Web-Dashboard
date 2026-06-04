@@ -35,6 +35,6 @@ export async function GET() {
     return NextResponse.json(data);
   } catch (err) {
     console.error("Weather threats fetch failed:", err);
-    return NextResponse.json({ threats: [], tropical: [], disasters: [], summary: { extreme: 0, severe: 0, lifeThreatening: 0, total: 0, topEvent: null, disasters: 0, disastersRed: 0 } });
+    return NextResponse.json({ threats: [], tropical: [], disasters: [], hazards: [], summary: { extreme: 0, severe: 0, lifeThreatening: 0, total: 0, topEvent: null, disasters: 0, disastersRed: 0, hazardLocations: 0 } });
   }
 }

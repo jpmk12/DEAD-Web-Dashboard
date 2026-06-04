@@ -34,7 +34,7 @@ const SEV_COLOUR: Record<SevereThreat["severity"], string> = {
   Unknown:  "border-slate-700 bg-slate-800/40 text-slate-400",
 };
 
-const EMPTY: WeatherThreats = { threats: [], tropical: [], disasters: [], summary: { extreme: 0, severe: 0, lifeThreatening: 0, total: 0, topEvent: null, disasters: 0, disastersRed: 0 } };
+const EMPTY: WeatherThreats = { threats: [], tropical: [], disasters: [], hazards: [], summary: { extreme: 0, severe: 0, lifeThreatening: 0, total: 0, topEvent: null, disasters: 0, disastersRed: 0, hazardLocations: 0 } };
 
 export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number }) {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
@@ -54,6 +54,7 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
   }, [refreshKey]);
 
   const { threats, tropical, disasters, summary } = data;
+  const hazards = data.hazards ?? [];
 
   // AORs present among current disasters, ordered by event count (desc).
   const aorsPresent = useMemo(() => {
@@ -65,7 +66,7 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
 
   if (loading && threats.length === 0 && tropical.length === 0 && disasters.length === 0) return null;
 
-  const allClear = threats.length === 0 && tropical.length === 0 && disasters.length === 0;
+  const allClear = threats.length === 0 && tropical.length === 0 && disasters.length === 0 && hazards.length === 0;
 
   return (
     <div className="space-y-2">
@@ -89,6 +90,7 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
             {summary.total} alert{summary.total === 1 ? "" : "s"}
             {tropical.length > 0 && <span className="text-sky-400"> · {tropical.length} tropical</span>}
             {disasters.length > 0 && <span className={summary.disastersRed > 0 ? "text-red-400" : "text-orange-400"}> · {disasters.length} disaster{disasters.length === 1 ? "" : "s"}</span>}
+            {(summary.hazardLocations ?? 0) > 0 && <span className="text-amber-400"> · {summary.hazardLocations} wx-hazard</span>}
           </span>
         )}
       </div>
@@ -179,6 +181,36 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
                 {s.pressureMb != null && <span className="text-slate-500 font-mono text-[10px]" title="Minimum central pressure (millibars)">{s.pressureMb} mb</span>}
                 {s.movement && <span className="text-slate-500 text-[10px]">moving {s.movement}</span>}
                 <span className="text-slate-700 text-[9px] font-mono" title="Source: NOAA National Hurricane Center">NHC ↗</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Location hazards — global model guidance, fills the OCONUS gap that
+          NWS (US-only) leaves at OCONUS hubs. */}
+      {hazards.length > 0 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-amber-400">Location Hazards · next 30 h</p>
+            <span
+              className="text-[8px] font-mono uppercase tracking-wider text-slate-600 border border-slate-700 rounded px-1"
+              title="Open-Meteo global model guidance for your tracked locations / AMC hubs — aviation-relevant thresholds (gusts, IFR/LIFR visibility, thunderstorms, snow/ice, temp extremes). Model output, NOT an official warning."
+            >
+              model
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {hazards.map((h) => (
+              <li key={h.label} className="text-[11px] flex flex-wrap items-baseline gap-x-2">
+                <span
+                  className={h.severity === "severe" ? "text-red-400" : "text-amber-400"}
+                  title={h.severity === "severe" ? "Severe" : "Elevated"}
+                >
+                  ●
+                </span>
+                <span className="text-slate-200 font-medium">{h.label}</span>
+                <span className="text-slate-400">{h.flags.join(" · ")}</span>
               </li>
             ))}
           </ul>

@@ -317,11 +317,21 @@ export interface DisasterEvent {
   nearLocations: string[];     // tracked-location labels within ~500 km
 }
 
+// Model-derived (Open-Meteo) aviation/ops hazard read at a tracked point. Fills
+// the OCONUS gap where NWS warnings don't reach. Guidance, not an official warning.
+export interface LocationHazard {
+  label: string;
+  lat: number;
+  lon: number;
+  severity: "severe" | "elevated";
+  flags: string[]; // e.g. ["Gusts 41 kt 14–18Z", "IFR vis 06–09Z", "Thunderstorms 20–22Z"]
+}
 export interface WeatherThreats {
   threats: SevereThreat[];
   tropical: TropicalSystem[];
   disasters: DisasterEvent[];
-  summary: { extreme: number; severe: number; lifeThreatening: number; total: number; topEvent: string | null; disasters: number; disastersRed: number };
+  hazards: LocationHazard[];
+  summary: { extreme: number; severe: number; lifeThreatening: number; total: number; topEvent: string | null; disasters: number; disastersRed: number; hazardLocations: number };
 }
 
 export interface VipSuggestion {

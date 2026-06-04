@@ -2,7 +2,7 @@
 // locations + NHC active tropical systems. Shared by /api/weather/threats and
 // (later) the Glance tab + morning brief.
 
-import type { WeatherAlert, SevereThreat, TropicalSystem, WeatherThreats } from "./types";
+import type { WeatherAlert, SevereThreat, TropicalSystem, WeatherThreats, LocationHazard } from "./types";
 import { getDisasters, haversineKm } from "./disasters";
 
 const NWS_HEADERS = { "User-Agent": "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)", Accept: "application/geo+json" };
@@ -155,11 +155,125 @@ export async function fetchActiveTropical(): Promise<TropicalSystem[]> {
 // Tag a disaster with any tracked locations within this radius (km).
 const NEAR_KM = 500;
 
+// ── Global per-location hazard scan (Open-Meteo model) ──────────────────────
+// NWS active alerts cover US territory only. This fills the OCONUS gap with a
+// uniform, model-derived read of aviation/ops-relevant hazards at every tracked
+// point (including AMC hubs) for the next ~30 h. It is model GUIDANCE, not an
+// official warning — labelled "model" in the UI.
+
+interface OmHourly {
+  time?: string[];
+  wind_gusts_10m?: number[]; // knots
+  visibility?: number[];     // metres
+  weather_code?: number[];   // WMO code
+  temperature_2m?: number[]; // °F
+}
+
+const HAZARD_WINDOW_H = 30;
+
+// Compact UTC-hour window from the matched indices, e.g. "06Z–09Z" or "14Z".
+function fmtWindow(times: string[], idxs: number[]): string {
+  if (idxs.length === 0) return "";
+  const hh = (s: string) => (s ?? "").slice(11, 13);
+  const a = hh(times[idxs[0]]);
+  const b = hh(times[idxs[idxs.length - 1]]);
+  return a === b ? `${a}Z` : `${a}–${b}Z`;
+}
+
+export interface HazardAssessment { severity: "severe" | "elevated" | "none"; flags: string[] }
+
+// Pure threshold logic — unit-tested independently of the network fetch.
+export function assessHazards(hourly: OmHourly, nowMs: number): HazardAssessment {
+  const time = hourly.time ?? [];
+  const gusts = hourly.wind_gusts_10m ?? [];
+  const vis = hourly.visibility ?? [];
+  const wx = hourly.weather_code ?? [];
+  const temp = hourly.temperature_2m ?? [];
+
+  const endMs = nowMs + HAZARD_WINDOW_H * 3600_000;
+  const idx: number[] = [];
+  for (let i = 0; i < time.length; i++) {
+    const iso = time[i].endsWith("Z") ? time[i] : `${time[i]}Z`;
+    const t = Date.parse(iso);
+    if (Number.isFinite(t) && t >= nowMs - 3600_000 && t <= endMs) idx.push(i);
+  }
+  if (idx.length === 0) return { severity: "none", flags: [] };
+
+  const flags: string[] = [];
+  let severe = false;
+
+  // Wind gusts — crosswind / ground-ops / airdrop relevance.
+  const gustIdx = idx.filter((i) => (gusts[i] ?? 0) >= 35);
+  if (gustIdx.length) {
+    const peak = Math.round(Math.max(...gustIdx.map((i) => gusts[i] ?? 0)));
+    if (peak >= 50) severe = true;
+    flags.push(`Gusts ${peak} kt ${fmtWindow(time, gustIdx)}`);
+  }
+  // Visibility — IFR < 1600 m, LIFR < 800 m.
+  const visIdx = idx.filter((i) => Number.isFinite(vis[i]) && vis[i] < 1600);
+  if (visIdx.length) {
+    const lifr = Math.min(...visIdx.map((i) => vis[i])) < 800;
+    if (lifr) severe = true;
+    flags.push(`${lifr ? "LIFR" : "IFR"} vis ${fmtWindow(time, visIdx)}`);
+  }
+  // Thunderstorms (WMO 95/96/99) — 96/99 (hail) is severe.
+  const tsIdx = idx.filter((i) => wx[i] === 95 || wx[i] === 96 || wx[i] === 99);
+  if (tsIdx.length) {
+    if (idx.some((i) => wx[i] === 96 || wx[i] === 99)) severe = true;
+    flags.push(`Thunderstorms ${fmtWindow(time, tsIdx)}`);
+  }
+  // Snow / freezing precip (WMO snow 71-77,85,86 ; freezing 56,57,66,67).
+  const iceCodes = new Set([71, 73, 75, 77, 85, 86, 56, 57, 66, 67]);
+  const iceIdx = idx.filter((i) => iceCodes.has(wx[i]));
+  if (iceIdx.length) flags.push(`Snow/ice ${fmtWindow(time, iceIdx)}`);
+  // Temperature extremes (ramp/personnel/aircraft limits).
+  const temps = idx.map((i) => temp[i]).filter((v): v is number => Number.isFinite(v));
+  if (temps.length) {
+    const tMax = Math.max(...temps);
+    const tMin = Math.min(...temps);
+    if (tMax >= 110) flags.push(`Extreme heat ${Math.round(tMax)}°F`);
+    if (tMin <= 5) flags.push(`Extreme cold ${Math.round(tMin)}°F`);
+  }
+
+  if (flags.length === 0) return { severity: "none", flags: [] };
+  return { severity: severe ? "severe" : "elevated", flags };
+}
+
+const OM_UA = "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)";
+
+async function fetchLocationHazards(locations: NamedPoint[]): Promise<LocationHazard[]> {
+  if (locations.length === 0) return [];
+  const now = Date.now();
+  const results = await Promise.all(
+    locations.map(async (loc): Promise<LocationHazard | null> => {
+      try {
+        const url =
+          `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat.toFixed(4)}&longitude=${loc.lon.toFixed(4)}` +
+          `&hourly=wind_gusts_10m,visibility,weather_code,temperature_2m&forecast_days=2` +
+          `&wind_speed_unit=kn&temperature_unit=fahrenheit&timezone=UTC`;
+        const res = await fetch(url, { headers: { "User-Agent": OM_UA }, cache: "no-store" });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const a = assessHazards((data?.hourly ?? {}) as OmHourly, now);
+        if (a.severity === "none") return null;
+        return { label: loc.label, lat: loc.lat, lon: loc.lon, severity: a.severity, flags: a.flags };
+      } catch {
+        return null; // unreachable source → no hazards, never breaks the board
+      }
+    })
+  );
+  const rank = { severe: 0, elevated: 1 } as const;
+  return results
+    .filter((r): r is LocationHazard => r !== null)
+    .sort((x, y) => rank[x.severity] - rank[y.severity]);
+}
+
 export async function getWeatherThreats(locations: NamedPoint[]): Promise<WeatherThreats> {
-  const [threats, tropical, disastersRaw] = await Promise.all([
+  const [threats, tropical, disastersRaw, hazards] = await Promise.all([
     locations.length > 0 ? aggregateThreats(locations) : Promise.resolve([] as SevereThreat[]),
     fetchActiveTropical(),
     getDisasters(),
+    fetchLocationHazards(locations),
   ]);
 
   // Flag disasters near the user's bases — then sort those near-base first so
@@ -181,6 +295,7 @@ export async function getWeatherThreats(locations: NamedPoint[]): Promise<Weathe
     topEvent: threats[0]?.event ?? null,
     disasters: disasters.length,
     disastersRed: disasters.filter((d) => d.severity === "red").length,
+    hazardLocations: hazards.length,
   };
-  return { threats, tropical, disasters, summary };
+  return { threats, tropical, disasters, hazards, summary };
 }
