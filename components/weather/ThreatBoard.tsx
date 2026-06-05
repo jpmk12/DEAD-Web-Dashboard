@@ -46,15 +46,23 @@ export default function ThreatBoard({ refreshKey = 0 }: { refreshKey?: number })
     setLoading(true);
     const controller = new AbortController();
     fetch("/api/weather/threats", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((d: WeatherThreats) => setData(d ?? EMPTY))
+      // Only accept a well-formed body. A 401/500 returns { error } (or HTML),
+      // which would otherwise be set as `data`, leaving disasters/threats
+      // undefined and crashing the `for (const d of disasters)` memo below
+      // (React #418). Fall back to EMPTY so the board degrades gracefully.
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: WeatherThreats | null) => setData(d && Array.isArray(d.disasters) ? d : EMPTY))
       .catch(() => {})
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, [refreshKey]);
 
-  const { threats, tropical, disasters, summary } = data;
-  const hazards = data.hazards ?? [];
+  // Defensive: never let a malformed payload make these non-iterable.
+  const threats = Array.isArray(data.threats) ? data.threats : [];
+  const tropical = Array.isArray(data.tropical) ? data.tropical : [];
+  const disasters = Array.isArray(data.disasters) ? data.disasters : [];
+  const hazards = Array.isArray(data.hazards) ? data.hazards : [];
+  const summary = data.summary ?? EMPTY.summary;
 
   // AORs present among current disasters, ordered by event count (desc).
   const aorsPresent = useMemo(() => {

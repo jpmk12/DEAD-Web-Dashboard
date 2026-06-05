@@ -8,6 +8,7 @@ import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { getUserPrefs, buildUserContext, senderMatches } from "@/lib/userPrefs";
 import { getCachedClassifications, cacheClassifications } from "@/lib/emailCache";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
+import { extractJsonArray } from "@/lib/aiJson";
 import { logCall } from "@/lib/anthropicLog";
 import { EmailMessage, EmailPriority } from "@/lib/types";
 
@@ -142,7 +143,9 @@ export async function GET() {
       logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
 
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
-      const parsedRaw: unknown = JSON.parse(raw);
+      // Claude sometimes wraps the array in a ```json fence or adds prose;
+      // extractJsonArray strips fences and slices to the outermost [...].
+      const parsedRaw: unknown = JSON.parse(extractJsonArray(raw));
       // Validate every entry — Claude has been observed returning lowercase
       // priorities ("high") that wouldn't sort correctly, or dropping fields
       // entirely on truncation. Bad entries fall back to Low + snippet below.

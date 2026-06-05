@@ -32,7 +32,8 @@ export const BASE_NEWS_SOURCES: NewsSource[] = [
 
   // Strategic — think-tank, policy, long-form analysis
   { url: "https://warontherocks.com/feed/",                                      name: "War on the Rocks",       category: "strategic" },
-  { url: "https://www.rand.org/pubs/rss/randall.xml",                            name: "RAND",                   category: "strategic" },
+  // RAND's old /pubs/rss/randall.xml now 404s (feed was retired/moved); removed
+  // to stop the recurring fetch error. Re-add when a current RAND RSS URL is known.
   { url: "https://www.foreignaffairs.com/rss.xml",                               name: "Foreign Affairs",        category: "strategic" },
   { url: "https://www.theatlantic.com/feed/all/",                                name: "The Atlantic",           category: "strategic" },
   { url: "https://www.scmp.com/rss/91/feed",                                     name: "South China Morning Post", category: "strategic" },
