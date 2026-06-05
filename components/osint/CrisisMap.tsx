@@ -1,11 +1,12 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Popup, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { AMC_HUBS } from "@/lib/amcHubs";
-import type { WeatherThreats, DisasterEvent } from "@/lib/types";
+import { countryCentroid } from "@/lib/countryCentroids";
+import type { WeatherThreats, DisasterEvent, TravelAdvisory } from "@/lib/types";
 
 // Crisis / situation map — the spatial twin of the Global Reach Watch. Shows
 // what's happening (disasters, hub weather, tropical), the AMC node network
@@ -42,18 +43,20 @@ function nearest<T extends { lat: number; lon: number; name: string }>(list: T[]
   return best;
 }
 
+// Destination point `distNm` along bearing `brngDeg` from (lat,lon) (great-circle).
+function destPoint(lat: number, lon: number, brngDeg: number, distNm: number): [number, number] {
+  const d = distNm / EARTH_NM, θ = (brngDeg * Math.PI) / 180;
+  const φ1 = (lat * Math.PI) / 180, λ1 = (lon * Math.PI) / 180;
+  const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(θ));
+  const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(d) * Math.cos(φ1), Math.cos(d) - Math.sin(φ1) * Math.sin(φ2));
+  return [(φ2 * 180) / Math.PI, (((λ2 * 180) / Math.PI + 540) % 360) - 180];
+}
+
 // Great-circle ring sampled to vertices (a constant-radius geodesic renders as
 // an ellipse on web-Mercator; sampling keeps it honest).
 function geodesicRing(lat: number, lon: number, radiusNm: number, n = 72): [number, number][] {
-  const d = radiusNm / EARTH_NM;
-  const φ1 = (lat * Math.PI) / 180, λ1 = (lon * Math.PI) / 180;
   const out: [number, number][] = [];
-  for (let i = 0; i <= n; i++) {
-    const θ = (i / n) * 2 * Math.PI;
-    const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(θ));
-    const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(d) * Math.cos(φ1), Math.cos(d) - Math.sin(φ1) * Math.sin(φ2));
-    out.push([(φ2 * 180) / Math.PI, (((λ2 * 180) / Math.PI + 540) % 360) - 180]);
-  }
+  for (let i = 0; i <= n; i++) out.push(destPoint(lat, lon, (i / n) * 360, radiusNm));
   return out;
 }
 
@@ -64,8 +67,10 @@ const crfIcon = glyph(`<span style="color:#5eead4;font-size:16px;font-weight:900
 const homeIcon = glyph(`<span style="color:#cbd5e1;font-size:13px">⌂</span>`);
 const trackedIcon = glyph(`<span style="color:#94a3b8;font-size:11px">◇</span>`, 11);
 const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
+const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
+const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "enroute" | "crf" | "tracked" | "neo" | "lines" | "rings" | "labels";
 
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 
@@ -85,11 +90,12 @@ function ZoomWatcher({ onZoom }: { onZoom: (z: number) => void }) {
 export default function CrisisMap() {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
+  const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(2);
   const [selected, setSelected] = useState<string | null>(null);
   const [on, setOn] = useState<Record<LayerKey, boolean>>({
-    disasters: true, hazards: true, tropical: true, enroute: true, crf: true, tracked: true, lines: true, rings: false, labels: true,
+    disasters: true, hazards: true, tropical: true, enroute: true, crf: true, tracked: true, neo: true, lines: true, rings: false, labels: true,
   });
   const [legend, setLegend] = useState(true);
 
@@ -111,6 +117,11 @@ export default function CrisisMap() {
         setTracked(t);
       })
       .catch(() => {});
+    // NEO watch — State Dept Level-4 / embassy-departure advisories.
+    fetch("/api/state-advisories", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { advisories?: TravelAdvisory[] } | null) => { if (Array.isArray(d?.advisories)) setAdvisories(d!.advisories); })
+      .catch(() => {});
     return () => ctrl.abort();
   }, []);
 
@@ -122,6 +133,14 @@ export default function CrisisMap() {
   const significant = useMemo(
     () => disasters.filter(isSignificant).sort((a, b) => (b.hadrScore ?? 0) - (a.hadrScore ?? 0)).slice(0, 6),
     [disasters],
+  );
+
+  // NEO advisories that resolve to a country centroid (others can't be pinned).
+  const neoPins = useMemo(
+    () => advisories
+      .map((a) => ({ a, pos: countryCentroid(a.country) }))
+      .filter((x): x is { a: TravelAdvisory; pos: [number, number] } => x.pos !== null),
+    [advisories],
   );
 
   const toggle = (k: LayerKey) => setOn((p) => ({ ...p, [k]: !p[k] }));
@@ -144,6 +163,7 @@ export default function CrisisMap() {
         {chip("enroute", "En route", ENROUTE.length, "#34d399")}
         {chip("crf", "CRF", CRF.length, "#5eead4")}
         {chip("tracked", "Tracked", tracked.length, "#94a3b8")}
+        {chip("neo", "NEO", neoPins.length, "#fca5a5")}
         {chip("lines", "Reach lines")}
         {chip("rings", "Reach rings")}
         {chip("labels", "Labels")}
@@ -214,6 +234,33 @@ export default function CrisisMap() {
             </Marker>
           ))}
 
+          {/* NEO watch — State Dept Level-4 / embassy-departure advisories at
+              country centroids. Departures (🛫) are the evacuation triggers and
+              carry a callout; standing Level-4 (⛔) show on click. */}
+          {on.neo && neoPins.map(({ a, pos }) => {
+            const evac = a.orderedDeparture || a.authorizedDeparture;
+            return (
+              <Marker key={`neo-${a.country}`} position={pos} icon={evac ? neoDepartIcon : neoLevel4Icon}>
+                {on.labels && evac && (
+                  <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">
+                    {a.country}{a.aor !== "UNKNOWN" ? ` · ${a.aor}` : ""} · {a.orderedDeparture ? "ORDERED DEP" : "AUTH DEP"}
+                  </Tooltip>
+                )}
+                <Popup>
+                  <div className="text-[12px] font-mono leading-tight max-w-[220px]">
+                    <div className="font-bold text-sm">{a.country}</div>
+                    <div className={evac ? "text-red-700" : "text-amber-700"}>
+                      {a.orderedDeparture ? "Ordered departure — evacuation" : a.authorizedDeparture ? "Authorized departure" : "Level 4 — Do Not Travel"}
+                      {a.level ? ` · Level ${a.level}` : ""}
+                    </div>
+                    {a.aor !== "UNKNOWN" && <div className="text-slate-500">{a.aor}</div>}
+                    {a.link && <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">State advisory ↗</a>}
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
+
           {/* Hub weather hazards — halo at the affected point */}
           {on.hazards && hazards.map((z) => (
             <CircleMarker key={`hz-${z.label}`} center={[z.lat, z.lon]} radius={10} pathOptions={{ color: z.severity === "severe" ? "#ef4444" : "#fbbf24", weight: 2, fill: false, opacity: 0.85 }}>
@@ -257,13 +304,22 @@ export default function CrisisMap() {
             );
           })}
 
-          {/* Tropical systems */}
-          {on.tropical && tropical.map((t) => (
-            <Marker key={`t-${t.id}`} position={[t.lat as number, t.lon as number]} icon={tropicalIcon}>
-              {on.labels && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{t.category} {t.name}</Tooltip>}
-              <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.category} {t.name}</div>{t.intensityKt != null && <div><span className="text-slate-500">Wind:</span> {t.intensityKt} kt</div>}{t.movement && <div><span className="text-slate-500">Moving:</span> {t.movement}</div>}{t.link && <a href={t.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">NHC ↗</a>}</div></Popup>
-            </Marker>
-          ))}
+          {/* Tropical systems + 24-hour motion vector (heading × forward speed).
+              A full NHC forecast cone needs the GIS feed — this is the
+              dead-reckoning track from the current advisory's motion. */}
+          {on.tropical && tropical.map((t) => {
+            const lat = t.lat as number, lon = t.lon as number;
+            const vec = t.movementDeg != null && t.movementKt ? destPoint(lat, lon, t.movementDeg, t.movementKt * 24) : null;
+            return (
+              <Fragment key={`t-${t.id}`}>
+                {vec && <Polyline positions={[[lat, lon], vec]} pathOptions={{ color: "#38bdf8", weight: 1.5, opacity: 0.7, dashArray: "4 4" }} />}
+                <Marker position={[lat, lon]} icon={tropicalIcon}>
+                  {on.labels && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{t.category} {t.name}{t.intensityKt != null ? ` ${t.intensityKt}kt` : ""}</Tooltip>}
+                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.category} {t.name}</div>{t.intensityKt != null && <div><span className="text-slate-500">Wind:</span> {t.intensityKt} kt</div>}{t.movement && <div><span className="text-slate-500">Moving:</span> {t.movement}</div>}{vec && <div className="text-sky-600">— dashed = ~24 h motion</div>}{t.link && <a href={t.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">NHC ↗</a>}</div></Popup>
+                </Marker>
+              </Fragment>
+            );
+          })}
         </MapContainer>
 
         {/* Legend overlay */}
@@ -274,7 +330,8 @@ export default function CrisisMap() {
               <button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300" title="Hide legend">×</button>
             </div>
             <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size = HADR)</div>
-            <div><span className="text-amber-400">◯</span> hub wx hazard · <span className="text-sky-400">🌀</span> tropical</div>
+            <div><span className="text-amber-400">◯</span> hub wx hazard · <span className="text-sky-400">🌀</span> tropical <span className="text-sky-400">– –</span> ~24h motion</div>
+            <div><span className="text-red-300">🛫</span> ordered/auth departure · <span className="text-red-300">⛔</span> Level-4 (NEO)</div>
             <div><span className="text-emerald-400">✈</span> en route hub · <span style={{ color: "#5eead4" }}>★</span> CRF station</div>
             <div><span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
             <div><span style={{ color: "#5eead4" }}>– –</span> reach line (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> ~2,000 nm ring</div>
@@ -285,10 +342,12 @@ export default function CrisisMap() {
       </div>
 
       <p className="text-[10px] text-slate-700 leading-relaxed">
-        Disaster watch (GDACS/USGS) + hub weather (model, next 30 h) + tropical (NHC) over the AMC node network:
-        en route hubs ✈, Contingency Response stations ★, and your tracked locations. Reach lines tie each significant
-        crisis to its nearest CRF with a great-circle distance + nominal C-17 flight time; click a disaster to route it
-        to the nearest hub and CRF. Distances, flight times, reach rings, and CR associations are
+        Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical systems with a ~24 h motion vector (NHC;
+        a full forecast cone needs the NHC GIS feed), and NEO watch (State Dept Level-4 / embassy-departure advisories,
+        pinned at country centroids) over the AMC node network: en route hubs ✈, Contingency Response stations ★, and
+        your tracked locations. Reach lines tie each significant crisis to its nearest CRF with a great-circle distance +
+        nominal C-17 flight time; click a disaster to route it to the nearest hub and CRF. Distances, flight times,
+        reach rings, motion vectors, country pins, and CR associations are
         <span className="text-slate-500"> illustrative coarse SA — not a planning product or tasking</span>.
       </p>
     </div>

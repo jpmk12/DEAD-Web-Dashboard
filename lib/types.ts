@@ -307,6 +307,8 @@ export interface TropicalSystem {
   lat: number | null;
   lon: number | null;
   movement: string;
+  movementDeg?: number | null;   // heading the storm is moving toward (deg true)
+  movementKt?: number | null;    // forward speed (kt) — for a 24h motion vector
   lastUpdate: string;
   link: string;                        // NHC storm page ("learn more")
 }

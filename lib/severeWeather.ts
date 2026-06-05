@@ -143,6 +143,8 @@ export async function fetchActiveTropical(): Promise<TropicalSystem[]> {
         lat: parseCoord(r.latitudeNumeric ?? r.latitude),
         lon: parseCoord(r.longitudeNumeric ?? r.longitude),
         movement: [r.movementDir, r.movementSpeed ? `${r.movementSpeed} kt` : ""].filter(Boolean).join(" at "),
+        movementDeg: num(r.movementDir),
+        movementKt: num(r.movementSpeed),
         lastUpdate: String(r.lastUpdate ?? ""),
         link: nhcStormLink(r.binNumber),
       }];
