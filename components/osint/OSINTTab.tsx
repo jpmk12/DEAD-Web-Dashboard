@@ -24,6 +24,14 @@ const MaritimeMap = dynamic(() => import("./MaritimeMap"), {
     </div>
   ),
 });
+const CrisisMap = dynamic(() => import("./CrisisMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono h-[58vh] min-h-[360px] lg:h-[600px]">
+      Loading map…
+    </div>
+  ),
+});
 
 interface OsintItem {
   id: string;
@@ -45,7 +53,7 @@ interface FeedSummary {
   fetchedAt?: number;
 }
 
-type Pane = "all" | "social" | "telegram" | "news" | "aircraft" | "maritime";
+type Pane = "all" | "social" | "telegram" | "news" | "aircraft" | "maritime" | "crisis";
 type Priority = "High" | "Medium" | "Low";
 
 const PRIORITY_PILL: Record<Priority, string> = {
@@ -199,7 +207,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const filtered = useMemo(() => {
     let base: OsintItem[];
     if (pane === "all") base = items;
-    else if (pane === "aircraft" || pane === "maritime") base = [];
+    else if (pane === "aircraft" || pane === "maritime" || pane === "crisis") base = [];
     else base = items.filter((i) => i.feedKind === pane);
 
     if (timeWindow === "all") return base;
@@ -473,7 +481,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // here too (no token cost — these are the same free endpoints the maps use).
   const [contacts, setContacts] = useState<{ mil: number; vessels: number; watched: string[] }>({ mil: 0, vessels: 0, watched: [] });
   useEffect(() => {
-    if (!active || pane === "aircraft" || pane === "maritime") return;
+    if (!active || pane === "aircraft" || pane === "maritime" || pane === "crisis") return;
     if (!Number.isFinite(homeLat) || !Number.isFinite(homeLon)) return;
     let cancelled = false;
     const poll = async () => {
@@ -654,6 +662,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           { id: "news",      label: "News",     n: counts.news      },
           { id: "aircraft",  label: "Aircraft", n: null             },
           { id: "maritime",  label: "Maritime", n: null             },
+          { id: "crisis",    label: "Crisis",   n: null             },
         ] as const).map((p) => (
           <button
             key={p.id}
@@ -674,7 +683,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
 
       {/* Time-window filter — only meaningful for the feed-list panes, hidden
           on the map panes where there are no items to filter. */}
-      {pane !== "aircraft" && pane !== "maritime" && (
+      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && (
         <div className="flex items-center gap-1.5 -mt-2 text-[10px]">
           <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Window</span>
           {(["all", "4h", "24h", "7d"] as const).map((w) => (
@@ -888,8 +897,11 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
         </div>
       )}
 
+      {/* Crisis / situation map — disasters + hub weather + tropical + AMC hubs */}
+      {pane === "crisis" && <CrisisMap />}
+
       {/* Feed list pane */}
-      {pane !== "aircraft" && pane !== "maritime" && (
+      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && (
         <>
           {loading && (
             <div className="space-y-2">
