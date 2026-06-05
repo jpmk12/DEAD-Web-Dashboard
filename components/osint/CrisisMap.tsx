@@ -2,29 +2,51 @@
 
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Popup, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { AMC_HUBS } from "@/lib/amcHubs";
-import type { WeatherThreats } from "@/lib/types";
+import type { WeatherThreats, DisasterEvent } from "@/lib/types";
 
-// Crisis / situation map — fuses the Global Reach Watch data spatially: disaster
-// watch (HADR pull), hub weather hazards (reach impede), tropical systems, and
-// the AMC hub network, on one dark world map. Optional great-circle reach rings
-// answer "which crises are within range of which hub". Coarse SA, not planning.
+// Crisis / situation map — the spatial twin of the Global Reach Watch. Shows
+// what's happening (disasters, hub weather, tropical), the AMC node network
+// (en route hubs, Contingency Response stations, tracked locations) with labels,
+// and ties each significant crisis to its nearest node with a great-circle
+// distance + nominal C-17 flight-time callout. Coarse SA, not planning.
 
 const HUBS = AMC_HUBS.flatMap((g) => g.hubs);
+const ENROUTE = HUBS.filter((h) => !h.crf);
+const CRF = HUBS.filter((h) => h.crf);
 
-// Earth radius in nautical miles, for geodesic reach rings.
 const EARTH_NM = 3440.065;
+const C17_CRUISE_KT = 440; // nominal cruise for an illustrative leg time
 
-// Sample a great-circle circle of `radiusNm` around a point into [lat,lon]
-// vertices. A true constant-radius ring is a geodesic (renders as an ellipse on
-// the web-Mercator projection); sampling keeps it honest. Longitudes are
-// normalized to [-180,180]; rings spanning the antimeridian may show a seam.
+function km(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const R = 6371;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLon = ((bLon - aLon) * Math.PI) / 180;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+const toNm = (k: number) => k / 1.852;
+function legText(node: { name: string }, distKm: number): string {
+  const nm = Math.round(toNm(distKm));
+  const hr = toNm(distKm) / C17_CRUISE_KT;
+  return `→ ${node.name.split(",")[0]} · ${nm.toLocaleString()} nm · ~${hr.toFixed(1)} hr`;
+}
+function nearest<T extends { lat: number; lon: number; name: string }>(list: T[], lat: number, lon: number): { node: T; distKm: number } | null {
+  let best: { node: T; distKm: number } | null = null;
+  for (const n of list) {
+    const d = km(lat, lon, n.lat, n.lon);
+    if (!best || d < best.distKm) best = { node: n, distKm: d };
+  }
+  return best;
+}
+
+// Great-circle ring sampled to vertices (a constant-radius geodesic renders as
+// an ellipse on web-Mercator; sampling keeps it honest).
 function geodesicRing(lat: number, lon: number, radiusNm: number, n = 72): [number, number][] {
   const d = radiusNm / EARTH_NM;
-  const φ1 = (lat * Math.PI) / 180;
-  const λ1 = (lon * Math.PI) / 180;
+  const φ1 = (lat * Math.PI) / 180, λ1 = (lon * Math.PI) / 180;
   const out: [number, number][] = [];
   for (let i = 0; i <= n; i++) {
     const θ = (i / n) * 2 * Math.PI;
@@ -35,143 +57,188 @@ function geodesicRing(lat: number, lon: number, radiusNm: number, n = 72): [numb
   return out;
 }
 
-const hubIcon = L.divIcon({
-  html: `<div style="color:#34d399;font-size:13px;line-height:1;text-shadow:0 0 3px #020617,0 0 3px #020617">✈</div>`,
-  className: "",
-  iconSize: [14, 14],
-  iconAnchor: [7, 7],
-});
-const tropicalIcon = L.divIcon({
-  html: `<div style="font-size:15px;line-height:1">🌀</div>`,
-  className: "",
-  iconSize: [16, 16],
-  iconAnchor: [8, 8],
-});
+const glyph = (html: string, size = 14) =>
+  L.divIcon({ html: `<div style="line-height:1;text-shadow:0 0 3px #020617,0 0 3px #020617">${html}</div>`, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+const enrouteIcon = glyph(`<span style="color:#34d399;font-size:13px">✈</span>`);
+const crfIcon = glyph(`<span style="color:#5eead4;font-size:16px;font-weight:900">★</span>`, 16);
+const homeIcon = glyph(`<span style="color:#cbd5e1;font-size:13px">⌂</span>`);
+const trackedIcon = glyph(`<span style="color:#94a3b8;font-size:11px">◇</span>`, 11);
+const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 
-type LayerKey = "disasters" | "hubs" | "hazards" | "tropical" | "rings";
+type LayerKey = "disasters" | "hazards" | "tropical" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "labels";
+
+interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 
 const EMPTY: WeatherThreats = {
   threats: [], tropical: [], disasters: [], hazards: [],
   summary: { extreme: 0, severe: 0, lifeThreatening: 0, total: 0, topEvent: null, disasters: 0, disastersRed: 0, hazardLocations: 0 },
 };
 
+const isSignificant = (d: DisasterEvent) => d.severity === "red" || d.nearLocations.length > 0 || (d.hadrScore ?? 0) >= 55;
+
+// Tracks the live zoom so node labels can appear only when zoomed in enough.
+function ZoomWatcher({ onZoom }: { onZoom: (z: number) => void }) {
+  useMapEvents({ zoomend: (e) => onZoom(e.target.getZoom()) });
+  return null;
+}
+
 export default function CrisisMap() {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
+  const [tracked, setTracked] = useState<Tracked[]>([]);
   const [loading, setLoading] = useState(true);
+  const [zoom, setZoom] = useState(2);
+  const [selected, setSelected] = useState<string | null>(null);
   const [on, setOn] = useState<Record<LayerKey, boolean>>({
-    disasters: true, hubs: true, hazards: true, tropical: true, rings: false,
+    disasters: true, hazards: true, tropical: true, enroute: true, crf: true, tracked: true, lines: true, rings: false, labels: true,
   });
+  const [legend, setLegend] = useState(true);
 
   useEffect(() => {
     const ctrl = new AbortController();
     fetch("/api/weather/threats", { signal: ctrl.signal })
-      // r.ok guard so a 401/500 body can't poison the arrays (see ThreatBoard).
       .then((r) => (r.ok ? r.json() : null))
       .then((d: WeatherThreats | null) => setData(d && Array.isArray(d.disasters) ? d : EMPTY))
       .catch(() => {})
       .finally(() => setLoading(false));
+    // Tracked locations (home + user-tracked) for the node layer.
+    fetch("/api/user-prefs", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p: { localLat?: number; localLon?: number; localCity?: string; trackedLocations?: { label: string; lat: number; lon: number }[] } | null) => {
+        if (!p) return;
+        const t: Tracked[] = [];
+        if (typeof p.localLat === "number" && typeof p.localLon === "number") t.push({ label: p.localCity || "Home", lat: p.localLat, lon: p.localLon, home: true });
+        for (const l of p.trackedLocations ?? []) if (typeof l.lat === "number" && typeof l.lon === "number") t.push({ label: l.label, lat: l.lat, lon: l.lon });
+        setTracked(t);
+      })
+      .catch(() => {});
     return () => ctrl.abort();
   }, []);
 
-  const disasters = Array.isArray(data.disasters) ? data.disasters : [];
+  const disasters = useMemo(() => (Array.isArray(data.disasters) ? data.disasters : []).filter((d) => d.lat != null && d.lon != null), [data]);
   const hazards = Array.isArray(data.hazards) ? data.hazards : [];
-  const tropical = Array.isArray(data.tropical) ? data.tropical : [];
+  const tropical = (Array.isArray(data.tropical) ? data.tropical : []).filter((t) => t.lat != null && t.lon != null);
+
+  // Significant crises (capped) get a standing callout + a nearest-CRF reach line.
+  const significant = useMemo(
+    () => disasters.filter(isSignificant).sort((a, b) => (b.hadrScore ?? 0) - (a.hadrScore ?? 0)).slice(0, 6),
+    [disasters],
+  );
 
   const toggle = (k: LayerKey) => setOn((p) => ({ ...p, [k]: !p[k] }));
-
-  const counts = useMemo(
-    () => ({ disasters: disasters.length, hazards: hazards.length, tropical: tropical.length, hubs: HUBS.length }),
-    [disasters, hazards, tropical],
-  );
+  const showNodeLabels = on.labels && zoom >= 4; // en route / tracked labels only when zoomed in
 
   const chip = (k: LayerKey, label: string, n?: number, dot?: string) => (
-    <button
-      onClick={() => toggle(k)}
-      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${
-        on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300"
-      }`}
-    >
-      {dot && <span style={{ color: dot }}>●</span>}
-      {label}{typeof n === "number" ? ` ${n}` : ""}
+    <button onClick={() => toggle(k)} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300"}`}>
+      {dot && <span style={{ color: dot }}>●</span>}{label}{typeof n === "number" ? ` ${n}` : ""}
     </button>
   );
+
+  const selectedDisaster = selected ? disasters.find((d) => d.id === selected) ?? null : null;
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-        {chip("disasters", "Disasters", counts.disasters, "#f87171")}
-        {chip("hazards", "Hub wx", counts.hazards, "#fbbf24")}
-        {chip("tropical", "Tropical", counts.tropical, "#38bdf8")}
-        {chip("hubs", "AMC hubs", counts.hubs, "#34d399")}
+        {chip("disasters", "Disasters", disasters.length, "#f87171")}
+        {chip("hazards", "Hub wx", hazards.length, "#fbbf24")}
+        {chip("tropical", "Tropical", tropical.length, "#38bdf8")}
+        {chip("enroute", "En route", ENROUTE.length, "#34d399")}
+        {chip("crf", "CRF", CRF.length, "#5eead4")}
+        {chip("tracked", "Tracked", tracked.length, "#94a3b8")}
+        {chip("lines", "Reach lines")}
         {chip("rings", "Reach rings")}
+        {chip("labels", "Labels")}
         <span className="flex-1" />
         <span className="text-slate-700 font-mono">{loading ? "loading…" : "GDACS · USGS · NWS · NHC"}</span>
       </div>
 
-      <div
-        className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden relative h-[58vh] min-h-[360px] lg:h-[600px]"
-        style={{ isolation: "isolate", zIndex: 0 }}
-      >
-        <MapContainer center={[20, 10]} zoom={2} worldCopyJump style={{ height: "100%", width: "100%", background: "#020617" }} scrollWheelZoom>
-          <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution="&copy; OpenStreetMap &copy; CARTO"
-            maxZoom={19}
-          />
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden relative h-[58vh] min-h-[360px] lg:h-[600px]" style={{ isolation: "isolate", zIndex: 0 }}>
+        <MapContainer center={[25, 10]} zoom={2} worldCopyJump style={{ height: "100%", width: "100%", background: "#020617" }} scrollWheelZoom>
+          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OpenStreetMap &copy; CARTO" maxZoom={19} />
+          <ZoomWatcher onZoom={setZoom} />
 
-          {/* Reach rings — illustrative ~2,000 nm radius per hub. */}
-          {on.rings && HUBS.map((h) => (
-            <Polyline
-              key={`ring-${h.icao}`}
-              positions={geodesicRing(h.lat, h.lon, 2000)}
-              pathOptions={{ color: "#34d399", weight: 1, opacity: 0.25, dashArray: "4 5" }}
-            />
+          {/* Reach rings — illustrative ~2,000 nm around the Contingency Response nodes. */}
+          {on.rings && CRF.map((h) => (
+            <Polyline key={`ring-${h.icao}`} positions={geodesicRing(h.lat, h.lon, 2000)} pathOptions={{ color: "#5eead4", weight: 1, opacity: 0.3, dashArray: "3 6" }} />
           ))}
 
-          {/* AMC hubs */}
-          {on.hubs && HUBS.map((h) => (
-            <Marker key={`hub-${h.icao}`} position={[h.lat, h.lon]} icon={hubIcon}>
-              <Popup>
-                <div className="text-[12px] font-mono leading-tight">
-                  <div className="font-bold text-sm">{h.name}</div>
-                  <div><span className="text-slate-500">ICAO:</span> {h.icao}</div>
-                  <div className="text-slate-500">AMC hub / en route node</div>
-                </div>
-              </Popup>
+          {/* Auto reach lines: each significant crisis → nearest CRF, with distance/time. */}
+          {on.lines && CRF.length > 0 && significant.map((d) => {
+            const near = nearest(CRF, d.lat as number, d.lon as number);
+            if (!near) return null;
+            return (
+              <Polyline key={`line-${d.id}`} positions={[[d.lat as number, d.lon as number], [near.node.lat, near.node.lon]]} pathOptions={{ color: "#5eead4", weight: 1, opacity: 0.5, dashArray: "5 4" }}>
+                <Tooltip permanent direction="center" className="cm-label cm-route">{legText(near.node, near.distKm)}</Tooltip>
+              </Polyline>
+            );
+          })}
+
+          {/* Click-to-route: selected crisis → nearest hub (emerald) + nearest CRF (cyan). */}
+          {selectedDisaster && (() => {
+            const nh = nearest(ENROUTE, selectedDisaster.lat as number, selectedDisaster.lon as number);
+            const nc = nearest(CRF, selectedDisaster.lat as number, selectedDisaster.lon as number);
+            return (
+              <>
+                {nh && (
+                  <Polyline positions={[[selectedDisaster.lat as number, selectedDisaster.lon as number], [nh.node.lat, nh.node.lon]]} pathOptions={{ color: "#34d399", weight: 2, opacity: 0.9 }}>
+                    <Tooltip permanent direction="center" className="cm-label cm-route">hub {legText(nh.node, nh.distKm)}</Tooltip>
+                  </Polyline>
+                )}
+                {nc && (
+                  <Polyline positions={[[selectedDisaster.lat as number, selectedDisaster.lon as number], [nc.node.lat, nc.node.lon]]} pathOptions={{ color: "#5eead4", weight: 2, opacity: 0.9, dashArray: "5 4" }} />
+                )}
+              </>
+            );
+          })()}
+
+          {/* En route hubs */}
+          {on.enroute && ENROUTE.map((h) => (
+            <Marker key={`er-${h.icao}`} position={[h.lat, h.lon]} icon={enrouteIcon}>
+              {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{h.icao}</Tooltip>}
+              <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div><div className="text-slate-500">En route / mobility hub</div></div></Popup>
             </Marker>
           ))}
 
-          {/* Hub weather hazards — halo at the affected tracked point. */}
+          {/* Contingency Response stations — always labeled (few, high value). */}
+          {on.crf && CRF.map((h) => (
+            <Marker key={`crf-${h.icao}`} position={[h.lat, h.lon]} icon={crfIcon}>
+              {on.labels && <Tooltip permanent direction="right" offset={[7, 0]} className="cm-label cm-crf">{h.crf} · {h.icao}</Tooltip>}
+              <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div></div></Popup>
+            </Marker>
+          ))}
+
+          {/* Tracked locations (home + user-tracked) */}
+          {on.tracked && tracked.map((t, i) => (
+            <Marker key={`tr-${i}`} position={[t.lat, t.lon]} icon={t.home ? homeIcon : trackedIcon}>
+              {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{t.label}</Tooltip>}
+              <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.label}</div><div className="text-slate-500">{t.home ? "Home" : "Tracked location"}</div></div></Popup>
+            </Marker>
+          ))}
+
+          {/* Hub weather hazards — halo at the affected point */}
           {on.hazards && hazards.map((z) => (
-            <CircleMarker
-              key={`hz-${z.label}`}
-              center={[z.lat, z.lon]}
-              radius={10}
-              pathOptions={{ color: z.severity === "severe" ? "#ef4444" : "#fbbf24", weight: 2, fill: false, opacity: 0.85 }}
-            >
-              <Popup>
-                <div className="text-[12px] font-mono leading-tight">
-                  <div className="font-bold text-sm">{z.label}</div>
-                  <div className={z.severity === "severe" ? "text-red-600" : "text-amber-600"}>
-                    {z.severity === "severe" ? "Severe" : "Elevated"} · next 30 h
-                  </div>
-                  <div className="text-slate-600">{z.flags.join(" · ")}</div>
-                </div>
-              </Popup>
+            <CircleMarker key={`hz-${z.label}`} center={[z.lat, z.lon]} radius={10} pathOptions={{ color: z.severity === "severe" ? "#ef4444" : "#fbbf24", weight: 2, fill: false, opacity: 0.85 }}>
+              <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{z.label}</div><div className={z.severity === "severe" ? "text-red-600" : "text-amber-600"}>{z.severity === "severe" ? "Severe" : "Elevated"} · next 30 h</div><div className="text-slate-600">{z.flags.join(" · ")}</div></div></Popup>
             </CircleMarker>
           ))}
 
-          {/* Disasters — color by severity, size by HADR relevance. */}
-          {on.disasters && disasters.filter((d) => d.lat != null && d.lon != null).map((d) => {
+          {/* Disasters — color by severity, size by HADR; significant ones labeled */}
+          {on.disasters && disasters.map((d) => {
             const hadr = d.hadrScore ?? 0;
             const color = d.severity === "red" ? "#ef4444" : d.severity === "orange" ? "#fb923c" : "#64748b";
+            const sig = isSignificant(d) && significant.includes(d);
             return (
               <CircleMarker
                 key={`d-${d.id}`}
                 center={[d.lat as number, d.lon as number]}
                 radius={hadr >= 55 ? 9 : d.severity === "red" ? 7 : 5}
-                pathOptions={{ color, fillColor: color, fillOpacity: 0.55, weight: hadr >= 55 ? 2.5 : 1 }}
+                pathOptions={{ color: selected === d.id ? "#fff" : color, fillColor: color, fillOpacity: 0.55, weight: selected === d.id ? 3 : hadr >= 55 ? 2.5 : 1 }}
+                eventHandlers={{ click: () => setSelected((s) => (s === d.id ? null : d.id)) }}
               >
+                {on.labels && sig && (
+                  <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">
+                    {d.magnitude != null ? `M${d.magnitude.toFixed(1)} ` : ""}{d.type}{d.aor !== "UNKNOWN" ? ` · ${d.aor}` : ""}
+                  </Tooltip>
+                )}
                 <Popup>
                   <div className="text-[12px] font-mono leading-tight max-w-[240px]">
                     <div className="font-bold text-sm mb-0.5">{d.title}</div>
@@ -182,6 +249,7 @@ export default function CrisisMap() {
                       {hadr >= 55 && <span className="px-1 rounded bg-orange-100 text-orange-800">HADR {hadr}</span>}
                       {d.nearLocations.length > 0 && <span className="px-1 rounded bg-red-100 text-red-800">near {d.nearLocations.join(", ")}</span>}
                     </div>
+                    <div className="mt-1 text-slate-500">Click the dot to route to the nearest hub + CRF.</div>
                     {d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline mt-1 inline-block">open ↗</a>}
                   </div>
                 </Popup>
@@ -190,26 +258,38 @@ export default function CrisisMap() {
           })}
 
           {/* Tropical systems */}
-          {on.tropical && tropical.filter((t) => t.lat != null && t.lon != null).map((t) => (
+          {on.tropical && tropical.map((t) => (
             <Marker key={`t-${t.id}`} position={[t.lat as number, t.lon as number]} icon={tropicalIcon}>
-              <Popup>
-                <div className="text-[12px] font-mono leading-tight">
-                  <div className="font-bold text-sm">{t.category} {t.name}</div>
-                  {t.intensityKt != null && <div><span className="text-slate-500">Wind:</span> {t.intensityKt} kt</div>}
-                  {t.movement && <div><span className="text-slate-500">Moving:</span> {t.movement}</div>}
-                  {t.link && <a href={t.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">NHC ↗</a>}
-                </div>
-              </Popup>
+              {on.labels && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{t.category} {t.name}</Tooltip>}
+              <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.category} {t.name}</div>{t.intensityKt != null && <div><span className="text-slate-500">Wind:</span> {t.intensityKt} kt</div>}{t.movement && <div><span className="text-slate-500">Moving:</span> {t.movement}</div>}{t.link && <a href={t.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">NHC ↗</a>}</div></Popup>
             </Marker>
           ))}
         </MapContainer>
+
+        {/* Legend overlay */}
+        {legend ? (
+          <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-2 text-[9px] text-slate-400 font-mono leading-relaxed">
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span>
+              <button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300" title="Hide legend">×</button>
+            </div>
+            <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size = HADR)</div>
+            <div><span className="text-amber-400">◯</span> hub wx hazard · <span className="text-sky-400">🌀</span> tropical</div>
+            <div><span className="text-emerald-400">✈</span> en route hub · <span style={{ color: "#5eead4" }}>★</span> CRF station</div>
+            <div><span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
+            <div><span style={{ color: "#5eead4" }}>– –</span> reach line (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> ~2,000 nm ring</div>
+          </div>
+        ) : (
+          <button onClick={() => setLegend(true)} className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2 py-1 text-[9px] text-slate-400 font-mono hover:text-slate-200">legend</button>
+        )}
       </div>
 
       <p className="text-[10px] text-slate-700 leading-relaxed">
-        Crisis picture: disaster watch (GDACS/USGS), hub weather hazards (model, next 30 h), tropical systems (NHC),
-        and the AMC hub network. Disaster dots are sized by HADR-airlift relevance. Reach rings are a nominal
-        ~2,000 nm illustration around each hub — <span className="text-slate-500">not a planning radius</span> (real
-        range depends on payload, winds, air refueling, and clearances). Coarse situational awareness, not tasking.
+        Disaster watch (GDACS/USGS) + hub weather (model, next 30 h) + tropical (NHC) over the AMC node network:
+        en route hubs ✈, Contingency Response stations ★, and your tracked locations. Reach lines tie each significant
+        crisis to its nearest CRF with a great-circle distance + nominal C-17 flight time; click a disaster to route it
+        to the nearest hub and CRF. Distances, flight times, reach rings, and CR associations are
+        <span className="text-slate-500"> illustrative coarse SA — not a planning product or tasking</span>.
       </p>
     </div>
   );

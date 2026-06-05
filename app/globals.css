@@ -38,6 +38,25 @@
   }
 }
 
+/* Crisis map (Leaflet) — dark-themed permanent labels/callouts. Leaflet's
+   default tooltip is white-on-light; override for the dark basemap. */
+.leaflet-tooltip.cm-label {
+  background: rgb(2 6 23 / 0.82);
+  border: 1px solid #1e293b;
+  color: #cbd5e1;
+  font: 700 9px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  box-shadow: none;
+  white-space: nowrap;
+}
+.leaflet-tooltip.cm-label::before { display: none; } /* hide the arrow */
+.leaflet-tooltip.cm-crf    { color: #6ee7b7; border-color: rgb(16 185 129 / 0.45); }
+.leaflet-tooltip.cm-crisis { color: #fca5a5; border-color: rgb(248 113 113 / 0.45); }
+.leaflet-tooltip.cm-route  { color: #93c5fd; border-color: rgb(59 130 246 / 0.45); background: rgb(2 6 23 / 0.9); }
+
 /* ═══════════════════════════════════════════════════════════════════
    NIGHTWATCH (default) — deep slate / emerald
    No overrides needed; Tailwind defaults match this palette.
