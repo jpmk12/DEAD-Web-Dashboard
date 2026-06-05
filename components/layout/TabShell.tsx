@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import TabBar, { Tab } from "./TabBar";
 import MobileNavDrawer from "./MobileNavDrawer";
+import SessionExpiredBanner from "@/components/SessionExpiredBanner";
 import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon, MenuIcon } from "@/lib/icons";
 import NewsShell from "@/components/news/NewsShell";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
@@ -158,6 +159,7 @@ export default function TabShell() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950">
+      <SessionExpiredBanner />
       <header className="bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 sticky top-0 z-30">
         {/* Green tactical accent line */}
         <div className="h-0.5 bg-gradient-to-r from-emerald-500 via-green-400 to-transparent" />

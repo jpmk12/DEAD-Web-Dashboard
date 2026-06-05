@@ -1,19 +1,34 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
+// Refresh the Google access token directly against the OAuth token endpoint.
+// Done as a plain fetch (rather than google-auth-library's deprecated
+// refreshAccessToken()) so it's library-version-proof and surfaces Google's
+// actual error code — notably "invalid_grant", which means the refresh token
+// was revoked/expired and the user must re-consent (sign in again).
 async function refreshAccessToken(refreshToken: string) {
-  // Dynamic import keeps the Google client out of the Edge/middleware bundle
-  const { OAuth2Client } = await import("google-auth-library");
-  const oauth2Client = new OAuth2Client(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-  const { credentials } = await oauth2Client.refreshAccessToken();
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
+      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    access_token?: string; expires_in?: number; refresh_token?: string;
+    error?: string; error_description?: string;
+  };
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error ? `${data.error}: ${data.error_description ?? ""}` : `refresh HTTP ${res.status}`);
+  }
   return {
-    accessToken: credentials.access_token!,
-    accessTokenExpires: credentials.expiry_date ?? Date.now() + 3600 * 1000,
-    refreshToken: credentials.refresh_token ?? refreshToken,
+    accessToken: data.access_token,
+    accessTokenExpires: Date.now() + (data.expires_in ?? 3600) * 1000,
+    // Google normally omits a new refresh token on refresh — keep the old one.
+    refreshToken: data.refresh_token ?? refreshToken,
   };
 }
 
@@ -45,6 +60,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       return profile?.email === process.env.OWNER_EMAIL;
     },
     async jwt({ token, account }) {
+      // Fresh sign-in: capture the tokens and clear any prior error.
       if (account) {
         return {
           ...token,
@@ -53,17 +69,25 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           accessTokenExpires: account.expires_at
             ? account.expires_at * 1000
             : Date.now() + 3600 * 1000,
+          error: undefined,
         };
       }
-      if (token.accessTokenExpires && Date.now() < token.accessTokenExpires) {
+      // Still valid — refresh 5 min early so a token never expires mid-request.
+      if (token.accessTokenExpires && Date.now() < token.accessTokenExpires - 5 * 60 * 1000) {
         return token;
       }
-      if (!token.refreshToken) return token;
+      // Needs refreshing. With no refresh token we can't recover — make it
+      // explicit (drop the stale access token + flag) so the UI prompts a
+      // re-sign-in instead of silently 401-ing every API route.
+      if (!token.refreshToken) {
+        return { ...token, accessToken: undefined, error: "RefreshAccessTokenError" };
+      }
       try {
         const refreshed = await refreshAccessToken(token.refreshToken);
-        return { ...token, ...refreshed };
-      } catch {
-        return { ...token, error: "RefreshAccessTokenError" };
+        return { ...token, ...refreshed, error: undefined };
+      } catch (err) {
+        console.error("Google token refresh failed:", err instanceof Error ? err.message : err);
+        return { ...token, accessToken: undefined, error: "RefreshAccessTokenError" };
       }
     },
     async session({ session, token }) {
