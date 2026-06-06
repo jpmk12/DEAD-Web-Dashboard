@@ -2,7 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { AMC_HUBS } from "@/lib/amcHubs";
 import { countryCentroid } from "@/lib/countryCentroids";
@@ -85,6 +85,25 @@ const AIR_BRIDGES: string[][] = [
 ];
 const HUB_BY_ICAO = new Map(HUBS.map((h) => [h.icao, h]));
 
+// Approximate tropical forecast cone: dead-reckon the storm forward along its
+// current motion and widen by NHC's published ~5-yr average track-error radii.
+// [forecast hour, error radius nm]. Capped at 48 h because DR straight-lines and
+// a 5-day cone would mislead on recurving storms. A true cone needs the NHC GIS
+// feed — this is labelled "approx".
+const NHC_ERR_NM: [number, number][] = [[0, 12], [12, 26], [24, 40], [36, 55], [48, 69]];
+function forecastCone(lat: number, lon: number, deg: number, kt: number) {
+  const track: [number, number][] = [];
+  const left: [number, number][] = [];
+  const right: [number, number][] = [];
+  for (const [h, rad] of NHC_ERR_NM) {
+    const c = h === 0 ? ([lat, lon] as [number, number]) : destPoint(lat, lon, deg, kt * h);
+    track.push(c);
+    left.push(destPoint(c[0], c[1], (deg - 90 + 360) % 360, rad));
+    right.push(destPoint(c[0], c[1], (deg + 90) % 360, rad));
+  }
+  return { track, cone: [...left, ...right.reverse()] as [number, number][] };
+}
+
 const glyph = (html: string, size = 14) =>
   L.divIcon({ html: `<div style="line-height:1;text-shadow:0 0 3px #020617,0 0 3px #020617">${html}</div>`, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 const enrouteIcon = glyph(`<span style="color:#34d399;font-size:13px">✈</span>`);
@@ -95,7 +114,7 @@ const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "enroute" | "crf" | "tracked" | "neo" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "enroute" | "crf" | "tracked" | "neo" | "lines" | "rings" | "ar" | "bridges" | "labels";
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
 
@@ -141,7 +160,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, enroute: true, crf: true, tracked: true, neo: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, enroute: true, crf: true, tracked: true, neo: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -236,6 +255,7 @@ export default function CrisisMap() {
         {chip("disasters", "Disasters", disasters.length, "#f87171")}
         {chip("hazards", "Hub wx", hazShown.length, "#fbbf24")}
         {chip("tropical", "Tropical", tropShown.length, "#38bdf8")}
+        {chip("cone", "Cone")}
         {chip("neo", "NEO", neoPins.length, "#fca5a5")}
         {chip("enroute", "Hubs", ENROUTE.length, "#34d399")}
         {chip("crf", "CRF", CRF.length, "#5eead4")}
@@ -342,13 +362,17 @@ export default function CrisisMap() {
             })}
             {on.tropical && tropShown.map((t) => {
               const lat = t.lat as number, lon = t.lon as number;
-              const vec = t.movementDeg != null && t.movementKt ? destPoint(lat, lon, t.movementDeg, t.movementKt * 24) : null;
+              const motion = t.movementDeg != null && t.movementKt != null && t.movementKt > 0;
+              const fc = on.cone && motion ? forecastCone(lat, lon, t.movementDeg as number, t.movementKt as number) : null;
+              const vec = !fc && motion ? destPoint(lat, lon, t.movementDeg as number, (t.movementKt as number) * 24) : null;
               return (
                 <Fragment key={`t-${t.id}`}>
+                  {fc && <Polygon positions={fc.cone} pathOptions={{ color: "#38bdf8", weight: 1, opacity: 0.4, fillColor: "#38bdf8", fillOpacity: 0.08 }} />}
+                  {fc && <Polyline positions={fc.track} pathOptions={{ color: "#38bdf8", weight: 1.5, opacity: 0.85 }} />}
                   {vec && <Polyline positions={[[lat, lon], vec]} pathOptions={{ color: "#38bdf8", weight: 1.5, opacity: 0.7, dashArray: "4 4" }} />}
                   <Marker position={[lat, lon]} icon={tropicalIcon} eventHandlers={{ click: () => pick(`t-${t.id}`, lat, lon) }}>
                     {on.labels && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{t.category} {t.name}{t.intensityKt != null ? ` ${t.intensityKt}kt` : ""}</Tooltip>}
-                    <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.category} {t.name}</div>{t.intensityKt != null && <div><span className="text-slate-500">Wind:</span> {t.intensityKt} kt</div>}{t.movement && <div><span className="text-slate-500">Moving:</span> {t.movement}</div>}{vec && <div className="text-sky-600">— dashed = ~24 h motion</div>}{t.link && <a href={t.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">NHC ↗</a>}</div></Popup>
+                    <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.category} {t.name}</div>{t.intensityKt != null && <div><span className="text-slate-500">Wind:</span> {t.intensityKt} kt</div>}{t.movement && <div><span className="text-slate-500">Moving:</span> {t.movement}</div>}{fc && <div className="text-sky-600">— ~48 h forecast cone (approx; DR × NHC avg error)</div>}{vec && <div className="text-sky-600">— dashed = ~24 h motion</div>}{t.link && <a href={t.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">NHC ↗</a>}</div></Popup>
                   </Marker>
                 </Fragment>
               );
@@ -359,7 +383,7 @@ export default function CrisisMap() {
             <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-2 text-[9px] text-slate-400 font-mono leading-relaxed">
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
-              <div><span className="text-sky-400">🌀</span> tropical <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO</div>
+              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {AF.reachNm.toLocaleString()} nm · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge</div>
             </div>
