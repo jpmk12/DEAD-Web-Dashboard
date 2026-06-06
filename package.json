@@ -24,6 +24,7 @@
     "autoprefixer": "^10",
     "date-fns": "^4.1.0",
     "google-auth-library": "^9.15.0",
+    "h3-js": "^4.4.0",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.17.0",

@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import { cellToBoundary } from "h3-js";
 import { AMC_HUBS } from "@/lib/amcHubs";
 import { countryCentroid } from "@/lib/countryCentroids";
 import { aorFromCoords, type Aor } from "@/lib/aor";
@@ -114,7 +115,7 @@ const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "gps" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
 
@@ -146,6 +147,7 @@ export default function CrisisMap() {
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number }[]>([]);
+  const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -164,7 +166,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: false, enroute: true, crf: true, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: false, gps: false, enroute: true, crf: true, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -195,6 +197,10 @@ export default function CrisisMap() {
     fetch("/api/osint/conflict", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { points?: { lat: number; lon: number; name: string; count: number }[] } | null) => { if (Array.isArray(d?.points)) setConflict(d!.points); })
+      .catch(() => {});
+    fetch("/api/osint/gpsjam", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { hexes?: { h3: string; level: number }[] } | null) => { if (Array.isArray(d?.hexes)) setGpsjam(d!.hexes); })
       .catch(() => {});
     return () => ctrl.abort();
   }, [refreshKey]);
@@ -243,6 +249,13 @@ export default function CrisisMap() {
     return [...m.entries()].filter(([, k]) => k.size >= 2).map(([aor, k]) => ({ aor, kinds: [...k] }));
   }, [items]);
 
+  // Precompute GPSJam hex boundaries once (cellToBoundary → [lat,lng] verts).
+  const gpsPolys = useMemo(
+    () => gpsjam.map((g) => { try { return { poly: cellToBoundary(g.h3) as [number, number][], level: g.level }; } catch { return null; } })
+      .filter((x): x is { poly: [number, number][]; level: number } => x !== null),
+    [gpsjam],
+  );
+
   const runRead = () => {
     setAiOpen(true); setAiLoading(true);
     fetch("/api/crisis-read")
@@ -282,6 +295,7 @@ export default function CrisisMap() {
         {chip("cone", "Cone")}
         {chip("neo", "NEO", neoPins.length, "#fca5a5")}
         {chip("conflict", "Conflict", conflict.length || undefined, "#f43f5e")}
+        {chip("gps", "GPS", gpsjam.length || undefined, "#c084fc")}
         {chip("enroute", "Hubs", ENROUTE.length, "#34d399")}
         {chip("crf", "CRF", CRF.length, "#5eead4")}
         {chip("tracked", "Tracked", tracked.length, "#94a3b8")}
@@ -339,6 +353,13 @@ export default function CrisisMap() {
             <ZoomWatcher onZoom={setZoom} />
             <Flyer target={flyTo} />
             <Fitter points={crisisPoints} fitKey={fitKey} />
+
+            {/* GPS interference / EW (GPSJam) hexes — drawn first, under everything. */}
+            {on.gps && gpsPolys.map((g, i) => (
+              <Polygon key={`gps-${i}`} positions={g.poly} pathOptions={{ color: g.level === 2 ? "#a855f7" : "#c084fc", fillColor: g.level === 2 ? "#a855f7" : "#c084fc", fillOpacity: 0.16, weight: 0.5, opacity: 0.4 }}>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">GPS interference</div><div className="text-purple-600">{g.level === 2 ? "High" : "Moderate"} nav degradation</div><div className="text-slate-500">GPSJam (ADS-B-derived) — coarse SA</div></div></Popup>
+              </Polygon>
+            ))}
 
             {/* Conflict density (GDELT, last 2 days) — drawn first, under the crisis markers. */}
             {on.conflict && conflict.map((c, i) => (
@@ -437,7 +458,7 @@ export default function CrisisMap() {
             <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-2 text-[9px] text-slate-400 font-mono leading-relaxed">
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
-              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> conflict (GDELT)</div>
+              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> conflict · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {AF.reachNm.toLocaleString()} nm · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge</div>
             </div>
@@ -473,7 +494,8 @@ export default function CrisisMap() {
       <p className={`text-[10px] text-slate-700 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
         NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
-        convergence strip flags AORs where signals stack; AI read is a Claude SITREP of the board. Click a
+        convergence strip flags AORs where signals stack; AI read is a Claude SITREP of the board. Optional overlays:
+        armed-conflict density (GDELT) and GPS interference / EW (GPSJam). Click a
         list row or marker to fly there and route it to the nearest CRF/hub. Distances, flight times, airframe reach
         rings (incl. AR), air bridges, and CR associations are <span className="text-slate-500">illustrative coarse SA —
         nominal figures, no payload/wind/clearance modeling; not a planning product or tasking</span>.

@@ -479,6 +479,17 @@ so it does **not** add esbuild — keep `grep -c esbuild package-lock.json` at `
 Dense inline markers (disaster types, weather overlays, severity dots, trend
 arrows, voting, affordances) deliberately stay Unicode glyphs.
 
+### Map dep (`h3-js`)
+`h3-js` is a **runtime `dependency`** used by the Crisis map (OSINT tab) to draw
+GPSJam GPS-interference cells as H3 hexagons (`cellToBoundary`). It is pure JS
+(emscripten `libh3-browser.js` — no `.node`, no `.wasm`, no postinstall/install
+script), so it does **not** add esbuild — keep `grep -c esbuild package-lock.json`
+at `0`. It must stay in `dependencies` (not dev) because `.npmrc` has `omit=dev`
+and it renders in the shipped UI. The GPSJam upstream JSON key names couldn't be
+confirmed from the build sandbox; `app/api/osint/gpsjam/route.ts` parses
+defensively — if the GPS layer is empty in production while gpsjam.org has data,
+match the real keys there.
+
 ### Database
 - Uses the managed MySQL via `mysql2` (`lib/db.ts`), reading
   `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` from `process.env`.
