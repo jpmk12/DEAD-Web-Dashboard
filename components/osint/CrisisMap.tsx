@@ -135,6 +135,34 @@ const LAYER_DESC: Record<LayerKey, string> = {
   bridges: "Major AMC en route air-bridge corridors (great-circle).",
   labels: "Show/hide map labels — CRF + crisis callouts always; hub/tracked labels appear when zoomed in.",
 };
+
+// Layer toggles grouped for the collapsible "Layers" panel.
+const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: string }[] }[] = [
+  { label: "Threats", keys: [
+    { k: "disasters", label: "Disasters", dot: "#f87171" }, { k: "hazards", label: "Hub wx", dot: "#fbbf24" },
+    { k: "tropical", label: "Tropical", dot: "#38bdf8" }, { k: "cone", label: "Cone" },
+    { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
+    { k: "gps", label: "GPS", dot: "#c084fc" },
+  ] },
+  { label: "Nodes", keys: [
+    { k: "enroute", label: "Hubs", dot: "#34d399" }, { k: "crf", label: "CRF", dot: "#5eead4" }, { k: "tracked", label: "Tracked", dot: "#94a3b8" },
+  ] },
+  { label: "Reach", keys: [
+    { k: "lines", label: "Reach" }, { k: "rings", label: "Rings" }, { k: "ar", label: "AR" }, { k: "bridges", label: "Bridges" },
+  ] },
+  { label: "Display", keys: [{ k: "labels", label: "Labels" }] },
+];
+
+// One-click view presets — a curated layer set per use case.
+const ALL_KEYS: LayerKey[] = LAYER_GROUPS.flatMap((g) => g.keys.map((x) => x.k));
+const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
+  Object.fromEntries(ALL_KEYS.map((k) => [k, onKeys.includes(k)])) as Record<LayerKey, boolean>;
+const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
+  { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "tracked", "lines", "rings", "labels"]) },
+  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, GPS interference, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "gps", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Mobility", desc: "Network/reach focus — hubs, CRF, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "tracked", "rings", "ar", "bridges", "labels"]) },
+];
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
 
@@ -178,6 +206,7 @@ export default function CrisisMap() {
   const [search, setSearch] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(true);
+  const [layersOpen, setLayersOpen] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -303,6 +332,13 @@ export default function CrisisMap() {
   const severeWx = hazShown.filter((z) => z.severity === "severe").length;
   const watchTop = items.slice(0, 5);
 
+  const layerCount: Partial<Record<LayerKey, number>> = {
+    disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
+    neo: neoPins.length, conflict: conflict.length || undefined, gps: gpsjam.length || undefined,
+    enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
+  };
+  const activeCount = Object.values(on).filter(Boolean).length;
+
   const chip = (k: LayerKey, label: string, n?: number, dot?: string) => (
     <button onClick={() => toggle(k)} title={LAYER_DESC[k]} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300"}`}>
       {dot && <span style={{ color: dot }}>●</span>}{label}{typeof n === "number" ? ` ${n}` : ""}
@@ -313,26 +349,16 @@ export default function CrisisMap() {
 
   return (
     <div className={fullscreen ? "fixed inset-0 z-[60] bg-slate-950 p-3 flex flex-col gap-2 overflow-auto" : "space-y-2"}>
-      {/* Toolbar */}
+      {/* Toolbar: view presets + controls (layer toggles collapse into Layers) */}
       <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-        {chip("disasters", "Disasters", disasters.length, "#f87171")}
-        {chip("hazards", "Hub wx", hazShown.length, "#fbbf24")}
-        {chip("tropical", "Tropical", tropShown.length, "#38bdf8")}
-        {chip("cone", "Cone")}
-        {chip("neo", "NEO", neoPins.length, "#fca5a5")}
-        {chip("conflict", "Conflict", conflict.length || undefined, "#f43f5e")}
-        {chip("gps", "GPS", gpsjam.length || undefined, "#c084fc")}
-        {chip("enroute", "Hubs", ENROUTE.length, "#34d399")}
-        {chip("crf", "CRF", CRF.length, "#5eead4")}
-        {chip("tracked", "Tracked", tracked.length, "#94a3b8")}
-        {chip("lines", "Reach")}
-        {chip("rings", "Rings")}
-        {chip("ar", "AR")}
-        {chip("bridges", "Bridges")}
-        {chip("labels", "Labels")}
+        <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">View</span>
+        {PRESETS.map((pz) => (
+          <button key={pz.name} onClick={() => setOn(pz.on)} title={pz.desc} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 transition-all">{pz.name}</button>
+        ))}
+        <button onClick={() => setLayersOpen((v) => !v)} title="Show/hide individual layer toggles" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Layers {layersOpen ? "▴" : "▾"} <span className="text-slate-500">({activeCount})</span></button>
         <span className="mx-1 h-3 w-px bg-slate-700" />
         {/* Airframe selector — drives reach rings + flight-time callouts. */}
-        <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe (reach rings + flight-time)">
+        <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe — drives reach-ring radius + flight-time callouts">
           {(Object.keys(AIRFRAMES) as AirframeKey[]).map((k) => (
             <button key={k} onClick={() => setAirframe(k)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${airframe === k ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{k}</button>
           ))}
@@ -349,6 +375,20 @@ export default function CrisisMap() {
         <span className="flex-1" />
         <span className="text-slate-700 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
       </div>
+
+      {/* Collapsible grouped layer toggles */}
+      {layersOpen && (
+        <div className="flex flex-wrap items-start gap-x-5 gap-y-2 bg-slate-900/40 border border-slate-800 rounded-md px-3 py-2">
+          {LAYER_GROUPS.map((g) => (
+            <div key={g.label} className="flex flex-col gap-1">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">{g.label}</span>
+              <div className="flex flex-wrap gap-1">
+                {g.keys.map((it) => chip(it.k, it.label, layerCount[it.k], it.dot))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Convergence strip — AORs where ≥2 signal kinds stack up. */}
       {convergence.length > 0 && (
