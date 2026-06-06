@@ -114,7 +114,7 @@ const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "enroute" | "crf" | "tracked" | "neo" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
 
@@ -145,6 +145,7 @@ export default function CrisisMap() {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
+  const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -163,7 +164,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, enroute: true, crf: true, tracked: true, neo: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: false, enroute: true, crf: true, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -190,6 +191,10 @@ export default function CrisisMap() {
     fetch("/api/state-advisories", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { advisories?: TravelAdvisory[] } | null) => { if (Array.isArray(d?.advisories)) setAdvisories(d!.advisories); })
+      .catch(() => {});
+    fetch("/api/osint/conflict", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { points?: { lat: number; lon: number; name: string; count: number }[] } | null) => { if (Array.isArray(d?.points)) setConflict(d!.points); })
       .catch(() => {});
     return () => ctrl.abort();
   }, [refreshKey]);
@@ -276,6 +281,7 @@ export default function CrisisMap() {
         {chip("tropical", "Tropical", tropShown.length, "#38bdf8")}
         {chip("cone", "Cone")}
         {chip("neo", "NEO", neoPins.length, "#fca5a5")}
+        {chip("conflict", "Conflict", conflict.length || undefined, "#f43f5e")}
         {chip("enroute", "Hubs", ENROUTE.length, "#34d399")}
         {chip("crf", "CRF", CRF.length, "#5eead4")}
         {chip("tracked", "Tracked", tracked.length, "#94a3b8")}
@@ -333,6 +339,13 @@ export default function CrisisMap() {
             <ZoomWatcher onZoom={setZoom} />
             <Flyer target={flyTo} />
             <Fitter points={crisisPoints} fitKey={fitKey} />
+
+            {/* Conflict density (GDELT, last 2 days) — drawn first, under the crisis markers. */}
+            {on.conflict && conflict.map((c, i) => (
+              <CircleMarker key={`cf-${i}`} center={[c.lat, c.lon]} radius={Math.min(4 + Math.log2(c.count + 1) * 1.6, 16)} pathOptions={{ color: "#f43f5e", fillColor: "#f43f5e", fillOpacity: 0.18, weight: 0.5, opacity: 0.45 }}>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{c.name || "Conflict activity"}</div><div className="text-rose-600">{c.count} event mention{c.count === 1 ? "" : "s"} · last 2 days</div><div className="text-slate-500">GDELT open-source — coarse SA</div></div></Popup>
+              </CircleMarker>
+            ))}
 
             {/* En route air-bridge corridors (great-circle) */}
             {on.bridges && AIR_BRIDGES.map((seq, bi) => seq.slice(0, -1).map((icao, li) => {
@@ -424,7 +437,7 @@ export default function CrisisMap() {
             <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-2 text-[9px] text-slate-400 font-mono leading-relaxed">
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
-              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO</div>
+              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> conflict (GDELT)</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {AF.reachNm.toLocaleString()} nm · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge</div>
             </div>
