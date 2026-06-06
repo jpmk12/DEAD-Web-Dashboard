@@ -116,6 +116,25 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 
 type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "gps" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+
+// Tooltip copy for each layer toggle.
+const LAYER_DESC: Record<LayerKey, string> = {
+  disasters: "GDACS/USGS disaster events — dot colour = severity, size = HADR-airlift relevance. Click for details.",
+  hazards: "Model weather hazards at your hubs/locations, next ~30 h (gusts, IFR/LIFR visibility, thunderstorms, snow/ice, temp extremes).",
+  tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
+  cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
+  neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
+  conflict: "Recent armed-conflict event density (GDELT, last 2 days) — the permissive-environment read.",
+  gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
+  enroute: "AMC en route / mobility hubs.",
+  crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
+  tracked: "Your home + tracked locations (from Preferences).",
+  lines: "Reach line from each significant crisis to its nearest CRF (great-circle distance + nominal flight time).",
+  rings: "Reach rings — the selected airframe's nominal one-way radius around CRF nodes.",
+  ar: "Air-refueling-extended reach ring around CRF nodes (illustrative single AR).",
+  bridges: "Major AMC en route air-bridge corridors (great-circle).",
+  labels: "Show/hide map labels — CRF + crisis callouts always; hub/tracked labels appear when zoomed in.",
+};
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
 
@@ -277,8 +296,15 @@ export default function CrisisMap() {
     if (h) setFlyTo({ lat: h.lat, lon: h.lon, zoom: 6, key: Date.now() });
   };
 
+  // Watch tallies + top conditions for the summary box below the map.
+  const redCount = disasters.filter((d) => d.severity === "red").length;
+  const nearCount = disasters.filter((d) => d.nearLocations.length > 0).length;
+  const neoDep = neoPins.filter((x) => x.a.orderedDeparture || x.a.authorizedDeparture).length;
+  const severeWx = hazShown.filter((z) => z.severity === "severe").length;
+  const watchTop = items.slice(0, 5);
+
   const chip = (k: LayerKey, label: string, n?: number, dot?: string) => (
-    <button onClick={() => toggle(k)} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300"}`}>
+    <button onClick={() => toggle(k)} title={LAYER_DESC[k]} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300"}`}>
       {dot && <span style={{ color: dot }}>●</span>}{label}{typeof n === "number" ? ` ${n}` : ""}
     </button>
   );
@@ -311,15 +337,15 @@ export default function CrisisMap() {
             <button key={k} onClick={() => setAirframe(k)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${airframe === k ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{k}</button>
           ))}
         </div>
-        <select value={aorFilter} onChange={(e) => setAorFilter(e.target.value as Aor | "ALL")} className="bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 outline-none">
+        <select value={aorFilter} onChange={(e) => setAorFilter(e.target.value as Aor | "ALL")} title="Filter the map + list to one combatant-command AOR" className="bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 outline-none">
           <option value="ALL">All AORs</option>
           {aorsPresent.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doSearch(); }} placeholder="ICAO / base…" className="w-24 bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 placeholder-slate-600 outline-none focus:border-slate-500" />
-        <button onClick={() => setFitKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">Fit</button>
-        <button onClick={() => setRefreshKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200" title="Refresh">↻</button>
-        <button onClick={() => setFullscreen((v) => !v)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
-        <button onClick={runRead} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">AI read</button>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doSearch(); }} placeholder="ICAO / base…" title="Fly to an AMC base by ICAO or name (Enter)" className="w-24 bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 placeholder-slate-600 outline-none focus:border-slate-500" />
+        <button onClick={() => setFitKey((k) => k + 1)} title="Fit the map to the active crises" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">Fit</button>
+        <button onClick={() => setRefreshKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200" title="Refresh all feeds now">↻</button>
+        <button onClick={() => setFullscreen((v) => !v)} title="Toggle fullscreen" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
+        <button onClick={runRead} title="Claude situation read of the current board" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">AI read</button>
         <span className="flex-1" />
         <span className="text-slate-700 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
       </div>
@@ -490,6 +516,39 @@ export default function CrisisMap() {
           </ul>
         </aside>
       </div>
+
+      {/* Watch box — the key conditions/alerts + data provenance, below the map. */}
+      <section className="bg-slate-900/40 border border-slate-800 rounded-xl">
+        <div className="px-3 py-2 border-b border-slate-800 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">⚠ Watch</span>
+          <span className="text-[10px] font-mono text-slate-400">
+            {redCount > 0 && <><span className="text-red-400">{redCount} red</span> · </>}
+            {nearCount} near-base · {neoDep} NEO · <span className={severeWx > 0 ? "text-red-300" : ""}>{severeWx} severe wx</span> · {tropShown.length} tropical
+          </span>
+          {convergence.length > 0 && <span className="text-[10px] font-mono text-amber-300">· convergence: {convergence.map((c) => c.aor).join(", ")}</span>}
+          <span className="flex-1" />
+          <span className="text-[9px] text-slate-600 font-mono">{fetchedAt ? `as of ${new Date(fetchedAt).toISOString().slice(11, 16)}Z` : loading ? "loading…" : ""}</span>
+        </div>
+        <ul className="px-3 py-2 space-y-1">
+          {watchTop.length === 0 && <li className="text-[11px] text-slate-600 font-mono">No watch conditions{loading ? " (loading…)" : ""} — quiet across tracked AORs and the hub network.</li>}
+          {watchTop.map((it) => {
+            const reach = it.kind !== "hazard" && CRF.length ? (() => { const n = nearest(CRF, it.lat, it.lon); return n ? legText(n.node, n.distKm, AF.cruiseKt) : ""; })() : "";
+            return (
+              <li key={it.id} className="text-[11px] flex flex-wrap items-baseline gap-x-2">
+                <span className={toneText(it.tone)}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : "●"}</span>
+                <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="text-slate-200 hover:text-emerald-400 font-medium">{it.title}</button>
+                {it.sub && <span className="text-slate-500">{it.sub}</span>}
+                {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{it.aor}</span>}
+                {reach && <span className="text-[10px] text-emerald-500/80 font-mono">{reach}</span>}
+              </li>
+            );
+          })}
+        </ul>
+        <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
+          <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict: GDELT{" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+        </div>
+      </section>
 
       <p className={`text-[10px] text-slate-700 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
