@@ -19,7 +19,6 @@ const HUBS = AMC_HUBS.flatMap((g) => g.hubs);
 const ENROUTE = HUBS.filter((h) => !h.crf);
 const CRF = HUBS.filter((h) => h.crf);
 const EARTH_NM = 3440.065;
-const C17_CRUISE_KT = 440;
 const AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM", "INDOPACOM"];
 const TOGGLE_KEY = "crisisMap:layers";
 
@@ -30,8 +29,8 @@ function km(aLat: number, aLon: number, bLat: number, bLon: number): number {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 const toNm = (k: number) => k / 1.852;
-function legText(node: { name: string }, distKm: number): string {
-  return `→ ${node.name.split(",")[0]} · ${Math.round(toNm(distKm)).toLocaleString()} nm · ~${(toNm(distKm) / C17_CRUISE_KT).toFixed(1)} hr`;
+function legText(node: { name: string }, distKm: number, cruiseKt: number): string {
+  return `→ ${node.name.split(",")[0]} · ${Math.round(toNm(distKm)).toLocaleString()} nm · ~${(toNm(distKm) / cruiseKt).toFixed(1)} hr`;
 }
 function nearest<T extends { lat: number; lon: number; name: string }>(list: T[], lat: number, lon: number) {
   let best: { node: T; distKm: number } | null = null;
@@ -50,6 +49,42 @@ function geodesicRing(lat: number, lon: number, radiusNm: number, n = 72): [numb
   return out;
 }
 
+// Great-circle interpolation between two points (for curved air-bridge legs).
+function gcLine(lat1: number, lon1: number, lat2: number, lon2: number, n = 24): [number, number][] {
+  const φ1 = (lat1 * Math.PI) / 180, λ1 = (lon1 * Math.PI) / 180, φ2 = (lat2 * Math.PI) / 180, λ2 = (lon2 * Math.PI) / 180;
+  const d = 2 * Math.asin(Math.sqrt(Math.sin((φ2 - φ1) / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin((λ2 - λ1) / 2) ** 2));
+  if (!Number.isFinite(d) || d === 0) return [[lat1, lon1], [lat2, lon2]];
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const f = i / n, A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
+    const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2);
+    const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
+    const z = A * Math.sin(φ1) + B * Math.sin(φ2);
+    out.push([(Math.atan2(z, Math.hypot(x, y)) * 180) / Math.PI, (Math.atan2(y, x) * 180) / Math.PI]);
+  }
+  return out;
+}
+
+// Illustrative airframe profiles — nominal one-way reach radius + cruise speed.
+// Coarse SA, not performance data (no payload/wind/AR/clearance modeling).
+const AIRFRAMES = {
+  "C-17": { cruiseKt: 440, reachNm: 2400 },
+  "C-5M": { cruiseKt: 450, reachNm: 5000 },
+  "KC-46": { cruiseKt: 450, reachNm: 6000 },
+} as const;
+type AirframeKey = keyof typeof AIRFRAMES;
+const AR_EXTENSION_NM = 3000; // nominal single-air-refueling extension (illustrative)
+
+// Major AMC en route "air bridges" (ICAO sequences) — the mobility highways.
+const AIR_BRIDGES: string[][] = [
+  ["KDOV", "LPLA", "ETAR", "OTBH"], // East Coast → Azores → Ramstein → CENTCOM
+  ["KCHS", "ETAR"],                  // Charleston → Ramstein
+  ["KWRI", "ETAR"],                  // JB MDL → Ramstein
+  ["KSUU", "PHIK", "PGUA", "RODN"], // Travis → Hickam → Guam → Kadena
+  ["PHIK", "RJTY"],                  // Hickam → Yokota
+];
+const HUB_BY_ICAO = new Map(HUBS.map((h) => [h.icao, h]));
+
 const glyph = (html: string, size = 14) =>
   L.divIcon({ html: `<div style="line-height:1;text-shadow:0 0 3px #020617,0 0 3px #020617">${html}</div>`, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 const enrouteIcon = glyph(`<span style="color:#34d399;font-size:13px">✈</span>`);
@@ -60,7 +95,7 @@ const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "enroute" | "crf" | "tracked" | "neo" | "lines" | "rings" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "enroute" | "crf" | "tracked" | "neo" | "lines" | "rings" | "ar" | "bridges" | "labels";
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
 
@@ -102,9 +137,11 @@ export default function CrisisMap() {
   const [search, setSearch] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(true);
+  const [airframe, setAirframe] = useState<AirframeKey>("C-17");
+  const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, enroute: true, crf: true, tracked: true, neo: true, lines: true, rings: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, enroute: true, crf: true, tracked: true, neo: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -205,8 +242,16 @@ export default function CrisisMap() {
         {chip("tracked", "Tracked", tracked.length, "#94a3b8")}
         {chip("lines", "Reach")}
         {chip("rings", "Rings")}
+        {chip("ar", "AR")}
+        {chip("bridges", "Bridges")}
         {chip("labels", "Labels")}
         <span className="mx-1 h-3 w-px bg-slate-700" />
+        {/* Airframe selector — drives reach rings + flight-time callouts. */}
+        <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe (reach rings + flight-time)">
+          {(Object.keys(AIRFRAMES) as AirframeKey[]).map((k) => (
+            <button key={k} onClick={() => setAirframe(k)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${airframe === k ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{k}</button>
+          ))}
+        </div>
         <select value={aorFilter} onChange={(e) => setAorFilter(e.target.value as Aor | "ALL")} className="bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 outline-none">
           <option value="ALL">All AORs</option>
           {aorsPresent.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -228,13 +273,22 @@ export default function CrisisMap() {
             <Flyer target={flyTo} />
             <Fitter points={crisisPoints} fitKey={fitKey} />
 
-            {on.rings && CRF.map((h) => <Polyline key={`ring-${h.icao}`} positions={geodesicRing(h.lat, h.lon, 2000)} pathOptions={{ color: "#5eead4", weight: 1, opacity: 0.3, dashArray: "3 6" }} />)}
+            {/* En route air-bridge corridors (great-circle) */}
+            {on.bridges && AIR_BRIDGES.map((seq, bi) => seq.slice(0, -1).map((icao, li) => {
+              const a = HUB_BY_ICAO.get(icao), b2 = HUB_BY_ICAO.get(seq[li + 1]);
+              return a && b2 ? <Polyline key={`br-${bi}-${li}`} positions={gcLine(a.lat, a.lon, b2.lat, b2.lon)} pathOptions={{ color: "#64748b", weight: 1, opacity: 0.45, dashArray: "1 5" }} /> : null;
+            }))}
+
+            {/* Reach rings — selected airframe's nominal one-way radius around CRF nodes. */}
+            {on.rings && CRF.map((h) => <Polyline key={`ring-${h.icao}`} positions={geodesicRing(h.lat, h.lon, AF.reachNm)} pathOptions={{ color: "#5eead4", weight: 1, opacity: 0.3, dashArray: "3 6" }} />)}
+            {/* AR-extended reach (illustrative single refueling). */}
+            {on.ar && CRF.map((h) => <Polyline key={`ar-${h.icao}`} positions={geodesicRing(h.lat, h.lon, AF.reachNm + AR_EXTENSION_NM)} pathOptions={{ color: "#38bdf8", weight: 1, opacity: 0.22, dashArray: "1 7" }} />)}
 
             {on.lines && CRF.length > 0 && significant.map((d) => {
               const near = nearest(CRF, d.lat as number, d.lon as number);
               return near ? (
                 <Polyline key={`line-${d.id}`} positions={[[d.lat as number, d.lon as number], [near.node.lat, near.node.lon]]} pathOptions={{ color: "#5eead4", weight: 1, opacity: 0.5, dashArray: "5 4" }}>
-                  <Tooltip permanent direction="center" className="cm-label cm-route">{legText(near.node, near.distKm)}</Tooltip>
+                  <Tooltip permanent direction="center" className="cm-label cm-route">{legText(near.node, near.distKm, AF.cruiseKt)}</Tooltip>
                 </Polyline>
               ) : null;
             })}
@@ -242,7 +296,7 @@ export default function CrisisMap() {
             {(() => { const sd = selected?.startsWith("d-") ? disasters.find((d) => `d-${d.id}` === selected) : null; if (!sd) return null;
               const nh = nearest(ENROUTE, sd.lat as number, sd.lon as number), nc = nearest(CRF, sd.lat as number, sd.lon as number);
               return (<>
-                {nh && <Polyline positions={[[sd.lat as number, sd.lon as number], [nh.node.lat, nh.node.lon]]} pathOptions={{ color: "#34d399", weight: 2, opacity: 0.9 }}><Tooltip permanent direction="center" className="cm-label cm-route">hub {legText(nh.node, nh.distKm)}</Tooltip></Polyline>}
+                {nh && <Polyline positions={[[sd.lat as number, sd.lon as number], [nh.node.lat, nh.node.lon]]} pathOptions={{ color: "#34d399", weight: 2, opacity: 0.9 }}><Tooltip permanent direction="center" className="cm-label cm-route">hub {legText(nh.node, nh.distKm, AF.cruiseKt)}</Tooltip></Polyline>}
                 {nc && <Polyline positions={[[sd.lat as number, sd.lon as number], [nc.node.lat, nc.node.lon]]} pathOptions={{ color: "#5eead4", weight: 2, opacity: 0.9, dashArray: "5 4" }} />}
               </>);
             })()}
@@ -307,7 +361,7 @@ export default function CrisisMap() {
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
               <div><span className="text-sky-400">🌀</span> tropical <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
-              <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> ~2,000 nm ring</div>
+              <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {AF.reachNm.toLocaleString()} nm · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge</div>
             </div>
           ) : (
             <button onClick={() => setLegend(true)} className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2 py-1 text-[9px] text-slate-400 font-mono hover:text-slate-200">legend</button>
@@ -341,8 +395,9 @@ export default function CrisisMap() {
       <p className={`text-[10px] text-slate-700 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~24 h motion vector (NHC), and NEO
         watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). Click a
-        list row or marker to fly there and route it to the nearest CRF/hub. Distances, flight times, rings, and CR
-        associations are <span className="text-slate-500">illustrative coarse SA — not a planning product or tasking</span>.
+        list row or marker to fly there and route it to the nearest CRF/hub. Distances, flight times, airframe reach
+        rings (incl. AR), air bridges, and CR associations are <span className="text-slate-500">illustrative coarse SA —
+        nominal figures, no payload/wind/clearance modeling; not a planning product or tasking</span>.
       </p>
     </div>
   );
