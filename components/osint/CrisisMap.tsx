@@ -156,6 +156,9 @@ export default function CrisisMap() {
   const [search, setSearch] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(true);
+  const [aiText, setAiText] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [airframe, setAirframe] = useState<AirframeKey>("C-17");
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
@@ -228,6 +231,22 @@ export default function CrisisMap() {
   // Scroll the list to the selected row.
   useEffect(() => { if (selected) document.getElementById(`row-${selected}`)?.scrollIntoView({ block: "nearest" }); }, [selected]);
 
+  // Convergence — AORs where ≥2 distinct signal kinds stack up (the "hot AOR").
+  const convergence = useMemo(() => {
+    const m = new Map<Aor, Set<Item["kind"]>>();
+    for (const it of items) { if (!it.aor) continue; const s = m.get(it.aor) ?? new Set<Item["kind"]>(); s.add(it.kind); m.set(it.aor, s); }
+    return [...m.entries()].filter(([, k]) => k.size >= 2).map(([aor, k]) => ({ aor, kinds: [...k] }));
+  }, [items]);
+
+  const runRead = () => {
+    setAiOpen(true); setAiLoading(true);
+    fetch("/api/crisis-read")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { text?: string; disabled?: boolean } | null) => setAiText(d?.disabled ? "AI features are off (no API key configured)." : d?.text || "Couldn't generate a read."))
+      .catch(() => setAiText("Read failed — the data feed may be unavailable."))
+      .finally(() => setAiLoading(false));
+  };
+
   const aorsPresent = useMemo(() => AORS.filter((a) => disasters.some((d) => d.aor === a) || neoPins.some((x) => x.a.aor === a)), [disasters, neoPins]);
   const toggle = (k: LayerKey) => setOn((p) => ({ ...p, [k]: !p[k] }));
   const showNodeLabels = on.labels && zoom >= 4;
@@ -280,9 +299,31 @@ export default function CrisisMap() {
         <button onClick={() => setFitKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">Fit</button>
         <button onClick={() => setRefreshKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200" title="Refresh">↻</button>
         <button onClick={() => setFullscreen((v) => !v)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
+        <button onClick={runRead} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">AI read</button>
         <span className="flex-1" />
         <span className="text-slate-700 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
       </div>
+
+      {/* Convergence strip — AORs where ≥2 signal kinds stack up. */}
+      {convergence.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] bg-amber-500/5 border border-amber-500/20 rounded-md px-2.5 py-1.5">
+          <span className="text-amber-400 font-bold uppercase tracking-wider">⚠ Convergence</span>
+          {convergence.map((c) => (
+            <button key={c.aor} onClick={() => setAorFilter(c.aor)} className="font-mono text-slate-300 hover:text-amber-300" title={`Filter to ${c.aor}`}>
+              <span className="text-sky-400">{c.aor}</span> <span className="text-slate-500">({c.kinds.join(" + ")})</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* AI map read */}
+      {aiOpen && (
+        <div className="bg-emerald-500/[0.06] border border-emerald-500/30 rounded-md px-3 py-2 text-[12px] text-slate-200 leading-relaxed flex items-start gap-2">
+          <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest flex-shrink-0 mt-0.5">AI read</span>
+          <p className="flex-1 min-w-0">{aiLoading ? "Reading the board…" : aiText}</p>
+          <button onClick={() => setAiOpen(false)} className="text-slate-500 hover:text-slate-300 flex-shrink-0">×</button>
+        </div>
+      )}
 
       {/* Map + list */}
       <div className={`flex flex-col lg:flex-row gap-2 ${fullscreen ? "flex-1 min-h-0" : ""}`}>
@@ -417,8 +458,9 @@ export default function CrisisMap() {
       </div>
 
       <p className={`text-[10px] text-slate-700 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
-        Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~24 h motion vector (NHC), and NEO
-        watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). Click a
+        Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
+        NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
+        convergence strip flags AORs where signals stack; AI read is a Claude SITREP of the board. Click a
         list row or marker to fly there and route it to the nearest CRF/hub. Distances, flight times, airframe reach
         rings (incl. AR), air bridges, and CR associations are <span className="text-slate-500">illustrative coarse SA —
         nominal figures, no payload/wind/clearance modeling; not a planning product or tasking</span>.
