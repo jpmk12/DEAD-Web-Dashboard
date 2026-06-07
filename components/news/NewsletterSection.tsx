@@ -106,6 +106,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // Quiet-series prompts the user has dismissed locally (don't show again
   // until their open-counts change).
   const [quietDismissed, setQuietDismissed] = useState<Set<string>>(new Set());
+  // Normalised series subjects the user has opened/deep-dived this session.
+  // The recorded open lands server-side, but the quiet list is built from a
+  // cached fetch, so a just-opened series would otherwise keep showing until
+  // the next refresh. Filtering on this set drops it from the prompt at once.
+  const [openedSeries, setOpenedSeries] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
   const [showQuietList, setShowQuietList] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
@@ -196,6 +201,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       if (next.has(n.id)) { next.delete(n.id); } else {
         next.add(n.id);
         sendFeedback({ subject: n.subject, action: "opened" });
+        setOpenedSeries((s) => new Set(s).add(normalizeSubject(n.subject)));
         bumpSurface();
       }
       return next;
@@ -212,6 +218,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     if (deepDived.current.has(n.id)) return;
     deepDived.current.add(n.id);
     sendFeedback({ subject: n.subject, action: "deep_dive" });
+    setOpenedSeries((s) => new Set(s).add(normalizeSubject(n.subject)));
     bumpSurface();
   }, [bumpSurface]);
 
@@ -259,8 +266,9 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
   const hiddenCount = newsletters.filter((n) => dismissed.has(n.id)).length;
 
-  // Quiet series the user hasn't already dismissed.
-  const actionableQuiet = quietSubjects.filter((k) => !quietDismissed.has(k));
+  // Quiet series the user hasn't already dismissed — and hasn't opened this
+  // session (so expanding a card removes it from the prompt without a refresh).
+  const actionableQuiet = quietSubjects.filter((k) => !quietDismissed.has(k) && !openedSeries.has(k));
   // Map back to specific newsletter IDs in the current load that belong to those series.
   const quietIds = actionableQuiet.flatMap((key) =>
     newsletters.filter((n) => normalizeSubject(n.subject) === key && !dismissed.has(n.id)).map((n) => n.id)
