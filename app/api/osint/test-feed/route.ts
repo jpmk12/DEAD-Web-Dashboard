@@ -27,6 +27,36 @@ function isSafeHostname(h: string): boolean {
   return true;
 }
 
+// Recognise Telegram feeds (native t.me or legacy rsshub bridge URLs) and
+// return the channel slug — the real feed route reads these from the channel's
+// own preview page (t.me/s/<slug>), so the diagnostic must too. Mirrors
+// telegramSlug() in ../feed/route.ts.
+function telegramSlug(rawUrl: string): string | null {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  let slug = "";
+  if (host === "t.me" || host === "telegram.me") {
+    const parts = u.pathname.split("/").filter(Boolean);
+    slug = parts[0] === "s" ? (parts[1] ?? "") : (parts[0] ?? "");
+  } else {
+    // Any rsshub instance (rsshub.app or a mirror) bridges Telegram here.
+    const m = u.pathname.match(/\/telegram\/channel\/([^/]+)/i);
+    if (m) slug = m[1];
+  }
+  return /^[A-Za-z0-9_]{4,32}$/.test(slug) ? slug : null;
+}
+
+function cleanHtml(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function extractTitle(xml: string): string {
   // Try RSS first, then Atom — match the very first occurrence, not the
   // channel-level title (which would be the feed name, not a post title).
@@ -203,6 +233,43 @@ export async function POST(req: Request) {
     result.error = "Invalid URL";
     result.durationMs = Date.now() - start;
     return NextResponse.json(result, { status: 400 });
+  }
+
+  // Telegram path: fetch the channel's preview page and count message bubbles
+  // instead of RSS <item>/<entry> tags (the t.me HTML has neither).
+  const tg = telegramSlug(url);
+  if (tg) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 8_000);
+    try {
+      const res = await fetch(`https://t.me/s/${tg}`, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; DEAD-Dashboard/1.0; +https://github.com/jpmk12/dead-web-dashboard)", Accept: "text/html", "Accept-Language": "en" },
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+      clearTimeout(tid);
+      result.status = res.status;
+      result.statusText = res.statusText;
+      result.contentType = res.headers.get("content-type") ?? undefined;
+      const html = await res.text();
+      result.bytes = html.length;
+      const msgCount = (html.match(/tgme_widget_message_text/gi) || []).length;
+      result.parsedItems = msgCount;
+      const firstM = html.match(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+      result.firstTitle = firstM ? cleanHtml(firstM[1]).slice(0, 180) : "";
+      result.ok = res.ok && msgCount > 0;
+      if (!res.ok) {
+        result.hint = `Telegram returned ${res.status}. The channel may be private, deleted, or have preview disabled.`;
+      } else if (msgCount === 0) {
+        result.hint = `Reached t.me/s/${tg} but found no posts — verify the slug at t.me/${tg} (the channel must be public with preview enabled).`;
+      }
+    } catch (err) {
+      clearTimeout(tid);
+      const msg = err instanceof Error ? err.message : "Unknown fetch error";
+      result.error = msg.includes("aborted") ? "Timed out after 8 s" : msg;
+    }
+    result.durationMs = Date.now() - start;
+    return NextResponse.json(result);
   }
 
   const ctrl = new AbortController();

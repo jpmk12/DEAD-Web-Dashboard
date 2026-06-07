@@ -54,7 +54,92 @@ function extractTag(block: string, tag: string): string {
     .trim();
 }
 
+// Strip HTML tags and decode the common entities from a fragment of markup.
+function cleanHtml(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, " ").replace(/&hellip;/g, "…")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Telegram channels were previously bridged through the public rsshub.app
+// instance, which is chronically rate-limited / IP-blocked from datacenter
+// hosts and was the dominant cause of OSINT-tab flakiness. Instead we read the
+// channel's own server-rendered preview page (https://t.me/s/<slug>) directly —
+// public, HTTPS, and not throttled the way the shared bridge is. This helper
+// recognises both the new t.me URLs and any legacy rsshub URLs still saved in a
+// user's prefs, returning the channel slug (sanitised) or null for non-Telegram
+// feeds. Slugs are [A-Za-z0-9_]{4,32} per Telegram's rules.
+function telegramSlug(rawUrl: string): string | null {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  let slug = "";
+  if (host === "t.me" || host === "telegram.me") {
+    const parts = u.pathname.split("/").filter(Boolean); // ["s","slug"] or ["slug"]
+    slug = parts[0] === "s" ? (parts[1] ?? "") : (parts[0] ?? "");
+  } else {
+    // Any rsshub instance (rsshub.app or a mirror) bridges Telegram at this
+    // path — match on the path, not the host, so legacy mirror URLs work too.
+    const m = u.pathname.match(/\/telegram\/channel\/([^/]+)/i);
+    if (m) slug = m[1];
+  }
+  return /^[A-Za-z0-9_]{4,32}$/.test(slug) ? slug : null;
+}
+
+async function fetchTelegram(slug: string, feedId: string, label: string, kind: string): Promise<OsintItem[]> {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 8_000);
+  try {
+    const res = await fetch(`https://t.me/s/${slug}`, {
+      // A browser-ish UA: t.me serves the lightweight preview to generic
+      // agents but this avoids any bot heuristics blanking the page.
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; DEAD-Dashboard/1.0; +https://github.com/jpmk12/dead-web-dashboard)", Accept: "text/html", "Accept-Language": "en" },
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const items: OsintItem[] = [];
+    // One block per message bubble. t.me/s/ lists oldest→newest top-to-bottom.
+    const blocks = html.split("tgme_widget_message_wrap");
+    for (const block of blocks) {
+      const textM = block.match(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+      if (!textM) continue;
+      const text = cleanHtml(textM[1]);
+      if (!text) continue;
+      const linkM = block.match(/tgme_widget_message_date"\s+href="([^"]+)"/i);
+      const link = linkM ? linkM[1].replace(/&amp;/g, "&") : `https://t.me/${slug}`;
+      const timeM = block.match(/<time[^>]+datetime="([^"]+)"/i);
+      const pubDate = timeM ? timeM[1] : "";
+      items.push({
+        id: link,
+        title: text.slice(0, 160),
+        link,
+        pubDate,
+        summary: text.slice(0, 400),
+        feedId, feedLabel: label, feedKind: kind,
+      });
+    }
+    // Most-recent first, capped — mirrors the RSS path's slice(0, 12).
+    return items.slice(-12).reverse();
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchAndParse(url: string, feedId: string, label: string, kind: string): Promise<OsintItem[]> {
+  // Telegram channels (native t.me or legacy rsshub bridge URLs) are read from
+  // the channel's own preview page rather than a third-party RSS bridge.
+  const tg = telegramSlug(url);
+  if (tg) return fetchTelegram(tg, feedId, label, kind);
+
   // SSRF re-validate at fetch time too — the URL was already sanitised on
   // write but defense in depth keeps the runtime fetch from hitting internal
   // addresses if validation logic ever weakens.

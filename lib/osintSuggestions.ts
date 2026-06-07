@@ -2,9 +2,11 @@ import type { OsintFeed } from "./types";
 
 // Curated starter set for the OSINT Feeds editor. Surfaced as a one-click
 // "💡 Suggestions" panel under the editor — click + to add, with the URL
-// pre-filled to a known-working pattern (mostly Telegram bridges via
-// rsshub.app since Telegram doesn't aggressively block scrapers the way
-// Twitter does).
+// pre-filled to a known-working pattern. Telegram channels use their own
+// public preview page (https://t.me/s/<slug>), which the feed route parses
+// directly — far more reliable than the old rsshub.app bridge, which was
+// chronically rate-limited / IP-blocked from datacenter hosts. (The route
+// still transparently handles any legacy rsshub URLs already saved in prefs.)
 //
 // Curation principles:
 // - Diverse perspective on purpose: news wires, OSINT analysts, adversary-
@@ -36,68 +38,68 @@ export const OSINT_FEED_SUGGESTIONS: OsintFeedSuggestionGroup[] = [
     name: "News wires",
     description: "High-volume, editorially vetted. Good baseline coverage.",
     feeds: [
-      { label: "Reuters World",  url: "https://rsshub.app/telegram/channel/reuters",            kind: "news" },
-      { label: "BBC World",      url: "https://rsshub.app/telegram/channel/bbcworld",           kind: "news" },
-      { label: "AFP",            url: "https://rsshub.app/telegram/channel/afpnewsagency",      kind: "news" },
-      { label: "Al Jazeera EN",  url: "https://rsshub.app/telegram/channel/aljazeeraenglish",   kind: "news" },
+      { label: "Reuters World",  url: "https://t.me/s/reuters",            kind: "news" },
+      { label: "BBC World",      url: "https://t.me/s/bbcworld",           kind: "news" },
+      { label: "AFP",            url: "https://t.me/s/afpnewsagency",      kind: "news" },
+      { label: "Al Jazeera EN",  url: "https://t.me/s/aljazeeraenglish",   kind: "news" },
     ],
   },
   {
     name: "OSINT aggregators (English)",
     description: "Multi-conflict OSINT analysts. High signal, mixed quality — verify before citing.",
     feeds: [
-      { label: "WarMonitor",       url: "https://rsshub.app/telegram/channel/WarMonitor3",   kind: "telegram" },
-      { label: "ELINT News",       url: "https://rsshub.app/telegram/channel/ELINTNews",     kind: "telegram" },
-      { label: "LiveUAMap",        url: "https://rsshub.app/telegram/channel/liveuamap",     kind: "telegram" },
-      { label: "OSINT Defender",   url: "https://rsshub.app/telegram/channel/OSINTdefender", kind: "telegram", note: "If sentdefender has a TG mirror it lives at this slug" },
+      { label: "WarMonitor",       url: "https://t.me/s/WarMonitor3",   kind: "telegram" },
+      { label: "ELINT News",       url: "https://t.me/s/ELINTNews",     kind: "telegram" },
+      { label: "LiveUAMap",        url: "https://t.me/s/liveuamap",     kind: "telegram" },
+      { label: "OSINT Defender",   url: "https://t.me/s/OSINTdefender", kind: "telegram", note: "If sentdefender has a TG mirror it lives at this slug" },
     ],
   },
   {
     name: "Russian milblogger ecosystem",
     description: "Adversary perspective. Propaganda vectors AND primary-source situational data simultaneously — consume with that framing.",
     feeds: [
-      { label: "Rybar",         url: "https://rsshub.app/telegram/channel/rybar",      kind: "telegram", bias: "Russian-aligned" },
-      { label: "Intel Slava Z", url: "https://rsshub.app/telegram/channel/intelslava", kind: "telegram", bias: "Russian-aligned" },
-      { label: "Voenacher",     url: "https://rsshub.app/telegram/channel/voenacher",  kind: "telegram", bias: "Russian-aligned" },
+      { label: "Rybar",         url: "https://t.me/s/rybar",      kind: "telegram", bias: "Russian-aligned" },
+      { label: "Intel Slava Z", url: "https://t.me/s/intelslava", kind: "telegram", bias: "Russian-aligned" },
+      { label: "Voenacher",     url: "https://t.me/s/voenacher",  kind: "telegram", bias: "Russian-aligned" },
     ],
   },
   {
     name: "Ukraine POV",
     description: "English-language Ukrainian sources.",
     feeds: [
-      { label: "Kyiv Independent", url: "https://rsshub.app/telegram/channel/KyivIndependent", kind: "telegram", bias: "Pro-Ukraine" },
-      { label: "Kyiv Post",        url: "https://rsshub.app/telegram/channel/kyivpost",        kind: "telegram", bias: "Pro-Ukraine" },
+      { label: "Kyiv Independent", url: "https://t.me/s/KyivIndependent", kind: "telegram", bias: "Pro-Ukraine" },
+      { label: "Kyiv Post",        url: "https://t.me/s/kyivpost",        kind: "telegram", bias: "Pro-Ukraine" },
     ],
   },
   {
     name: "Middle East",
     feeds: [
-      { label: "Quds News",            url: "https://rsshub.app/telegram/channel/QudsNen",   kind: "telegram", bias: "Palestinian POV" },
-      { label: "Palestinian Info Ctr", url: "https://rsshub.app/telegram/channel/palinfoen", kind: "telegram", bias: "Palestinian POV" },
+      { label: "Quds News",            url: "https://t.me/s/QudsNen",   kind: "telegram", bias: "Palestinian POV" },
+      { label: "Palestinian Info Ctr", url: "https://t.me/s/palinfoen", kind: "telegram", bias: "Palestinian POV" },
     ],
   },
   {
     name: "Aviation tracking",
     feeds: [
-      { label: "ItaMilRadar", url: "https://rsshub.app/telegram/channel/ItaMilRadar", kind: "telegram", note: "Italian-based mil aviation monitoring" },
+      { label: "ItaMilRadar", url: "https://t.me/s/ItaMilRadar", kind: "telegram", note: "Italian-based mil aviation monitoring" },
     ],
   },
   {
     name: "Defense / official",
     feeds: [
-      { label: "UK Ministry of Defence", url: "https://rsshub.app/telegram/channel/defencehq", kind: "telegram" },
+      { label: "UK Ministry of Defence", url: "https://t.me/s/defencehq", kind: "telegram" },
     ],
   },
   {
     name: "Think tanks / research",
     feeds: [
-      { label: "Institute for Study of War", url: "https://rsshub.app/telegram/channel/ISWresearch", kind: "telegram", bias: "Western" },
+      { label: "Institute for Study of War", url: "https://t.me/s/ISWresearch", kind: "telegram", bias: "Western" },
     ],
   },
   {
     name: "Cyber-conflict",
     feeds: [
-      { label: "CyberKnow", url: "https://rsshub.app/telegram/channel/cyberknow", kind: "telegram", note: "Cyber-conflict OSINT analyst" },
+      { label: "CyberKnow", url: "https://t.me/s/cyberknow", kind: "telegram", note: "Cyber-conflict OSINT analyst" },
     ],
   },
   {
