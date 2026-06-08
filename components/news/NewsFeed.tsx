@@ -408,7 +408,7 @@ export default function NewsFeed({
               </button>
               {showDiscover && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {discoverItems.map((it) => renderCard(it))}
+                  {discoverItems.map((it) => renderCard(it, true))}
                 </div>
               )}
             </div>
@@ -418,10 +418,10 @@ export default function NewsFeed({
 
       {!loading && !error && tab !== "overview" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Strategic is long-form think-tank/analysis — the article thesis is
-              most useful there, so surface the button on those cards too (it's
-              otherwise reserved for the Overview's "Critical for you" set). */}
-          {visible.map((it) => renderCard(it, tab === "strategic"))}
+          {/* Thesis is on every card. It's free to render — the model is only
+              called on click (and cached after), so there's no cost to offering
+              it everywhere. */}
+          {visible.map((it) => renderCard(it, true))}
           {visible.length === 0 && (
             <div className="col-span-full text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">
               {tab === "saved" ? "No saved articles yet — star articles to save them" : `No ${tab === "all" ? "" : tab + " "}articles loaded`}
