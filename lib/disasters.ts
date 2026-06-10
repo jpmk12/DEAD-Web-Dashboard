@@ -7,6 +7,7 @@
 import Parser from "rss-parser";
 import type { DisasterEvent } from "./types";
 import { classifyAor } from "./aor";
+import { fetchWithTimeout } from "./fetchTimeout";
 
 const UA = "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)";
 
@@ -26,9 +27,9 @@ const GDACS_TYPE: Record<string, DisasterEvent["type"]> = {
 
 async function fetchGdacs(): Promise<RawDisaster[]> {
   try {
-    const res = await fetch("https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP", {
+    const res = await fetchWithTimeout("https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP", {
       headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store",
-    });
+    }, 10_000);
     if (!res.ok) return [];
     const data = await res.json();
     const feats: unknown[] = data?.features ?? [];
@@ -72,9 +73,9 @@ async function fetchGdacs(): Promise<RawDisaster[]> {
 // ── USGS: fast, precise earthquakes (mag 4.5+, last day) ──
 async function fetchUsgsQuakes(): Promise<RawDisaster[]> {
   try {
-    const res = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson", {
+    const res = await fetchWithTimeout("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson", {
       headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store",
-    });
+    }, 10_000);
     if (!res.ok) return [];
     const data = await res.json();
     const feats: unknown[] = data?.features ?? [];
@@ -115,7 +116,7 @@ async function fetchReliefWeb(): Promise<RawDisaster[]> {
     const url = "https://api.reliefweb.int/v1/disasters?appname=dead-web-dashboard&profile=list&preset=latest&limit=25"
       + "&fields[include][]=name&fields[include][]=status&fields[include][]=primary_type"
       + "&fields[include][]=country&fields[include][]=date&fields[include][]=url_alias";
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" });
+    const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" }, 10_000);
     if (!res.ok) return [];
     const data = await res.json();
     const rows: unknown[] = data?.data ?? [];
@@ -227,7 +228,7 @@ const VHP_UPDATES_URL = "https://www.usgs.gov/programs/VHP/volcano-updates";
 
 async function fetchVolcanicAsh(): Promise<RawDisaster[]> {
   try {
-    const res = await fetch("https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes", {
+    const res = await fetchWithTimeout("https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes", {
       headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store",
     });
     if (!res.ok) return [];

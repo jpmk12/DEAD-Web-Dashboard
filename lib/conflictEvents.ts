@@ -67,7 +67,10 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
     }
     points.sort((a, b) => b.count - a.count);
     const top = points.slice(0, 250);
-    cache = { points: top, expires: Date.now() + TTL };
+    // Only cache non-empty results — the query spans 2 days of global kinetic
+    // terms, so a truly empty GeoJSON means GDELT hiccuped or changed shape;
+    // caching it would blank the conflict layer for 30 min instead of retrying.
+    if (top.length > 0) cache = { points: top, expires: Date.now() + TTL };
     return top;
   } catch {
     return [];

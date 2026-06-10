@@ -4,6 +4,7 @@
 
 import type { WeatherAlert, SevereThreat, TropicalSystem, WeatherThreats, LocationHazard } from "./types";
 import { getDisasters, haversineKm } from "./disasters";
+import { fetchWithTimeout } from "./fetchTimeout";
 
 const NWS_HEADERS = { "User-Agent": "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)", Accept: "application/geo+json" };
 
@@ -25,9 +26,10 @@ function tierOf(event: string): SevereThreat["tier"] {
 }
 
 async function fetchPointAlerts(lat: number, lon: number): Promise<WeatherAlert[]> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`,
-    { headers: NWS_HEADERS, cache: "no-store" }
+    { headers: NWS_HEADERS, cache: "no-store" },
+    10_000
   );
   if (!res.ok) throw new Error(`alerts ${res.status}`);
   const data = await res.json();
@@ -122,10 +124,10 @@ function nhcStormLink(binNumber: unknown): string {
 
 export async function fetchActiveTropical(): Promise<TropicalSystem[]> {
   try {
-    const res = await fetch("https://www.nhc.noaa.gov/CurrentStorms.json", {
+    const res = await fetchWithTimeout("https://www.nhc.noaa.gov/CurrentStorms.json", {
       headers: { "User-Agent": NWS_HEADERS["User-Agent"], Accept: "application/json" },
       cache: "no-store",
-    });
+    }, 10_000);
     if (!res.ok) return [];
     const data = await res.json();
     const storms: unknown[] = data?.activeStorms ?? [];
@@ -253,7 +255,7 @@ async function fetchLocationHazards(locations: NamedPoint[]): Promise<LocationHa
           `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat.toFixed(4)}&longitude=${loc.lon.toFixed(4)}` +
           `&hourly=wind_gusts_10m,visibility,weather_code,temperature_2m&forecast_days=2` +
           `&wind_speed_unit=kn&temperature_unit=fahrenheit&timezone=UTC`;
-        const res = await fetch(url, { headers: { "User-Agent": OM_UA }, cache: "no-store" });
+        const res = await fetchWithTimeout(url, { headers: { "User-Agent": OM_UA }, cache: "no-store" }, 8_000);
         if (!res.ok) return null;
         const data = await res.json();
         const a = assessHazards((data?.hourly ?? {}) as OmHourly, now);

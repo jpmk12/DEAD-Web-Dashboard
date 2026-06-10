@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { ForecastPeriod } from "@/lib/types";
+import { fetchWithTimeout } from "@/lib/fetchTimeout";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ async function fetchForecast(lat: number, lon: number): Promise<ForecastPeriod[]
     Accept: "application/geo+json",
   };
 
-  const pointsRes = await fetch(
+  const pointsRes = await fetchWithTimeout(
     `https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,
     { headers, cache: "no-store" }
   );
@@ -40,7 +41,7 @@ async function fetchForecast(lat: number, lon: number): Promise<ForecastPeriod[]
   const forecastUrl = points?.properties?.forecast;
   if (typeof forecastUrl !== "string") throw new Error("no forecast URL");
 
-  const forecastRes = await fetch(forecastUrl, { headers, cache: "no-store" });
+  const forecastRes = await fetchWithTimeout(forecastUrl, { headers, cache: "no-store" }, 10_000);
   if (!forecastRes.ok) throw new Error(`forecast: ${forecastRes.status}`);
   const forecast = await forecastRes.json();
   const periods: NwsPeriod[] = forecast?.properties?.periods ?? [];

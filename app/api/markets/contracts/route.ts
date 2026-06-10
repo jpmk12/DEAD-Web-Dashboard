@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/fetchTimeout";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ function parseContractTitle(rawTitle: string, description: string): Pick<Contrac
 }
 
 async function fetchFromFeed(url: string): Promise<ContractAward[]> {
-  const res = await fetch(url, { headers: { "User-Agent": "DEAD-Dashboard" }, cache: "no-store" });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": "DEAD-Dashboard" }, cache: "no-store" }, 10_000);
   if (!res.ok) throw new Error(`feed ${res.status}`);
   const xml = await res.text();
 

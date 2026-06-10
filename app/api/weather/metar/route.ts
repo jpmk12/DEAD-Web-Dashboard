@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { StationWx } from "@/lib/types";
 import { decodeMetar, decodeTaf } from "@/lib/metar";
+import { fetchWithTimeout } from "@/lib/fetchTimeout";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ function isValidIcao(s: string): boolean {
 }
 
 async function fetchJson(url: string): Promise<unknown[]> {
-  const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
+  const res = await fetchWithTimeout(url, { headers: HEADERS, cache: "no-store" }, 10_000);
   if (!res.ok) throw new Error(`${res.status}`);
   const data = await res.json();
   return Array.isArray(data) ? data : [];

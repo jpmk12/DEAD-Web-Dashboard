@@ -92,7 +92,10 @@ export async function getStateAdvisories(): Promise<TravelAdvisory[]> {
       clearTimeout(timer);
     }
     const data = await parseAdvisories(xml);
-    cache = { data, expires: Date.now() + TTL_MS };
+    // Only cache a non-empty parse. State always has Level-4s in practice, so
+    // an empty result almost certainly means a feed-format change — caching it
+    // would blank the NEO watch for 30 min instead of retrying next call.
+    if (data.length > 0) cache = { data, expires: Date.now() + TTL_MS };
     return data;
   } catch {
     return cache?.data ?? []; // unreachable/parse failure → last good or empty

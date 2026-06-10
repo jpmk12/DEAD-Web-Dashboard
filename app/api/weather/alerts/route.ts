@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { WeatherAlert } from "@/lib/types";
+import { fetchWithTimeout } from "@/lib/fetchTimeout";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ async function fetchAlerts(lat: number, lon: number): Promise<WeatherAlert[]> {
     "User-Agent": "DEAD-Dashboard",
     Accept: "application/geo+json",
   };
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`,
     { headers, cache: "no-store" }
   );
