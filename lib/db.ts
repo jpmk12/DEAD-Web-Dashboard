@@ -233,6 +233,10 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "documents",   column: "archived",                  ddl: "ALTER TABLE documents ADD COLUMN archived TINYINT(1) NOT NULL DEFAULT 0" },
   { table: "user_prefs",  column: "acled_email",               ddl: "ALTER TABLE user_prefs ADD COLUMN acled_email    VARCHAR(255) NULL" },
   { table: "user_prefs",  column: "acled_password",            ddl: "ALTER TABLE user_prefs ADD COLUMN acled_password TEXT NULL" },
+  // P7 instrumentation: wall-time of the model call and (where measurable) the
+  // upstream assembly phase, so latency claims cite measured baselines.
+  { table: "anthropic_usage", column: "duration_ms",           ddl: "ALTER TABLE anthropic_usage ADD COLUMN duration_ms INT NULL" },
+  { table: "anthropic_usage", column: "assembly_ms",           ddl: "ALTER TABLE anthropic_usage ADD COLUMN assembly_ms INT NULL" },
 ];
 
 interface ColumnRow extends RowDataPacket { cnt: number }

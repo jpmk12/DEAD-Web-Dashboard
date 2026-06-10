@@ -86,6 +86,7 @@ export async function POST(req: Request) {
 
   if (uncached.length > 0 && isFeatureEnabled("osint_triage", prefs)) {
     try {
+      const modelStart = Date.now();
       const response = await anthropic.messages.create({
         model: "claude-haiku-4-5",
         max_tokens: 4096,
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
         ],
       });
 
-      logCall({ route: "osint_triage", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
+      logCall({ route: "osint_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
 
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       // Strip ```json fences / prose the model sometimes adds before parsing.

@@ -54,8 +54,9 @@ export async function GET() {
     }
 
     const prompt = `You are an Air Mobility Command (AMC) watch officer. From this raw signal list, write a tight situation read for an air-mobility audience: what's happening, which AORs/bases it touches, and the airlift implication (HADR pull, NEO/evacuation, kinetic activity shaping the threat/permissive picture, weather impeding reach). 3-4 sentences, no preamble, no bullet points, <=90 words. This is coarse open-source SA, not tasking.\n\n${lines.join("\n")}`;
+    const modelStart = Date.now();
     const resp = await anthropic.messages.create({ model: "claude-haiku-4-5", max_tokens: 240, messages: [{ role: "user", content: prompt }] });
-    logCall({ route: "crisis_read", model: "claude-haiku-4-5", usage: resp.usage }).catch(() => {});
+    logCall({ route: "crisis_read", model: "claude-haiku-4-5", usage: resp.usage, durationMs: Date.now() - modelStart }).catch(() => {});
     const text = resp.content[0].type === "text" ? resp.content[0].text.trim() : "";
     cache = { text, expires: Date.now() + TTL };
     return NextResponse.json({ text });

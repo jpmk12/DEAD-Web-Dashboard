@@ -1334,6 +1334,11 @@ function AIControlPanel({
                       </span>
                       <span className="text-slate-500 flex-shrink-0">
                         {formatUsd(r.micros)} · {r.calls}
+                        {typeof r.p50Ms === "number" && (
+                          <span className="text-slate-600" title="Model-call latency p50 / p95 today">
+                            {" "}· {(r.p50Ms / 1000).toFixed(1)}s{typeof r.p95Ms === "number" && r.p95Ms !== r.p50Ms ? `/${(r.p95Ms / 1000).toFixed(1)}s` : ""}
+                          </span>
+                        )}
                       </span>
                     </li>
                   ))}

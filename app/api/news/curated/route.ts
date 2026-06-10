@@ -97,6 +97,7 @@ export async function POST(request: Request) {
     ].filter(Boolean).join("\n\n");
 
     try {
+      const modelStart = Date.now();
       const response = await anthropic.messages.create({
         // Sonnet ranks a structured shortlist well and is far cheaper than Opus.
         model: "claude-sonnet-4-6",
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
         messages: [{ role: "user", content: userContent }],
       });
 
-      logCall({ route: "news_curated", model: "claude-sonnet-4-6", usage: response.usage }).catch(() => {});
+      logCall({ route: "news_curated", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
 
       const textBlock = response.content.find((b) => b.type === "text");
       const raw = textBlock?.type === "text" ? textBlock.text : "{}";

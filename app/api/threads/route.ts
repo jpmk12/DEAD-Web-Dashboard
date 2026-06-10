@@ -91,6 +91,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const modelStart = Date.now();
     const response = await anthropic.messages.create({
       model: "claude-opus-4-7",
       max_tokens: 4096,
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
       messages: [{ role: "user", content: userContent }],
     });
 
-    logCall({ route: "threads", model: "claude-opus-4-7", usage: response.usage }).catch(() => {});
+    logCall({ route: "threads", model: "claude-opus-4-7", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

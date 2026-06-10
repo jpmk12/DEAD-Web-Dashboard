@@ -116,6 +116,7 @@ export async function GET() {
 
   if (uncached.length > 0 && isFeatureEnabled("email_triage", prefs)) {
     try {
+      const modelStart = Date.now();
       const response = await anthropic.messages.create({
         model: "claude-haiku-4-5",
         max_tokens: 4096,
@@ -140,7 +141,7 @@ export async function GET() {
       });
 
       // Fire-and-forget usage log; never blocks the response.
-      logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
+      logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
 
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       // Claude sometimes wraps the array in a ```json fence or adds prose;

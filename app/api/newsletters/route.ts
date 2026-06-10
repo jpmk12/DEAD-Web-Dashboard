@@ -134,6 +134,7 @@ export async function GET() {
     }
 
     try {
+      const modelStart = Date.now();
       const response = await anthropic.messages.create({
         // Sonnet handles long batched JSON outputs more reliably than Haiku.
         // Haiku occasionally drops items from large arrays, leaving newsletters
@@ -154,7 +155,7 @@ export async function GET() {
         }],
       });
 
-      logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage }).catch(() => {});
+      logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       const parsed: unknown = JSON.parse(extractJsonArray(raw));
       if (!Array.isArray(parsed)) throw new Error("Expected array");

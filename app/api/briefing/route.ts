@@ -103,6 +103,7 @@ export async function POST(request: Request) {
   // so this runs even when the user has no locations set. Best-effort; never
   // blocks brief generation.
   let weatherLine = "";
+  const assemblyStart = Date.now();
   try {
     const locs: NamedPoint[] = [];
     if (prefs.localLat != null && prefs.localLon != null) {
@@ -132,7 +133,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No content to brief" }, { status: 400 });
   }
 
+  // Server-side assembly = the weather/disaster fan-out above; everything else
+  // arrived pre-assembled in the POST body.
+  const assemblyMs = Date.now() - assemblyStart;
+
   try {
+    const modelStart = Date.now();
     const response = await anthropic.messages.create({
       model: "claude-opus-4-7",
       max_tokens: 3072,
@@ -143,7 +149,7 @@ export async function POST(request: Request) {
       messages: [{ role: "user", content: userContent }],
     });
 
-    logCall({ route: "briefing", model: "claude-opus-4-7", usage: response.usage }).catch(() => {});
+    logCall({ route: "briefing", model: "claude-opus-4-7", usage: response.usage, durationMs: Date.now() - modelStart, assemblyMs }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

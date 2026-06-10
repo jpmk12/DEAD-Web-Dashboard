@@ -190,7 +190,9 @@ export interface AiUsageRow {
 export interface AiUsageSummary {
   totalMicros: number;
   totalCalls: number;
-  byRoute: { route: string; micros: number; calls: number }[];
+  // p50/p95 of model-call wall time — present only for routes with
+  // instrumented (non-streaming) calls in the window.
+  byRoute: { route: string; micros: number; calls: number; p50Ms?: number; p95Ms?: number }[];
   byModel: { model: string; micros: number; calls: number }[];
 }
 

@@ -76,6 +76,7 @@ export async function GET() {
   }
 
   try {
+    const modelStart = Date.now();
     const response = await anthropic.messages.create({
       // Sonnet handles structured JSON from already-scored data well and
       // is materially cheaper than Opus for this task.
@@ -92,7 +93,7 @@ export async function GET() {
       messages: [{ role: "user", content: context }],
     });
 
-    logCall({ route: "digest", model: "claude-sonnet-4-6", usage: response.usage }).catch(() => {});
+    logCall({ route: "digest", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

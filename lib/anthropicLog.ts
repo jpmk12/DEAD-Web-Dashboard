@@ -26,10 +26,15 @@ export interface AnthropicUsage {
 
 // Write one usage row. Fire-and-forget at every call site so a logging
 // failure can never break the user-facing response.
+// durationMs = wall time of the model call itself; assemblyMs = upstream
+// data-assembly time before the call (only where the route measures it).
+// Both optional so existing call sites keep working unchanged.
 export async function logCall(opts: {
   route: string;
   model: string;
   usage: AnthropicUsage;
+  durationMs?: number;
+  assemblyMs?: number;
 }): Promise<void> {
   const input  = opts.usage.input_tokens  ?? 0;
   const output = opts.usage.output_tokens ?? 0;
@@ -41,9 +46,11 @@ export async function logCall(opts: {
     const pool = await getDb();
     await pool.execute(
       `INSERT INTO anthropic_usage
-         (route, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_micros, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [opts.route, opts.model, input, output, cacheCreation, cacheRead, micros, Date.now()]
+         (route, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_micros, created_at, duration_ms, assembly_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [opts.route, opts.model, input, output, cacheCreation, cacheRead, micros, Date.now(),
+       Number.isFinite(opts.durationMs) ? Math.round(opts.durationMs!) : null,
+       Number.isFinite(opts.assemblyMs) ? Math.round(opts.assemblyMs!) : null]
     );
   } catch (err) {
     console.error("anthropic_usage insert failed:", err);
@@ -70,11 +77,33 @@ async function summaryBetween(startMs: number, endMs: number): Promise<AiUsageSu
      GROUP BY model ORDER BY micros DESC`,
     [startMs, endMs]
   );
+  // Latency percentiles per route, computed in JS (managed MySQL lacks a
+  // percentile aggregate). Single-user volume keeps the row count small;
+  // duration_ms is NULL for rows written before instrumentation and for
+  // streaming routes, both of which are simply skipped.
+  const [durRows] = await pool.query<(RowDataPacket & { route: string; duration_ms: number })[]>(
+    `SELECT route, duration_ms FROM anthropic_usage
+     WHERE created_at >= ? AND created_at < ? AND duration_ms IS NOT NULL`,
+    [startMs, endMs]
+  );
+  const byRouteDur = new Map<string, number[]>();
+  for (const r of durRows) {
+    if (!byRouteDur.has(r.route)) byRouteDur.set(r.route, []);
+    byRouteDur.get(r.route)!.push(Number(r.duration_ms));
+  }
+  const pct = (sorted: number[], p: number) =>
+    sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))];
+  const latency = (route: string): { p50Ms?: number; p95Ms?: number } => {
+    const xs = byRouteDur.get(route);
+    if (!xs || xs.length === 0) return {};
+    xs.sort((a, b) => a - b);
+    return { p50Ms: pct(xs, 50), p95Ms: pct(xs, 95) };
+  };
 
   return {
     totalMicros: Number(totals[0]?.micros ?? 0),
     totalCalls: Number(totals[0]?.calls ?? 0),
-    byRoute: byRoute.map((r) => ({ route: r.route, micros: Number(r.micros), calls: Number(r.calls) })),
+    byRoute: byRoute.map((r) => ({ route: r.route, micros: Number(r.micros), calls: Number(r.calls), ...latency(r.route) })),
     byModel: byModel.map((r) => ({ model: r.model, micros: Number(r.micros), calls: Number(r.calls) })),
   };
 }
