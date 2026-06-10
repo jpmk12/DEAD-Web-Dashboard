@@ -18,6 +18,9 @@
 // shown — the Crisis map labels the layer "ACLED" and credits it in popups +
 // the sources line. Keep that attribution if you touch the UI.
 
+import { aorFromCoords } from "./aor";
+import { recordDailySignals } from "./trends";
+
 const TOKEN_URL = "https://acleddata.com/oauth/token";
 const READ_URL = "https://acleddata.com/api/acled/read";
 
@@ -199,5 +202,18 @@ export async function getAcledEvents(): Promise<AcledEvent[]> {
   // Only cache a non-empty pull — an empty result is usually a transient auth/
   // network blip, and caching it would blank the layer for 30 min.
   if (events.length > 0) dataCache = { events, expires: Date.now() + DATA_TTL };
+
+  // Trend recorder (P1): strike region/AOR/sub-type counted once per ACLED
+  // event id, on fresh pulls only (cache hits return above). Fire-and-forget.
+  if (events.length > 0) {
+    recordDailySignals(events.map((e) => ({
+      id: `acled|${e.id}`,
+      terms: [
+        { kind: "category" as const, term: e.subType || e.type },
+        ...(e.country ? [{ kind: "region" as const, term: e.country }] : []),
+        { kind: "aor" as const, term: aorFromCoords(e.lat, e.lon) },
+      ].filter((t) => t.term && t.term !== "UNKNOWN"),
+    }))).catch(() => {});
+  }
   return events;
 }

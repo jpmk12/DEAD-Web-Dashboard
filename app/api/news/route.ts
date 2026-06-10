@@ -4,6 +4,7 @@ import { fetchFeed } from "@/lib/rss";
 import { readPrefs, sortByPreference } from "@/lib/articlePrefs";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, isSourceEnabled } from "@/lib/newsSources";
+import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,18 @@ export async function GET() {
     (a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
   );
   const items = sortByPreference(byDate, prefs, userPrefs.watchlist);
+
+  // Trend recorder (P1): count each article's topic/category/watch terms once
+  // (signal_seen dedups the 15-min polling). Fire-and-forget — a trends fault
+  // can never slow or break the news response.
+  recordDailySignals(items.map((it) => ({
+    id: `news|${it.link || it.id}`,
+    terms: [
+      ...topicTerms(it.title),
+      { kind: "category" as const, term: it.category },
+      ...watchTermsIn(`${it.title} ${it.summary ?? ""}`, userPrefs.watchlist ?? []),
+    ],
+  }))).catch(() => {});
 
   const sourceErrors: Record<string, string> = {};
   for (const result of feedResults) {

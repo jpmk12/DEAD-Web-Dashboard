@@ -5,6 +5,7 @@
 import type { WeatherAlert, SevereThreat, TropicalSystem, WeatherThreats, LocationHazard } from "./types";
 import { getDisasters, haversineKm } from "./disasters";
 import { fetchWithTimeout } from "./fetchTimeout";
+import { recordDailySignals } from "./trends";
 
 const NWS_HEADERS = { "User-Agent": "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)", Accept: "application/geo+json" };
 
@@ -290,6 +291,17 @@ export async function getWeatherThreats(locations: NamedPoint[]): Promise<Weathe
     return near.length ? { ...d, nearLocations: near } : d;
   });
   disasters.sort((a, b) => (b.nearLocations.length > 0 ? 1 : 0) - (a.nearLocations.length > 0 ? 1 : 0));
+
+  // Trend recorder (P1): disaster type/region/AOR counted once per event
+  // (stable GDACS/USGS ids dedup the repeat fetches). Fire-and-forget.
+  recordDailySignals(disasters.map((d) => ({
+    id: `dis|${d.id}`,
+    terms: [
+      { kind: "category" as const, term: d.type },
+      ...(d.country ? [{ kind: "region" as const, term: d.country }] : []),
+      ...(d.aor && d.aor !== "UNKNOWN" ? [{ kind: "aor" as const, term: d.aor }] : []),
+    ],
+  }))).catch(() => {});
 
   const summary = {
     extreme: threats.filter((t) => t.severity === "Extreme").length,

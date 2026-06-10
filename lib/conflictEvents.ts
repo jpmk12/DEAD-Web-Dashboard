@@ -7,6 +7,9 @@
 // aircraft), naval/tanker attacks, and the recovery/rescue follow-on
 // (search-and-rescue / personnel recovery). Coarse OSINT, not a curated product.
 
+import { aorFromCoords } from "./aor";
+import { recordDailySignals, utcDate } from "./trends";
+
 export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string }
 
 const TTL = 30 * 60 * 1000;
@@ -71,6 +74,20 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
     // terms, so a truly empty GeoJSON means GDELT hiccuped or changed shape;
     // caching it would blank the conflict layer for 30 min instead of retrying.
     if (top.length > 0) cache = { points: top, expires: Date.now() + TTL };
+
+    // Trend recorder (P1): GDELT points have no stable upstream id, so each
+    // place is counted once per UTC day (id embeds the date) — presence-based
+    // velocity, not report volume. Fresh pulls only; fire-and-forget.
+    if (top.length > 0) {
+      const day = utcDate();
+      recordDailySignals(top.filter((p) => p.name).map((p) => ({
+        id: `gdelt|${day}|${p.name}`,
+        terms: [
+          { kind: "region" as const, term: p.name },
+          { kind: "aor" as const, term: aorFromCoords(p.lat, p.lon) },
+        ].filter((t) => t.term !== "UNKNOWN"),
+      }))).catch(() => {});
+    }
     return top;
   } catch {
     return [];

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
+import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
 
 export const dynamic = "force-dynamic";
 
@@ -265,6 +266,17 @@ export async function GET() {
     if (!Number.isFinite(tb)) return -1;
     return tb - ta;
   });
+
+  // Trend recorder (P1): one count per item ever (signal_seen absorbs the 90 s
+  // poll). Fire-and-forget; can never slow the feed response.
+  recordDailySignals(flat.map((it) => ({
+    id: `osint|${it.link || it.id}`,
+    terms: [
+      ...topicTerms(it.title),
+      { kind: "category" as const, term: it.feedKind },
+      ...watchTermsIn(`${it.title} ${it.summary}`, prefs?.watchlist ?? []),
+    ],
+  }))).catch(() => {});
 
   return NextResponse.json({
     feeds: feeds.map((f) => {

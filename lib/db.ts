@@ -182,6 +182,25 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_usage_route   (route)
   ) ENGINE=InnoDB`,
 
+  // Trend-sensing time series (NEXT-LEVEL-PLAN P1). Deterministic per-day
+  // counts of terms extracted from public-source items (news/OSINT/crisis) —
+  // never email content. signal_seen is the dedup ledger so 90 s polling never
+  // double-counts an item; it is load-bearing, not an optimization.
+  `CREATE TABLE IF NOT EXISTS signal_daily_counts (
+    date  VARCHAR(10)  NOT NULL,
+    kind  VARCHAR(16)  NOT NULL,
+    term  VARCHAR(120) NOT NULL,
+    count INT          NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, kind, term),
+    INDEX idx_sdc_term (kind, term, date)
+  ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS signal_seen (
+    id   VARCHAR(40) NOT NULL PRIMARY KEY,
+    date VARCHAR(10) NOT NULL,
+    INDEX idx_seen_date (date)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,
