@@ -502,14 +502,28 @@ match the real keys there.
 `ANTHROPIC_API_KEY`, `GMAIL_SECONDARY_REDIRECT_URI`, `OWNER_EMAIL`.
 
 Optional feature keys (the feature is simply off when unset, never a hard error):
-`AISSTREAM_API_KEY` (live maritime AIS), and `ACLED_EMAIL` + `ACLED_PASSWORD`
-(ACLED structured strikes on the Crisis map — `lib/acled.ts`). ACLED uses an
-OAuth **password grant** (no API key anymore): the account's email+password are
+`AISSTREAM_API_KEY` (live maritime AIS), and ACLED credentials for the Crisis
+map's structured-strike layer (`lib/acled.ts`).
+
+ACLED credentials resolve **settings-first, env-override**:
+1. **Settings** (preferred): set in Preferences → Sources & feeds → "ACLED
+   Strikes". Stored in dedicated `user_prefs.acled_email` / `acled_password`
+   columns — deliberately **NOT** part of the `UserPrefs` JSON blob or
+   `getUserPrefs()`, so the password never rides along in the `/api/user-prefs`
+   GET the browser receives, and a normal prefs Save can't clobber them. They're
+   read/written only via `/api/settings/acled` (GET returns email + status, never
+   the password; POST verifies then saves; DELETE clears) and the server-only
+   accessors in `lib/userPrefs.ts` (`getAcledCredentials` / `saveAcledCredentials`
+   / `clearAcledCredentials`).
+2. **Env vars** `ACLED_EMAIL` + `ACLED_PASSWORD` OVERRIDE settings when both are
+   set (the UI then shows read-only "configured via environment variable").
+
+ACLED uses an OAuth **password grant** (no API key anymore): email+password are
 exchanged for a 24 h bearer token at `acleddata.com/oauth/token`, cached
-in-process, then used against `acleddata.com/api/acled/read`. Data © ACLED —
-keep the attribution that's rendered in the Crisis map popups + sources line.
-`lib/acled.ts` is pure `fetch` (no new npm dep, so `grep -c esbuild
-package-lock.json` stays `0`).
+in-process (keyed by email; `resetAcledCache()` drops it when creds change),
+then used against `acleddata.com/api/acled/read`. Data © ACLED — keep the
+attribution rendered in the Crisis map popups + sources line. `lib/acled.ts` is
+pure `fetch` (no new npm dep, so `grep -c esbuild package-lock.json` stays `0`).
 
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X

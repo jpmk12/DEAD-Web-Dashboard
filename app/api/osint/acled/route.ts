@@ -12,5 +12,5 @@ export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ configured: false, events: [] }, { status: 401 });
   const events = await getAcledEvents();
-  return NextResponse.json({ configured: acledConfigured(), events });
+  return NextResponse.json({ configured: await acledConfigured(), events });
 }

@@ -4,13 +4,15 @@
 // coordinates, an event/sub-event taxonomy (e.g. "Air/drone strike",
 // "Shelling/artillery/missile attack"), named actors, and fatality counts.
 //
-// Access (set via env — see .env.example / CLAUDE.md):
-//   ACLED_EMAIL    — the email you registered at acleddata.com
-//   ACLED_PASSWORD — that account's password
+// Access — credentials resolve in this order:
+//   1. Settings (Preferences → Sources & feeds → ACLED), stored server-side in
+//      user_prefs and read via getAcledCredentials().
+//   2. Env vars ACLED_EMAIL / ACLED_PASSWORD, which OVERRIDE settings when set
+//      (lets an operator pin credentials without the UI).
 // ACLED retired the old email+key query-param scheme; programmatic access is
 // now OAuth (password grant). We exchange the credentials for a 24 h bearer
-// token at /oauth/token, cache it, and call /api/acled/read with it. If the
-// env vars are absent the whole layer is simply off (getAcledEvents → []).
+// token at /oauth/token, cache it, and call /api/acled/read with it. If neither
+// source supplies credentials the whole layer is simply off (getAcledEvents → []).
 //
 // Attribution: ACLED's license requires citing ACLED wherever its data is
 // shown — the Crisis map labels the layer "ACLED" and credits it in popups +
@@ -47,25 +49,40 @@ export interface AcledEvent {
   actors: string;     // "actor1 vs actor2"
 }
 
-let tokenCache: { token: string; expires: number } | null = null;
+interface Creds { email: string; password: string }
+
+let tokenCache: { token: string; expires: number; email: string } | null = null;
 let dataCache: { events: AcledEvent[]; expires: number } | null = null;
 
-export function acledConfigured(): boolean {
-  return Boolean(process.env.ACLED_EMAIL && process.env.ACLED_PASSWORD);
+// Env overrides settings. Imported lazily so the settings path (DB) isn't hit
+// when env credentials are present, and so this module stays import-safe.
+async function resolveCreds(): Promise<Creds | null> {
+  const envEmail = process.env.ACLED_EMAIL, envPw = process.env.ACLED_PASSWORD;
+  if (envEmail && envPw) return { email: envEmail, password: envPw };
+  const { getAcledCredentials } = await import("./userPrefs");
+  return getAcledCredentials().catch(() => null);
 }
 
-async function getToken(): Promise<string | null> {
-  if (!acledConfigured()) return null;
-  if (tokenCache && tokenCache.expires > Date.now()) return tokenCache.token;
+export async function acledConfigured(): Promise<boolean> {
+  return (await resolveCreds()) !== null;
+}
 
-  const email = process.env.ACLED_EMAIL!;
+// Drop cached token + data — call after credentials change so the next pull
+// re-authenticates with the new account instead of serving a stale token.
+export function resetAcledCache(): void {
+  tokenCache = null;
+  dataCache = null;
+}
+
+// Raw OAuth password-grant exchange. Returns the bearer token or null.
+async function fetchToken(creds: Creds): Promise<string | null> {
   const body = new URLSearchParams();
   // ACLED's docs are inconsistent on whether the identity field is "username"
   // or "email" — send both (OAuth servers ignore unknown params) so it works
   // either way.
-  body.set("username", email);
-  body.set("email", email);
-  body.set("password", process.env.ACLED_PASSWORD!);
+  body.set("username", creds.email);
+  body.set("email", creds.email);
+  body.set("password", creds.password);
   body.set("grant_type", "password");
   body.set("client_id", "acled");
   body.set("scope", "authenticated");
@@ -84,18 +101,29 @@ async function getToken(): Promise<string | null> {
       console.error("[acled] token request failed:", res.status, res.statusText);
       return null;
     }
-    const j = (await res.json().catch(() => null)) as { access_token?: string; expires_in?: number } | null;
-    const token = j?.access_token;
-    if (!token) { console.error("[acled] token response had no access_token"); return null; }
-    const ttl = (Number(j?.expires_in) || 86400) * 1000;
-    tokenCache = { token, expires: Date.now() + ttl - TOKEN_SKEW };
-    return token;
+    const j = (await res.json().catch(() => null)) as { access_token?: string } | null;
+    return j?.access_token || null;
   } catch (e) {
     console.error("[acled] token error:", e);
     return null;
   } finally {
     clearTimeout(tid);
   }
+}
+
+// Verify a candidate email/password without disturbing the cache — used by the
+// settings endpoint to tell the user whether their credentials authenticate.
+export async function verifyAcledCredentials(email: string, password: string): Promise<boolean> {
+  return (await fetchToken({ email, password })) !== null;
+}
+
+async function getToken(creds: Creds): Promise<string | null> {
+  if (tokenCache && tokenCache.email === creds.email && tokenCache.expires > Date.now()) return tokenCache.token;
+  const token = await fetchToken(creds);
+  if (!token) return null;
+  // ACLED tokens last 24 h; cache a little short of that.
+  tokenCache = { token, expires: Date.now() + 86400 * 1000 - TOKEN_SKEW, email: creds.email };
+  return token;
 }
 
 function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
@@ -154,10 +182,11 @@ async function readType(token: string, type: string, from: string, to: string): 
 }
 
 export async function getAcledEvents(): Promise<AcledEvent[]> {
-  if (!acledConfigured()) return [];
+  const creds = await resolveCreds();
+  if (!creds) return [];
   if (dataCache && dataCache.expires > Date.now()) return dataCache.events;
 
-  const token = await getToken();
+  const token = await getToken(creds);
   if (!token) return [];
 
   const to = new Date();

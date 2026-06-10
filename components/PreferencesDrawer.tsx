@@ -1652,6 +1652,138 @@ const TIMEZONE_OPTIONS: { value: string; label: string }[] = [
   { value: "UTC",                 label: "UTC" },
 ];
 
+// ─── ACLED credentials editor ────────────────────────────────────────────────
+// Self-contained: reads/writes its own /api/settings/acled endpoint rather than
+// riding the main prefs object, so the password stays server-side and a prefs
+// Save never touches it. Has its own Save/Clear independent of the drawer's
+// footer Save button.
+function AcledCredentialsEditor() {
+  const [loading, setLoading] = useState(true);
+  const [source, setSource] = useState<"env" | "settings" | null>(null);
+  const [savedEmail, setSavedEmail] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "ok" | "warn" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings/acled")
+      .then((r) => r.json())
+      .then((d: { source?: "env" | "settings" | null; email?: string }) => {
+        setSource(d.source ?? null);
+        setSavedEmail(d.email ?? "");
+        setEmail(d.email ?? "");
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch("/api/settings/acled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg({ tone: "err", text: d?.error || "Save failed." }); return; }
+      setSavedEmail(d.email ?? email.trim());
+      setSource("settings");
+      setPassword("");
+      setMsg(d.verified
+        ? { tone: "ok", text: "Saved & verified — the ACLED layer will populate on the next Crisis-map refresh." }
+        : { tone: "warn", text: "Saved, but ACLED didn't accept these credentials (or was unreachable). Double-check the email/password and that your account is verified." });
+    } catch {
+      setMsg({ tone: "err", text: "Network error — try again." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clear = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch("/api/settings/acled", { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg({ tone: "err", text: d?.error || "Couldn't clear." }); return; }
+      setSavedEmail(""); setEmail(""); setPassword(""); setSource(null);
+      setMsg({ tone: "ok", text: "Credentials cleared — the ACLED layer is now off." });
+    } catch {
+      setMsg({ tone: "err", text: "Network error — try again." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const msgClass = msg?.tone === "ok" ? "text-emerald-400" : msg?.tone === "warn" ? "text-amber-400" : "text-red-400";
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        ACLED Strikes <span className="text-slate-600 font-normal normal-case tracking-normal">· Crisis-map layer</span>
+      </label>
+      <p className="text-[10px] text-slate-600 mb-2 leading-relaxed">
+        Structured conflict events (precise strikes/battles with sub-event type, actors, fatalities) on the OSINT → Crisis
+        map. Register a free account at <a href="https://acleddata.com/register/" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">acleddata.com/register</a>,
+        then enter that account&apos;s email + password — ACLED uses OAuth, so this is the login, not an API key. Stored
+        server-side; the password is never sent back to the browser. Data © ACLED.
+      </p>
+
+      {loading ? (
+        <div className="h-9 bg-slate-900/60 border border-slate-800 rounded-md animate-pulse" />
+      ) : source === "env" ? (
+        <div className="text-[11px] text-slate-400 bg-slate-900/40 border border-slate-800 rounded-md px-3 py-2">
+          <span className="text-emerald-400 font-bold">✓ Configured via environment variable</span>
+          {savedEmail && <span className="font-mono text-slate-500"> · {savedEmail}</span>}
+          <p className="text-[10px] text-slate-600 mt-1">Managed by the deployment&apos;s env vars (<code>ACLED_EMAIL</code> / <code>ACLED_PASSWORD</code>); clear those to edit here instead.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <input
+            type="email"
+            autoComplete="off"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="ACLED account email"
+            className="w-full bg-slate-900/60 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-slate-600"
+          />
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={savedEmail ? "Password (leave blank to keep current)" : "ACLED account password"}
+            className="w-full bg-slate-900/60 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-slate-600"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy || !email.trim() || !password}
+              className="px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {busy ? "Saving…" : savedEmail ? "Update & verify" : "Save & verify"}
+            </button>
+            {savedEmail && (
+              <button
+                type="button"
+                onClick={clear}
+                disabled={busy}
+                className="px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider border border-slate-700 text-slate-400 hover:border-red-500/40 hover:text-red-400 disabled:opacity-40 transition-all"
+              >
+                Clear
+              </button>
+            )}
+            {savedEmail && <span className="text-[10px] font-mono text-slate-600">current: {savedEmail}</span>}
+          </div>
+          {msg && <p className={`text-[10px] leading-snug ${msgClass}`}>{msg.text}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PreferencesDrawer({ open, onClose, onSaved }: PreferencesDrawerProps) {
   const { data: session } = useSession();
   const primaryEmail = session?.user?.email ?? null;
@@ -2248,6 +2380,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                 <NewsletterSourcesEditor value={newsletterSources} onChange={setNewsletterSources} />
                 <MetarStationsEditor value={metarStations} onChange={setMetarStations} />
                 <OsintFeedsEditor value={osintFeeds} onChange={setOsintFeeds} />
+                <AcledCredentialsEditor />
               </div>
             )}
           </section>

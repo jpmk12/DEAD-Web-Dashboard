@@ -280,6 +280,56 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
   );
 }
 
+// ─── ACLED credentials (server-only secret) ──────────────────────────────────
+// Stored in dedicated user_prefs columns rather than the JSON prefs blob, and
+// deliberately NOT part of UserPrefs / getUserPrefs — so the password can never
+// ride along in the /api/user-prefs GET that the browser receives. The main
+// prefs upsert (saveUserPrefs) doesn't touch these columns either, so saving
+// prefs never clobbers the credentials. Only the dedicated /api/settings/acled
+// endpoint and lib/acled read/write them.
+
+export interface AcledCredentials { email: string; password: string }
+
+export async function getAcledCredentials(): Promise<AcledCredentials | null> {
+  const pool = await getDb();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT acled_email, acled_password FROM user_prefs WHERE id = 1"
+  );
+  if (rows.length === 0) return null;
+  const email = String(rows[0].acled_email ?? "").trim();
+  const password = String(rows[0].acled_password ?? "");
+  if (!email || !password) return null;
+  return { email, password };
+}
+
+// The email alone is safe to surface to the client (so the settings form can
+// show which account is configured); the password is never returned.
+export async function getAcledEmail(): Promise<string> {
+  const pool = await getDb();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT acled_email FROM user_prefs WHERE id = 1"
+  );
+  return rows.length ? String(rows[0].acled_email ?? "").trim() : "";
+}
+
+export async function saveAcledCredentials(email: string, password: string): Promise<void> {
+  const pool = await getDb();
+  // Upsert only the two columns. If the row exists (the common case) this is an
+  // UPDATE of just these fields and leaves the rest of the prefs untouched; if
+  // not, it seeds the row with column defaults for everything else.
+  await pool.execute(
+    `INSERT INTO user_prefs (id, acled_email, acled_password, last_updated)
+       VALUES (1, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE acled_email = VALUES(acled_email), acled_password = VALUES(acled_password)`,
+    [email, password, new Date()]
+  );
+}
+
+export async function clearAcledCredentials(): Promise<void> {
+  const pool = await getDb();
+  await pool.execute("UPDATE user_prefs SET acled_email = NULL, acled_password = NULL WHERE id = 1");
+}
+
 // ─── Sender-rule matching (VIP / mute lists) ─────────────────────────────────
 // A rule is either a full email (`john@example.com`) or a bare domain
 // (`example.com`). Domain rules match the domain and any subdomain.
