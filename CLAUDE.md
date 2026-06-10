@@ -501,7 +501,17 @@ match the real keys there.
 `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `ANTHROPIC_API_KEY`, `GMAIL_SECONDARY_REDIRECT_URI`, `OWNER_EMAIL`.
 
+Optional feature keys (the feature is simply off when unset, never a hard error):
+`AISSTREAM_API_KEY` (live maritime AIS), and `ACLED_EMAIL` + `ACLED_PASSWORD`
+(ACLED structured strikes on the Crisis map — `lib/acled.ts`). ACLED uses an
+OAuth **password grant** (no API key anymore): the account's email+password are
+exchanged for a 24 h bearer token at `acleddata.com/oauth/token`, cached
+in-process, then used against `acleddata.com/api/acled/read`. Data © ACLED —
+keep the attribution that's rendered in the Crisis map popups + sources line.
+`lib/acled.ts` is pure `fetch` (no new npm dep, so `grep -c esbuild
+package-lock.json` stays `0`).
+
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
-embeds. The only non-HTTP connection is to the platform's managed MySQL, which is
-explicitly allowed.
+embeds, GDELT, and ACLED (`acleddata.com`). The only non-HTTP connection is to
+the platform's managed MySQL, which is explicitly allowed.

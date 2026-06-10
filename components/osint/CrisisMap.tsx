@@ -8,6 +8,7 @@ import { cellToBoundary } from "h3-js";
 import { AMC_HUBS } from "@/lib/amcHubs";
 import { countryCentroid } from "@/lib/countryCentroids";
 import { aorFromCoords, type Aor } from "@/lib/aor";
+import type { AcledEvent } from "@/lib/acled";
 import type { WeatherThreats, DisasterEvent, TravelAdvisory } from "@/lib/types";
 
 // Crisis / situation map + synced list — the spatial twin of the Global Reach
@@ -114,8 +115,9 @@ const trackedIcon = glyph(`<span style="color:#94a3b8;font-size:11px">◇</span>
 const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
+const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "gps" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "acled" | "gps" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
@@ -125,6 +127,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
   conflict: "Recent kinetic activity (GDELT, last 2 days): strikes (air/missile/drone), shelling/rockets, air-defense & shootdowns, naval/tanker attacks, and search-and-rescue / personnel recovery. Top events surface in the crisis list with source links; the rest as density. Coarse OSINT.",
+  acled: "Structured conflict events (ACLED, last 7 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Higher fidelity than the GDELT density read. Requires an ACLED account configured in the env; empty if not set.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
@@ -142,7 +145,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "disasters", label: "Disasters", dot: "#f87171" }, { k: "hazards", label: "Hub wx", dot: "#fbbf24" },
     { k: "tropical", label: "Tropical", dot: "#38bdf8" }, { k: "cone", label: "Cone" },
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
-    { k: "gps", label: "GPS", dot: "#c084fc" },
+    { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
   ] },
   { label: "Nodes", keys: [
     { k: "enroute", label: "Hubs", dot: "#34d399" }, { k: "crf", label: "CRF", dot: "#5eead4" }, { k: "tracked", label: "Tracked", dot: "#94a3b8" },
@@ -158,13 +161,13 @@ const ALL_KEYS: LayerKey[] = LAYER_GROUPS.flatMap((g) => g.keys.map((x) => x.k))
 const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
   Object.fromEntries(ALL_KEYS.map((k) => [k, onKeys.includes(k)])) as Record<LayerKey, boolean>;
 const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
-  { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "tracked", "lines", "rings", "labels"]) },
-  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, GPS interference, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "gps", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, GPS interference, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "gps", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "Mobility", desc: "Network/reach focus — hubs, CRF, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "tracked", "rings", "ar", "bridges", "labels"]) },
 ];
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
-interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo" | "kinetic"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
+interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo" | "kinetic" | "strike"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
 
 const EMPTY: WeatherThreats = {
   threats: [], tropical: [], disasters: [], hazards: [],
@@ -195,6 +198,7 @@ export default function CrisisMap() {
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
+  const [acled, setAcled] = useState<AcledEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -214,7 +218,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: true, gps: false, enroute: true, crf: true, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: true, acled: true, gps: false, enroute: true, crf: true, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -250,6 +254,10 @@ export default function CrisisMap() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { hexes?: { h3: string; level: number }[] } | null) => { if (Array.isArray(d?.hexes)) setGpsjam(d!.hexes); })
       .catch(() => {});
+    fetch("/api/osint/acled", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { events?: AcledEvent[] } | null) => { if (Array.isArray(d?.events)) setAcled(d!.events); })
+      .catch(() => {});
     return () => ctrl.abort();
   }, [refreshKey]);
 
@@ -284,9 +292,31 @@ export default function CrisisMap() {
     [conflict, aorFilter], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  // ACLED structured strikes (AOR-filtered). Rendered as precise markers and
+  // the deadliest/most-recent promoted into the crisis list as kind "strike".
+  const acledShown = useMemo(
+    () => acled.filter((e) => passAor(aorFromCoords(e.lat, e.lon))),
+    [acled, aorFilter], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   // Ranked list (the map's table of contents).
   const items: Item[] = useMemo(() => {
     const out: Item[] = [];
+    if (on.acled) {
+      const top = [...acledShown].sort((a, b) => (b.fatalities - a.fatalities) || b.date.localeCompare(a.date)).slice(0, 8);
+      for (const e of top) {
+        out.push({
+          id: `a-${e.id}`,
+          kind: "strike",
+          title: e.notes || `${e.subType} — ${e.location || e.country}`,
+          sub: `ACLED · ${e.subType}${e.fatalities > 0 ? ` · ${e.fatalities} killed` : ""} · ${[e.location, e.country].filter(Boolean).join(", ")}`,
+          tone: "red",
+          aor: aorFromCoords(e.lat, e.lon),
+          lat: e.lat, lon: e.lon,
+          score: 130 + Math.min(e.fatalities, 50), // rank at/above NEO ordered-departure
+        });
+      }
+    }
     if (on.conflict) {
       for (const c of kineticEvents.slice(0, 8)) {
         out.push({
@@ -311,7 +341,7 @@ export default function CrisisMap() {
     for (const { a, pos } of neoPins) { const evac = a.orderedDeparture || a.authorizedDeparture; if (!evac) continue; out.push({ id: `neo-${a.country}`, kind: "neo", title: a.country, sub: a.orderedDeparture ? "Ordered departure" : "Authorized departure", tone: a.orderedDeparture ? "red" : "amber", aor: a.aor === "UNKNOWN" ? null : (a.aor as Aor), lat: pos[0], lon: pos[1], score: a.orderedDeparture ? 120 : 85, href: a.link }); }
     for (const t of tropShown) out.push({ id: `t-${t.id}`, kind: "tropical", title: `${t.category} ${t.name}`, sub: `${t.intensityKt ?? "?"} kt · ${t.movement || "—"}`, tone: "sky", aor: aorFromCoords(t.lat as number, t.lon as number), lat: t.lat as number, lon: t.lon as number, score: 70 });
     return out.sort((a, b) => b.score - a.score);
-  }, [disasters, hazShown, neoPins, tropShown, kineticEvents, on.conflict]);
+  }, [disasters, hazShown, neoPins, tropShown, kineticEvents, acledShown, on.conflict, on.acled]);
 
   // Auto-fit once when crisis data first arrives.
   const crisisPoints = useMemo(() => items.map((i) => [i.lat, i.lon] as [number, number]), [items]);
@@ -363,7 +393,7 @@ export default function CrisisMap() {
 
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
-    neo: neoPins.length, conflict: conflict.length || undefined, gps: gpsjam.length || undefined,
+    neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
   };
   const activeCount = Object.values(on).filter(Boolean).length;
@@ -463,6 +493,21 @@ export default function CrisisMap() {
               </CircleMarker>
             ))}
 
+            {/* ACLED structured strikes — precise coordinates, sub-event type,
+                actors, fatalities. Higher fidelity than the GDELT density read. */}
+            {on.acled && acledShown.map((e) => (
+              <Marker key={`acled-${e.id}`} position={[e.lat, e.lon]} icon={acledIcon} eventHandlers={{ click: () => pick(`a-${e.id}`, e.lat, e.lon) }}>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[260px]">
+                  <div className="font-bold text-sm">{e.subType || e.type}</div>
+                  <div className="text-slate-600">{[e.location, e.admin1, e.country].filter(Boolean).join(", ")}{e.date ? ` · ${e.date}` : ""}</div>
+                  {e.actors && <div className="text-rose-700">{e.actors}</div>}
+                  {e.fatalities > 0 && <div className="text-red-700 font-bold">{e.fatalities} reported killed</div>}
+                  {e.notes && <div className="text-slate-700 mt-1">{e.notes}</div>}
+                  <div className="text-slate-500 mt-1">{e.source ? `${e.source} · ` : ""}via ACLED</div>
+                </div></Popup>
+              </Marker>
+            ))}
+
             {/* En route air-bridge corridors (great-circle) */}
             {on.bridges && AIR_BRIDGES.map((seq, bi) => seq.slice(0, -1).map((icao, li) => {
               const a = HUB_BY_ICAO.get(icao), b2 = HUB_BY_ICAO.get(seq[li + 1]);
@@ -553,7 +598,7 @@ export default function CrisisMap() {
             <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-2 text-[9px] text-slate-400 font-mono leading-relaxed">
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
-              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW</div>
+              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#f87171" }}>◆</span> ACLED strike · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {AF.reachNm.toLocaleString()} nm · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge</div>
             </div>
@@ -573,7 +618,7 @@ export default function CrisisMap() {
             {items.map((it) => (
               <li key={it.id} id={`row-${it.id}`} className={`flex items-stretch border-l-2 ${toneBorder(it.tone)} transition-colors ${selected === it.id ? "bg-slate-800/70" : "hover:bg-slate-800/40"}`}>
                 <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="flex-1 min-w-0 text-left flex items-start gap-2 px-3 py-2">
-                  <span className={`mt-0.5 ${toneText(it.tone)} flex-shrink-0`}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "kinetic" ? "✸" : "●"}</span>
+                  <span className={`mt-0.5 ${toneText(it.tone)} flex-shrink-0`}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "strike" ? "◆" : it.kind === "kinetic" ? "✸" : "●"}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs text-slate-200 truncate">{it.title}</span>
                     {it.sub && <span className="block text-[10px] text-slate-500 truncate">{it.sub}</span>}
@@ -607,7 +652,7 @@ export default function CrisisMap() {
             const reach = it.kind !== "hazard" && CRF.length ? (() => { const n = nearest(CRF, it.lat, it.lon); return n ? legText(n.node, n.distKm, AF.cruiseKt) : ""; })() : "";
             return (
               <li key={it.id} className="text-[11px] flex flex-wrap items-baseline gap-x-2">
-                <span className={toneText(it.tone)}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "kinetic" ? "✸" : "●"}</span>
+                <span className={toneText(it.tone)}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "strike" ? "◆" : it.kind === "kinetic" ? "✸" : "●"}</span>
                 <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="text-slate-200 hover:text-emerald-400 font-medium">{it.title}</button>
                 {it.sub && <span className="text-slate-500">{it.sub}</span>}
                 {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{it.aor}</span>}
@@ -619,7 +664,7 @@ export default function CrisisMap() {
         </ul>
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict/kinetic (strikes · shootdowns · recovery): GDELT{" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict/kinetic (strikes · shootdowns · recovery): GDELT{" · "}Structured strikes: ACLED (acleddata.com){" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
@@ -628,7 +673,9 @@ export default function CrisisMap() {
         NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
         convergence strip flags AORs where signals stack; AI read is a Claude SITREP of the board. The Conflict layer
         surfaces recent kinetic activity (GDELT) — strikes, shelling, air-defense/shootdowns, naval/tanker attacks, and
-        search-and-rescue / personnel recovery — with the top events promoted into the crisis list with source links;
+        search-and-rescue / personnel recovery — with the top events promoted into the crisis list with source links.
+        The ACLED layer (◆) adds higher-fidelity, human-coded strike events — precise coordinates, sub-event type, named
+        actors, and fatalities (requires an ACLED account configured server-side; data &copy; ACLED, acleddata.com).
         GPS interference / EW (GPSJam) is an optional overlay. Click a
         list row or marker to fly there and route it to the nearest CRF/hub. Distances, flight times, airframe reach
         rings (incl. AR), air bridges, and CR associations are <span className="text-slate-500">illustrative coarse SA —

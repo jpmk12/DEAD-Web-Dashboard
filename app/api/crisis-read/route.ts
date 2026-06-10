@@ -6,6 +6,7 @@ import { getUserPrefs } from "@/lib/userPrefs";
 import { getWeatherThreats, type NamedPoint } from "@/lib/severeWeather";
 import { getStateAdvisories } from "@/lib/stateAdvisories";
 import { getConflictPoints } from "@/lib/conflictEvents";
+import { getAcledEvents } from "@/lib/acled";
 import { aorFromCoords } from "@/lib/aor";
 
 export const dynamic = "force-dynamic";
@@ -29,16 +30,22 @@ export async function GET() {
     if (prefs?.localLat != null && prefs?.localLon != null) locations.push({ label: prefs.localCity || "Home", lat: prefs.localLat, lon: prefs.localLon });
     for (const t of prefs?.trackedLocations ?? []) locations.push({ label: t.label, lat: t.lat, lon: t.lon });
 
-    const [threats, advisories, conflict] = await Promise.all([getWeatherThreats(locations), getStateAdvisories(), getConflictPoints().catch(() => [])]);
+    const [threats, advisories, conflict, acled] = await Promise.all([getWeatherThreats(locations), getStateAdvisories(), getConflictPoints().catch(() => []), getAcledEvents().catch(() => [])]);
 
     const lines: string[] = [];
     for (const d of threats.disasters.slice(0, 12)) lines.push(`DISASTER ${d.severity} ${d.type} "${d.title}" [${d.aor}]${d.nearLocations.length ? ` near ${d.nearLocations.join("/")}` : ""} hadr=${d.hadrScore}`);
     for (const z of threats.hazards) lines.push(`HUB-WX ${z.severity} ${z.label}: ${z.flags.join(", ")}`);
     for (const t of threats.tropical) lines.push(`TROPICAL ${t.category} ${t.name} ${t.intensityKt ?? "?"}kt moving ${t.movement}`);
     for (const a of advisories.filter((x) => x.orderedDeparture || x.authorizedDeparture)) lines.push(`NEO ${a.country} [${a.aor}] ${a.orderedDeparture ? "ordered" : "authorized"} departure`);
-    // Top kinetic events (strikes, shootdowns, naval/tanker attacks, personnel
-    // recovery) — the contested-environment read alongside the HADR picture.
-    for (const c of conflict.slice(0, 8)) lines.push(`KINETIC [${aorFromCoords(c.lat, c.lon)}] "${c.title || c.name}"${c.title && c.name ? ` (${c.name})` : ""} reports=${c.count}`);
+    // Kinetic picture for the contested-environment read. Prefer ACLED's
+    // structured strikes (precise type/actors/fatalities) when configured; fall
+    // back to the GDELT density read otherwise so the SITREP still covers it.
+    if (acled.length > 0) {
+      const top = [...acled].sort((a, b) => (b.fatalities - a.fatalities) || b.date.localeCompare(a.date)).slice(0, 10);
+      for (const e of top) lines.push(`STRIKE [${aorFromCoords(e.lat, e.lon)}] ${e.subType} ${[e.location, e.country].filter(Boolean).join(", ")}${e.actors ? ` (${e.actors})` : ""}${e.fatalities > 0 ? ` ${e.fatalities} killed` : ""} [ACLED]`);
+    } else {
+      for (const c of conflict.slice(0, 8)) lines.push(`KINETIC [${aorFromCoords(c.lat, c.lon)}] "${c.title || c.name}"${c.title && c.name ? ` (${c.name})` : ""} reports=${c.count}`);
+    }
 
     if (lines.length === 0) {
       const text = "No active crises on the board — quiet across the tracked AORs and hub network.";
