@@ -2,6 +2,7 @@ import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "./types";
 import { ALL_AI_FEATURES } from "./aiFeatures";
+import { encryptSecret, decryptSecret } from "./secretBox";
 
 const DEFAULT_MARKETS_WATCHLIST: TickerEntry[] = [
   { symbol: "NYSE:LMT",    label: "Lockheed Martin" },
@@ -286,7 +287,8 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
 // ride along in the /api/user-prefs GET that the browser receives. The main
 // prefs upsert (saveUserPrefs) doesn't touch these columns either, so saving
 // prefs never clobbers the credentials. Only the dedicated /api/settings/acled
-// endpoint and lib/acled read/write them.
+// endpoint and lib/acled read/write them. The password is encrypted at rest
+// (lib/secretBox, AES-256-GCM keyed off NEXTAUTH_SECRET) — never stored plaintext.
 
 export interface AcledCredentials { email: string; password: string }
 
@@ -297,8 +299,13 @@ export async function getAcledCredentials(): Promise<AcledCredentials | null> {
   );
   if (rows.length === 0) return null;
   const email = String(rows[0].acled_email ?? "").trim();
-  const password = String(rows[0].acled_password ?? "");
-  if (!email || !password) return null;
+  const stored = String(rows[0].acled_password ?? "");
+  if (!email || !stored) return null;
+  // Stored encrypted (legacy plaintext is returned as-is by decryptSecret). An
+  // empty result means an undecryptable blob (e.g. NEXTAUTH_SECRET rotated) —
+  // treat as unconfigured rather than authenticating with garbage.
+  const password = await decryptSecret(stored);
+  if (!password) return null;
   return { email, password };
 }
 
@@ -314,6 +321,7 @@ export async function getAcledEmail(): Promise<string> {
 
 export async function saveAcledCredentials(email: string, password: string): Promise<void> {
   const pool = await getDb();
+  const encrypted = await encryptSecret(password); // never store the password in plaintext
   // Upsert only the two columns. If the row exists (the common case) this is an
   // UPDATE of just these fields and leaves the rest of the prefs untouched; if
   // not, it seeds the row with column defaults for everything else.
@@ -321,7 +329,7 @@ export async function saveAcledCredentials(email: string, password: string): Pro
     `INSERT INTO user_prefs (id, acled_email, acled_password, last_updated)
        VALUES (1, ?, ?, ?)
      ON DUPLICATE KEY UPDATE acled_email = VALUES(acled_email), acled_password = VALUES(acled_password)`,
-    [email, password, new Date()]
+    [email, encrypted, new Date()]
   );
 }
 
