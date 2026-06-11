@@ -55,6 +55,8 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 | `files` | File repo blobs (LONGBLOB), optional doc_id attach |
 | `anthropic_usage` | Logged Claude API call for spend display (route, model, tokens, micros, created_at) |
 | `thread_sessions` / `threads` | Saved Threads view history |
+| `signal_daily_counts` | Trend layer: per-day term counts (topic/category/watch/region/aor/label), 180-day retention |
+| `signal_seen` | Trend layer dedup ledger (sha1 of item id), 14-day retention |
 
 ---
 
@@ -283,6 +285,7 @@ Every Claude call is gated by `isFeatureEnabled(feature, prefs)`. Master `aiEnab
 | `news_chat` | `/api/news-chat` (streaming) | claude-opus-4-7 | Right-rail news chat. Caps articles at 40 for context. |
 | `email_triage` | `/api/gmail` | claude-haiku-4-5 | Per-email priority + summary. Prompt-cached system block. Cached by `(id, account)` + prompt hash. |
 | `email_actions` | `/api/gmail/actions` | claude-haiku-4-5 | Action item extraction from unread mail. |
+| `email_draft` | `/api/gmail/draft` | claude-sonnet-4-6 | Reply drafts in the user's voice (Sent-folder samples). Review/edit inline; saves to Gmail Drafts, never sends. |
 | `osint_triage` | `/api/osint/triage` | claude-haiku-4-5 | Per-OSINT-cluster priority + reason. Cached 14 days by prompt hash. |
 | `doc_chat` | `/api/documents/chat` (streaming) | claude-opus-4-7 | Per-doc chat panel. Doc body in cacheable system block. |
 | `newsletters` | `/api/newsletters` | claude-haiku-4-5 | Newsletter summarisation (Politico / DOW / Merge / ASF). Cached by message id + prompt hash. |
@@ -388,13 +391,15 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/user-prefs                GET / POST — all prefs
 /api/ai-usage                  GET — today / 7d / 30d spend summaries
 
-/api/news                      GET — RSS aggregation + sourceStats
+/api/news                      GET — RSS aggregation + sourceStats (feeds the trend recorder)
+/api/trends                    GET — week-over-week movers from signal_daily_counts (no AI)
 /api/newsletters               GET / POST — summarised + dismissals
 /api/newsletter-feedback       POST — open tracking signal
 /api/article-feedback          POST — thumbs / open signal
 
 /api/gmail                     GET — unread + triage
 /api/gmail/actions             POST — extract action items
+/api/gmail/draft               POST — drafted reply: generate (AI) / create Gmail draft (no AI)
 
 /api/calendar                  GET — events
 /api/calendar/ical             GET (token-auth) — .ics feed

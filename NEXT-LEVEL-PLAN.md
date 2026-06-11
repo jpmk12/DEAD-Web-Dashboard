@@ -1,5 +1,16 @@
 # NEXT-LEVEL-PLAN.md — audit & ranked plan toward "world-at-a-glance + trend sensing"
 
+> **STATUS (post-implementation):** P1–P10 all shipped on this branch in the
+> approved order (P7 → P4 → P1 → P2 → P3 → P5 → P9 → P6 → P8 → P10), one
+> commit each — see `git log`. Gates held throughout: 80/80 tests, prod-style
+> build with valid BUILD_ID, `grep -c esbuild package-lock.json` = 0.
+> Scope notes vs the plan: P3's "threads only run on manual opens" premise was
+> stale (they already auto-prefetch on article load), so P3 became label
+> continuity + label→trend recording; P6 covered the highest-risk false-quiet
+> surfaces (GDELT/GPSJam/AWC/contracts) rather than all eight routes; latency
+> & spend baselines now accumulate in prod via P7 — first real numbers need a
+> few days of use.
+
 Phase-0 deliverable. No feature code has been written; the only change shipped with this
 audit is a test-harness repair (`vitest.config.ts` couldn't resolve `vitest/config` from the
 project tree because vitest is deliberately not installed — the esbuild ban; suite now runs
