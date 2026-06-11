@@ -265,7 +265,8 @@ const SEV_RANK: Record<DisasterEvent["severity"], number> = { red: 0, orange: 1,
 
 // Two events are the "same" if they're the same type within ~25 km — collapses
 // e.g. a GDACS volcano and the USGS-VHP entry for the same eruption.
-function dedupe(events: DisasterEvent[]): DisasterEvent[] {
+// Exported for unit tests.
+export function dedupe(events: DisasterEvent[]): DisasterEvent[] {
   const kept: DisasterEvent[] = [];
   for (const e of events) {
     const dup = kept.find(
