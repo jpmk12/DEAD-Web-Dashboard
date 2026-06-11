@@ -127,7 +127,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
   conflict: "Recent kinetic activity (GDELT, last 2 days): strikes (air/missile/drone), shelling/rockets, air-defense & shootdowns, naval/tanker attacks, and search-and-rescue / personnel recovery. Top events surface in the crisis list with source links; the rest as density. Coarse OSINT.",
-  acled: "Structured conflict events (ACLED, last 7 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Higher fidelity than the GDELT density read. Requires an ACLED account configured in the env; empty if not set.",
+  acled: "Structured conflict events (ACLED, last 7 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Higher fidelity than the GDELT density read. Requires an ACLED account (Preferences → Sources & feeds → ACLED Strikes); empty if not set. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
@@ -522,7 +522,7 @@ export default function CrisisMap() {
                   {e.actors && <div className="text-rose-700">{e.actors}</div>}
                   {e.fatalities > 0 && <div className="text-red-700 font-bold">{e.fatalities} reported killed</div>}
                   {e.notes && <div className="text-slate-700 mt-1">{e.notes}</div>}
-                  <div className="text-slate-500 mt-1">{e.source ? `${e.source} · ` : ""}via ACLED</div>
+                  <div className="text-slate-500 mt-1">{e.source ? `${e.source} · ` : ""}via ACLED — acleddata.com</div>
                 </div></Popup>
               </Marker>
             ))}
@@ -683,7 +683,7 @@ export default function CrisisMap() {
         </ul>
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict/kinetic (strikes · shootdowns · recovery): GDELT{" · "}Structured strikes: ACLED (acleddata.com){" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict/kinetic (strikes · shootdowns · recovery): GDELT{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
@@ -694,7 +694,7 @@ export default function CrisisMap() {
         surfaces recent kinetic activity (GDELT) — strikes, shelling, air-defense/shootdowns, naval/tanker attacks, and
         search-and-rescue / personnel recovery — with the top events promoted into the crisis list with source links.
         The ACLED layer (◆) adds higher-fidelity, human-coded strike events — precise coordinates, sub-event type, named
-        actors, and fatalities (requires an ACLED account configured server-side; data &copy; ACLED, acleddata.com).
+        actors, and fatalities (requires an ACLED account configured server-side; data &copy; Armed Conflict Location &amp; Event Data Project (ACLED), acleddata.com).
         GPS interference / EW (GPSJam) is an optional overlay. Click a
         list row or marker to fly there and route it to the nearest CRF/hub. Distances, flight times, airframe reach
         rings (incl. AR), air bridges, and CR associations are <span className="text-slate-500">illustrative coarse SA —

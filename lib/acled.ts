@@ -77,8 +77,14 @@ export function resetAcledCache(): void {
   dataCache = null;
 }
 
-// Raw OAuth password-grant exchange. Returns the bearer token or null.
-async function fetchToken(creds: Creds): Promise<string | null> {
+// Raw OAuth password-grant exchange. Returns the bearer token + its lifetime,
+// or null. Per ACLED's docs the access token lasts 24 h and a 14-day refresh
+// token is also issued; we deliberately re-authenticate with the stored
+// credentials on expiry rather than persisting the refresh token, because the
+// hosting container is ephemeral (an in-process refresh token would usually be
+// lost to a restart before it's useful) and re-auth via the password grant is
+// an explicitly supported path. We still honour the server's expires_in below.
+async function fetchToken(creds: Creds): Promise<{ token: string; expiresIn: number } | null> {
   const body = new URLSearchParams();
   // ACLED's docs are inconsistent on whether the identity field is "username"
   // or "email" — send both (OAuth servers ignore unknown params) so it works
@@ -104,8 +110,9 @@ async function fetchToken(creds: Creds): Promise<string | null> {
       console.error("[acled] token request failed:", res.status, res.statusText);
       return null;
     }
-    const j = (await res.json().catch(() => null)) as { access_token?: string } | null;
-    return j?.access_token || null;
+    const j = (await res.json().catch(() => null)) as { access_token?: string; expires_in?: number } | null;
+    if (!j?.access_token) return null;
+    return { token: j.access_token, expiresIn: Number(j.expires_in) || 86400 };
   } catch (e) {
     console.error("[acled] token error:", e);
     return null;
@@ -122,11 +129,11 @@ export async function verifyAcledCredentials(email: string, password: string): P
 
 async function getToken(creds: Creds): Promise<string | null> {
   if (tokenCache && tokenCache.email === creds.email && tokenCache.expires > Date.now()) return tokenCache.token;
-  const token = await fetchToken(creds);
-  if (!token) return null;
-  // ACLED tokens last 24 h; cache a little short of that.
-  tokenCache = { token, expires: Date.now() + 86400 * 1000 - TOKEN_SKEW, email: creds.email };
-  return token;
+  const res = await fetchToken(creds);
+  if (!res) return null;
+  // Honour the server-reported lifetime (24 h by default), cached a little short.
+  tokenCache = { token: res.token, expires: Date.now() + res.expiresIn * 1000 - TOKEN_SKEW, email: creds.email };
+  return res.token;
 }
 
 function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
@@ -152,6 +159,10 @@ function normalize(raw: Record<string, unknown>): AcledEvent | null {
   };
 }
 
+// One read per event type. PER_TYPE_LIMIT (300) stays well under ACLED's
+// 5000-events-per-call default, so a single page suffices and there's no
+// timeout/pagination concern; if it ever needs to grow past 5000, add
+// &page=N paging (which ACLED exempts from rate limits).
 async function readType(token: string, type: string, from: string, to: string): Promise<AcledEvent[]> {
   const params = new URLSearchParams();
   params.set("event_date", `${from}|${to}`);
@@ -238,10 +249,11 @@ export async function diagnoseAcled(): Promise<AcledDiag> {
   if (!creds) return { configured: false, source: "none", tokenOk: false, note: "No credentials set — enter them above and Save." };
   const source: AcledDiag["source"] = (process.env.ACLED_EMAIL && process.env.ACLED_PASSWORD) ? "env" : "settings";
 
-  const token = await fetchToken(creds);
-  if (!token) {
+  const tok = await fetchToken(creds);
+  if (!tok) {
     return { configured: true, source, tokenOk: false, error: "OAuth token request failed", note: "Email/password rejected, or the ACLED account email isn't verified yet. Re-check at acleddata.com." };
   }
+  const token = tok.token;
 
   const to = new Date();
   const from = new Date(to.getTime() - WINDOW_DAYS * 24 * 3600_000);
