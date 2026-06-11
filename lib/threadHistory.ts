@@ -181,6 +181,27 @@ export async function getRecentSessions(days: number): Promise<StoredSession[]> 
   }));
 }
 
+// Distinct labels seen recently, most-recent-then-most-frequent first. Fed
+// back into the Threads prompt so a continuing story keeps the exact same
+// label day over day — without this, "IRAN WAR" vs "IRAN CONFLICT" drift
+// breaks every day-over-day trajectory the history panel and trend layer
+// compute.
+export async function getRecentLabels(days: number, limit = 20): Promise<string[]> {
+  const pool = await getDb();
+  const from = cutoff(days);
+  const [rows] = await pool.query<(RowDataPacket & { label: string })[]>(
+    `SELECT t.label
+       FROM threads t
+       JOIN thread_sessions s ON s.id = t.session_id
+      WHERE s.date >= ?
+      GROUP BY t.label
+      ORDER BY MAX(s.date) DESC, COUNT(*) DESC
+      LIMIT ${Math.max(1, Math.min(50, limit))}`,
+    [from]
+  );
+  return rows.map((r) => r.label);
+}
+
 export async function getLabelHistory(label: string, days: number): Promise<LabelOccurrence[]> {
   const pool = await getDb();
   const [rows] = await pool.query<(RowDataPacket & {

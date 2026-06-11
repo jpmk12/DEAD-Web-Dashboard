@@ -4,10 +4,11 @@ import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { NewsItem, NewsletterSummary, NewsThread, ThreadsResult } from "@/lib/types";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { saveSession } from "@/lib/threadHistory";
+import { saveSession, getRecentLabels } from "@/lib/threadHistory";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { extractJsonObject } from "@/lib/aiJson";
+import { recordDailySignals, utcDate } from "@/lib/trends";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +79,15 @@ export async function POST(request: Request) {
     .slice(0, 20)
     .join("\n• ");
 
+  // Label continuity: hand the model the labels it used recently so a
+  // continuing story keeps the exact same tag day over day. Best-effort.
+  const recentLabels = await getRecentLabels(7).catch(() => [] as string[]);
+  const labelLine = recentLabels.length
+    ? `RECENT THREAD LABELS (last 7 days). When today's content continues one of these stories, REUSE the exact same label — day-over-day tracking depends on it. Coin a new label only for a genuinely new thread:\n${recentLabels.join(", ")}`
+    : "";
+
   const userContent = [
+    labelLine,
     `ARTICLES:\n${JSON.stringify(articlePayload)}`,
     newsletterBullets && `\nNEWSLETTER SIGNALS:\n• ${newsletterBullets}`,
   ].filter(Boolean).join("\n");
@@ -136,6 +145,14 @@ export async function POST(request: Request) {
     saveSession(result, articlePayload.length).catch((e) =>
       console.error("Thread history save failed:", e)
     );
+
+    // Trend recorder (P1): each label counts once per UTC day (id embeds the
+    // date), so a same-day regenerate doesn't double-count. Curated thread
+    // labels are the highest-quality terms in the trend layer.
+    recordDailySignals(result.threads.map((t) => ({
+      id: `label|${utcDate()}|${t.label}`,
+      terms: [{ kind: "label" as const, term: t.label }],
+    }))).catch(() => {});
 
     return NextResponse.json(result);
   } catch (err) {
