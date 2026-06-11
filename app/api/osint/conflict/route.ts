@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getConflictPoints } from "@/lib/conflictEvents";
+import { getConflictPoints, getConflictHealth } from "@/lib/conflictEvents";
 
 export const dynamic = "force-dynamic";
 
@@ -12,5 +12,7 @@ export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ points: [] }, { status: 401 });
   const points = await getConflictPoints();
-  return NextResponse.json({ points });
+  // ok=false means GDELT was unreachable / returned nothing — "source down",
+  // not "the world is quiet". The map shows a source badge for it.
+  return NextResponse.json({ points, ok: getConflictHealth().ok });
 }

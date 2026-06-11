@@ -123,6 +123,7 @@ function StationCard({ station, wx }: { station: MetarStation; wx: StationWx | u
 export default function MetarPanel({ stations, refreshKey = 0 }: { stations: MetarStation[]; refreshKey?: number }) {
   const [data, setData] = useState<Record<string, StationWx>>({});
   const [loading, setLoading] = useState(false);
+  const [srcDown, setSrcDown] = useState(false);
 
   useEffect(() => {
     if (stations.length === 0) { setData({}); return; }
@@ -131,7 +132,7 @@ export default function MetarPanel({ stations, refreshKey = 0 }: { stations: Met
     const controller = new AbortController();
     fetch(`/api/weather/metar?ids=${encodeURIComponent(ids)}`, { signal: controller.signal })
       .then((r) => r.json())
-      .then((d) => setData(d.stations ?? {}))
+      .then((d) => { setData(d.stations ?? {}); setSrcDown(d.ok === false); })
       .catch(() => {})
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -142,6 +143,11 @@ export default function MetarPanel({ stations, refreshKey = 0 }: { stations: Met
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">METAR / TAF — Decoded</h3>
         <div className="flex items-center gap-2">
+          {srcDown && (
+            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/40" title="aviationweather.gov unreachable — blank cards are missing data, not clear weather">
+              ⚠ AWC down
+            </span>
+          )}
           {loading && <span className="text-[9px] text-slate-600 font-mono animate-pulse">loading…</span>}
           <a
             href="https://aviationweather.gov/gfa/#sigmet"

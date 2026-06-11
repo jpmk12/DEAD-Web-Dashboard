@@ -40,13 +40,14 @@ function formatDate(s: string): string {
 export default function ContractsPanel() {
   const [items, setItems] = useState<ContractAward[]>([]);
   const [loading, setLoading] = useState(true);
+  const [srcError, setSrcError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/markets/contracts")
       .then((r) => r.json())
-      .then((d) => setItems(d.contracts ?? []))
-      .catch(() => {})
+      .then((d) => { setItems(d.contracts ?? []); setSrcError(typeof d.error === "string" ? d.error : null); })
+      .catch(() => setSrcError("Network error"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -67,9 +68,15 @@ export default function ContractsPanel() {
       )}
 
       {!loading && items.length === 0 && (
-        <p className="px-4 py-6 text-[10px] text-slate-600 font-mono text-center">
-          No recent contract awards available. (defense.gov RSS may be unreachable from your network.)
-        </p>
+        srcError ? (
+          <p className="px-4 py-6 text-[10px] font-mono text-center text-amber-500">
+            ⚠ defense.gov feed unreachable — this is a source outage, not "no awards today."
+          </p>
+        ) : (
+          <p className="px-4 py-6 text-[10px] text-slate-600 font-mono text-center">
+            No recent contract awards available.
+          </p>
+        )
       )}
 
       {!loading && items.length > 0 && (

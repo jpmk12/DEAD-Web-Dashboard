@@ -199,6 +199,11 @@ export default function CrisisMap() {
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
+  // Sources that reported "upstream down" (ok:false) — rendered as an amber
+  // badge so a blank layer reads as "source down", never as "all quiet".
+  const [srcDown, setSrcDown] = useState<string[]>([]);
+  const markSrc = (name: string, down: boolean) =>
+    setSrcDown((prev) => (down ? (prev.includes(name) ? prev : [...prev, name]) : prev.filter((x) => x !== name)));
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -248,11 +253,17 @@ export default function CrisisMap() {
       .catch(() => {});
     fetch("/api/osint/conflict", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { points?: { lat: number; lon: number; name: string; count: number; title?: string; url?: string }[] } | null) => { if (Array.isArray(d?.points)) setConflict(d!.points); })
+      .then((d: { points?: { lat: number; lon: number; name: string; count: number; title?: string; url?: string }[]; ok?: boolean } | null) => {
+        if (Array.isArray(d?.points)) setConflict(d!.points);
+        if (d) markSrc("GDELT", d.ok === false);
+      })
       .catch(() => {});
     fetch("/api/osint/gpsjam", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { hexes?: { h3: string; level: number }[] } | null) => { if (Array.isArray(d?.hexes)) setGpsjam(d!.hexes); })
+      .then((d: { hexes?: { h3: string; level: number }[]; ok?: boolean } | null) => {
+        if (Array.isArray(d?.hexes)) setGpsjam(d!.hexes);
+        if (d) markSrc("GPSJam", d.ok === false);
+      })
       .catch(() => {});
     fetch("/api/osint/acled", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
@@ -432,6 +443,14 @@ export default function CrisisMap() {
         <button onClick={() => setFullscreen((v) => !v)} title="Toggle fullscreen" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
         <button onClick={runRead} title="Claude situation read of the current board" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">AI read</button>
         <span className="flex-1" />
+        {srcDown.length > 0 && (
+          <span
+            className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/40"
+            title={`${srcDown.join(", ")} unreachable — those layers are missing data, not reporting "all quiet"`}
+          >
+            ⚠ source down: {srcDown.join(", ")}
+          </span>
+        )}
         <span className="text-slate-700 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
       </div>
 

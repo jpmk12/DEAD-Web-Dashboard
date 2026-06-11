@@ -39,7 +39,7 @@ export async function GET(request: Request) {
   const cacheKey = ids.slice().sort().join(",");
   const hit = cache.get(cacheKey);
   if (hit && hit.expires > Date.now()) {
-    return NextResponse.json({ stations: hit.data });
+    return NextResponse.json({ stations: hit.data, ok: true });
   }
 
   const idParam = ids.join(",");
@@ -75,6 +75,9 @@ export async function GET(request: Request) {
     };
   }
 
-  cache.set(cacheKey, { data: stations, expires: Date.now() + TTL_MS });
-  return NextResponse.json({ stations });
+  if (metars.length > 0 || tafs.length > 0) cache.set(cacheKey, { data: stations, expires: Date.now() + TTL_MS });
+  // Both AWC fetches empty for requested stations = upstream down, not
+  // "no weather" — the panel badges it instead of showing a blank strip.
+  const ok = metars.length > 0 || tafs.length > 0;
+  return NextResponse.json({ stations, ok });
 }

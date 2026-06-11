@@ -68,16 +68,16 @@ function parse(data: unknown): Hex[] {
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ hexes: [] }, { status: 401 });
-  if (cache && cache.expires > Date.now()) return NextResponse.json({ hexes: cache.hexes, date: cache.date });
+  if (cache && cache.expires > Date.now()) return NextResponse.json({ ok: true, hexes: cache.hexes, date: cache.date });
 
   const today = ymd(new Date());
   const yesterday = ymd(new Date(Date.now() - 86_400_000));
   let date = today;
   let data = await fetchDay(today);
   if (!data) { data = await fetchDay(yesterday); date = yesterday; }
-  if (!data) return NextResponse.json({ hexes: [] });
+  if (!data) return NextResponse.json({ ok: false, hexes: [] }); // upstream unreachable — NOT "no interference"
 
   const hexes = parse(data);
   cache = { hexes, date, expires: Date.now() + TTL };
-  return NextResponse.json({ hexes, date });
+  return NextResponse.json({ ok: true, hexes, date });
 }

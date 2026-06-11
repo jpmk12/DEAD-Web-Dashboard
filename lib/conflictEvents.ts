@@ -15,6 +15,12 @@ export interface ConflictPoint { lat: number; lon: number; name: string; count: 
 const TTL = 30 * 60 * 1000;
 let cache: { points: ConflictPoint[]; expires: number } | null = null;
 
+// Health of the most recent upstream attempt, so the API layer can tell the
+// UI "GDELT is down" apart from "the world is quiet" (it never is, for this
+// query — empty means failure in practice).
+let lastFetch: { ok: boolean; at: number } = { ok: false, at: 0 };
+export function getConflictHealth(): { ok: boolean; at: number } { return lastFetch; }
+
 const QUERY =
   '("air strike" OR airstrike OR "missile strike" OR "drone strike" OR ' +
   '"rocket attack" OR shelling OR "armed clashes" OR "shot down" OR ' +
@@ -49,13 +55,13 @@ function firstArticle(html: string): { title?: string; url?: string } {
 }
 
 export async function getConflictPoints(): Promise<ConflictPoint[]> {
-  if (cache && cache.expires > Date.now()) return cache.points;
+  if (cache && cache.expires > Date.now()) { lastFetch = { ok: true, at: lastFetch.at || Date.now() }; return cache.points; }
   try {
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), 12_000);
     const res = await fetch(GDELT_URL, { signal: ctrl.signal, headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" }, cache: "no-store" });
     clearTimeout(tid);
-    if (!res.ok) return [];
+    if (!res.ok) { lastFetch = { ok: false, at: Date.now() }; return []; }
     const data: unknown = await res.json();
     const feats = Array.isArray((data as { features?: unknown[] })?.features) ? (data as { features: unknown[] }).features : [];
     const points: ConflictPoint[] = [];
@@ -74,6 +80,7 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
     // terms, so a truly empty GeoJSON means GDELT hiccuped or changed shape;
     // caching it would blank the conflict layer for 30 min instead of retrying.
     if (top.length > 0) cache = { points: top, expires: Date.now() + TTL };
+    lastFetch = { ok: top.length > 0, at: Date.now() };
 
     // Trend recorder (P1): GDELT points have no stable upstream id, so each
     // place is counted once per UTC day (id embeds the date) — presence-based
@@ -90,6 +97,7 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
     }
     return top;
   } catch {
+    lastFetch = { ok: false, at: Date.now() };
     return [];
   }
 }
