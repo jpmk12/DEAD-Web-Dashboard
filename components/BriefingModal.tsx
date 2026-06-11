@@ -13,6 +13,7 @@ interface Briefing {
   schedule: string[];
   keyDevelopments: string[];
   topStories: string[];
+  trends?: string[];   // week-over-week movers narrated from the trend layer
   connections: string;
   suggestedFocus: string[];
 }
@@ -267,6 +268,10 @@ export default function BriefingModal({
 
               {briefing.topStories?.length > 0 && (
                 <BriefSection title="Top Stories" items={briefing.topStories} accent="text-blue-400" dot="bg-blue-400" />
+              )}
+
+              {(briefing.trends?.length ?? 0) > 0 && (
+                <BriefSection title="Trending — week over week" items={briefing.trends!} accent="text-rose-400" dot="bg-rose-400" />
               )}
 
               {briefing.connections && (

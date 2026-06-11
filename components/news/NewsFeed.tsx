@@ -5,6 +5,7 @@ import { useSession, signIn } from "next-auth/react";
 import { NewsItem, SavedItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import NewsCard from "./NewsCard";
+import TrendStrip from "./TrendStrip";
 
 const CACHE_KEY = "news:items";
 
@@ -304,6 +305,9 @@ export default function NewsFeed({
 
   return (
     <div>
+      {/* Week-over-week movers — the "sense the trend before it's obvious" strip. */}
+      <TrendStrip />
+
       {/* Category tab bar */}
       <div className="flex items-center gap-0 mb-5 border-b border-slate-800 overflow-x-auto scrollbar-none -mx-1 px-1">
         {TABS.map(({ id, label }) => {
