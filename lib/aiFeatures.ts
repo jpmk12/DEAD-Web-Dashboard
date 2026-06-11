@@ -4,7 +4,7 @@ import { AiFeature, UserPrefs } from "./types";
 // toggle to false) flips this without needing a DB row write.
 export const ALL_AI_FEATURES: AiFeature[] = [
   "chat", "news_chat",
-  "email_triage", "email_actions",
+  "email_triage", "email_actions", "email_draft",
   "osint_triage", "osint_situation",
   "doc_chat",
   "newsletters",
@@ -22,6 +22,7 @@ export const AI_FEATURE_LABELS: Record<AiFeature, { label: string; sub: string }
   news_chat:     { label: "News chat",                 sub: "Right-rail news Q&A" },
   email_triage:  { label: "Email triage",              sub: "Per-email priority + summary" },
   email_actions: { label: "Email action items",        sub: "Extracts to-dos from unread mail" },
+  email_draft:   { label: "Drafted replies",            sub: "Reply drafts in your voice — saved to Gmail Drafts, never sent" },
   osint_triage:  { label: "OSINT relevance scoring",    sub: "Per-item priority + reason on OSINT tab" },
   osint_situation: { label: "OSINT situation summary",  sub: "One-line 'what needs attention now' synthesis" },
   doc_chat:      { label: "Per-doc chat",               sub: "Ask Claude about the active document" },

@@ -212,6 +212,109 @@ function extractLongBody(part: gmail_v1.Schema$MessagePart): string {
   return "";
 }
 
+// ── Reply drafting (P8) ──────────────────────────────────────────────────────
+
+export interface ReplyContext {
+  id: string;
+  threadId: string;
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  body: string;            // long extraction for drafting context
+  messageIdHeader: string; // RFC 822 Message-ID — threads the reply
+  references: string;
+}
+
+// Full message with the headers a threaded reply needs.
+export async function getMessageForReply(accessToken: string, id: string): Promise<ReplyContext | null> {
+  const gmail = buildClient(accessToken);
+  const res = await gmail.users.messages.get({ userId: "me", id, format: "full" });
+  const msg = res.data;
+  if (!msg.id) return null;
+  return {
+    id: msg.id,
+    threadId: msg.threadId ?? "",
+    subject: header(msg, "Subject") || "(no subject)",
+    from: header(msg, "From"),
+    to: header(msg, "To"),
+    date: header(msg, "Date"),
+    body: extractLongBody(msg.payload ?? {}) || msg.snippet || "",
+    messageIdHeader: header(msg, "Message-ID") || header(msg, "Message-Id"),
+    references: header(msg, "References"),
+  };
+}
+
+// Recent self-written prose from Sent — the model's voice sample. Quoted
+// chains and signatures are trimmed the same way as the classifier path so
+// the sample is the user's words, not the thread's.
+export async function sampleSentVoice(accessToken: string, max = 5): Promise<string[]> {
+  const gmail = buildClient(accessToken);
+  const list = await gmail.users.messages.list({
+    userId: "me",
+    q: "in:sent newer_than:60d",
+    maxResults: max * 2, // headroom — some sent items are forwards/empties
+  });
+  const ids = (list.data.messages ?? []).map((m) => m.id).filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return [];
+  const full = await Promise.all(
+    ids.slice(0, max * 2).map((id) =>
+      gmail.users.messages.get({ userId: "me", id, format: "full" }).then((r) => r.data).catch(() => null)
+    )
+  );
+  const out: string[] = [];
+  for (const msg of full) {
+    if (!msg) continue;
+    const raw = extractBody(msg.payload ?? {});
+    const trimmed = raw
+      .replace(/\r\n/g, "\n")
+      .split(/\n-- ?\n/)[0]
+      .split(/\nOn .{1,80}wrote:\n/)[0]
+      .replace(/(\n>[^\n]*){3,}[\s\S]*$/, "")
+      .trim()
+      .slice(0, 600);
+    if (trimmed.length >= 40) out.push(trimmed); // skip empties/one-liners
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+// Extract just the email address from a From/To header value.
+function addrOf(headerValue: string): string {
+  const m = headerValue.match(/<([^>]+)>/);
+  return (m ? m[1] : headerValue).trim();
+}
+
+// Create a Gmail DRAFT reply (never sends). Threading follows RFC 2822:
+// In-Reply-To = original Message-ID, References = original References + that id.
+export async function createDraftReply(
+  accessToken: string,
+  ctx: ReplyContext,
+  bodyText: string,
+): Promise<string | null> {
+  const gmail = buildClient(accessToken);
+  const to = addrOf(ctx.from); // reply goes to the original sender
+  const subject = /^re:/i.test(ctx.subject) ? ctx.subject : `Re: ${ctx.subject}`;
+  const headers = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    ctx.messageIdHeader ? `In-Reply-To: ${ctx.messageIdHeader}` : "",
+    ctx.messageIdHeader ? `References: ${[ctx.references, ctx.messageIdHeader].filter(Boolean).join(" ")}` : "",
+    `Content-Type: text/plain; charset="UTF-8"`,
+    `MIME-Version: 1.0`,
+  ].filter(Boolean);
+  const raw = Buffer.from(`${headers.join("\r\n")}\r\n\r\n${bodyText}`, "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const res = await gmail.users.drafts.create({
+    userId: "me",
+    requestBody: { message: { raw, threadId: ctx.threadId || undefined } },
+  });
+  return res.data.id ?? null;
+}
+
 export async function markAsRead(
   accessToken: string,
   ids: string[]

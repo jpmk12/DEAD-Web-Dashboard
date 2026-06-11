@@ -162,6 +162,7 @@ export type AiFeature =
   | "news_chat"      // /api/news-chat
   | "email_triage"   // /api/gmail Claude classification
   | "email_actions"  // /api/gmail/actions
+  | "email_draft"    // /api/gmail/draft — reply drafting
   | "osint_triage"   // /api/osint/triage
   | "osint_situation"// /api/osint/situation
   | "doc_chat"       // /api/documents/chat
