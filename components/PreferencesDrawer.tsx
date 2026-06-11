@@ -1670,6 +1670,35 @@ function AcledCredentialsEditor() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "warn" | "err"; text: string } | null>(null);
+  const [diag, setDiag] = useState<string[] | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+
+  // Live end-to-end check of all three Crisis-map sources — turns "no data"
+  // into a concrete status (token vs read failure, GDELT/GPSJam reachability).
+  const runDiag = async () => {
+    setDiagBusy(true); setDiag(null);
+    try {
+      const r = await fetch("/api/osint/crisis-diag");
+      const d = await r.json();
+      const lines: string[] = [];
+      const a = d.acled ?? {};
+      lines.push(
+        !a.configured ? "ACLED: not configured."
+        : !a.tokenOk ? `ACLED: ✗ login failed — ${a.note ?? a.error ?? "token rejected"}`
+        : `ACLED: token OK · read HTTP ${a.readStatus ?? "?"} · ${a.count ?? 0} events${a.sample ? ` (e.g. ${a.sample})` : ""}`,
+      );
+      if (a.note && a.tokenOk) lines.push(`  ↳ ${a.note}`);
+      const g = d.gdelt ?? {};
+      lines.push(`GDELT: HTTP ${g.status ?? "?"} · ${g.ms ?? "?"}ms · ${g.features ?? 0} features${g.note ? ` — ${g.note}` : ""}`);
+      const j = d.gpsjam ?? {};
+      lines.push(`GPSJam: today HTTP ${j.today?.status ?? "?"}, yesterday HTTP ${j.yesterday?.status ?? "?"}${j.note ? ` — ${j.note}` : ""}`);
+      setDiag(lines);
+    } catch {
+      setDiag(["Diagnostic request failed — are you still signed in?"]);
+    } finally {
+      setDiagBusy(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/settings/acled")
@@ -1783,6 +1812,25 @@ function AcledCredentialsEditor() {
             {savedEmail && <span className="text-[10px] font-mono text-slate-600">current: {savedEmail}</span>}
           </div>
           {msg && <p className={`text-[10px] leading-snug ${msgClass}`}>{msg.text}</p>}
+        </div>
+      )}
+
+      {/* Live data-source check — covers ACLED + the keyless GDELT/GPSJam
+          layers, so "source down" / "no ACLED data" becomes a concrete status. */}
+      {!loading && (
+        <div className="mt-2.5 pt-2.5 border-t border-slate-800/60">
+          <button
+            type="button"
+            onClick={runDiag}
+            disabled={diagBusy}
+            className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200 disabled:opacity-40 transition-all"
+            title="Live check: runs the ACLED token + read and pings GDELT / GPSJam from the server"
+          >
+            {diagBusy ? "Checking…" : "Run data-source check"}
+          </button>
+          {diag && (
+            <pre className="mt-2 text-[10px] leading-relaxed text-slate-400 font-mono whitespace-pre-wrap bg-slate-950/50 border border-slate-800 rounded-md p-2.5">{diag.join("\n")}</pre>
+          )}
         </div>
       )}
     </div>

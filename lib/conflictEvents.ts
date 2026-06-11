@@ -58,7 +58,11 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
   if (cache && cache.expires > Date.now()) { lastFetch = { ok: true, at: lastFetch.at || Date.now() }; return cache.points; }
   try {
     const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 12_000);
+    // GDELT's GEO API is routinely slow (10-25 s); 12 s aborted too often and
+    // surfaced as a false "source down". This read is best-effort and off the
+    // user-facing critical path (its own cache + the Crisis map renders without
+    // it), so a longer ceiling is the right trade.
+    const tid = setTimeout(() => ctrl.abort(), 25_000);
     const res = await fetch(GDELT_URL, { signal: ctrl.signal, headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" }, cache: "no-store" });
     clearTimeout(tid);
     if (!res.ok) { lastFetch = { ok: false, at: Date.now() }; return []; }

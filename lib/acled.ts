@@ -217,3 +217,74 @@ export async function getAcledEvents(): Promise<AcledEvent[]> {
   }
   return events;
 }
+
+// Live end-to-end probe for the settings UI: tests the OAuth token AND a real
+// read (the verify-on-save path only tests the token, so a token-OK-but-read-
+// fails account looked "connected" yet showed no data). Bypasses the caches so
+// it reflects the current truth. Never throws.
+export interface AcledDiag {
+  configured: boolean;
+  source: "env" | "settings" | "none";
+  tokenOk: boolean;
+  readStatus?: number;
+  count?: number;
+  sample?: string;
+  error?: string;
+  note?: string;
+}
+
+export async function diagnoseAcled(): Promise<AcledDiag> {
+  const creds = await resolveCreds();
+  if (!creds) return { configured: false, source: "none", tokenOk: false, note: "No credentials set — enter them above and Save." };
+  const source: AcledDiag["source"] = (process.env.ACLED_EMAIL && process.env.ACLED_PASSWORD) ? "env" : "settings";
+
+  const token = await fetchToken(creds);
+  if (!token) {
+    return { configured: true, source, tokenOk: false, error: "OAuth token request failed", note: "Email/password rejected, or the ACLED account email isn't verified yet. Re-check at acleddata.com." };
+  }
+
+  const to = new Date();
+  const from = new Date(to.getTime() - WINDOW_DAYS * 24 * 3600_000);
+  const params = new URLSearchParams();
+  params.set("event_date", `${ymd(from)}|${ymd(to)}`);
+  params.set("event_date_where", "BETWEEN");
+  params.set("event_type", "Battles");
+  params.set("limit", "5");
+  params.set("_format", "json");
+
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 15_000);
+  try {
+    const res = await fetch(`${READ_URL}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    const text = await res.text();
+    let body: Record<string, unknown> | null = null;
+    try { body = JSON.parse(text) as Record<string, unknown>; } catch { /* non-JSON */ }
+    const data = Array.isArray(body?.data) ? (body!.data as Record<string, unknown>[]) : null;
+    const count = data?.length;
+    const apiError = body && (body.success === false || body.error || body.message)
+      ? String(body.error ?? body.message ?? "ACLED returned success:false")
+      : undefined;
+    const first = data && data[0];
+    const sample = first ? `${first.event_date} · ${first.event_type} · ${first.country}` : undefined;
+
+    let note: string | undefined;
+    if (res.status === 401 || res.status === 403) {
+      note = "Token works but the READ endpoint refused it — your myACLED account most likely doesn't have API data access enabled yet. Log in at acleddata.com → check API access / accept the data-access terms, then retry.";
+    } else if (apiError) {
+      note = `ACLED rejected the query: ${apiError}`;
+    } else if (count === 0) {
+      note = "Authenticated and the read succeeded, but 0 events came back for the last 7 days — unusual for global Battles. Likely an access tier with no rows, or a query the API didn't like.";
+    } else if ((count ?? 0) > 0) {
+      note = "Working — events are flowing. If the map is still empty, toggle the ACLED layer on (Standard/Contested preset) and check the AOR filter isn't excluding them.";
+    }
+    return { configured: true, source, tokenOk: true, readStatus: res.status, count, sample, error: apiError, note };
+  } catch (e) {
+    return { configured: true, source, tokenOk: true, error: "Read request failed: " + (e instanceof Error ? e.message : String(e)) };
+  } finally {
+    clearTimeout(tid);
+  }
+}
