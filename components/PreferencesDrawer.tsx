@@ -1688,8 +1688,10 @@ function AcledCredentialsEditor() {
         : `ACLED: token OK · read HTTP ${a.readStatus ?? "?"} · ${a.count ?? 0} events${a.sample ? ` (e.g. ${a.sample})` : ""}`,
       );
       if (a.note && a.tokenOk) lines.push(`  ↳ ${a.note}`);
+      if (a.error && a.tokenOk) lines.push(`  ↳ ACLED said: ${a.error}`);
       const g = d.gdelt ?? {};
       lines.push(`GDELT: HTTP ${g.status ?? "?"} · ${g.ms ?? "?"}ms · ${g.features ?? 0} features${g.note ? ` — ${g.note}` : ""}`);
+      if (g.body) lines.push(`  ↳ GDELT said: ${g.body}`);
       const j = d.gpsjam ?? {};
       lines.push(`GPSJam: today HTTP ${j.today?.status ?? "?"}, yesterday HTTP ${j.yesterday?.status ?? "?"}${j.note ? ` — ${j.note}` : ""}`);
       setDiag(lines);

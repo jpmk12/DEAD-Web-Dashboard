@@ -277,9 +277,12 @@ export async function diagnoseAcled(): Promise<AcledDiag> {
     try { body = JSON.parse(text) as Record<string, unknown>; } catch { /* non-JSON */ }
     const data = Array.isArray(body?.data) ? (body!.data as Record<string, unknown>[]) : null;
     const count = data?.length;
+    // ACLED's own words from the body — for a 403 this usually states exactly
+    // what's missing (e.g. "no active subscription"/"accept terms"). Falls back
+    // to a cleaned snippet of whatever was returned.
     const apiError = body && (body.success === false || body.error || body.message)
       ? String(body.error ?? body.message ?? "ACLED returned success:false")
-      : undefined;
+      : (res.status >= 400 ? text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || undefined : undefined);
     const first = data && data[0];
     const sample = first ? `${first.event_date} · ${first.event_type} · ${first.country}` : undefined;
 

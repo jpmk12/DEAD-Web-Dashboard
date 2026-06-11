@@ -26,6 +26,14 @@ async function probe(url: string, headers: Record<string, string>, timeoutMs = 2
   }
 }
 
+// First ~160 chars of an error body, whitespace-collapsed — enough to read an
+// upstream's own 404/403 explanation without dumping a page.
+function bodySnippet(text?: string): string | undefined {
+  if (!text) return undefined;
+  const s = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return s ? s.slice(0, 160) : undefined;
+}
+
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -42,8 +50,10 @@ export async function GET() {
     if (r.text) { try { features = (JSON.parse(r.text)?.features ?? []).length; } catch { /* non-JSON */ } }
     return {
       status: r.status, ms: r.ms, bytes: r.bytes, features, error: r.error,
+      body: r.status !== 200 ? bodySnippet(r.text) : undefined,
+      url: gdeltUrl,
       note: r.status === 0 ? "Unreachable / timed out (GDELT GEO is slow — the app allows 20 s)."
-        : r.status !== 200 ? `HTTP ${r.status} from GDELT.`
+        : r.status !== 200 ? `HTTP ${r.status} from GDELT (body shown below tells us why).`
         : features === 0 ? "Reached GDELT but it returned 0 features right now (transient — retries next cycle)."
         : undefined,
     };
@@ -55,14 +65,18 @@ export async function GET() {
     const today = ymd(new Date());
     const yest = ymd(new Date(Date.now() - 86_400_000));
     const [t, y] = await Promise.all([
-      probe(`https://gpsjam.org/data/${today}-h3_4.json`, { "User-Agent": UA }, 15_000),
-      probe(`https://gpsjam.org/data/${yest}-h3_4.json`, { "User-Agent": UA }, 15_000),
+      probe(`https://gpsjam.org/data/${today}-h3_4.csv`, { "User-Agent": UA, Accept: "text/csv,*/*" }, 15_000),
+      probe(`https://gpsjam.org/data/${yest}-h3_4.csv`, { "User-Agent": UA, Accept: "text/csv,*/*" }, 15_000),
     ]);
+    const ok = t.status === 200 ? t : y.status === 200 ? y : null;
     const okDay = t.status === 200 ? today : y.status === 200 ? yest : null;
+    // First CSV line = the header, so we can confirm the column names live.
+    const header = ok?.text ? ok.text.split(/\r?\n/)[0]?.slice(0, 120) : undefined;
     return {
       today: { status: t.status, bytes: t.bytes }, yesterday: { status: y.status, bytes: y.bytes },
-      note: okDay ? `Reachable (using ${okDay}).`
-        : "Neither today's nor yesterday's GPSJam file was reachable — upstream/outage or the daily file isn't published yet.",
+      header,
+      note: okDay ? `Reachable (using ${okDay}; header: ${header ?? "?"}).`
+        : "Neither today's nor yesterday's GPSJam CSV was reachable — upstream/outage or the daily file isn't published yet.",
     };
   })();
 
