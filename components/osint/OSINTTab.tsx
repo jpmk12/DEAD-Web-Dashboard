@@ -265,6 +265,42 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [clusterSaveState, setClusterSaveState] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
 
+  // Per-cluster dismiss (P10) — clear the read pile. Keyed by the cluster's
+  // normalized-title key (stable across polls, so a dismissed story stays
+  // dismissed as feeds refresh). localStorage like the newsletter dismissals;
+  // entries expire after 14 days so an old dismissal can't hide a re-erupting
+  // story forever, and the list stays bounded.
+  const LS_OSINT_DISMISSED = "osint-dismissed-v1";
+  const DISMISS_TTL_MS = 14 * 24 * 3600_000;
+  const [dismissed, setDismissed] = useState<Record<string, number>>({});
+  const [showDismissed, setShowDismissed] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LS_OSINT_DISMISSED) || "{}") as Record<string, number>;
+      const cutoff = Date.now() - DISMISS_TTL_MS;
+      const live = Object.fromEntries(Object.entries(raw).filter(([, ts]) => Number(ts) > cutoff));
+      setDismissed(live);
+      localStorage.setItem(LS_OSINT_DISMISSED, JSON.stringify(live));
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const dismissCluster = (key: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDismissed((prev) => {
+      const next = { ...prev, [key]: Date.now() };
+      try { localStorage.setItem(LS_OSINT_DISMISSED, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const restoreCluster = (key: string) => {
+    setDismissed((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      try { localStorage.setItem(LS_OSINT_DISMISSED, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   // Save a cluster as a new doc. Captures the primary item (title + link +
   // summary) plus a "Also seen in" list of the duplicate feeds so the user
   // knows the corroboration count. Same `link` shape as the news save path
@@ -347,6 +383,8 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   });
 
   const dupesSaved = filtered.length - clusters.length;
+  // Dismissals that apply to clusters currently in view (stale keys don't count).
+  const dismissedCount = clusters.filter((c) => dismissed[c.key]).length;
 
   const counts = useMemo(() => ({
     all: items.length,
@@ -384,7 +422,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // Enrich each cluster with the signals an analyst cares about: priority,
   // watchlist hit, corroboration (distinct feeds), recency vs. the baseline.
   const enriched = useMemo(() => {
-    return clusters.map((c) => {
+    return clusters.filter((c) => showDismissed || !dismissed[c.key]).map((c) => {
       const primary = c.items[0];
       const t = triage[primary.id];
       const priority = t?.priority;
@@ -396,7 +434,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       const isSignal = priority === "High" || watch || corroborated;
       return { ...c, primary, t, priority, watch, distinctFeeds, corroborated, newest, isNew, isSignal };
     });
-  }, [clusters, triage, watchTerms, baseline]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clusters, triage, watchTerms, baseline, dismissed, showDismissed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   type Enriched = (typeof enriched)[number];
 
@@ -567,6 +605,25 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           >
             {s === "saved" ? "✓" : s === "error" ? "!" : "▤"}
           </button>
+          {dismissed[e.key] ? (
+            <button
+              type="button"
+              onClick={(ev) => { ev.stopPropagation(); restoreCluster(e.key); }}
+              title="Restore — stop hiding this story"
+              className="w-5 h-5 flex items-center justify-center rounded transition-all text-[11px] flex-shrink-0 text-amber-400 hover:bg-amber-500/10"
+            >
+              ↺
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(ev) => dismissCluster(e.key, ev)}
+              title="Dismiss — hide this story (auto-expires after 14 days)"
+              className="w-5 h-5 flex items-center justify-center rounded transition-all text-[11px] flex-shrink-0 text-slate-600 hover:text-red-400 hover:bg-red-500/10"
+            >
+              ✕
+            </button>
+          )}
         </div>
         {primary.link ? (
           <a href={primary.link} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-slate-100 hover:text-emerald-400 transition-colors block leading-snug mb-1">{primary.title}</a>
@@ -1050,8 +1107,18 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             </div>
           )}
 
-          {!loading && dupesSaved > 0 && (
+          {!loading && (dupesSaved > 0 || dismissedCount > 0) && (
             <p className="text-[10px] font-mono text-slate-600 text-right">
+              {dismissedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowDismissed((v) => !v)}
+                  className="mr-3 text-slate-500 hover:text-amber-400 transition-colors"
+                  title={showDismissed ? "Hide dismissed stories again" : "Show dismissed stories (↺ to restore)"}
+                >
+                  {dismissedCount} dismissed · {showDismissed ? "hide" : "show"}
+                </button>
+              )}
               {clusters.length} clusters · {dupesSaved} duplicate{dupesSaved === 1 ? "" : "s"} folded in
             </p>
           )}
