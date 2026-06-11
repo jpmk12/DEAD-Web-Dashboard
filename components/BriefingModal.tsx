@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
+import type { TrendMover } from "@/lib/trends";
 import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPrefetch";
 import { BriefIcon, DigestIcon } from "@/lib/icons";
 import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
@@ -32,6 +33,9 @@ interface BriefingModalProps {
   articles?: NewsItem[];
   newsletters?: NewsletterSummary[];
   calendarEvents?: CalendarEvent[];
+  // surface_state baseline for the news surface (ms epoch) — drives the
+  // "since you last looked" delta line. 0 = unknown, line hidden.
+  previousSeenNews?: number;
 }
 
 export default function BriefingModal({
@@ -41,12 +45,32 @@ export default function BriefingModal({
   articles = [],
   newsletters = [],
   calendarEvents = [],
+  previousSeenNews = 0,
 }: BriefingModalProps) {
   const [loading, setLoading] = useState(false);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // "Since you last looked" delta (P5) — pure client-side: articles newer than
+  // the surface_state baseline + the current movers snapshot the TrendStrip
+  // already cached. At 0545 the baseline is yesterday's, so this reads as
+  // "overnight"; on a later re-open it reads as "since this morning".
+  const sinceLast = useMemo(() => {
+    if (!open || mode !== "briefing") return null;
+    const newArticles = previousSeenNews > 0
+      ? articles.filter((a) => {
+          const t = Date.parse(a.pubDate);
+          return Number.isFinite(t) && t > previousSeenNews;
+        }).length
+      : 0;
+    const movers = (clientCache.peek<TrendMover[]>("trends:movers") ?? [])
+      .filter((m) => m.state === "new" || m.state === "rising")
+      .slice(0, 3);
+    if (newArticles === 0 && movers.length === 0) return null;
+    return { newArticles, movers };
+  }, [open, mode, articles, previousSeenNews]);
 
   // Force-regenerate today's briefing (busts both the server-side date cache
   // via ?refresh=1 and the in-memory client cache).
@@ -253,6 +277,24 @@ export default function BriefingModal({
           {!loading && briefing && (
             <div className="space-y-6">
               {/* Headline */}
+              {sinceLast && (
+                <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-1.5">
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Since you last looked</span>
+                  {sinceLast.newArticles > 0 && (
+                    <span className="text-slate-300">▲ {sinceLast.newArticles} new article{sinceLast.newArticles === 1 ? "" : "s"}</span>
+                  )}
+                  {sinceLast.movers.map((m) => (
+                    <span
+                      key={`${m.kind}|${m.term}`}
+                      className={m.state === "new" ? "text-rose-300" : "text-emerald-300"}
+                      title={`${m.cur} mentions this week vs ${m.prev} last week`}
+                    >
+                      {m.state === "new" ? "✦" : "▲"} {m.term}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="bg-emerald-500/8 border border-emerald-500/20 rounded-xl p-4">
                 <p className="text-sm font-semibold text-slate-100 leading-relaxed">{briefing.headline}</p>
               </div>

@@ -330,6 +330,7 @@ export default function TabShell() {
         articles={articles}
         newsletters={newsletters}
         calendarEvents={calendarEvents}
+        previousSeenNews={previousSeen.news}
       />
 
       <QuickCaptureModal
