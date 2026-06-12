@@ -9,7 +9,7 @@ import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { getWeatherThreats, type NamedPoint } from "@/lib/severeWeather";
 import { getTrendMovers, formatMoversForPrompt } from "@/lib/trends";
 import { geocodePlace } from "@/lib/geocode";
-import { getDayForecasts, forecastLine } from "@/lib/forecast";
+import { getDayForecasts, forecastLine, type DayForecast } from "@/lib/forecast";
 import { getActiveTrip, tripProgress } from "@/lib/trips";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { extractJsonObject } from "@/lib/aiJson";
@@ -174,6 +174,7 @@ export async function POST(request: Request) {
   // 3 destinations, geocodes serially to respect Nominatim's 1-req/sec TOS, and
   // never blocks the brief. Runs once per day (the brief is cached).
   let dayWeatherBlock = "";
+  let dayForecasts: DayForecast[] = [];
   try {
     const fcPoints: NamedPoint[] = [];
     if (baseLat != null && baseLon != null) fcPoints.push({ label: baseLabel, lat: baseLat, lon: baseLon });
@@ -195,8 +196,8 @@ export async function POST(request: Request) {
       if (g) fcPoints.push({ label: todayEvents[i].label, lat: g.lat, lon: g.lon });
     }
     if (fcPoints.length > 0) {
-      const forecasts = await getDayForecasts(fcPoints);
-      if (forecasts.length > 0) dayWeatherBlock = forecasts.map(forecastLine).join("\n");
+      dayForecasts = await getDayForecasts(fcPoints);
+      if (dayForecasts.length > 0) dayWeatherBlock = dayForecasts.map(forecastLine).join("\n");
     }
   } catch { /* travel weather is best-effort in the brief */ }
 
@@ -255,6 +256,13 @@ export async function POST(request: Request) {
       connections: String(p.connections ?? "").slice(0, 600),
       suggestedFocus: Array.isArray(p.suggestedFocus) ? (p.suggestedFocus as unknown[]).map((s) => String(s).slice(0, 200)) : [],
     };
+    // Don't trust the model to round-trip data we already computed. When we have
+    // real day forecasts but the model dropped the "weather" field (it's buried
+    // in a long prompt and gets omitted), synthesise it deterministically from
+    // the forecasts so the Weather & travel section never silently vanishes.
+    if (briefing.weather.length === 0 && dayForecasts.length > 0) {
+      briefing.weather = dayForecasts.map(forecastLine).map((s) => s.slice(0, 220)).slice(0, 4);
+    }
     // Refuse to cache an empty briefing — that locks in a bad day's-worth of
     // "no signal" until the next manual refresh. Truncated Claude responses
     // most often surface as every-field-empty.
