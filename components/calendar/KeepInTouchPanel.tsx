@@ -35,6 +35,8 @@ export default function KeepInTouchPanel() {
   const [showFresh, setShowFresh] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [schedulingId, setSchedulingId] = useState<string | null>(null);
+  const [when, setWhen] = useState("");
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<{ name: string; email: string; reason: string }[]>([]);
@@ -65,10 +67,20 @@ export default function KeepInTouchPanel() {
     setBusyId(null); load();
   };
 
+  // Tomorrow 09:00 (wall-clock) as a datetime-local default; the user can pick
+  // any time before confirming.
+  const defaultWhen = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T09:00`;
+  };
+  const openSchedule = (id: string) => { setSchedulingId(id); setWhen(defaultWhen()); };
+
   const schedule = async (id: string, who: string) => {
     setBusyId(id);
-    const res = await fetch("/api/contacts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action: "schedule" }) });
-    setBusyId(null);
+    const res = await fetch("/api/contacts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action: "schedule", when: when || undefined }) });
+    setBusyId(null); setSchedulingId(null);
     flash(res.ok ? `📅 Check-in with ${who} added to your calendar` : "Couldn't add the event");
   };
 
@@ -165,9 +177,17 @@ export default function KeepInTouchPanel() {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button onClick={() => markContacted(r.id)} disabled={busyId === r.id} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-300/90 hover:bg-emerald-500/10 disabled:opacity-40 transition-all" title="Reset the clock — you reached out">✓ Contacted</button>
-                    <button onClick={() => schedule(r.id, r.name)} disabled={busyId === r.id} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-sky-500/30 text-sky-300/90 hover:bg-sky-500/10 disabled:opacity-40 transition-all" title="Drop a check-in event on your calendar">📅 Schedule</button>
+                    <button onClick={() => (schedulingId === r.id ? setSchedulingId(null) : openSchedule(r.id))} disabled={busyId === r.id} className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border transition-all disabled:opacity-40 ${schedulingId === r.id ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-sky-500/30 text-sky-300/90 hover:bg-sky-500/10"}`} title="Drop a check-in event on your calendar">📅 Schedule</button>
                     <span className="ml-auto text-[9px] font-mono text-slate-600">every {r.cadenceDays}d</span>
                   </div>
+                  {schedulingId === r.id && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap rounded-lg border border-sky-500/30 bg-sky-500/[0.05] px-2.5 py-2">
+                      <label className="text-[10px] font-mono text-slate-500">When</label>
+                      <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="bg-slate-950/60 border border-slate-800 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-sky-500/40" />
+                      <button onClick={() => schedule(r.id, r.name)} disabled={busyId === r.id || !when} className="ml-auto px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 disabled:opacity-40 transition-all">Add to calendar</button>
+                      <button onClick={() => setSchedulingId(null)} className="text-slate-600 hover:text-slate-300 text-xs">×</button>
+                    </div>
+                  )}
                 </li>
               );
             })}

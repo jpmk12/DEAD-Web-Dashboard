@@ -53,20 +53,31 @@ export async function PATCH(request: Request) {
   }
 
   // Drop a real calendar event for this check-in (the "hybrid: on-demand event"
-  // path). Default to tomorrow 09:00 local, 15 minutes; does NOT mark contacted.
+  // path). Honors a user-picked `when` (naive local "YYYY-MM-DDThh:mm"); falls
+  // back to tomorrow 09:00 local. Always 15 minutes; does NOT mark contacted.
   if (body.action === "schedule") {
     const contacts = await listContacts().catch(() => []);
     const c = contacts.find((x) => x.id === id);
     if (!c) return NextResponse.json({ error: "Contact not found" }, { status: 404 });
-    const day = todayInTz(tz);
-    const tomorrow = new Date(`${day}T00:00:00Z`);
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-    const date = tomorrow.toISOString().slice(0, 10);
+    let start: string;
+    if (typeof body.when === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(body.when)) {
+      start = body.when.length === 16 ? `${body.when}:00` : body.when;
+    } else {
+      const day = todayInTz(tz);
+      const tomorrow = new Date(`${day}T00:00:00Z`);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      start = `${tomorrow.toISOString().slice(0, 10)}T09:00:00`;
+    }
+    // +15 min, computed on the naive wall-clock string (treat as UTC purely for
+    // the arithmetic; the real zone is carried by `timeZone`).
+    const endD = new Date(`${start}Z`);
+    endD.setUTCMinutes(endD.getUTCMinutes() + 15);
+    const end = endD.toISOString().slice(0, 19);
     try {
       const ev = await createEvent(session.accessToken as string, {
         summary: `Check in with ${c.name}`,
-        start: `${date}T09:00:00`,
-        end: `${date}T09:15:00`,
+        start,
+        end,
         description: [c.notes ? `Notes: ${c.notes}` : "", c.lastContacted ? `Last contacted: ${c.lastContacted}` : "First check-in.", "— scheduled from Keep in Touch"].filter(Boolean).join("\n"),
         location: c.email ?? undefined,
         timeZone: tz,
