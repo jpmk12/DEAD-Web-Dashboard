@@ -15,6 +15,7 @@ interface Briefing {
   keyDevelopments: string[];
   topStories: string[];
   trends?: string[];   // week-over-week movers narrated from the trend layer
+  weather?: string[];  // travel-aware day forecast: home + today's destinations
   connections: string;
   suggestedFocus: string[];
 }
@@ -307,6 +308,10 @@ export default function BriefingModal({
                   <BriefSection title="Key Developments" items={briefing.keyDevelopments} accent="text-emerald-400" dot="bg-emerald-400" />
                 )}
               </div>
+
+              {(briefing.weather?.length ?? 0) > 0 && (
+                <BriefSection title="Weather & travel" items={briefing.weather!} accent="text-sky-400" dot="bg-sky-400" />
+              )}
 
               {briefing.topStories?.length > 0 && (
                 <BriefSection title="Top Stories" items={briefing.topStories} accent="text-blue-400" dot="bg-blue-400" />

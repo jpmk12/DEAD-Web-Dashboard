@@ -12,6 +12,7 @@ interface Briefing {
   keyDevelopments: string[];
   topStories: string[];
   trends?: string[];
+  weather?: string[];
   connections: string;
   suggestedFocus: string[];
 }
@@ -112,6 +113,7 @@ export function buildBriefingHTML(b: Briefing, printOnOpen: boolean): string {
     ${b.keyDevelopments?.length ? `<section><h2>Key Developments</h2><div class="card">${list(b.keyDevelopments)}</div></section>` : ""}
     ${b.topStories?.length ? `<section><h2>Top Stories</h2><div class="card">${list(b.topStories)}</div></section>` : ""}
     ${b.trends?.length ? `<section><h2>Trending — week over week</h2><div class="card">${list(b.trends)}</div></section>` : ""}
+    ${b.weather?.length ? `<section><h2>Weather & travel</h2><div class="card">${list(b.weather)}</div></section>` : ""}
     ${b.connections ? `<section><h2>Connections</h2><div class="card">${esc(b.connections)}</div></section>` : ""}
     ${b.suggestedFocus?.length ? `<section><h2>Suggested Focus</h2><div class="card">${list(b.suggestedFocus)}</div></section>` : ""}
   `;

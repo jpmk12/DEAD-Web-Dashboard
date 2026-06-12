@@ -215,6 +215,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 
 ### ◆ Morning Brief
 - Daily synthesis of priority news + emails + calendar + actions
+- Travel-aware **Weather & travel** section: geocodes today's calendar event locations and gives temp / rain / threats for home + each destination (Open-Meteo + Nominatim, best-effort)
 - Cached one-per-day in `briefing_cache`, keyed by `(date, tz)`
 - AI feature toggle: `briefing` (defaults on)
 - Prefetched in the background after midnight in user tz (`lib/briefingPrefetch.ts`)
