@@ -10,6 +10,7 @@ import { getWeatherThreats, type NamedPoint } from "@/lib/severeWeather";
 import { getTrendMovers, formatMoversForPrompt } from "@/lib/trends";
 import { geocodePlace } from "@/lib/geocode";
 import { getDayForecasts, forecastLine } from "@/lib/forecast";
+import { getActiveTrip, tripProgress } from "@/lib/trips";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { extractJsonObject } from "@/lib/aiJson";
 import { todayInTz } from "@/lib/date";
@@ -131,6 +132,19 @@ export async function POST(request: Request) {
   // briefer leads with it when life/property is at risk. Disasters are global,
   // so this runs even when the user has no locations set. Best-effort; never
   // blocks brief generation.
+  // Effective location: an active TDY trip overrides home for weather. Resolved
+  // here (generation path only, after the cache check) so cache hits don't pay
+  // for the query.
+  const activeTrip = await getActiveTrip(cacheKey).catch(() => null);
+  const baseLat = activeTrip ? activeTrip.lat : prefs.localLat;
+  const baseLon = activeTrip ? activeTrip.lon : prefs.localLon;
+  const baseLabel = activeTrip ? `${activeTrip.label} (TDY)` : (prefs.localCity || "Home");
+  let tripLine = "";
+  if (activeTrip) {
+    const { day, days } = tripProgress(activeTrip, cacheKey);
+    tripLine = `You are TDY at ${activeTrip.label} — day ${day} of ${days}, returning ${activeTrip.endDate}.`;
+  }
+
   let weatherLine = "";
   let trendLines = "";
   const assemblyStart = Date.now();
@@ -141,9 +155,7 @@ export async function POST(request: Request) {
   } catch { /* trends are best-effort in the brief */ }
   try {
     const locs: NamedPoint[] = [];
-    if (prefs.localLat != null && prefs.localLon != null) {
-      locs.push({ label: prefs.localCity || "Home", lat: prefs.localLat, lon: prefs.localLon });
-    }
+    if (baseLat != null && baseLon != null) locs.push({ label: baseLabel, lat: baseLat, lon: baseLon });
     for (const t of prefs.trackedLocations ?? []) locs.push({ label: t.label, lat: t.lat, lon: t.lon });
     const { threats, tropical, disasters } = await getWeatherThreats(locs);
     const sig = threats.filter((t) => t.lifeThreatening || t.severity === "Extreme" || t.severity === "Severe").slice(0, 6);
@@ -164,9 +176,7 @@ export async function POST(request: Request) {
   let dayWeatherBlock = "";
   try {
     const fcPoints: NamedPoint[] = [];
-    if (prefs.localLat != null && prefs.localLon != null) {
-      fcPoints.push({ label: prefs.localCity || "Home", lat: prefs.localLat, lon: prefs.localLon });
-    }
+    if (baseLat != null && baseLon != null) fcPoints.push({ label: baseLabel, lat: baseLat, lon: baseLon });
     // Distinct today's events that have a real (non-virtual) location.
     const seenLoc = new Set<string>();
     const todayEvents: { label: string; loc: string }[] = [];
@@ -191,8 +201,9 @@ export async function POST(request: Request) {
   } catch { /* travel weather is best-effort in the brief */ }
 
   const userContent = [
+    tripLine && `CURRENT LOCATION: ${tripLine} Lead the weather with where you are now, and you may note the trip in the headline if relevant.`,
     weatherLine && `SEVERE WEATHER & DISASTERS (prioritise life-threatening or near the user's locations; note HADR relevance):\n${weatherLine}`,
-    dayWeatherBlock && `DAY WEATHER (today's forecast — first line is home, the rest are destinations from your calendar; use for the "weather" field):\n${dayWeatherBlock}`,
+    dayWeatherBlock && `DAY WEATHER (today's forecast — first line is your current base location, the rest are destinations from your calendar; use for the "weather" field):\n${dayWeatherBlock}`,
     trendLines && `WEEK-OVER-WEEK SIGNAL (deterministic counts from the user's monitored feeds — use for the "trends" field):\n${trendLines}`,
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
     newsletterBullets && `NEWSLETTER HIGHLIGHTS:\n${newsletterBullets}`,

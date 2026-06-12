@@ -201,6 +201,24 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_seen_date (date)
   ) ENGINE=InnoDB`,
 
+  // TDY / travel trips. The active trip (today within [start,end]) becomes the
+  // user's "effective location", overriding home for weather + local news +
+  // the morning brief, then auto-reverts when the trip ends.
+  `CREATE TABLE IF NOT EXISTS trips (
+    id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    label       VARCHAR(120) NOT NULL,
+    location    VARCHAR(200) NOT NULL,
+    lat         DOUBLE       NOT NULL,
+    lon         DOUBLE       NOT NULL,
+    start_date  VARCHAR(10)  NOT NULL,
+    end_date    VARCHAR(10)  NOT NULL,
+    tz          VARCHAR(64)  NULL,
+    feed_key    VARCHAR(64)  NULL,
+    notes       TEXT         NULL,
+    created_at  DATETIME(3)  NOT NULL,
+    INDEX idx_trips_dates (start_date, end_date)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,

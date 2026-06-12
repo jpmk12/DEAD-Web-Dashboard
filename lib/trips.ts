@@ -1,0 +1,145 @@
+import type { RowDataPacket } from "mysql2";
+import { randomUUID } from "crypto";
+import { getDb } from "./db";
+import { haversineKm } from "./disasters";
+
+// TDY / travel trips. A trip is a labelled, geocoded place with a date range.
+// The "active" trip (today within [start,end]) is the user's effective
+// location, overriding home for weather / local news / the morning brief.
+
+export interface Trip {
+  id: string;
+  label: string;       // display, e.g. "Stuttgart, DE"
+  location: string;    // raw place text that was geocoded
+  lat: number;
+  lon: number;
+  startDate: string;   // YYYY-MM-DD
+  endDate: string;     // YYYY-MM-DD
+  tz: string | null;
+  feedKey: string | null; // snapped nearest base-news set, or null → GDELT fallback
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface EffectiveLocation {
+  label: string;
+  lat: number;
+  lon: number;
+  feedKey: string | null;
+  trip: Trip | null;     // null = home
+  dayOfTrip?: number;    // 1-based, when on a trip
+  tripDays?: number;
+}
+
+// Centroids of the curated LOCAL_NEWS_SETS, for snapping an arbitrary TDY
+// location to the nearest base feed when it's close enough; otherwise local
+// news falls back to a geo search (GDELT). Keep keys in sync with
+// LOCAL_NEWS_SETS / VALID_FEED_KEYS.
+const FEED_CENTROIDS: Record<string, [number, number]> = {
+  colorado:      [38.83, -104.82], // Colorado Springs
+  dc:            [38.90, -77.04],  // Washington DC
+  hampton_roads: [36.85, -76.29],  // Norfolk
+  san_antonio:   [29.42, -98.49],
+  hawaii:        [21.31, -157.86], // Honolulu
+  japan:         [35.75, 139.35],  // Yokota
+  germany:       [49.44, 7.60],    // Ramstein / Kaiserslautern
+  illinois:      [38.54, -89.85],  // Scott AFB
+  oklahoma:      [35.42, -97.39],  // Tinker / OKC
+  new_jersey:    [40.03, -74.59],  // JB MDL
+};
+const SNAP_KM = 250;
+
+// Nearest curated base-news set within SNAP_KM, else null (→ GDELT geo news).
+// Pure — unit-tested.
+export function nearestFeedKey(lat: number, lon: number): string | null {
+  let best: { key: string; d: number } | null = null;
+  for (const [key, [clat, clon]] of Object.entries(FEED_CENTROIDS)) {
+    const d = haversineKm(lat, lon, clat, clon);
+    if (!best || d < best.d) best = { key, d };
+  }
+  return best && best.d <= SNAP_KM ? best.key : null;
+}
+
+// Pick the active trip for a given YYYY-MM-DD. When trips overlap, the one that
+// started most recently wins (you flew to the newer place). Pure — unit-tested.
+export function pickActiveTrip(trips: Trip[], today: string): Trip | null {
+  const inRange = trips.filter((t) => t.startDate <= today && t.endDate >= today);
+  if (inRange.length === 0) return null;
+  return inRange.sort((a, b) => (a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0))[0];
+}
+
+// Day-of-trip (1-based) and total days, inclusive. Pure.
+export function tripProgress(trip: Trip, today: string): { day: number; days: number } {
+  const ms = 86_400_000;
+  const d0 = Date.parse(`${trip.startDate}T00:00:00Z`);
+  const d1 = Date.parse(`${trip.endDate}T00:00:00Z`);
+  const dt = Date.parse(`${today}T00:00:00Z`);
+  const days = Math.max(1, Math.round((d1 - d0) / ms) + 1);
+  const day = Math.min(days, Math.max(1, Math.round((dt - d0) / ms) + 1));
+  return { day, days };
+}
+
+interface TripRow extends RowDataPacket {
+  id: string; label: string; location: string; lat: number; lon: number;
+  start_date: string; end_date: string; tz: string | null; feed_key: string | null;
+  notes: string | null; created_at: Date;
+}
+function rowToTrip(r: TripRow): Trip {
+  return {
+    id: r.id, label: r.label, location: r.location, lat: r.lat, lon: r.lon,
+    startDate: r.start_date, endDate: r.end_date, tz: r.tz, feedKey: r.feed_key,
+    notes: r.notes, createdAt: r.created_at.toISOString(),
+  };
+}
+
+export async function listTrips(): Promise<Trip[]> {
+  const pool = await getDb();
+  const [rows] = await pool.query<TripRow[]>(
+    "SELECT id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, created_at FROM trips ORDER BY start_date DESC",
+  );
+  return rows.map(rowToTrip);
+}
+
+export async function getActiveTrip(today: string): Promise<Trip | null> {
+  const pool = await getDb();
+  const [rows] = await pool.query<TripRow[]>(
+    "SELECT id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, created_at FROM trips WHERE start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1",
+    [today, today],
+  );
+  return rows[0] ? rowToTrip(rows[0]) : null;
+}
+
+export async function createTrip(t: {
+  label: string; location: string; lat: number; lon: number;
+  startDate: string; endDate: string; tz?: string | null; notes?: string | null;
+}): Promise<Trip> {
+  const pool = await getDb();
+  const id = randomUUID();
+  const feedKey = nearestFeedKey(t.lat, t.lon);
+  const now = new Date();
+  await pool.execute(
+    `INSERT INTO trips (id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, t.tz ?? null, feedKey, t.notes ?? null, now],
+  );
+  return {
+    id, label: t.label, location: t.location, lat: t.lat, lon: t.lon,
+    startDate: t.startDate, endDate: t.endDate, tz: t.tz ?? null, feedKey,
+    notes: t.notes ?? null, createdAt: now.toISOString(),
+  };
+}
+
+export async function deleteTrip(id: string): Promise<void> {
+  const pool = await getDb();
+  await pool.execute("DELETE FROM trips WHERE id = ?", [id]);
+}
+
+// Best-effort prune of trips whose end date is well in the past, so the table
+// stays small. Keeps ~1 year of history for reference.
+export async function pruneOldTrips(): Promise<void> {
+  try {
+    const pool = await getDb();
+    const cutoff = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
+    await pool.execute("DELETE FROM trips WHERE end_date < ?", [cutoff]);
+  } catch { /* best-effort */ }
+}
