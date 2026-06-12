@@ -35,6 +35,9 @@ export default function KeepInTouchPanel() {
   const [showFresh, setShowFresh] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ name: string; email: string; reason: string }[]>([]);
 
   const load = () => {
     fetch("/api/contacts")
@@ -74,6 +77,24 @@ export default function KeepInTouchPanel() {
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
+  const openSuggest = () => {
+    const next = !suggestOpen;
+    setSuggestOpen(next);
+    if (next && suggestions.length === 0) {
+      setSuggestLoading(true);
+      fetch("/api/contacts/suggest")
+        .then((r) => r.json())
+        .then((d: { suggestions?: { name: string; email: string; reason: string }[] }) => setSuggestions(d.suggestions ?? []))
+        .catch(() => {})
+        .finally(() => setSuggestLoading(false));
+    }
+  };
+
+  const addSuggested = async (s: { name: string; email: string }) => {
+    const res = await fetch("/api/contacts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: s.name, email: s.email, cadenceDays: 90 }) });
+    if (res.ok) { setSuggestions((prev) => prev.filter((x) => x.email !== s.email)); load(); }
+  };
+
   const needsAttention = rows.filter((r) => r.status.state !== "fresh");
   const fresh = rows.filter((r) => r.status.state === "fresh");
   const visible = showFresh ? rows : needsAttention;
@@ -86,8 +107,30 @@ export default function KeepInTouchPanel() {
         {needsAttention.length > 0 && (
           <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">{needsAttention.length} due</span>
         )}
-        <button onClick={() => setAdding((v) => !v)} className="ml-auto text-slate-500 hover:text-emerald-400 text-sm" title="Add a person">＋</button>
+        <button onClick={openSuggest} className="ml-auto text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-violet-300 transition-colors" title="Suggest people from your VIPs + who you email most">✨ Suggest</button>
+        <button onClick={() => setAdding((v) => !v)} className="text-slate-500 hover:text-emerald-400 text-sm" title="Add a person">＋</button>
       </div>
+
+      {suggestOpen && (
+        <div className="px-4 py-3 border-b border-slate-800 bg-violet-500/[0.03]">
+          <p className="text-[10px] text-slate-600 mb-2">From your VIPs and the people you email most — one tap to add (defaults to quarterly; edit later).</p>
+          {suggestLoading ? (
+            <div className="h-8 bg-slate-800/50 rounded animate-pulse" />
+          ) : suggestions.length === 0 ? (
+            <p className="text-[11px] text-slate-600 font-mono">No new suggestions — everyone's already on your list, or no VIP/reply data yet.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {suggestions.map((s) => (
+                <li key={s.email} className="flex items-center gap-2 text-[11px]">
+                  <span className="text-slate-200 font-medium truncate">{s.name}</span>
+                  <span className="text-[9px] font-mono text-violet-300/70 flex-shrink-0">{s.reason}</span>
+                  <button onClick={() => addSuggested(s)} className="ml-auto px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-300/90 hover:bg-emerald-500/10 text-[10px] font-bold uppercase tracking-wider flex-shrink-0 transition-all" title={s.email}>＋ Add</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {adding && (
         <div className="px-4 py-3 border-b border-slate-800 space-y-2 bg-slate-900/40">
