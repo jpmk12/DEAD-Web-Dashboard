@@ -5,20 +5,22 @@ import { useEffect, useRef, useState } from "react";
 interface QuickCaptureModalProps {
   open: boolean;
   onClose: () => void;
-  onCaptured?: (kind: "task" | "event" | "note") => void;
+  onCaptured?: (kind: "task" | "event" | "note" | "trip") => void;
 }
 
 type Result =
   | { kind: "task"; title: string; due: string | null }
   | { kind: "event"; summary: string; start: string; end: string }
-  | { kind: "note"; content: string };
+  | { kind: "note"; content: string }
+  | { kind: "trip"; label: string; startDate: string; endDate: string };
 
 // What the server returns from the classify (preview) call. Mirrors the
 // `Captured` shape in /api/quick-capture/route.ts.
 type Plan =
   | { kind: "task"; title: string; due?: string; notes?: string }
   | { kind: "event"; summary: string; start: string; end: string; description?: string; location?: string }
-  | { kind: "note"; content: string };
+  | { kind: "note"; content: string }
+  | { kind: "trip"; location: string; startDate: string; endDate: string; label?: string };
 
 function summarisePlan(p: Plan): string {
   if (p.kind === "task") return p.due ? `${p.title} — due ${p.due.slice(0, 10)}` : p.title;
@@ -43,6 +45,7 @@ function summarisePlan(p: Plan): string {
       return p.summary;
     }
   }
+  if (p.kind === "trip") return `${p.label || p.location} — ${p.startDate} → ${p.endDate}`;
   return p.content;
 }
 
@@ -50,12 +53,14 @@ const KIND_LABEL: Record<Result["kind"], string> = {
   task: "Task",
   event: "Calendar event",
   note: "Memory note",
+  trip: "TDY / travel location",
 };
 
 const KIND_COLOR: Record<Result["kind"], string> = {
   task: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
   event: "text-sky-400 border-sky-500/40 bg-sky-500/10",
   note: "text-amber-400 border-amber-500/40 bg-amber-500/10",
+  trip: "text-sky-400 border-sky-500/40 bg-sky-500/10",
 };
 
 function summarise(r: Result): string {
@@ -76,6 +81,7 @@ function summarise(r: Result): string {
       return r.summary;
     }
   }
+  if (r.kind === "trip") return `${r.label} — ${r.startDate} → ${r.endDate}`;
   return r.content;
 }
 
