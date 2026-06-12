@@ -10,6 +10,7 @@ import { countryCentroid } from "@/lib/countryCentroids";
 import { aorFromCoords, type Aor } from "@/lib/aor";
 import type { AcledEvent } from "@/lib/acled";
 import type { WeatherThreats, DisasterEvent, TravelAdvisory } from "@/lib/types";
+import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 
 // Crisis / situation map + synced list — the spatial twin of the Global Reach
 // Watch. What's happening (disasters, hub weather, tropical, NEO) over the AMC
@@ -227,7 +228,24 @@ export default function CrisisMap() {
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
-  useEffect(() => { try { localStorage.setItem(TOGGLE_KEY, JSON.stringify(on)); } catch { /* ignore */ } }, [on]);
+  // Server-sync the layer toggles so the map config follows the user across
+  // devices. `didHydrate` keeps the initial (local-only) render from POSTing
+  // before we've read the server copy; localStorage still saves immediately.
+  const didHydrate = useRef(false);
+  useEffect(() => {
+    fetchUiState()
+      .then((st) => {
+        const sv = st[UI_KEYS.crisisLayers];
+        if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+          setOn((prev) => ({ ...prev, ...(sv as Partial<Record<LayerKey, boolean>>) }));
+        }
+      })
+      .finally(() => { didHydrate.current = true; });
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(TOGGLE_KEY, JSON.stringify(on)); } catch { /* ignore */ }
+    if (didHydrate.current) patchUiState({ [UI_KEYS.crisisLayers]: on });
+  }, [on]);
 
   useEffect(() => {
     const ctrl = new AbortController();

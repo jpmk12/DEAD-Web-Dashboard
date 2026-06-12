@@ -6,6 +6,7 @@ import { NewsletterSummary } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { DigestIcon } from "@/lib/icons";
 import { gmailMessageUrl } from "@/lib/gmailLink";
+import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import { formatDistanceToNow, parseISO } from "date-fns";
 
 // Mirror of lib/newsletterPrefs.normalizeSubject — kept here because that
@@ -133,6 +134,13 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     setDismissed(loadSet(LS_DISMISSED));
     setKept(loadSet(LS_KEPT));
     setQuietDismissed(loadSet(LS_QUIET_DISMISSED));
+    // Union the server-synced quiet-prompt dismissals so a series silenced on
+    // another device stays silenced here. (Hide/keep sync via newsletter_prefs;
+    // the quiet-prompt suppression is UI state, so it rides the ui-state store.)
+    fetchUiState().then((st) => {
+      const q = st[UI_KEYS.newsletterQuietDismissed];
+      if (Array.isArray(q)) setQuietDismissed((prev) => new Set([...prev, ...q.filter((x): x is string => typeof x === "string")]));
+    });
   }, []);
 
   useEffect(() => {
@@ -306,6 +314,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       const next = new Set(prev);
       actionableQuiet.forEach((k) => next.add(k));
       saveSet(LS_QUIET_DISMISSED, next);
+      patchUiState({ [UI_KEYS.newsletterQuietDismissed]: [...next] });
       return next;
     });
   };
@@ -327,6 +336,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       const next = new Set(prev);
       next.add(key);
       saveSet(LS_QUIET_DISMISSED, next);
+      patchUiState({ [UI_KEYS.newsletterQuietDismissed]: [...next] });
       return next;
     });
   };
@@ -336,6 +346,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       const next = new Set(prev);
       actionableQuiet.forEach((k) => next.add(k));
       saveSet(LS_QUIET_DISMISSED, next);
+      patchUiState({ [UI_KEYS.newsletterQuietDismissed]: [...next] });
       return next;
     });
   };

@@ -55,6 +55,16 @@ const SCHEMA_STATEMENTS = [
     last_updated DATETIME(3)  NOT NULL
   ) ENGINE=InnoDB`,
 
+  // Single-row store for cross-device UI state that isn't a "preference" proper
+  // (so it stays out of UserPrefs and can't be clobbered by a prefs Save): OSINT
+  // dismissed clusters, map provider/layer choices, newsletter quiet-prompt
+  // dismissals. Shallow-merged JSON blob keyed by namespaced strings.
+  `CREATE TABLE IF NOT EXISTS app_ui_state (
+    id         TINYINT      NOT NULL PRIMARY KEY DEFAULT 1,
+    state      JSON         NOT NULL,
+    updated_at DATETIME(3)  NOT NULL
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS newsletter_cache (
     id         VARCHAR(255) PRIMARY KEY,
     summary    JSON         NOT NULL,

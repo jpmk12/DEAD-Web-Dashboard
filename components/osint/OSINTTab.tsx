@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import dynamic from "next/dynamic";
 import { Crosshair } from "@/lib/icons";
+import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 
 // Leaflet uses window/document at import time, so we have to load the map
 // component client-only. Without ssr: false the build fails with a
@@ -195,10 +196,12 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const pickAircraft = (id: string) => {
     setAircraftProvider(id);
     try { localStorage.setItem(LS_AIRCRAFT_PROVIDER, id); } catch {}
+    patchUiState({ [UI_KEYS.osintAircraftProvider]: id });
   };
   const pickMaritime = (id: string) => {
     setMaritimeProvider(id);
     try { localStorage.setItem(LS_MARITIME_PROVIDER, id); } catch {}
+    patchUiState({ [UI_KEYS.osintMaritimeProvider]: id });
   };
 
   const aircraftCfg = AIRCRAFT_PROVIDERS.find((p) => p.id === aircraftProvider) ?? AIRCRAFT_PROVIDERS[0];
@@ -289,6 +292,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
     setDismissed((prev) => {
       const next = { ...prev, [key]: Date.now() };
       try { localStorage.setItem(LS_OSINT_DISMISSED, JSON.stringify(next)); } catch { /* ignore */ }
+      patchUiState({ [UI_KEYS.osintDismissed]: next });
       return next;
     });
   };
@@ -297,9 +301,39 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       const next = { ...prev };
       delete next[key];
       try { localStorage.setItem(LS_OSINT_DISMISSED, JSON.stringify(next)); } catch { /* ignore */ }
+      patchUiState({ [UI_KEYS.osintDismissed]: next });
       return next;
     });
   };
+
+  // Overlay server-synced state on top of the per-device localStorage values so
+  // the OSINT map setup + dismissed clusters follow the user across devices.
+  // Map settings are last-write-wins (server overrides); dismissed clusters are
+  // unioned (don't un-dismiss something hidden on another device).
+  useEffect(() => {
+    fetchUiState().then((st) => {
+      const a = st[UI_KEYS.osintAircraftProvider];
+      const m = st[UI_KEYS.osintMaritimeProvider];
+      const src = st[UI_KEYS.osintAircraftSource];
+      const msrc = st[UI_KEYS.osintMaritimeSource];
+      if (typeof a === "string" && AIRCRAFT_PROVIDERS.some((p) => p.id === a)) setAircraftProvider(a);
+      if (typeof m === "string" && MARITIME_PROVIDERS.some((p) => p.id === m)) setMaritimeProvider(m);
+      if (src === "self" || src === "embed") setAircraftSource(src);
+      if (msrc === "self" || msrc === "embed") setMaritimeSource(msrc);
+      const sd = st[UI_KEYS.osintDismissed];
+      if (sd && typeof sd === "object" && !Array.isArray(sd)) {
+        const cutoff = Date.now() - DISMISS_TTL_MS;
+        setDismissed((prev) => {
+          const merged = { ...prev };
+          for (const [k, ts] of Object.entries(sd as Record<string, unknown>)) {
+            if (typeof ts === "number" && ts > cutoff) merged[k] = Math.max(merged[k] ?? 0, ts);
+          }
+          return merged;
+        });
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Save a cluster as a new doc. Captures the primary item (title + link +
   // summary) plus a "Also seen in" list of the duplicate feeds so the user
@@ -773,6 +807,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               onClick={() => {
                 setAircraftSource("self");
                 try { localStorage.setItem(LS_AIRCRAFT_SOURCE, "self"); } catch {}
+                patchUiState({ [UI_KEYS.osintAircraftSource]: "self" });
               }}
               className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
                 aircraftSource === "self"
@@ -788,6 +823,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               onClick={() => {
                 setAircraftSource("embed");
                 try { localStorage.setItem(LS_AIRCRAFT_SOURCE, "embed"); } catch {}
+                patchUiState({ [UI_KEYS.osintAircraftSource]: "embed" });
               }}
               className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
                 aircraftSource === "embed"
@@ -870,6 +906,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               onClick={() => {
                 setMaritimeSource("self");
                 try { localStorage.setItem(LS_MARITIME_SOURCE, "self"); } catch {}
+                patchUiState({ [UI_KEYS.osintMaritimeSource]: "self" });
               }}
               className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
                 maritimeSource === "self"
@@ -885,6 +922,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               onClick={() => {
                 setMaritimeSource("embed");
                 try { localStorage.setItem(LS_MARITIME_SOURCE, "embed"); } catch {}
+                patchUiState({ [UI_KEYS.osintMaritimeSource]: "embed" });
               }}
               className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
                 maritimeSource === "embed"
