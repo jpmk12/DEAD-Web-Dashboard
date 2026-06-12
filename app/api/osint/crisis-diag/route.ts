@@ -40,22 +40,31 @@ export async function GET() {
 
   const UA = "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)";
 
-  // GDELT GEO — the keyless conflict-density source.
-  const gdeltUrl =
-    "https://api.gdeltproject.org/api/v2/geo/geo?query=" +
-    encodeURIComponent("(airstrike OR shelling OR \"armed clashes\")") +
-    "&format=GeoJSON&timespan=2d";
-  const gdeltP = probe(gdeltUrl, { "User-Agent": UA }).then((r) => {
+  // GDELT — the keyless conflict-density source. The live deployment reported a
+  // generic Apache 404 on /api/v2/geo/geo, so probe several variants plus the
+  // DOC endpoint (a reachability control) to pin down endpoint-dead vs
+  // query/format issue in a single run.
+  const gdeltVariants: { label: string; url: string }[] = [
+    { label: "geo GeoJSON", url: "https://api.gdeltproject.org/api/v2/geo/geo?query=conflict&format=GeoJSON&timespan=1d" },
+    { label: "geo geojson", url: "https://api.gdeltproject.org/api/v2/geo/geo?query=conflict&format=geojson&timespan=1d" },
+    { label: "geo (our query)", url:
+      "https://api.gdeltproject.org/api/v2/geo/geo?query=" +
+      encodeURIComponent("(airstrike OR shelling OR \"armed clashes\")") + "&format=GeoJSON&timespan=2d" },
+    { label: "doc control", url: "https://api.gdeltproject.org/api/v2/doc/doc?query=conflict&mode=artlist&format=json&timespan=1d&maxrecords=5" },
+  ];
+  const gdeltP = Promise.all(gdeltVariants.map(async (v) => {
+    const r = await probe(v.url, { "User-Agent": UA });
     let features: number | undefined;
-    if (r.text) { try { features = (JSON.parse(r.text)?.features ?? []).length; } catch { /* non-JSON */ } }
+    if (r.status === 200 && r.text) { try { const j = JSON.parse(r.text); features = (j?.features ?? j?.articles ?? []).length; } catch { /* non-JSON */ } }
+    return { label: v.label, status: r.status, ms: r.ms, features, body: r.status !== 200 ? bodySnippet(r.text) : undefined };
+  })).then((variants) => {
+    const liveGeo = variants.find((v) => v.label.startsWith("geo") && v.status === 200);
+    const docOk = variants.find((v) => v.label === "doc control")?.status === 200;
     return {
-      status: r.status, ms: r.ms, bytes: r.bytes, features, error: r.error,
-      body: r.status !== 200 ? bodySnippet(r.text) : undefined,
-      url: gdeltUrl,
-      note: r.status === 0 ? "Unreachable / timed out (GDELT GEO is slow — the app allows 20 s)."
-        : r.status !== 200 ? `HTTP ${r.status} from GDELT (body shown below tells us why).`
-        : features === 0 ? "Reached GDELT but it returned 0 features right now (transient — retries next cycle)."
-        : undefined,
+      variants,
+      note: liveGeo ? `GEO works via "${liveGeo.label}" — switching the app to that variant.`
+        : docOk ? "GEO 2.0 endpoint is 404 on every variant but DOC 2.0 is reachable — GDELT's GEO API has moved/retired; the app should fall back to DOC."
+        : "All GDELT endpoints unreachable from the server right now.",
     };
   });
 

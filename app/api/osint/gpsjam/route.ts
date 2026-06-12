@@ -55,19 +55,19 @@ function splitCsvLine(line: string): string[] {
   return out;
 }
 
-function colIndex(headers: string[], names: string[]): number {
-  return headers.findIndex((h) => names.includes(h.trim().toLowerCase()));
-}
-
 function parse(csv: string): Hex[] {
   const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) return [];
   const headers = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
-  const hexCol = colIndex(headers, ["hex", "h3", "cell", "index", "id"]);
-  const badCol = colIndex(headers, ["bad", "bad_count", "count_bad", "numbad", "b"]);
-  const goodCol = colIndex(headers, ["good", "good_count", "count_good", "numgood", "g"]);
-  const totalCol = colIndex(headers, ["count", "total", "n", "num"]);
-  const fracCol = colIndex(headers, ["frac", "bad_frac", "badfrac", "fraction", "f"]);
+  // Substring matching — GPSJam's real columns are e.g.
+  // "hex,count_good_aircraft,count_bad_aircraft", so exact names miss. Order
+  // matters: test bad/good (which also contain "count") before the bare total.
+  const find = (pred: (h: string) => boolean) => headers.findIndex(pred);
+  const hexCol = find((h) => h === "hex" || h === "h3" || h === "cell" || h.includes("hex") || h.includes("h3"));
+  const badCol = find((h) => h.includes("bad"));
+  const goodCol = find((h) => h.includes("good"));
+  const fracCol = find((h) => h.includes("frac") || h.includes("fraction"));
+  const totalCol = find((h) => h === "count" || h === "total" || h === "n" || h === "num");
   if (hexCol < 0) return []; // no recognizable id column → bail (the diag shows the header)
 
   const out: Hex[] = [];
@@ -79,7 +79,8 @@ function parse(csv: string): Hex[] {
     const good = goodCol >= 0 ? Number(cells[goodCol]) : NaN;
     const total = totalCol >= 0 ? Number(cells[totalCol]) : NaN;
     const fracDirect = fracCol >= 0 ? Number(cells[fracCol]) : NaN;
-    const denom = Number.isFinite(total) ? total : (Number.isFinite(good) && Number.isFinite(bad) ? good + bad : NaN);
+    const denom = Number.isFinite(good) && Number.isFinite(bad) ? good + bad
+      : Number.isFinite(total) ? total : NaN;
     const bf = Number.isFinite(fracDirect) ? fracDirect
       : Number.isFinite(bad) && Number.isFinite(denom) && denom > 0 ? bad / denom
       : NaN;
