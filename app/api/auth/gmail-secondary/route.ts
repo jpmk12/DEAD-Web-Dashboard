@@ -50,7 +50,12 @@ export async function GET(request: NextRequest) {
     const state = crypto.randomUUID();
     const authUrl = buildOAuth2Client(resolveRedirectUri(request.nextUrl.origin)).generateAuthUrl({
       access_type: "offline",
-      prompt: "consent",
+      // `select_account` forces Google's account chooser even when the browser
+      // already has an active Google session. This is a "connect a *different*
+      // (secondary) account" flow, so without it Google silently reuses the
+      // signed-in account (usually the primary) instead of letting the user pick
+      // the secondary one. `consent` stays so we always get a refresh token.
+      prompt: "select_account consent",
       scope: [
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/calendar.readonly",
