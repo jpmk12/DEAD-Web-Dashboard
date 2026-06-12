@@ -46,6 +46,7 @@ const FEED_LABELS: Record<string, string> = {
 export default function WeatherTab() {
   const [overlay, setOverlay] = useState<Overlay>("wind");
   const [home, setHome] = useState<TrackedLocation | null>(null);
+  const [trip, setTrip] = useState<TrackedLocation | null>(null);
   const [extras, setExtras] = useState<TrackedLocation[]>([]);
   const [metarStations, setMetarStations] = useState<MetarStation[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -72,9 +73,21 @@ export default function WeatherTab() {
       .catch(() => {});
   }, []);
 
+  // Active TDY trip → a "(TDY)" card that leads the list. Home stays put as its
+  // own card; this is an additive override, never a replacement.
+  useEffect(() => {
+    fetch("/api/trips")
+      .then((r) => r.json())
+      .then((d: { active?: { label: string; lat: number; lon: number } | null }) => {
+        if (d?.active) setTrip({ id: "trip", label: `${d.active.label} (TDY)`, lat: d.active.lat, lon: d.active.lon });
+        else setTrip(null);
+      })
+      .catch(() => {});
+  }, [refreshKey]);
+
   const allLocations = useMemo(
-    () => (home ? [home, ...extras] : extras),
-    [home, extras]
+    () => [trip, home, ...extras].filter((l): l is TrackedLocation => l !== null),
+    [trip, home, extras]
   );
 
   const selected = allLocations[selectedIdx] ?? home ?? null;
