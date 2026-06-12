@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth";
 import { COOKIE_NAME, encryptToken } from "@/lib/secondaryAuth";
 import { STATE_COOKIE, resolveRedirectUri, buildOAuth2Client, getEmailFromToken } from "@/lib/secondaryOAuth";
 
+export const dynamic = "force-dynamic";
+
 // Google redirects here after the user consents (clean path, no query string —
 // see lib/secondaryOAuth.ts for why). Exchanges the code, stores the encrypted
 // token in an httpOnly cookie, and returns the user to the Email tab.
@@ -59,7 +61,9 @@ export async function GET(request: NextRequest) {
     path: "/",
   });
 
-  return NextResponse.redirect(
+  const res = NextResponse.redirect(
     new URL("/?tab=email", process.env.NEXTAUTH_URL ?? request.nextUrl.origin),
   );
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }

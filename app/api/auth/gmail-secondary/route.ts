@@ -4,6 +4,12 @@ import { auth } from "@/lib/auth";
 import { COOKIE_NAME, decryptToken } from "@/lib/secondaryAuth";
 import { STATE_COOKIE, resolveRedirectUri, buildOAuth2Client } from "@/lib/secondaryOAuth";
 
+// Never let a browser cache these responses — mobile Safari in particular caches
+// redirects, and a cached `initiate` → Google redirect pins a stale authorize URL
+// (with a one-time state and a possibly-outdated redirect_uri), so the flow keeps
+// replaying an old request instead of building a fresh one.
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
@@ -58,7 +64,12 @@ export async function GET(request: NextRequest) {
       sameSite: "lax",
       path: "/",
     });
-    return NextResponse.redirect(authUrl);
+    const res = NextResponse.redirect(authUrl);
+    // Belt-and-suspenders against redirect caching (mobile Safari): without this
+    // the browser can pin this initiate→Google hop and replay a stale authorize
+    // URL whose redirect_uri no longer matches what's registered.
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   }
 
   // The OAuth callback now lives at /api/auth/gmail-secondary/callback (a clean
