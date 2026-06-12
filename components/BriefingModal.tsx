@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 import type { TrendMover } from "@/lib/trends";
+import { suggestTrip, type TripSuggestion } from "@/lib/tripSuggest";
 import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPrefetch";
 import { BriefIcon, DigestIcon } from "@/lib/icons";
 import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
@@ -53,6 +54,59 @@ export default function BriefingModal({
   const [digest, setDigest] = useState<Digest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [tripSuggestion, setTripSuggestion] = useState<TripSuggestion | null>(null);
+  const [tripBusy, setTripBusy] = useState(false);
+
+  // Calendar trip auto-suggest (commit 4/4): detect a likely TDY from today's
+  // events and offer one-tap "set as your location". Client-side, decoupled
+  // from the cached AI brief. Suppressed when a trip is already active or the
+  // suggestion was dismissed.
+  useEffect(() => {
+    if (!open || mode !== "briefing") { setTripSuggestion(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const today = new Date().toLocaleDateString("en-CA"); // local YYYY-MM-DD
+        const s = suggestTrip(calendarEvents, today);
+        if (!s) return;
+        let dismissed: string[] = [];
+        try { dismissed = JSON.parse(localStorage.getItem("trip-suggest-dismissed") || "[]"); } catch { /* ignore */ }
+        if (dismissed.includes(s.eventId)) return;
+        // Don't suggest if a trip is already active.
+        const active = await fetch("/api/trips").then((r) => r.json()).then((d) => d.active).catch(() => null);
+        if (cancelled || active) return;
+        setTripSuggestion(s);
+      } catch { /* best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [open, mode, calendarEvents]);
+
+  const acceptTrip = async () => {
+    if (!tripSuggestion) return;
+    setTripBusy(true);
+    try {
+      const res = await fetch("/api/trips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: tripSuggestion.location, label: tripSuggestion.label, startDate: tripSuggestion.startDate, endDate: tripSuggestion.endDate }),
+      });
+      if (!res.ok) { setTripBusy(false); return; }
+      setTripSuggestion(null);
+      // Regenerate the brief so weather + local news reflect the new location.
+      refreshBriefing();
+    } finally {
+      setTripBusy(false);
+    }
+  };
+
+  const dismissTrip = () => {
+    if (!tripSuggestion) return;
+    try {
+      const prev: string[] = JSON.parse(localStorage.getItem("trip-suggest-dismissed") || "[]");
+      localStorage.setItem("trip-suggest-dismissed", JSON.stringify([...new Set([...prev, tripSuggestion.eventId])].slice(-50)));
+    } catch { /* ignore */ }
+    setTripSuggestion(null);
+  };
 
   // "Since you last looked" delta (P5) — pure client-side: articles newer than
   // the surface_state baseline + the current movers snapshot the TrendStrip
@@ -278,6 +332,35 @@ export default function BriefingModal({
           {!loading && briefing && (
             <div className="space-y-6">
               {/* Headline */}
+              {tripSuggestion && (
+                <div className="flex items-center gap-2 flex-wrap rounded-lg border border-sky-500/40 bg-sky-500/[0.07] px-3 py-2">
+                  <span className="text-sky-300 text-sm">📍</span>
+                  <span className="text-xs text-slate-200 leading-snug min-w-0">
+                    Looks like you&apos;re in <span className="font-semibold text-sky-200">{tripSuggestion.label}</span>{" "}
+                    <span className="font-mono text-[11px] text-slate-400">{tripSuggestion.startDate}→{tripSuggestion.endDate}</span>{" "}
+                    <span className="text-slate-500">(from &ldquo;{tripSuggestion.eventTitle.slice(0, 40)}&rdquo;)</span> — set as your current location?
+                  </span>
+                  <span className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={acceptTrip}
+                    disabled={tripBusy}
+                    className="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-sky-500/40 bg-sky-500/15 text-sky-200 hover:bg-sky-500/25 disabled:opacity-40 transition-all flex-shrink-0"
+                  >
+                    {tripBusy ? "Setting…" : "Set location"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={dismissTrip}
+                    disabled={tripBusy}
+                    className="text-slate-500 hover:text-slate-300 text-xs flex-shrink-0"
+                    title="Dismiss"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
               {sinceLast && (
                 <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-1.5">
                   <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Since you last looked</span>
