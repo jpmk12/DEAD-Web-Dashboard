@@ -5,6 +5,9 @@ import { readPrefs, sortByPreference } from "@/lib/articlePrefs";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, isSourceEnabled } from "@/lib/newsSources";
 import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
+import { getActiveTrip } from "@/lib/trips";
+import { gdeltLocalNews } from "@/lib/localNews";
+import { todayInTz } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +18,11 @@ export async function GET() {
   }
 
   const userPrefs = await getUserPrefs();
-  const localFeedKey = userPrefs.localFeedKey ?? "colorado";
+  // Effective local: an active TDY trip overrides the home feed set. If the trip
+  // snapped to a curated base set (feedKey), use it; if not, we pull keyless
+  // GDELT local news for the trip city below.
+  const activeTrip = await getActiveTrip(todayInTz(userPrefs.timezone || "America/Chicago")).catch(() => null);
+  const localFeedKey = activeTrip?.feedKey ?? userPrefs.localFeedKey ?? "colorado";
   const localFeeds = LOCAL_NEWS_SETS[localFeedKey] ?? LOCAL_NEWS_SETS.colorado;
   // Apply the user's disabled-source filter BEFORE fetching — disabling
   // a source means we skip the network round-trip entirely, not just hide
@@ -28,7 +35,14 @@ export async function GET() {
     readPrefs(),
   ]);
 
-  const allItems = feedResults.flatMap((r) => r.items);
+  const feedItems = feedResults.flatMap((r) => r.items);
+  // On a TDY trip with no nearby curated base set, fold in keyless GDELT local
+  // headlines for the trip city so the Local tab still follows you. Best-effort.
+  const localExtra = (activeTrip && !activeTrip.feedKey)
+    ? await gdeltLocalNews(activeTrip.label).catch(() => [])
+    : [];
+
+  const allItems = [...feedItems, ...localExtra];
   const byDate = allItems.sort(
     (a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
   );
