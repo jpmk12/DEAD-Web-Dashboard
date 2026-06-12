@@ -42,11 +42,66 @@ type DraftState =
   | { phase: "saved" }
   | { phase: "error"; message: string };
 
+interface TaskPlan { title: string; due?: string; notes?: string }
+interface EventPlan { summary: string; start: string; end: string; location?: string }
+type ConvertState =
+  | { phase: "idle" }
+  | { phase: "loading"; kind: "task" | "event" }
+  | { phase: "review"; kind: "task"; plan: TaskPlan }
+  | { phase: "review"; kind: "event"; plan: EventPlan }
+  | { phase: "saving" }
+  | { phase: "saved"; what: string }
+  | { phase: "error"; message: string };
+
 export default function EmailCard({ email, selected, onToggle, previousSeen = 0 }: EmailCardProps) {
   const cfg = PRIORITY_CONFIG[email.priority];
   const sender = parseSender(email.from);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [draft, setDraft] = useState<DraftState>({ phase: "idle" });
+  const [convert, setConvert] = useState<ConvertState>({ phase: "idle" });
+
+  // Convert this email → a Google Task or Calendar event. Claude pre-fills from
+  // the email; the user reviews/edits inline before it's created (with a
+  // backlink to the email).
+  const startConvert = async (kind: "task" | "event", e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (convert.phase === "loading" || convert.phase === "saving") return;
+    setConvert({ phase: "loading", kind });
+    try {
+      const res = await fetch("/api/gmail/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: email.id, account: email.account, kind, mode: "plan" }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.plan) { setConvert({ phase: "error", message: d?.error || "Conversion failed" }); return; }
+      if (kind === "task") setConvert({ phase: "review", kind: "task", plan: { title: String(d.plan.title ?? ""), due: d.plan.due, notes: d.plan.notes } });
+      else setConvert({ phase: "review", kind: "event", plan: { summary: String(d.plan.summary ?? ""), start: String(d.plan.start ?? ""), end: String(d.plan.end ?? ""), location: d.plan.location } });
+    } catch {
+      setConvert({ phase: "error", message: "Network error" });
+    }
+  };
+
+  const saveConvert = async () => {
+    if (convert.phase !== "review") return;
+    const { kind, plan } = convert;
+    setConvert({ phase: "saving" });
+    try {
+      const res = await fetch("/api/gmail/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: email.id, account: email.account, kind, mode: "create", plan }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) { setConvert({ phase: "error", message: d?.error || "Couldn't create it" }); return; }
+      setConvert({ phase: "saved", what: kind === "task" ? "task" : "calendar event" });
+    } catch {
+      setConvert({ phase: "error", message: "Network error" });
+    }
+  };
+  // datetime-local <-> ISO helpers (strip seconds/zone for the input).
+  const toLocalInput = (iso: string) => iso.slice(0, 16);
+  const fromLocalInput = (v: string) => (v.length === 16 ? `${v}:00` : v);
 
   // Smart drafted reply: generate → review/edit inline → save as a Gmail
   // DRAFT (never sends; the human sends from Gmail).
@@ -195,6 +250,26 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
               {draft.phase === "loading" ? "…" : "✎"}
             </button>
             <button
+              onClick={(e) => startConvert("task", e)}
+              disabled={convert.phase === "loading" || convert.phase === "saving"}
+              title="Convert to a Google Task"
+              className={`w-6 h-6 flex items-center justify-center rounded-md transition-all text-sm ${
+                convert.phase === "loading" && convert.kind === "task" ? "text-emerald-300/70 cursor-wait" : "text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
+              }`}
+            >
+              {convert.phase === "loading" && convert.kind === "task" ? "…" : "➕"}
+            </button>
+            <button
+              onClick={(e) => startConvert("event", e)}
+              disabled={convert.phase === "loading" || convert.phase === "saving"}
+              title="Convert to a Calendar event"
+              className={`w-6 h-6 flex items-center justify-center rounded-md transition-all text-sm ${
+                convert.phase === "loading" && convert.kind === "event" ? "text-sky-300/70 cursor-wait" : "text-slate-600 hover:text-sky-400 hover:bg-sky-500/10"
+              }`}
+            >
+              {convert.phase === "loading" && convert.kind === "event" ? "…" : "📅"}
+            </button>
+            <button
               onClick={saveToDocs}
               disabled={saveState === "saving" || saveState === "saved"}
               title={
@@ -268,6 +343,53 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
           <p className="mt-2 text-[10px] font-mono text-red-400" onClick={(e) => e.stopPropagation()}>
             ✎ {draft.message} — <button onClick={generateDraft} className="underline hover:text-red-300">retry</button>
           </p>
+        )}
+
+        {/* Email → task/event review panel — edit the AI-extracted plan, then create. */}
+        {convert.phase === "review" && (
+          <div className={`mt-3 rounded-lg border p-2.5 ${convert.kind === "task" ? "border-emerald-500/30 bg-emerald-500/[0.05]" : "border-sky-500/30 bg-sky-500/[0.05]"}`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className={`text-[9px] font-bold uppercase tracking-widest ${convert.kind === "task" ? "text-emerald-300" : "text-sky-300"}`}>
+                {convert.kind === "task" ? "➕ New task" : "📅 New event"}
+              </span>
+              <span className="text-[9px] font-mono text-slate-600">review & edit — links back to this email</span>
+            </div>
+            {convert.kind === "task" ? (
+              <div className="space-y-1.5">
+                <input value={convert.plan.title} onChange={(e) => setConvert({ phase: "review", kind: "task", plan: { ...convert.plan, title: e.target.value } })} placeholder="Task" className="w-full bg-slate-950/60 border border-slate-800 rounded-md px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500/40" />
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] font-mono text-slate-500">Due</label>
+                  <input type="date" value={convert.plan.due ?? ""} onChange={(e) => setConvert({ phase: "review", kind: "task", plan: { ...convert.plan, due: e.target.value || undefined } })} className="bg-slate-950/60 border border-slate-800 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none" />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <input value={convert.plan.summary} onChange={(e) => setConvert({ phase: "review", kind: "event", plan: { ...convert.plan, summary: e.target.value } })} placeholder="Event title" className="w-full bg-slate-950/60 border border-slate-800 rounded-md px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-sky-500/40" />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-[10px] font-mono text-slate-500">Start</label>
+                  <input type="datetime-local" value={toLocalInput(convert.plan.start)} onChange={(e) => setConvert({ phase: "review", kind: "event", plan: { ...convert.plan, start: fromLocalInput(e.target.value) } })} className="bg-slate-950/60 border border-slate-800 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none" />
+                  <label className="text-[10px] font-mono text-slate-500">End</label>
+                  <input type="datetime-local" value={toLocalInput(convert.plan.end)} onChange={(e) => setConvert({ phase: "review", kind: "event", plan: { ...convert.plan, end: fromLocalInput(e.target.value) } })} className="bg-slate-950/60 border border-slate-800 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none" />
+                </div>
+                <input value={convert.plan.location ?? ""} onChange={(e) => setConvert({ phase: "review", kind: "event", plan: { ...convert.plan, location: e.target.value || undefined } })} placeholder="Location (optional)" className="w-full bg-slate-950/60 border border-slate-800 rounded-md px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-sky-500/40" />
+              </div>
+            )}
+            <div className="flex items-center gap-2 mt-2">
+              <button onClick={saveConvert} className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${convert.kind === "task" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" : "border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"}`}>
+                {convert.kind === "task" ? "Add task" : "Add to calendar"}
+              </button>
+              <button onClick={() => setConvert({ phase: "idle" })} className="ml-auto text-slate-600 hover:text-slate-300 text-xs">×</button>
+            </div>
+          </div>
+        )}
+        {convert.phase === "saving" && (
+          <p className="mt-2 text-[10px] font-mono text-slate-500" onClick={(e) => e.stopPropagation()}>Creating…</p>
+        )}
+        {convert.phase === "saved" && (
+          <p className="mt-2 text-[10px] font-mono text-emerald-400" onClick={(e) => e.stopPropagation()}>✓ Added to your {convert.what}.</p>
+        )}
+        {convert.phase === "error" && (
+          <p className="mt-2 text-[10px] font-mono text-red-400" onClick={(e) => e.stopPropagation()}>⚠ {convert.message}</p>
         )}
       </div>
     </div>
