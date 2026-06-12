@@ -6,15 +6,29 @@ import { auth } from "@/lib/auth";
 import { COOKIE_NAME, encryptToken, decryptToken } from "@/lib/secondaryAuth";
 
 const STATE_COOKIE = "gmail_oauth_state";
-const REDIRECT_URI =
-  process.env.GMAIL_SECONDARY_REDIRECT_URI ??
-  "http://localhost:3000/api/auth/gmail-secondary?step=callback";
 
-function buildOAuth2Client() {
+// The redirect_uri MUST be byte-for-byte one of the "Authorized redirect URIs"
+// registered on the Google OAuth client, or Google rejects the authorize
+// request (shown as "redirect_uri_mismatch" on desktop, but as a bare generic
+// "400 … malformed" page on mobile browsers — same error, different rendering).
+//
+// Resolve it per-request so it follows whatever host the user actually reached
+// the app on, instead of a hardcoded localhost default that's never valid in
+// production. An explicit GMAIL_SECONDARY_REDIRECT_URI still wins (trimmed, so a
+// stray newline pasted into the hosting env UI can't break the exact match).
+// Both the initiate and callback legs call this with the same request origin, so
+// the two redirect_uri values always agree (a requirement for the token swap).
+function resolveRedirectUri(request: NextRequest): string {
+  const env = process.env.GMAIL_SECONDARY_REDIRECT_URI?.trim();
+  if (env) return env;
+  return `${request.nextUrl.origin}/api/auth/gmail-secondary?step=callback`;
+}
+
+function buildOAuth2Client(redirectUri: string) {
   return new OAuth2Client(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    REDIRECT_URI
+    process.env.GOOGLE_CLIENT_ID?.trim(),
+    process.env.GOOGLE_CLIENT_SECRET?.trim(),
+    redirectUri
   );
 }
 
@@ -48,10 +62,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ connected: true, email: payload.email });
   }
 
+  // ── Debug ────────────────────────────────────────────────────────────────
+  // Owner-only (the whole GET is behind auth()): returns the exact redirect_uri
+  // the flow will send to Google so it can be matched against the OAuth client's
+  // "Authorized redirect URIs". Surfaces config mismatches without decoding a
+  // cryptic Google error page.
+  if (step === "debug") {
+    return NextResponse.json({
+      redirectUri: resolveRedirectUri(request),
+      fromEnv: !!process.env.GMAIL_SECONDARY_REDIRECT_URI?.trim(),
+      clientIdSet: !!process.env.GOOGLE_CLIENT_ID?.trim(),
+      clientSecretSet: !!process.env.GOOGLE_CLIENT_SECRET?.trim(),
+    });
+  }
+
   // ── Initiate ───────────────────────────────────────────────────────────────
   if (step === "initiate") {
+    if (!process.env.GOOGLE_CLIENT_ID?.trim() || !process.env.GOOGLE_CLIENT_SECRET?.trim()) {
+      return new NextResponse(
+        "Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing).",
+        { status: 500 },
+      );
+    }
     const state = crypto.randomUUID();
-    const authUrl = buildOAuth2Client().generateAuthUrl({
+    const authUrl = buildOAuth2Client(resolveRedirectUri(request)).generateAuthUrl({
       access_type: "offline",
       prompt: "consent",
       scope: [
@@ -83,7 +117,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse("Invalid OAuth state", { status: 400 });
     }
 
-    const oauth2Client = buildOAuth2Client();
+    const oauth2Client = buildOAuth2Client(resolveRedirectUri(request));
     let tokens: { access_token?: string | null; refresh_token?: string | null; expiry_date?: number | null };
     try {
       ({ tokens } = await oauth2Client.getToken(code));
