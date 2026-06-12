@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { recordOpen, recordDeepDive, recordFeedback, normalizeSubject } from "@/lib/newsletterPrefs";
+import { recordOpen, recordDeepDive, recordFeedback, normalizeSubject, setDismissed, setKept } from "@/lib/newsletterPrefs";
 
 const MAX_SUBJECT_LENGTH = 500;
 const VALID_ACTIONS = new Set(["opened", "deep_dive", "useful", "not_useful"]);
+// Id-only actions that sync the cross-device hide/keep sets (no subject needed).
+const ID_ACTIONS = new Set(["hide", "show", "keep", "unkeep"]);
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,18 @@ export async function POST(request: Request) {
   }
 
   const { id, subject, action } = body as Record<string, unknown>;
+
+  // Hide/keep sync is keyed only by the newsletter id — no subject required.
+  if (typeof action === "string" && ID_ACTIONS.has(action)) {
+    if (typeof id !== "string" || !id || id.length > 256) {
+      return NextResponse.json({ error: "id required" }, { status: 400 });
+    }
+    if (action === "hide") await setDismissed(id, true);
+    else if (action === "show") await setDismissed(id, false);
+    else if (action === "keep") await setKept(id, true);
+    else await setKept(id, false);
+    return NextResponse.json({ ok: true });
+  }
 
   if (typeof subject !== "string" || !subject) {
     return NextResponse.json({ error: "subject required" }, { status: 400 });

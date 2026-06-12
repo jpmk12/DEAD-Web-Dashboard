@@ -71,6 +71,16 @@ function sendFeedback(payload: { id?: string; subject: string; action: string })
   }).catch(() => {});
 }
 
+// Persist a hide/keep toggle server-side so the state follows the user across
+// devices (the local sets are still written for instant feedback / offline).
+function syncHideKeep(id: string, action: "hide" | "show" | "keep" | "unkeep") {
+  return fetch("/api/newsletter-feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, action }),
+  }).catch(() => {});
+}
+
 const gmailUrl = (n: NewsletterSummary) => gmailMessageUrl(n.id, n.accountEmail);
 
 function bulletMatchesWatchlist(bullet: string, watchlist: string[]): boolean {
@@ -159,6 +169,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
           clientCache.set(SOURCE_META_KEY, map, CACHE_TTL.NEWSLETTERS);
         }
         setQuietSubjects(Array.isArray(data.quietSubjects) ? data.quietSubjects : []);
+        // Merge the server's hide/keep sets over the locally-loaded ones so the
+        // state is consistent across devices (union keeps any not-yet-synced
+        // local change from this device).
+        if (Array.isArray(data.dismissed)) setDismissed((prev) => new Set([...prev, ...data.dismissed as string[]]));
+        if (Array.isArray(data.kept)) setKept((prev) => new Set([...prev, ...data.kept as string[]]));
       })
       .catch(() => {})
       .finally(() => {
@@ -226,9 +241,10 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     e.stopPropagation();
     setKept((prev) => {
       const next = new Set(prev);
-      if (next.has(n.id)) { next.delete(n.id); } else {
+      if (next.has(n.id)) { next.delete(n.id); syncHideKeep(n.id, "unkeep"); } else {
         next.add(n.id);
         sendFeedback({ id: n.id, subject: n.subject, action: "useful" });
+        syncHideKeep(n.id, "keep");
       }
       saveSet(LS_KEPT, next);
       return next;
@@ -243,6 +259,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       return next;
     });
     sendFeedback({ id: n.id, subject: n.subject, action: "not_useful" });
+    syncHideKeep(n.id, "hide");
   }, []);
 
   const visibleNewsletters = useMemo(
@@ -284,6 +301,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       saveSet(LS_DISMISSED, next);
       return next;
     });
+    quietIds.forEach((id) => syncHideKeep(id, "hide"));
     setQuietDismissed((prev) => {
       const next = new Set(prev);
       actionableQuiet.forEach((k) => next.add(k));
@@ -304,6 +322,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       saveSet(LS_DISMISSED, next);
       return next;
     });
+    ids.forEach((id) => syncHideKeep(id, "hide"));
     setQuietDismissed((prev) => {
       const next = new Set(prev);
       next.add(key);
@@ -626,6 +645,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                       saveSet(LS_DISMISSED, next);
                       return next;
                     });
+                    syncHideKeep(n.id, "show");
                   }}
                   className="text-[10px] text-slate-600 hover:text-slate-300 transition-colors ml-2 flex-shrink-0"
                 >

@@ -108,7 +108,13 @@ export async function GET(request: NextRequest) {
     cookieStore.set(COOKIE_NAME, encrypted, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      // `lax` (not `strict`) so the cookie survives the cross-site OAuth return:
+      // mobile Safari withholds a freshly-set `strict` cookie on the requests
+      // immediately following a cross-site redirect, which made the first
+      // `account=secondary` fetches 401 ("switches to the other account and
+      // errors out"). Matches the refresh write-backs in the gmail/newsletters/
+      // calendar routes and NextAuth's own session cookie.
+      sameSite: "lax",
       maxAge: 60 * 60 * 24 * 30,
       path: "/",
     });

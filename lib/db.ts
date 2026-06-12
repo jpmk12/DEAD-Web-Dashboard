@@ -289,6 +289,10 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // upstream assembly phase, so latency claims cite measured baselines.
   { table: "anthropic_usage", column: "duration_ms",           ddl: "ALTER TABLE anthropic_usage ADD COLUMN duration_ms INT NULL" },
   { table: "anthropic_usage", column: "assembly_ms",           ddl: "ALTER TABLE anthropic_usage ADD COLUMN assembly_ms INT NULL" },
+  // Cross-device sync of the newsletter hide/keep sets (previously localStorage
+  // only, so a newsletter dismissed on desktop reappeared on mobile).
+  { table: "newsletter_prefs", column: "dismissed",            ddl: "ALTER TABLE newsletter_prefs ADD COLUMN dismissed JSON NULL" },
+  { table: "newsletter_prefs", column: "kept",                 ddl: "ALTER TABLE newsletter_prefs ADD COLUMN kept      JSON NULL" },
 ];
 
 interface ColumnRow extends RowDataPacket { cnt: number }

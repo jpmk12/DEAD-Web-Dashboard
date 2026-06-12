@@ -4,8 +4,17 @@ import { getDb } from "./db";
 export interface NewsletterPrefs {
   openCounts: Record<string, number>;
   feedback: Record<string, "useful" | "not_useful">;
+  // Cross-device hide/keep sets — newsletter (Gmail message) ids the user has
+  // dismissed or pinned. Persisted server-side so the state follows the user
+  // between desktop and mobile. Bounded (see CAP) since ids age out.
+  dismissed: string[];
+  kept: string[];
   lastUpdated: string;
 }
+
+// Newsletters are fetched newer_than:7d, so ids older than the most recent few
+// hundred are never matched again — keep the lists bounded.
+const ID_SET_CAP = 400;
 
 // Extract series name so daily variants ("MORNING DEFENSE: May 18" and
 // "MORNING DEFENSE: May 17") share the same preference key.
@@ -22,7 +31,13 @@ export function normalizeSubject(subject: string): string {
 interface PrefsRow extends RowDataPacket {
   open_counts: Record<string, number> | null;
   feedback: Record<string, "useful" | "not_useful"> | null;
+  dismissed: string[] | null;
+  kept: string[] | null;
   last_updated: Date;
+}
+
+function asStrArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
 function asNumRecord(v: unknown): Record<string, number> {
@@ -52,14 +67,16 @@ let writeQueue: Promise<void> = Promise.resolve();
 async function readPrefsRaw(): Promise<NewsletterPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT open_counts, feedback, last_updated FROM newsletter_prefs WHERE id = 1"
+    "SELECT open_counts, feedback, dismissed, kept, last_updated FROM newsletter_prefs WHERE id = 1"
   );
   if (rows.length === 0) {
-    return { openCounts: {}, feedback: {}, lastUpdated: new Date(0).toISOString() };
+    return { openCounts: {}, feedback: {}, dismissed: [], kept: [], lastUpdated: new Date(0).toISOString() };
   }
   return {
     openCounts: asNumRecord(rows[0].open_counts),
     feedback: asFeedback(rows[0].feedback),
+    dismissed: asStrArray(rows[0].dismissed),
+    kept: asStrArray(rows[0].kept),
     lastUpdated: rows[0].last_updated.toISOString(),
   };
 }
@@ -72,13 +89,15 @@ export async function readPrefs(): Promise<NewsletterPrefs> {
 async function writePrefs(prefs: NewsletterPrefs): Promise<void> {
   const pool = await getDb();
   await pool.execute(
-    `INSERT INTO newsletter_prefs (id, open_counts, feedback, last_updated)
-     VALUES (1, CAST(? AS JSON), CAST(? AS JSON), ?)
+    `INSERT INTO newsletter_prefs (id, open_counts, feedback, dismissed, kept, last_updated)
+     VALUES (1, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?)
      ON DUPLICATE KEY UPDATE
        open_counts  = VALUES(open_counts),
        feedback     = VALUES(feedback),
+       dismissed    = VALUES(dismissed),
+       kept         = VALUES(kept),
        last_updated = VALUES(last_updated)`,
-    [JSON.stringify(prefs.openCounts), JSON.stringify(prefs.feedback), new Date()]
+    [JSON.stringify(prefs.openCounts), JSON.stringify(prefs.feedback), JSON.stringify(prefs.dismissed), JSON.stringify(prefs.kept), new Date()]
   );
 }
 
@@ -130,6 +149,20 @@ export async function recordFeedback(
     feedback: { ...prefs.feedback, [id]: value },
   }));
 }
+
+// Add/remove an id from the hide or keep set (most-recent-kept, capped). `on`
+// adds, `!on` removes. Returns once persisted so the write is durable.
+function toggleIdSet(field: "dismissed" | "kept", id: string, on: boolean): Promise<void> {
+  if (!id) return Promise.resolve();
+  return updatePrefs((prefs) => {
+    const without = (prefs[field] ?? []).filter((x) => x !== id);
+    const next = on ? [...without, id].slice(-ID_SET_CAP) : without;
+    return { ...prefs, [field]: next };
+  });
+}
+
+export const setDismissed = (id: string, on: boolean) => toggleIdSet("dismissed", id, on);
+export const setKept = (id: string, on: boolean) => toggleIdSet("kept", id, on);
 
 export function buildPrefsContext(prefs: NewsletterPrefs): string {
   const topSeries = Object.entries(prefs.openCounts)

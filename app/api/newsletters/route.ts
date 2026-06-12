@@ -130,7 +130,7 @@ export async function GET() {
     // "No key facts extracted" placeholder. Cache hits still serve normally.
     if (!isFeatureEnabled("newsletters", userPrefs)) {
       const final = sortByPreference([...cached.values()], prefs);
-      return NextResponse.json({ newsletters: final, quietSubjects: computeQuietSubjects(final), sources: sourceMeta, disabled: true });
+      return NextResponse.json({ newsletters: final, quietSubjects: computeQuietSubjects(final), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, disabled: true });
     }
 
     try {
@@ -205,9 +205,9 @@ export async function GET() {
   // If no emails were fetched at all, fall back to everything in cache
   if (allEmails.length === 0) {
     const allCached = await getAllCachedSummaries();
-    if (allCached.length === 0) return NextResponse.json({ newsletters: [], quietSubjects: [], sources: sourceMeta });
+    if (allCached.length === 0) return NextResponse.json({ newsletters: [], quietSubjects: [], sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept });
     const sorted = sortByPreference(allCached, prefs);
-    return NextResponse.json({ newsletters: sorted, quietSubjects: computeQuietSubjects(sorted), sources: sourceMeta });
+    return NextResponse.json({ newsletters: sorted, quietSubjects: computeQuietSubjects(sorted), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept });
   }
 
   // Merge cached + new summaries, preserving fetch order
@@ -220,5 +220,7 @@ export async function GET() {
     newsletters: finalSorted,
     quietSubjects: computeQuietSubjects(finalSorted),
     sources: sourceMeta,
+    dismissed: prefs.dismissed,
+    kept: prefs.kept,
   });
 }
