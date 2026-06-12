@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 // it's never part of the normal page load.
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function probe(url: string, headers: Record<string, string>, timeoutMs = 20_000) {
   const ctrl = new AbortController();
@@ -40,33 +41,36 @@ export async function GET() {
 
   const UA = "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)";
 
-  // GDELT — the keyless conflict-density source. The live deployment reported a
-  // generic Apache 404 on /api/v2/geo/geo, so probe several variants plus the
-  // DOC endpoint (a reachability control) to pin down endpoint-dead vs
-  // query/format issue in a single run.
+  // GDELT — the keyless conflict-density source. The live deployment showed a
+  // generic Apache 404 on /api/v2/geo/geo (so the path is gone, not our query),
+  // while the DOC endpoint returned GDELT's own 429 (alive but rate-limited to
+  // 1 req / 5 s). Probe SERIALLY with >5 s spacing — both to respect that limit
+  // and so a single-segment geo path gets a clean read instead of a self-
+  // inflicted 429.
   const gdeltVariants: { label: string; url: string }[] = [
-    { label: "geo GeoJSON", url: "https://api.gdeltproject.org/api/v2/geo/geo?query=conflict&format=GeoJSON&timespan=1d" },
-    { label: "geo geojson", url: "https://api.gdeltproject.org/api/v2/geo/geo?query=conflict&format=geojson&timespan=1d" },
-    { label: "geo (our query)", url:
-      "https://api.gdeltproject.org/api/v2/geo/geo?query=" +
-      encodeURIComponent("(airstrike OR shelling OR \"armed clashes\")") + "&format=GeoJSON&timespan=2d" },
+    { label: "geo/geo", url: "https://api.gdeltproject.org/api/v2/geo/geo?query=conflict&format=geojson&timespan=1d" },
+    { label: "geo (single segment)", url: "https://api.gdeltproject.org/api/v2/geo?query=conflict&format=geojson&timespan=1d" },
     { label: "doc control", url: "https://api.gdeltproject.org/api/v2/doc/doc?query=conflict&mode=artlist&format=json&timespan=1d&maxrecords=5" },
   ];
-  const gdeltP = Promise.all(gdeltVariants.map(async (v) => {
-    const r = await probe(v.url, { "User-Agent": UA });
-    let features: number | undefined;
-    if (r.status === 200 && r.text) { try { const j = JSON.parse(r.text); features = (j?.features ?? j?.articles ?? []).length; } catch { /* non-JSON */ } }
-    return { label: v.label, status: r.status, ms: r.ms, features, body: r.status !== 200 ? bodySnippet(r.text) : undefined };
-  })).then((variants) => {
+  const gdeltP = (async () => {
+    const variants: { label: string; status: number; ms: number; features?: number; body?: string }[] = [];
+    for (let i = 0; i < gdeltVariants.length; i++) {
+      if (i > 0) await sleep(5_200); // GDELT: 1 request / 5 s
+      const v = gdeltVariants[i];
+      const r = await probe(v.url, { "User-Agent": UA });
+      let features: number | undefined;
+      if (r.status === 200 && r.text) { try { const j = JSON.parse(r.text); features = (j?.features ?? j?.articles ?? []).length; } catch { /* non-JSON */ } }
+      variants.push({ label: v.label, status: r.status, ms: r.ms, features, body: r.status !== 200 ? bodySnippet(r.text) : undefined });
+    }
     const liveGeo = variants.find((v) => v.label.startsWith("geo") && v.status === 200);
-    const docOk = variants.find((v) => v.label === "doc control")?.status === 200;
+    const docOk = variants.find((v) => v.label === "doc control" && v.status === 200);
     return {
       variants,
-      note: liveGeo ? `GEO works via "${liveGeo.label}" — switching the app to that variant.`
-        : docOk ? "GEO 2.0 endpoint is 404 on every variant but DOC 2.0 is reachable — GDELT's GEO API has moved/retired; the app should fall back to DOC."
-        : "All GDELT endpoints unreachable from the server right now.",
+      note: liveGeo ? `GEO works via "${liveGeo.label}" — repoint the app to that path.`
+        : docOk ? "Every GEO path 404s but DOC 2.0 is alive — GDELT's GEO API has moved/retired; repoint the conflict layer to DOC or retire it."
+        : "GEO 404s and DOC didn't return 200 either (likely the 1-req/5s rate limit) — re-run once.",
     };
-  });
+  })();
 
   // GPSJam — daily H3 file; today may not be published yet, so the app falls
   // back to yesterday. Report both.
