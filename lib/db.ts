@@ -219,6 +219,21 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_trips_dates (start_date, end_date)
   ) ENGINE=InnoDB`,
 
+  // Keep-in-touch / relationship cadence. A roster of important people, each
+  // with a check-in cadence; "last_contacted" is set manually (mark-contacted),
+  // and the app surfaces who's due/overdue on the Calendar tab.
+  `CREATE TABLE IF NOT EXISTS contacts (
+    id             VARCHAR(36)  NOT NULL PRIMARY KEY,
+    name           VARCHAR(160) NOT NULL,
+    email          VARCHAR(254) NULL,
+    cadence_days   INT          NOT NULL DEFAULT 90,
+    tier           VARCHAR(24)  NULL,
+    last_contacted VARCHAR(10)  NULL,
+    notes          TEXT         NULL,
+    created_at     DATETIME(3)  NOT NULL,
+    INDEX idx_contacts_name (name)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,
