@@ -111,7 +111,7 @@ const glyph = (html: string, size = 14) =>
   L.divIcon({ html: `<div style="line-height:1;text-shadow:0 0 3px #020617,0 0 3px #020617">${html}</div>`, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 const enrouteIcon = glyph(`<span style="color:#34d399;font-size:13px">✈</span>`);
 const crfIcon = glyph(`<span style="color:#5eead4;font-size:16px;font-weight:900">★</span>`, 16);
-const homeIcon = glyph(`<span style="color:#cbd5e1;font-size:13px">⌂</span>`);
+const homeIcon = glyph(`<span style="color:#34d399;font-size:18px;font-weight:900">⌂</span>`, 18);
 const trackedIcon = glyph(`<span style="color:#94a3b8;font-size:11px">◇</span>`, 11);
 const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
@@ -587,7 +587,11 @@ export default function CrisisMap() {
             ))}
             {on.tracked && tracked.map((t, i) => (
               <Marker key={`tr-${i}`} position={[t.lat, t.lon]} icon={t.home ? homeIcon : trackedIcon}>
-                {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{t.label}</Tooltip>}
+                {/* Home is a singular anchor — label it whenever the labels layer
+                    is on, not only when zoomed in like the other node labels. */}
+                {(t.home ? on.labels : showNodeLabels) && (
+                  <Tooltip permanent direction="right" offset={[8, 0]} className={t.home ? "cm-label cm-home" : "cm-label"}>{t.label}</Tooltip>
+                )}
                 <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.label}</div><div className="text-slate-500">{t.home ? "Home" : "Tracked location"}</div></div></Popup>
               </Marker>
             ))}
@@ -636,7 +640,7 @@ export default function CrisisMap() {
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
               <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#f87171" }}>◆</span> ACLED strike · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW</div>
-              <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span className="text-slate-300">⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
+              <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span style={{ color: "#34d399", fontWeight: 900 }}>⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {AF.reachNm.toLocaleString()} nm · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge</div>
             </div>
           ) : (
