@@ -13,6 +13,9 @@ export async function GET() {
   if (!session?.accessToken) return NextResponse.json({ points: [] }, { status: 401 });
   const points = await getConflictPoints();
   // ok=false means GDELT was unreachable / returned nothing — "source down",
-  // not "the world is quiet". The map shows a source badge for it.
-  return NextResponse.json({ points, ok: getConflictHealth().ok });
+  // not "the world is quiet". stale=true means we're serving recent cached
+  // points after a failed refresh (a transient blip, not down). The map shows a
+  // source badge from these.
+  const h = getConflictHealth();
+  return NextResponse.json({ points, ok: h.ok, stale: h.stale ?? false });
 }

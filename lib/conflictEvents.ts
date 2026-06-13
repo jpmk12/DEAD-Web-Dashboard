@@ -13,13 +13,31 @@ import { recordDailySignals, utcDate } from "./trends";
 export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string }
 
 const TTL = 30 * 60 * 1000;
+// Serve the last good points for a few hours on an upstream failure before
+// giving up — GDELT GEO is routinely slow and rate-limited (1 req/5s), so a
+// single failed cycle shouldn't blank the layer or read as "source down".
+const STALE_TTL = 3 * 60 * 60 * 1000;
 let cache: { points: ConflictPoint[]; expires: number } | null = null;
+let staleCache: { points: ConflictPoint[]; at: number } | null = null;
 
 // Health of the most recent upstream attempt, so the API layer can tell the
 // UI "GDELT is down" apart from "the world is quiet" (it never is, for this
-// query — empty means failure in practice).
-let lastFetch: { ok: boolean; at: number } = { ok: false, at: 0 };
-export function getConflictHealth(): { ok: boolean; at: number } { return lastFetch; }
+// query — empty means failure in practice). `stale` = served last-good points
+// after a failed refresh, so the UI can show "cached" rather than "down".
+let lastFetch: { ok: boolean; at: number; stale?: boolean } = { ok: false, at: 0 };
+export function getConflictHealth(): { ok: boolean; at: number; stale?: boolean } { return lastFetch; }
+
+// On any upstream failure (unreachable, non-200, or an empty/changed-shape
+// GeoJSON), fall back to the last good points if they're recent enough; only
+// report a true "source down" once even the stale copy has aged out.
+function conflictFallback(): ConflictPoint[] {
+  if (staleCache && Date.now() - staleCache.at < STALE_TTL) {
+    lastFetch = { ok: true, at: staleCache.at, stale: true };
+    return staleCache.points;
+  }
+  lastFetch = { ok: false, at: Date.now() };
+  return [];
+}
 
 const QUERY =
   '("air strike" OR airstrike OR "missile strike" OR "drone strike" OR ' +
@@ -65,7 +83,7 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
     const tid = setTimeout(() => ctrl.abort(), 25_000);
     const res = await fetch(GDELT_URL, { signal: ctrl.signal, headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" }, cache: "no-store" });
     clearTimeout(tid);
-    if (!res.ok) { lastFetch = { ok: false, at: Date.now() }; return []; }
+    if (!res.ok) return conflictFallback();
     const data: unknown = await res.json();
     const feats = Array.isArray((data as { features?: unknown[] })?.features) ? (data as { features: unknown[] }).features : [];
     const points: ConflictPoint[] = [];
@@ -80,11 +98,12 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
     }
     points.sort((a, b) => b.count - a.count);
     const top = points.slice(0, 250);
-    // Only cache non-empty results — the query spans 2 days of global kinetic
-    // terms, so a truly empty GeoJSON means GDELT hiccuped or changed shape;
-    // caching it would blank the conflict layer for 30 min instead of retrying.
-    if (top.length > 0) cache = { points: top, expires: Date.now() + TTL };
-    lastFetch = { ok: top.length > 0, at: Date.now() };
+    // An empty GeoJSON for a 2-day global kinetic query means GDELT hiccuped or
+    // changed shape, never a quiet world — serve stale rather than blanking.
+    if (top.length === 0) return conflictFallback();
+    cache = { points: top, expires: Date.now() + TTL };
+    staleCache = { points: top, at: Date.now() };
+    lastFetch = { ok: true, at: Date.now() };
 
     // Trend recorder (P1): GDELT points have no stable upstream id, so each
     // place is counted once per UTC day (id embeds the date) — presence-based
@@ -101,7 +120,6 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
     }
     return top;
   } catch {
-    lastFetch = { ok: false, at: Date.now() };
-    return [];
+    return conflictFallback();
   }
 }
