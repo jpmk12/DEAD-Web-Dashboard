@@ -530,6 +530,61 @@ attribution is mandatory** — the Crisis map renders "Armed Conflict Location &
 Event Data Project (ACLED) — acleddata.com" in the sources line + popups; keep it. `lib/acled.ts` is
 pure `fetch` (no new npm dep, so `grep -c esbuild package-lock.json` stays `0`).
 
+### Secondary Gmail account (the "Add account" OAuth flow)
+The Email tab can connect a **second** Google account alongside the NextAuth
+primary login. It's a hand-rolled OAuth flow (NOT NextAuth) in
+`app/api/auth/gmail-secondary/` with shared helpers in `lib/secondaryOAuth.ts`
+and token crypto in `lib/secondaryAuth.ts`. The encrypted token lives in an
+httpOnly cookie (`secondary_gmail`), not the DB. Getting this working end-to-end
+hit several non-obvious snags — record of what each requires so it isn't
+rediscovered:
+
+1. **Callback must be a clean path, no query string.**
+   `redirect_uri` = `…/api/auth/gmail-secondary/callback` (its own route), NOT the
+   old `…/api/auth/gmail-secondary?step=callback`. Google's authorize endpoint
+   rejects some query-string redirect URIs as malformed — which renders on
+   desktop as `Error 400: redirect_uri_mismatch` but on **mobile as a bare "400 …
+   malformed" page** (same error, stripped rendering — don't be misled into
+   thinking it's a mobile-only bug). The primary NextAuth callback works because
+   it's already a clean path (`/api/auth/callback/google`).
+2. **`redirect_uri` is resolved per-request, env-pinned, normalized.**
+   `resolveRedirectUri()` prefers `GMAIL_SECONDARY_REDIRECT_URI` (trimmed —
+   a trailing newline from the hosting env UI silently breaks Google's
+   byte-for-byte match) but normalizes any value to `${origin}/…/callback`, so a
+   legacy `?step=callback` env value is transparently upgraded. If unset it
+   derives from the request origin (never a localhost default in prod). It is
+   identical across devices, so a working desktop + failing mobile is **never** a
+   redirect-URI difference — it's caching or account selection (below).
+3. **Register the exact callback in Google Cloud Console** under the OAuth client
+   whose ID matches `GOOGLE_CLIENT_ID` (the *same* client primary uses). Verify
+   against that client ID specifically — a "duplicate not allowed" message means
+   it's already there, but possibly on the wrong client or with a stray trailing
+   slash/space that blocks the exact match. Changes can take minutes-to-hours to
+   propagate. `GET ?step=debug` (owner-only) returns the exact `redirectUri` the
+   flow will send plus `fromEnv`/`clientIdSet`/`clientSecretSet` for diffing
+   against the Console without decoding a Google error page.
+4. **Redirects are `no-store` + `force-dynamic`.** Without it, mobile Safari (and
+   sometimes Chrome) caches the `initiate`→Google hop and replays a stale
+   authorize URL. An already-cached browser still needs a one-time site-data
+   clear; the headers only stop *re-*caching.
+5. **`prompt: "select_account consent"`.** This is an "add a *different* account"
+   flow, so `select_account` forces Google's account chooser — otherwise Google
+   silently reuses the browser's active session (usually the primary), which is
+   why it appeared to work only in incognito (no active session to reuse).
+   `consent` stays so we always get a refresh token.
+6. **OAuth consent screen / Workspace gates** (Cloud Console → OAuth consent
+   screen, and admin.google.com for Workspace accounts): must be **External**
+   with the connecting account listed under **Test users**; for a Workspace
+   account, the org's **API controls → third-party app access** must allow it (or
+   trust the client ID). Restricted scope `gmail.modify` + Testing status means
+   **refresh tokens expire after 7 days** → the secondary silently disconnects
+   weekly; publish the consent screen to **Production** (bypass the unverified-app
+   warning for own accounts) to stop that.
+
+Scopes requested: `gmail.modify` + `calendar.readonly`. `lib/secondaryOAuth.ts`
+is `google-auth-library` + `@googleapis/gmail` only (no new esbuild —
+`grep -c esbuild package-lock.json` stays `0`).
+
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
 embeds, GDELT, and ACLED (`acleddata.com`). The only non-HTTP connection is to
