@@ -77,9 +77,6 @@ function endOfToday(): number {
   d.setHours(23, 59, 59, 999);
   return d.getTime();
 }
-function isToday(ms: number): boolean {
-  return ms >= startOfToday() && ms <= endOfToday();
-}
 function startOfTomorrow(): number {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -91,9 +88,6 @@ function endOfTomorrow(): number {
   d.setDate(d.getDate() + 1);
   d.setHours(23, 59, 59, 999);
   return d.getTime();
-}
-function isTomorrow(ms: number): boolean {
-  return ms >= startOfTomorrow() && ms <= endOfTomorrow();
 }
 function ms(iso?: string): number {
   if (!iso) return 0;
@@ -142,6 +136,40 @@ function senderName(from: string): string {
 function localTodayStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Local calendar date string for today + an offset in days (0 = today, 1 =
+// tomorrow), in the browser's tz — same local basis as startOfToday().
+function localDateStr(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function localDateAddStr(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  dt.setDate(dt.getDate() + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+// Does an event cover the given LOCAL calendar date? All-day events carry
+// floating date-only start/end (end EXCLUSIVE) and must be compared as calendar
+// dates — converting them to an instant parses them as UTC midnight, which in
+// behind-UTC zones lands on the previous evening and leaks an all-day holiday
+// (e.g. "Flag Day") into BOTH today and tomorrow. Timed events keep instant math.
+function eventCoversLocalDate(
+  e: { start: string; end: string; isAllDay?: boolean },
+  dayStr: string,
+  dayStart: number,
+  dayEnd: number,
+): boolean {
+  if (e.isAllDay) {
+    const s = (e.start || "").slice(0, 10);
+    if (!s) return false;
+    const rawEnd = (e.end || "").slice(0, 10);
+    const endExclusive = rawEnd && rawEnd > s ? rawEnd : localDateAddStr(s, 1);
+    return s <= dayStr && dayStr < endExclusive;
+  }
+  const t0 = ms(e.start), t1 = ms(e.end);
+  return (t0 >= dayStart && t0 <= dayEnd) || (t0 < dayStart && t1 > dayStart);
 }
 function taskDueState(due?: string): "overdue" | "today" | "future" | "none" {
   if (!due) return "none";
@@ -424,11 +452,11 @@ export default function GlanceTab({
 
   // ── Derived: today's schedule ──
   const todayEvents = calendarEvents
-    .filter((e) => isToday(ms(e.start)) || (ms(e.start) < startOfToday() && ms(e.end) > startOfToday()))
+    .filter((e) => eventCoversLocalDate(e, localDateStr(0), startOfToday(), endOfToday()))
     .sort((a, b) => ms(a.start) - ms(b.start))
     .slice(0, 6);
   const tomorrowEvents = calendarEvents
-    .filter((e) => isTomorrow(ms(e.start)) || (ms(e.start) < startOfTomorrow() && ms(e.end) > startOfTomorrow()))
+    .filter((e) => eventCoversLocalDate(e, localDateStr(1), startOfTomorrow(), endOfTomorrow()))
     .sort((a, b) => ms(a.start) - ms(b.start))
     .slice(0, 6);
 
