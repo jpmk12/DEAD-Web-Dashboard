@@ -133,6 +133,7 @@ export default function WeatherTab() {
               location={loc}
               active={i === selectedIdx}
               onSelect={() => setSelectedIdx(i)}
+              tag={loc.id === "home" ? "home" : loc.id === "trip" ? "tdy" : undefined}
             />
           ))}
         </div>
@@ -141,7 +142,7 @@ export default function WeatherTab() {
       {allLocations.length === 0 && (
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 text-center">
           <p className="text-xs text-slate-500 font-mono">
-            No locations configured. Set a home location in <span className="text-emerald-400">Preferences → Local Area</span> or
+            No locations configured. Set a home location in <span className="text-emerald-400">Preferences → Home Location</span> or
             add tracked locations under <span className="text-emerald-400">Tracked Locations</span>.
           </p>
         </div>

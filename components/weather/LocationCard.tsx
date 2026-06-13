@@ -8,6 +8,7 @@ interface LocationCardProps {
   location: TrackedLocation;
   active: boolean;
   onSelect: () => void;
+  tag?: "home" | "tdy";
 }
 
 const SEVERITY_COLOUR: Record<WeatherAlert["severity"], string> = {
@@ -20,7 +21,7 @@ const SEVERITY_COLOUR: Record<WeatherAlert["severity"], string> = {
 
 // Compact location card. Shows current temp/condition, today's high/low,
 // any active NWS alert, and the next 4 forecast periods.
-export default function LocationCard({ location, active, onSelect }: LocationCardProps) {
+export default function LocationCard({ location, active, onSelect, tag }: LocationCardProps) {
   const [periods, setPeriods] = useState<ForecastPeriod[]>([]);
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +62,17 @@ export default function LocationCard({ location, active, onSelect }: LocationCar
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
+          {tag && (
+            <span
+              className={`inline-flex items-center gap-1 mb-0.5 px-1.5 py-0.5 rounded border text-[8px] font-bold uppercase tracking-wider ${
+                tag === "home"
+                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                  : "bg-amber-500/15 text-amber-300 border-amber-500/40"
+              }`}
+            >
+              {tag === "home" ? "🏠 Home" : "✈ TDY"}
+            </span>
+          )}
           <p className="text-xs font-bold text-slate-200 truncate">{location.label}</p>
           <p className="text-[9px] text-slate-600 font-mono">
             {location.lat.toFixed(2)}, {location.lon.toFixed(2)}
