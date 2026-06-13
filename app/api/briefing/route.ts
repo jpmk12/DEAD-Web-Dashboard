@@ -19,16 +19,23 @@ export const dynamic = "force-dynamic";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-// YYYY-MM-DD of an event's start, in the user's tz, vs today. All-day events
-// carry a date-only start; timed events carry an ISO datetime — both format
-// correctly through Intl with the tz applied.
-function isEventToday(start: string, tz: string): boolean {
+// Event's calendar date (YYYY-MM-DD) for day comparisons. All-day events carry a
+// floating date-only start and must be taken AS-IS — running them through
+// new Date()/Intl treats them as UTC midnight, which in behind-UTC zones (e.g.
+// CDT) drifts to the previous day, so a tomorrow holiday reads as "today".
+// Timed events are real instants → format in the user's tz.
+function eventYmd(start: string, tz: string, isAllDay?: boolean): string {
+  if (isAllDay) return (start || "").slice(0, 10);
   const d = new Date(start);
-  if (isNaN(d.getTime())) return false;
+  if (isNaN(d.getTime())) return "";
   try {
-    const ev = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-    return ev === todayInTz(tz);
-  } catch { return false; }
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  } catch { return ""; }
+}
+
+function isEventToday(start: string, tz: string, isAllDay?: boolean): boolean {
+  const ymd = eventYmd(start, tz, isAllDay);
+  return !!ymd && ymd === todayInTz(tz);
 }
 
 function eventTimeInTz(start: string, tz: string): string {
@@ -42,17 +49,20 @@ function eventTimeInTz(start: string, tz: string): string {
 // Relative day label for an event, in the user's tz vs today: TODAY / TOMORROW /
 // "Mon Jun 15". Pre-computed server-side so the model can't mislabel a future
 // event as "tonight" (it never sees a raw ISO date to (mis)interpret).
-function eventDayLabel(start: string, tz: string, todayYmd: string): string {
-  const d = new Date(start);
-  if (isNaN(d.getTime())) return "";
+function eventDayLabel(start: string, tz: string, todayYmd: string, isAllDay?: boolean): string {
+  const ymd = eventYmd(start, tz, isAllDay);
+  if (!ymd) return "";
+  if (ymd === todayYmd) return "TODAY";
+  const tomorrow = new Date(`${todayYmd}T00:00:00Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  if (ymd === tomorrow.toISOString().slice(0, 10)) return "TOMORROW";
   try {
-    const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-    if (ymd === todayYmd) return "TODAY";
-    const tomorrow = new Date(`${todayYmd}T00:00:00Z`);
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-    if (ymd === tomorrow.toISOString().slice(0, 10)) return "TOMORROW";
-    return new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric" }).format(d);
-  } catch { return ""; }
+    // All-day: label from the floating date at noon UTC, formatted in UTC, so the
+    // weekday matches the calendar date with no tz drift. Timed: the real instant
+    // in the user's tz.
+    const labelDate = isAllDay ? new Date(`${ymd}T12:00:00Z`) : new Date(start);
+    return new Intl.DateTimeFormat("en-US", { timeZone: isAllDay ? "UTC" : tz, weekday: "short", month: "short", day: "numeric" }).format(labelDate);
+  } catch { return ymd; }
 }
 
 const SYSTEM_PROMPT = `You are a senior national security briefer preparing a morning brief for a military professional. Be concise, direct, and actionable. Return ONLY a JSON object with no markdown fences and no explanation:
@@ -133,7 +143,7 @@ export async function POST(request: Request) {
 
   const calendarItems = (events as CalendarEvent[]).slice(0, 10)
     .map((e) => {
-      const day = eventDayLabel(e.start, tz, cacheKey);
+      const day = eventDayLabel(e.start, tz, cacheKey, e.isAllDay);
       const time = e.isAllDay ? "" : eventTimeInTz(e.start, tz);
       const when = e.isAllDay ? `${day} (all day)` : `${day} ${time}`.trim();
       return `${when} — ${e.title}${e.location ? ` @ ${e.location}` : ""}`;
@@ -219,7 +229,7 @@ export async function POST(request: Request) {
     for (const e of (events as CalendarEvent[])) {
       const loc = (e.location ?? "").trim();
       if (!loc || seenLoc.has(loc.toLowerCase())) continue;
-      if (!isEventToday(e.start, tz)) continue;
+      if (!isEventToday(e.start, tz, e.isAllDay)) continue;
       seenLoc.add(loc.toLowerCase());
       const time = e.isAllDay ? "" : eventTimeInTz(e.start, tz);
       todayEvents.push({ label: `${e.title}${time ? ` ${time}` : ""} @ ${loc}`, loc });
