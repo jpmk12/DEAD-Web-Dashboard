@@ -18,6 +18,8 @@ export interface Trip {
   tz: string | null;
   feedKey: string | null; // snapped nearest base-news set, or null → GDELT fallback
   notes: string | null;
+  source: "manual" | "calendar"; // 'calendar' = auto-synced from a calendar event
+  eventId: string | null;        // source calendar event id, for idempotent upsert
   createdAt: string;
 }
 
@@ -82,20 +84,22 @@ export function tripProgress(trip: Trip, today: string): { day: number; days: nu
 interface TripRow extends RowDataPacket {
   id: string; label: string; location: string; lat: number; lon: number;
   start_date: string; end_date: string; tz: string | null; feed_key: string | null;
-  notes: string | null; created_at: Date;
+  notes: string | null; source: string | null; event_id: string | null; created_at: Date;
 }
 function rowToTrip(r: TripRow): Trip {
   return {
     id: r.id, label: r.label, location: r.location, lat: r.lat, lon: r.lon,
     startDate: r.start_date, endDate: r.end_date, tz: r.tz, feedKey: r.feed_key,
-    notes: r.notes, createdAt: r.created_at.toISOString(),
+    notes: r.notes, source: r.source === "calendar" ? "calendar" : "manual",
+    eventId: r.event_id, createdAt: r.created_at.toISOString(),
   };
 }
+const TRIP_COLS = "id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at";
 
 export async function listTrips(): Promise<Trip[]> {
   const pool = await getDb();
   const [rows] = await pool.query<TripRow[]>(
-    "SELECT id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, created_at FROM trips ORDER BY start_date DESC",
+    `SELECT ${TRIP_COLS} FROM trips ORDER BY start_date DESC`,
   );
   return rows.map(rowToTrip);
 }
@@ -103,7 +107,7 @@ export async function listTrips(): Promise<Trip[]> {
 export async function getActiveTrip(today: string): Promise<Trip | null> {
   const pool = await getDb();
   const [rows] = await pool.query<TripRow[]>(
-    "SELECT id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, created_at FROM trips WHERE start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1",
+    `SELECT ${TRIP_COLS} FROM trips WHERE start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1`,
     [today, today],
   );
   return rows[0] ? rowToTrip(rows[0]) : null;
@@ -112,26 +116,69 @@ export async function getActiveTrip(today: string): Promise<Trip | null> {
 export async function createTrip(t: {
   label: string; location: string; lat: number; lon: number;
   startDate: string; endDate: string; tz?: string | null; notes?: string | null;
+  source?: "manual" | "calendar"; eventId?: string | null;
 }): Promise<Trip> {
   const pool = await getDb();
   const id = randomUUID();
   const feedKey = nearestFeedKey(t.lat, t.lon);
   const now = new Date();
+  const source = t.source ?? "manual";
+  const eventId = t.eventId ?? null;
   await pool.execute(
-    `INSERT INTO trips (id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, t.tz ?? null, feedKey, t.notes ?? null, now],
+    `INSERT INTO trips (id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, t.tz ?? null, feedKey, t.notes ?? null, source, eventId, now],
   );
   return {
     id, label: t.label, location: t.location, lat: t.lat, lon: t.lon,
     startDate: t.startDate, endDate: t.endDate, tz: t.tz ?? null, feedKey,
-    notes: t.notes ?? null, createdAt: now.toISOString(),
+    notes: t.notes ?? null, source, eventId, createdAt: now.toISOString(),
   };
 }
 
 export async function deleteTrip(id: string): Promise<void> {
   const pool = await getDb();
   await pool.execute("DELETE FROM trips WHERE id = ?", [id]);
+}
+
+// Calendar-sourced trips covering `today`. Used by the auto-sync to prune trips
+// whose source event was deleted/moved so they don't linger as a phantom TDY.
+export async function listActiveCalendarTrips(today: string): Promise<Trip[]> {
+  const pool = await getDb();
+  const [rows] = await pool.query<TripRow[]>(
+    `SELECT ${TRIP_COLS} FROM trips WHERE source = 'calendar' AND start_date <= ? AND end_date >= ?`,
+    [today, today],
+  );
+  return rows.map(rowToTrip);
+}
+
+// Insert-or-update a calendar-derived trip, keyed by its source event id so a
+// re-sync is idempotent (and an event whose dates/location moved updates in
+// place rather than duplicating). Only ever touches source='calendar' rows, so
+// hand-entered trips are never clobbered.
+export async function upsertCalendarTrip(t: {
+  eventId: string; label: string; location: string; lat: number; lon: number;
+  startDate: string; endDate: string;
+}): Promise<void> {
+  const pool = await getDb();
+  const feedKey = nearestFeedKey(t.lat, t.lon);
+  const [rows] = await pool.query<TripRow[]>(
+    "SELECT id FROM trips WHERE source = 'calendar' AND event_id = ? LIMIT 1",
+    [t.eventId],
+  );
+  if (rows[0]) {
+    await pool.execute(
+      `UPDATE trips SET label = ?, location = ?, lat = ?, lon = ?, start_date = ?, end_date = ?, feed_key = ?
+       WHERE id = ?`,
+      [t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, feedKey, rows[0].id],
+    );
+    return;
+  }
+  await pool.execute(
+    `INSERT INTO trips (id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'calendar', ?, ?)`,
+    [randomUUID(), t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, null, feedKey, null, t.eventId, new Date()],
+  );
 }
 
 // Best-effort prune of trips whose end date is well in the past, so the table

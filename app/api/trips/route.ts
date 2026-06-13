@@ -4,6 +4,7 @@ import { getUserPrefs } from "@/lib/userPrefs";
 import { todayInTz } from "@/lib/date";
 import { geocodePlace } from "@/lib/geocode";
 import { listTrips, getActiveTrip, createTrip, deleteTrip } from "@/lib/trips";
+import { syncCalendarTripsThrottled } from "@/lib/calendarTrips";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export async function GET() {
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const prefs = await getUserPrefs().catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
+  // Auto-activate TDY from trip-like calendar events before reading (throttled,
+  // best-effort) so an active trip appears without a manual entry.
+  await syncCalendarTripsThrottled(session.accessToken as string, todayInTz(tz)).catch(() => {});
   const [trips, active] = await Promise.all([
     listTrips().catch(() => []),
     getActiveTrip(todayInTz(tz)).catch(() => null),

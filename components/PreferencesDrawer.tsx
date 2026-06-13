@@ -2416,7 +2416,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
       />
 
       {/* Drawer */}
-      <div className="fixed top-0 right-0 h-full w-full max-w-sm bg-slate-950 border-l border-slate-800 z-50 flex flex-col shadow-2xl">
+      <div className="fixed top-0 right-0 h-full w-full max-w-md lg:max-w-lg bg-slate-950 border-l border-slate-800 z-50 flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">

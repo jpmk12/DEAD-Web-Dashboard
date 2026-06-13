@@ -6,6 +6,7 @@ import { getUserPrefs } from "@/lib/userPrefs";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, isSourceEnabled } from "@/lib/newsSources";
 import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
 import { getActiveTrip } from "@/lib/trips";
+import { syncCalendarTripsThrottled } from "@/lib/calendarTrips";
 import { gdeltLocalNews } from "@/lib/localNews";
 import { todayInTz } from "@/lib/date";
 import type { NewsItem } from "@/lib/types";
@@ -22,7 +23,11 @@ export async function GET() {
   // Home local feeds ALWAYS stay — even on a TDY trip you keep home news. The
   // trip gets its own "While you're at <place>" strip (tripNews, built below)
   // rather than replacing the home feed set.
-  const activeTrip = await getActiveTrip(todayInTz(userPrefs.timezone || "America/Chicago")).catch(() => null);
+  const today = todayInTz(userPrefs.timezone || "America/Chicago");
+  // Auto-activate TDY from trip-like calendar events (throttled, best-effort) so
+  // the strip follows you even without a hand-entered trip.
+  await syncCalendarTripsThrottled(session.accessToken as string, today).catch(() => {});
+  const activeTrip = await getActiveTrip(today).catch(() => null);
   const localFeedKey = userPrefs.localFeedKey ?? "colorado";
   const localFeeds = LOCAL_NEWS_SETS[localFeedKey] ?? LOCAL_NEWS_SETS.colorado;
   // Apply the user's disabled-source filter BEFORE fetching — disabling

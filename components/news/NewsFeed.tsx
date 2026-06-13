@@ -9,6 +9,9 @@ import NewsCard from "./NewsCard";
 import TrendStrip from "./TrendStrip";
 
 const CACHE_KEY = "news:items";
+// Cached separately so the TDY strip survives the warm-cache early-return below
+// (which skips the network fetch and would otherwise leave tripNews empty).
+const TRIP_CACHE_KEY = "news:tripNews";
 
 // Keep in sync with /api/news/curated CANDIDATE_LIMIT — the shortlist we hand
 // the curator. The Overview is built from this pool, not a source category.
@@ -111,6 +114,8 @@ export default function NewsFeed({
     const isManualRefresh = refreshKey > 0;
 
     if (stale) { setItems(stale); onArticlesLoaded?.(stale); }
+    const staleTrip = clientCache.peek<{ label: string; items: NewsItem[] }>(TRIP_CACHE_KEY);
+    if (staleTrip) setTripNews(staleTrip);
     if (isFresh && !isManualRefresh) return;
 
     const showSpinner = !stale || isManualRefresh;
@@ -128,6 +133,7 @@ export default function NewsFeed({
         setItems(loaded);
         onArticlesLoaded?.(loaded);
         setTripNews(data.tripNews ?? null);
+        clientCache.set(TRIP_CACHE_KEY, data.tripNews ?? null, CACHE_TTL.NEWS);
         setSourceErrors(data.sourceErrors ?? {});
         clientCache.set(CACHE_KEY, loaded, CACHE_TTL.NEWS);
       })

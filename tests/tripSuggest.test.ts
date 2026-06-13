@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { suggestTrip } from "@/lib/tripSuggest";
+import { suggestTrip, detectTripEvents } from "@/lib/tripSuggest";
 import type { CalendarEvent } from "@/lib/types";
 
 const ev = (over: Partial<CalendarEvent>): CalendarEvent => ({
@@ -16,6 +16,15 @@ describe("suggestTrip", () => {
     })], "2026-06-12");
     // all-day end is exclusive → last day is the 14th
     expect(s).toMatchObject({ location: "Stuttgart, Germany", label: "Stuttgart", startDate: "2026-06-10", endDate: "2026-06-14", eventId: "a" });
+  });
+
+  it("detectTripEvents returns every qualifying event covering today, start-sorted", () => {
+    const all = detectTripEvents([
+      ev({ id: "later", title: "Symposium", location: "Tampa, FL", start: "2026-06-11", end: "2026-06-14", isAllDay: true }),
+      ev({ id: "earlier", title: "TDY", location: "Stuttgart, Germany", start: "2026-06-10", end: "2026-06-13", isAllDay: true }),
+      ev({ id: "skip", title: "Staff sync", location: "Pentagon, Arlington VA", start: "2026-06-12T13:00:00Z", end: "2026-06-12T14:00:00Z" }),
+    ], "2026-06-12");
+    expect(all.map((t) => t.eventId)).toEqual(["earlier", "later"]);
   });
 
   it("suggests a single-day event when the title has a travel keyword", () => {

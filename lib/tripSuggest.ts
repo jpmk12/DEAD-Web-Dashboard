@@ -26,10 +26,13 @@ function addDays(date: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// First event that looks like a stay somewhere (multi-day OR a travel keyword)
-// with a geocodable location AND that covers `todayYmd`. Returns null otherwise.
-export function suggestTrip(events: CalendarEvent[], todayYmd: string): TripSuggestion | null {
+// All events that look like a stay somewhere (multi-day OR a travel keyword)
+// with a geocodable location AND that cover `todayYmd`, sorted by start date.
+// Shared by the Morning Brief suggestion and the server-side auto-sync so the
+// "what counts as a trip" rule lives in exactly one place. Pure + unit-tested.
+export function detectTripEvents(events: CalendarEvent[], todayYmd: string): TripSuggestion[] {
   const candidates = [...events].sort((a, b) => ymd(a.start).localeCompare(ymd(b.start)));
+  const out: TripSuggestion[] = [];
   for (const e of candidates) {
     const loc = (e.location ?? "").trim();
     if (!loc || !isGeocodable(loc)) continue;
@@ -45,17 +48,23 @@ export function suggestTrip(events: CalendarEvent[], todayYmd: string): TripSugg
     const keyworded = TDY_RE.test(e.title);
     if (!multiDay && !keyworded) continue;
 
-    // Only suggest a trip that actually covers today.
+    // Only count a trip that actually covers today.
     if (todayYmd < startDate || todayYmd > endDate) continue;
 
-    return {
+    out.push({
       location: loc,
       label: loc.split(/[,(]/)[0].trim().slice(0, 120) || loc.slice(0, 120),
       startDate,
       endDate,
       eventId: e.id,
       eventTitle: e.title,
-    };
+    });
   }
-  return null;
+  return out;
+}
+
+// First event that looks like a stay somewhere (multi-day OR a travel keyword)
+// with a geocodable location AND that covers `todayYmd`. Returns null otherwise.
+export function suggestTrip(events: CalendarEvent[], todayYmd: string): TripSuggestion | null {
+  return detectTripEvents(events, todayYmd)[0] ?? null;
 }

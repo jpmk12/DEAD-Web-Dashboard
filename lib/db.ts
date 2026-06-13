@@ -225,6 +225,8 @@ const SCHEMA_STATEMENTS = [
     tz          VARCHAR(64)  NULL,
     feed_key    VARCHAR(64)  NULL,
     notes       TEXT         NULL,
+    source      VARCHAR(16)  NOT NULL DEFAULT 'manual',
+    event_id    VARCHAR(255) NULL,
     created_at  DATETIME(3)  NOT NULL,
     INDEX idx_trips_dates (start_date, end_date)
   ) ENGINE=InnoDB`,
@@ -303,6 +305,11 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // only, so a newsletter dismissed on desktop reappeared on mobile).
   { table: "newsletter_prefs", column: "dismissed",            ddl: "ALTER TABLE newsletter_prefs ADD COLUMN dismissed JSON NULL" },
   { table: "newsletter_prefs", column: "kept",                 ddl: "ALTER TABLE newsletter_prefs ADD COLUMN kept      JSON NULL" },
+  // Calendar-derived TDY trips: `source` distinguishes auto-synced ('calendar')
+  // from hand-entered ('manual') trips so a re-sync never clobbers manual ones;
+  // `event_id` keys a calendar trip to its source event for idempotent upsert.
+  { table: "trips", column: "source",   ddl: "ALTER TABLE trips ADD COLUMN source   VARCHAR(16)  NOT NULL DEFAULT 'manual'" },
+  { table: "trips", column: "event_id", ddl: "ALTER TABLE trips ADD COLUMN event_id VARCHAR(255) NULL" },
 ];
 
 interface ColumnRow extends RowDataPacket { cnt: number }
