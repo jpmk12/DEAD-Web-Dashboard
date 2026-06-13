@@ -181,7 +181,8 @@ function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: Tracke
       <p className="text-[10px] text-slate-600 mb-3">
         Extra locations shown alongside your home on the Weather tab. Each gets a forecast card,
         active NWS alerts, and feeds the alerts aggregator. Up to 10. Search by place or ZIP, or
-        enter coordinates (decimal or DMS) manually.
+        enter coordinates (decimal or DMS) manually. (Your home base isn&apos;t in this list — it&apos;s
+        the &quot;Local Area / Home&quot; setting under General.)
       </p>
 
       {value.length > 0 && (
@@ -2333,10 +2334,11 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-                    Local Area
+                    Local Area / Home
                   </label>
                   <p className="text-[10px] text-slate-600 mb-2">
-                    Selects local news feeds and sets the weather map home location
+                    Your home base — sets local news feeds, the Weather tab home location, and the
+                    Morning Brief&apos;s home forecast. Pick the region closest to you.
                   </p>
                   <select
                     value={localFeedKey}
@@ -2347,6 +2349,27 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
+                  {(() => {
+                    // Make the active home unmistakable: pill + the exact label and
+                    // coords currently stored as localLat/localLon (what the brief and
+                    // Weather tab actually use).
+                    const opt = LOCAL_FEED_OPTIONS.find((o) => o.value === localFeedKey);
+                    const lat = localLat ?? opt?.lat;
+                    const lon = localLon ?? opt?.lon;
+                    return (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40 text-[10px] font-bold uppercase tracking-wider">
+                          🏠 Home
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {opt?.label ?? "—"}
+                          {lat != null && lon != null && (
+                            <span className="text-slate-600"> · {lat.toFixed(2)}, {lon.toFixed(2)}</span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div>
