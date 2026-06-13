@@ -13,6 +13,15 @@ const CACHE_KEY = "news:items";
 // (which skips the network fetch and would otherwise leave tripNews empty).
 const TRIP_CACHE_KEY = "news:tripNews";
 
+// Relative time that's safe against missing/malformed feed dates — parseISO on a
+// bad string yields an Invalid Date and formatDistanceToNow then throws
+// "RangeError: Invalid time value", which crashed the TDY strip render.
+function relTime(iso?: string): string {
+  if (!iso) return "";
+  const d = parseISO(iso);
+  return Number.isNaN(d.getTime()) ? "" : formatDistanceToNow(d, { addSuffix: true });
+}
+
 // Keep in sync with /api/news/curated CANDIDATE_LIMIT — the shortlist we hand
 // the curator. The Overview is built from this pool, not a source category.
 const CANDIDATE_LIMIT = 45;
@@ -347,7 +356,7 @@ export default function NewsFeed({
                 <span className="min-w-0">
                   <span className="text-[12px] text-slate-300 group-hover:text-amber-300 transition-colors line-clamp-2 leading-snug">{it.title}</span>
                   <span className="block text-[9px] font-mono text-slate-600 truncate">
-                    {it.source}{it.pubDate ? ` · ${formatDistanceToNow(parseISO(it.pubDate), { addSuffix: true })}` : ""}
+                    {(() => { const t = relTime(it.pubDate); return t ? `${it.source} · ${t}` : it.source; })()}
                   </span>
                 </span>
               </a>
