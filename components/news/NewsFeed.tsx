@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
+import { formatDistanceToNow, parseISO } from "date-fns";
 import { NewsItem, SavedItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import NewsCard from "./NewsCard";
@@ -68,6 +69,9 @@ export default function NewsFeed({
 }: NewsFeedProps) {
   const { status } = useSession();
   const [items, setItems] = useState<NewsItem[]>([]);
+  // Location-relevant news for an active TDY trip — shown as a distinct strip so
+  // it travels with you without crowding or replacing the home feed.
+  const [tripNews, setTripNews] = useState<{ label: string; items: NewsItem[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -123,6 +127,7 @@ export default function NewsFeed({
         const loaded: NewsItem[] = data.items ?? [];
         setItems(loaded);
         onArticlesLoaded?.(loaded);
+        setTripNews(data.tripNews ?? null);
         setSourceErrors(data.sourceErrors ?? {});
         clientCache.set(CACHE_KEY, loaded, CACHE_TTL.NEWS);
       })
@@ -307,6 +312,43 @@ export default function NewsFeed({
     <div>
       {/* Week-over-week movers — the "sense the trend before it's obvious" strip. */}
       <TrendStrip />
+
+      {/* TDY strip — local coverage for where you are now, separate from the home
+          feed so it never displaces home news. */}
+      {tripNews && tripNews.items.length > 0 && (
+        <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/[0.04] p-3">
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/40">
+              ✈ TDY
+            </span>
+            <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+              While you&apos;re at {tripNews.label}
+            </span>
+            <div className="flex-1 h-px bg-amber-500/15" />
+            <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider">local coverage</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5">
+            {tripNews.items.map((it) => (
+              <a
+                key={it.id}
+                href={it.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-baseline gap-2 py-1 min-w-0"
+                title={it.title}
+              >
+                <span className="text-amber-500/60 text-[10px] leading-5 flex-shrink-0">›</span>
+                <span className="min-w-0">
+                  <span className="text-[12px] text-slate-300 group-hover:text-amber-300 transition-colors line-clamp-2 leading-snug">{it.title}</span>
+                  <span className="block text-[9px] font-mono text-slate-600 truncate">
+                    {it.source}{it.pubDate ? ` · ${formatDistanceToNow(parseISO(it.pubDate), { addSuffix: true })}` : ""}
+                  </span>
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Category tab bar */}
       <div className="flex items-center gap-0 mb-5 border-b border-slate-800 overflow-x-auto scrollbar-none -mx-1 px-1">

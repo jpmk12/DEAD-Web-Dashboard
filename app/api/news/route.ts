@@ -8,6 +8,7 @@ import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
 import { getActiveTrip } from "@/lib/trips";
 import { gdeltLocalNews } from "@/lib/localNews";
 import { todayInTz } from "@/lib/date";
+import type { NewsItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +19,11 @@ export async function GET() {
   }
 
   const userPrefs = await getUserPrefs();
-  // Effective local: an active TDY trip overrides the home feed set. If the trip
-  // snapped to a curated base set (feedKey), use it; if not, we pull keyless
-  // GDELT local news for the trip city below.
+  // Home local feeds ALWAYS stay — even on a TDY trip you keep home news. The
+  // trip gets its own "While you're at <place>" strip (tripNews, built below)
+  // rather than replacing the home feed set.
   const activeTrip = await getActiveTrip(todayInTz(userPrefs.timezone || "America/Chicago")).catch(() => null);
-  const localFeedKey = activeTrip?.feedKey ?? userPrefs.localFeedKey ?? "colorado";
+  const localFeedKey = userPrefs.localFeedKey ?? "colorado";
   const localFeeds = LOCAL_NEWS_SETS[localFeedKey] ?? LOCAL_NEWS_SETS.colorado;
   // Apply the user's disabled-source filter BEFORE fetching — disabling
   // a source means we skip the network round-trip entirely, not just hide
@@ -36,17 +37,29 @@ export async function GET() {
   ]);
 
   const feedItems = feedResults.flatMap((r) => r.items);
-  // On a TDY trip with no nearby curated base set, fold in keyless GDELT local
-  // headlines for the trip city so the Local tab still follows you. Best-effort.
-  const localExtra = (activeTrip && !activeTrip.feedKey)
-    ? await gdeltLocalNews(activeTrip.label).catch(() => [])
-    : [];
-
-  const allItems = [...feedItems, ...localExtra];
-  const byDate = allItems.sort(
+  const byDate = feedItems.sort(
     (a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
   );
   const items = sortByPreference(byDate, prefs, userPrefs.watchlist);
+
+  // TDY news strip — genuinely-local coverage for the active trip, kept separate
+  // from the home feed: curated regional feeds if the trip snapped to a base set,
+  // plus keyless GDELT headlines for the trip city. Best-effort; never blocks.
+  let tripNews: { label: string; items: NewsItem[] } | null = null;
+  if (activeTrip) {
+    const tripFeeds = (activeTrip.feedKey ? (LOCAL_NEWS_SETS[activeTrip.feedKey] ?? []) : [])
+      .filter((f) => isSourceEnabled(f.name, disabled));
+    const [tripFeedResults, gdelt] = await Promise.all([
+      Promise.all(tripFeeds.map(({ url, name, category }) => fetchFeed(url, name, category))),
+      gdeltLocalNews(activeTrip.label).catch(() => [] as NewsItem[]),
+    ]);
+    const seen = new Set<string>();
+    const tripItems = [...tripFeedResults.flatMap((r) => r.items), ...gdelt]
+      .filter((it) => { const k = it.link || it.id; if (!k || seen.has(k)) return false; seen.add(k); return true; })
+      .sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())
+      .slice(0, 12);
+    if (tripItems.length) tripNews = { label: activeTrip.label, items: tripItems };
+  }
 
   // Trend recorder (P1): count each article's topic/category/watch terms once
   // (signal_seen dedups the 15-min polling). Fire-and-forget — a trends fault
@@ -89,6 +102,7 @@ export async function GET() {
   return NextResponse.json(
     {
       items,
+      tripNews,
       sourceErrors: Object.keys(sourceErrors).length ? sourceErrors : undefined,
       sourceStats,
     },
