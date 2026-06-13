@@ -62,7 +62,9 @@ export default function WeatherTab() {
         if (prefs?.localLat && prefs?.localLon) {
           setHome({
             id: "home",
-            label: FEED_LABELS[prefs.localFeedKey as string] ?? "Home",
+            // Prefer a custom home label (localCity) when set; otherwise the
+            // region preset's label.
+            label: (prefs.localCity as string)?.trim() || FEED_LABELS[prefs.localFeedKey as string] || "Home",
             lat: prefs.localLat,
             lon: prefs.localLon,
           });
