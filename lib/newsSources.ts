@@ -20,10 +20,15 @@ export const BASE_NEWS_SOURCES: NewsSource[] = [
   // Overview — broad national security / current events
   { url: "https://www.dvidshub.net/rss/news",                                   name: "DVIDS",                  category: "overview" },
   { url: "https://thehill.com/rss/syndicator/19110/feed/",                       name: "The Hill",               category: "overview" },
-  { url: "https://rss.cnn.com/rss/edition.rss",                                  name: "CNN",                    category: "overview" },
+  // CNN's rss.cnn.com/rss/edition.rss runs on legacy Google FeedBurner
+  // (feedproxy.ghs.google.com), which has been retiring feeds — it was failing
+  // (fetch_error). Switched to the top-stories path, the most reliably-live CNN feed.
+  { url: "https://rss.cnn.com/rss/cnn_topstories.rss",                           name: "CNN",                    category: "overview" },
 
   // Defense — operations, hardware, DoD
   { url: "https://breakingdefense.com/feed/",                                    name: "Breaking Defense",       category: "defense" },
+  { url: "https://defensescoop.com/feed/",                                       name: "DefenseScoop",           category: "defense" },
+  { url: "https://www.defenseone.com/rss/all/",                                  name: "Defense One",            category: "defense" },
   { url: "https://www.airforcemag.com/feed/",                                    name: "Air Force Magazine",     category: "defense" },
   { url: "https://news.usni.org/feed",                                           name: "USNI News",              category: "defense" },
   { url: "https://taskandpurpose.com/feed/",                                     name: "Task & Purpose",         category: "defense" },
@@ -82,8 +87,9 @@ export const LOCAL_NEWS_SETS: Record<string, NewsSource[]> = {
     { url: "https://blockclubchicago.org/feed/",              name: "Block Club Chicago",   category: "local" },
   ],
   oklahoma: [
+    // Tulsa World removed — its TownNews search-RSS bot-blocked our fetches (403
+    // http_error) regardless of User-Agent. Oklahoma Watch remains.
     { url: "https://oklahomawatch.org/feed/",                 name: "Oklahoma Watch",       category: "local" },
-    { url: "https://www.tulsaworld.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc", name: "Tulsa World", category: "local" },
   ],
   new_jersey: [
     { url: "https://www.nj.com/arcio/rss/category/news/",     name: "NJ.com",               category: "local" },
