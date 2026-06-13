@@ -20,10 +20,10 @@ export const BASE_NEWS_SOURCES: NewsSource[] = [
   // Overview — broad national security / current events
   { url: "https://www.dvidshub.net/rss/news",                                   name: "DVIDS",                  category: "overview" },
   { url: "https://thehill.com/rss/syndicator/19110/feed/",                       name: "The Hill",               category: "overview" },
-  // CNN's rss.cnn.com/rss/edition.rss runs on legacy Google FeedBurner
-  // (feedproxy.ghs.google.com), which has been retiring feeds — it was failing
-  // (fetch_error). Switched to the top-stories path, the most reliably-live CNN feed.
-  { url: "https://rss.cnn.com/rss/cnn_topstories.rss",                           name: "CNN",                    category: "overview" },
+  // CNN's RSS is entirely on Google FeedBurner (feedproxy.ghs.google.com), which
+  // has been decommissioned — every CNN feed path (edition.rss, cnn_topstories)
+  // failed (fetch_error). Replaced with NPR News (reliable, no bot-wall).
+  { url: "https://feeds.npr.org/1001/rss.xml",                                   name: "NPR News",               category: "overview" },
 
   // Defense — operations, hardware, DoD
   { url: "https://breakingdefense.com/feed/",                                    name: "Breaking Defense",       category: "defense" },
