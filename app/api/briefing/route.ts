@@ -39,6 +39,22 @@ function eventTimeInTz(start: string, tz: string): string {
   } catch { return ""; }
 }
 
+// Relative day label for an event, in the user's tz vs today: TODAY / TOMORROW /
+// "Mon Jun 15". Pre-computed server-side so the model can't mislabel a future
+// event as "tonight" (it never sees a raw ISO date to (mis)interpret).
+function eventDayLabel(start: string, tz: string, todayYmd: string): string {
+  const d = new Date(start);
+  if (isNaN(d.getTime())) return "";
+  try {
+    const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+    if (ymd === todayYmd) return "TODAY";
+    const tomorrow = new Date(`${todayYmd}T00:00:00Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    if (ymd === tomorrow.toISOString().slice(0, 10)) return "TOMORROW";
+    return new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric" }).format(d);
+  } catch { return ""; }
+}
+
 const SYSTEM_PROMPT = `You are a senior national security briefer preparing a morning brief for a military professional. Be concise, direct, and actionable. Return ONLY a JSON object with no markdown fences and no explanation:
 {
   "headline": "One sentence capturing today's most important development",
@@ -116,7 +132,12 @@ export async function POST(request: Request) {
     .join("\n");
 
   const calendarItems = (events as CalendarEvent[]).slice(0, 10)
-    .map((e) => `${e.start}: ${e.title}${e.location ? ` @ ${e.location}` : ""}`)
+    .map((e) => {
+      const day = eventDayLabel(e.start, tz, cacheKey);
+      const time = e.isAllDay ? "" : eventTimeInTz(e.start, tz);
+      const when = e.isAllDay ? `${day} (all day)` : `${day} ${time}`.trim();
+      return `${when} — ${e.title}${e.location ? ` @ ${e.location}` : ""}`;
+    })
     .join("\n");
 
   const osintSignals = (Array.isArray(osint) ? osint : []).slice(0, 8)
@@ -223,7 +244,7 @@ export async function POST(request: Request) {
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
     newsletterBullets && `NEWSLETTER HIGHLIGHTS:\n${newsletterBullets}`,
     osintSignals && `OSINT SIGNALS (flagged from the user's monitored feeds):\n${osintSignals}`,
-    calendarItems && `CALENDAR:\n${calendarItems}`,
+    calendarItems && `CALENDAR (today is ${cacheKey} in ${tz}; each line is pre-labeled with its day relative to today). For the "schedule" field include ONLY items labeled TODAY. For any other day, state the day explicitly (e.g. "Mon Jun 15") and NEVER describe it as today / tonight / this evening:\n${calendarItems}`,
   ].filter(Boolean).join("\n\n");
 
   if (!userContent) {
