@@ -9,10 +9,13 @@
 //      user_prefs and read via getAcledCredentials().
 //   2. Env vars ACLED_EMAIL / ACLED_PASSWORD, which OVERRIDE settings when set
 //      (lets an operator pin credentials without the UI).
-// ACLED retired the old email+key query-param scheme; programmatic access is
-// now OAuth (password grant). We exchange the credentials for a 24 h bearer
-// token at /oauth/token, cache it, and call /api/acled/read with it. If neither
-// source supplies credentials the whole layer is simply off (getAcledEvents → []).
+//
+// Auth — ACLED uses a Drupal SESSION-COOKIE login (NOT OAuth, NOT the old
+// email+key query param). We POST {name,pass} JSON to /user/login?_format=json;
+// ACLED replies with a session cookie (Set-Cookie). We capture that cookie and
+// send it on the /api/acled/read GET — no bearer token is passed. The session is
+// cached and reused, re-established on expiry or a 401/403. If neither source
+// supplies credentials the layer is simply off (getAcledEvents → []).
 //
 // Attribution: ACLED's license requires citing ACLED wherever its data is
 // shown — the Crisis map labels the layer "ACLED" and credits it in popups +
@@ -21,7 +24,7 @@
 import { aorFromCoords } from "./aor";
 import { recordDailySignals } from "./trends";
 
-const TOKEN_URL = "https://acleddata.com/oauth/token";
+const LOGIN_URL = "https://acleddata.com/user/login?_format=json";
 const READ_URL = "https://acleddata.com/api/acled/read";
 
 // The kinetic slice we surface: armed clashes + the remote-violence bucket that
@@ -30,8 +33,8 @@ const READ_URL = "https://acleddata.com/api/acled/read";
 // out of scope for the strike picture.)
 const KINETIC_TYPES = ["Battles", "Explosions/Remote violence"];
 
-const DATA_TTL = 30 * 60 * 1000;   // re-pull events at most every 30 min
-const TOKEN_SKEW = 60 * 1000;      // refresh the token a minute before expiry
+const DATA_TTL = 30 * 60 * 1000;        // re-pull events at most every 30 min
+const SESSION_TTL = 12 * 60 * 60 * 1000; // re-login at most every 12h (or on 401/403)
 const WINDOW_DAYS = 7;
 const PER_TYPE_LIMIT = 300;
 const MAX_EVENTS = 400;
@@ -54,7 +57,7 @@ export interface AcledEvent {
 
 interface Creds { email: string; password: string }
 
-let tokenCache: { token: string; expires: number; email: string } | null = null;
+let sessionCache: { cookie: string; expires: number; email: string } | null = null;
 let dataCache: { events: AcledEvent[]; expires: number } | null = null;
 
 // Env overrides settings. Imported lazily so the settings path (DB) isn't hit
@@ -70,51 +73,55 @@ export async function acledConfigured(): Promise<boolean> {
   return (await resolveCreds()) !== null;
 }
 
-// Drop cached token + data — call after credentials change so the next pull
-// re-authenticates with the new account instead of serving a stale token.
+// Drop cached session + data — call after credentials change so the next pull
+// re-authenticates with the new account instead of reusing a stale session.
 export function resetAcledCache(): void {
-  tokenCache = null;
+  sessionCache = null;
   dataCache = null;
 }
 
-// Raw OAuth password-grant exchange. Returns the bearer token + its lifetime,
-// or null. Per ACLED's docs the access token lasts 24 h and a 14-day refresh
-// token is also issued; we deliberately re-authenticate with the stored
-// credentials on expiry rather than persisting the refresh token, because the
-// hosting container is ephemeral (an in-process refresh token would usually be
-// lost to a restart before it's useful) and re-auth via the password grant is
-// an explicitly supported path. We still honour the server's expires_in below.
-async function fetchToken(creds: Creds): Promise<{ token: string; expiresIn: number } | null> {
-  const body = new URLSearchParams();
-  // ACLED's docs are inconsistent on whether the identity field is "username"
-  // or "email" — send both (OAuth servers ignore unknown params) so it works
-  // either way.
-  body.set("username", creds.email);
-  body.set("email", creds.email);
-  body.set("password", creds.password);
-  body.set("grant_type", "password");
-  body.set("client_id", "acled");
-  body.set("scope", "authenticated");
+// Pull the name=value pairs out of a login response's Set-Cookie header(s) and
+// join them into a Cookie header for subsequent reads. undici exposes
+// getSetCookie() (one entry per cookie); fall back to the combined header.
+function cookieHeaderFrom(res: Response): string | null {
+  const h = res.headers as Headers & { getSetCookie?: () => string[] };
+  const list = typeof h.getSetCookie === "function"
+    ? h.getSetCookie()
+    : (h.get("set-cookie") ? [h.get("set-cookie") as string] : []);
+  const pairs: string[] = [];
+  for (const c of list) {
+    const first = c.split(";")[0]?.trim();
+    if (first && first.includes("=")) pairs.push(first);
+  }
+  return pairs.length ? pairs.join("; ") : null;
+}
 
+// Log in with the credentials and return the session Cookie header, or null.
+// Per ACLED's docs: POST {name,pass} JSON to /user/login?_format=json; the
+// session cookie comes back in Set-Cookie, and reads then rely on that cookie.
+async function login(creds: Creds): Promise<{ cookie: string } | null> {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), 12_000);
   try {
-    const res = await fetch(TOKEN_URL, {
+    const res = await fetch(LOGIN_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      body: body.toString(),
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ name: creds.email, pass: creds.password }),
       cache: "no-store",
       signal: ctrl.signal,
     });
     if (!res.ok) {
-      console.error("[acled] token request failed:", res.status, res.statusText);
+      console.error("[acled] login failed:", res.status, res.statusText);
       return null;
     }
-    const j = (await res.json().catch(() => null)) as { access_token?: string; expires_in?: number } | null;
-    if (!j?.access_token) return null;
-    return { token: j.access_token, expiresIn: Number(j.expires_in) || 86400 };
+    const cookie = cookieHeaderFrom(res);
+    if (!cookie) {
+      console.error("[acled] login returned no session cookie");
+      return null;
+    }
+    return { cookie };
   } catch (e) {
-    console.error("[acled] token error:", e);
+    console.error("[acled] login error:", e);
     return null;
   } finally {
     clearTimeout(tid);
@@ -124,16 +131,15 @@ async function fetchToken(creds: Creds): Promise<{ token: string; expiresIn: num
 // Verify a candidate email/password without disturbing the cache — used by the
 // settings endpoint to tell the user whether their credentials authenticate.
 export async function verifyAcledCredentials(email: string, password: string): Promise<boolean> {
-  return (await fetchToken({ email, password })) !== null;
+  return (await login({ email, password })) !== null;
 }
 
-async function getToken(creds: Creds): Promise<string | null> {
-  if (tokenCache && tokenCache.email === creds.email && tokenCache.expires > Date.now()) return tokenCache.token;
-  const res = await fetchToken(creds);
+async function getSession(creds: Creds): Promise<string | null> {
+  if (sessionCache && sessionCache.email === creds.email && sessionCache.expires > Date.now()) return sessionCache.cookie;
+  const res = await login(creds);
   if (!res) return null;
-  // Honour the server-reported lifetime (24 h by default), cached a little short.
-  tokenCache = { token: res.token, expires: Date.now() + res.expiresIn * 1000 - TOKEN_SKEW, email: creds.email };
-  return res.token;
+  sessionCache = { cookie: res.cookie, expires: Date.now() + SESSION_TTL, email: creds.email };
+  return res.cookie;
 }
 
 function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
@@ -163,7 +169,7 @@ function normalize(raw: Record<string, unknown>): AcledEvent | null {
 // 5000-events-per-call default, so a single page suffices and there's no
 // timeout/pagination concern; if it ever needs to grow past 5000, add
 // &page=N paging (which ACLED exempts from rate limits).
-async function readType(token: string, type: string, from: string, to: string): Promise<AcledEvent[]> {
+async function readType(cookie: string, type: string, from: string, to: string): Promise<AcledEvent[]> {
   const params = new URLSearchParams();
   params.set("event_date", `${from}|${to}`);
   params.set("event_date_where", "BETWEEN");
@@ -176,11 +182,11 @@ async function readType(token: string, type: string, from: string, to: string): 
   const tid = setTimeout(() => ctrl.abort(), 12_000);
   try {
     const res = await fetch(`${READ_URL}?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      headers: { Cookie: cookie, Accept: "application/json" },
       cache: "no-store",
       signal: ctrl.signal,
     });
-    if (res.status === 401) { tokenCache = null; } // token rejected — force re-auth next cycle
+    if (res.status === 401 || res.status === 403) { sessionCache = null; } // session rejected — force re-login next cycle
     if (!res.ok) { console.error("[acled] read failed:", type, res.status); return []; }
     const j = (await res.json().catch(() => null)) as { data?: unknown[] } | null;
     const rows = Array.isArray(j?.data) ? j!.data : [];
@@ -200,12 +206,12 @@ export async function getAcledEvents(): Promise<AcledEvent[]> {
   if (!creds) return [];
   if (dataCache && dataCache.expires > Date.now()) return dataCache.events;
 
-  const token = await getToken(creds);
-  if (!token) return [];
+  const cookie = await getSession(creds);
+  if (!cookie) return [];
 
   const to = new Date();
   const from = new Date(to.getTime() - WINDOW_DAYS * 24 * 3600_000);
-  const results = await Promise.all(KINETIC_TYPES.map((t) => readType(token, t, ymd(from), ymd(to))));
+  const results = await Promise.all(KINETIC_TYPES.map((t) => readType(cookie, t, ymd(from), ymd(to))));
   const merged = results.flat();
   merged.sort((a, b) => b.date.localeCompare(a.date)); // newest first
   const events = merged.slice(0, MAX_EVENTS);
@@ -229,10 +235,10 @@ export async function getAcledEvents(): Promise<AcledEvent[]> {
   return events;
 }
 
-// Live end-to-end probe for the settings UI: tests the OAuth token AND a real
-// read (the verify-on-save path only tests the token, so a token-OK-but-read-
-// fails account looked "connected" yet showed no data). Bypasses the caches so
-// it reflects the current truth. Never throws.
+// Live end-to-end probe for the settings UI: tests the login AND a real read
+// (verify-on-save only tests login, so a login-OK-but-read-fails account looked
+// "connected" yet showed no data). Bypasses the caches so it reflects the
+// current truth. Never throws. `tokenOk` = the login (session) succeeded.
 export interface AcledDiag {
   configured: boolean;
   source: "env" | "settings" | "none";
@@ -249,11 +255,11 @@ export async function diagnoseAcled(): Promise<AcledDiag> {
   if (!creds) return { configured: false, source: "none", tokenOk: false, note: "No credentials set — enter them above and Save." };
   const source: AcledDiag["source"] = (process.env.ACLED_EMAIL && process.env.ACLED_PASSWORD) ? "env" : "settings";
 
-  const tok = await fetchToken(creds);
-  if (!tok) {
-    return { configured: true, source, tokenOk: false, error: "OAuth token request failed", note: "Email/password rejected, or the ACLED account email isn't verified yet. Re-check at acleddata.com." };
+  const sess = await login(creds);
+  if (!sess) {
+    return { configured: true, source, tokenOk: false, error: "Login request failed", note: "Email/password rejected, or the ACLED account email isn't verified yet. Sign in at acleddata.com to confirm the account works." };
   }
-  const token = tok.token;
+  const cookie = sess.cookie;
 
   const to = new Date();
   const from = new Date(to.getTime() - WINDOW_DAYS * 24 * 3600_000);
@@ -268,7 +274,7 @@ export async function diagnoseAcled(): Promise<AcledDiag> {
   const tid = setTimeout(() => ctrl.abort(), 15_000);
   try {
     const res = await fetch(`${READ_URL}?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      headers: { Cookie: cookie, Accept: "application/json" },
       cache: "no-store",
       signal: ctrl.signal,
     });
@@ -288,7 +294,7 @@ export async function diagnoseAcled(): Promise<AcledDiag> {
 
     let note: string | undefined;
     if (res.status === 401 || res.status === 403) {
-      note = "Token works but the READ endpoint refused it — your myACLED account most likely doesn't have API data access enabled yet. Log in at acleddata.com → check API access / accept the data-access terms, then retry.";
+      note = "Login works but the READ endpoint refused the session — your myACLED account most likely doesn't have API data access enabled yet. Log in at acleddata.com → check API access / accept the data-access terms, then retry.";
     } else if (apiError) {
       note = `ACLED rejected the query: ${apiError}`;
     } else if (count === 0) {

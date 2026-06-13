@@ -518,15 +518,16 @@ ACLED credentials resolve **settings-first, env-override**:
 2. **Env vars** `ACLED_EMAIL` + `ACLED_PASSWORD` OVERRIDE settings when both are
    set (the UI then shows read-only "configured via environment variable").
 
-ACLED uses an OAuth **password grant** (no API key anymore): email+password are
-exchanged for a bearer token at `acleddata.com/oauth/token`, cached in-process
-for the server-reported `expires_in` (≈24 h; keyed by email, `resetAcledCache()`
-drops it when creds change), then used against `acleddata.com/api/acled/read`
-(`limit` 300/type — under ACLED's 5000/call cap, single page). We re-auth with
-the stored credentials on expiry rather than persisting the 14-day refresh token
-(the container is ephemeral, so an in-process refresh token would usually be lost
-to a restart anyway; re-auth via password grant is a supported path). **ACLED
-attribution is mandatory** — the Crisis map renders "Armed Conflict Location &
+ACLED uses a Drupal **session-cookie login** (no API key, and NOT OAuth — the
+earlier `/oauth/token` password-grant code was wrong and never returned data):
+POST `{name,pass}` JSON to `acleddata.com/user/login?_format=json`, which replies
+with a session cookie (`Set-Cookie`). We capture that cookie (via undici's
+`getSetCookie()`) and send it as the `Cookie` header on
+`acleddata.com/api/acled/read` GETs — no bearer token is passed. The session is
+cached in-process (12 h; keyed by email, `resetAcledCache()` drops it when creds
+change) and re-established on expiry or a 401/403 read. Reads are `limit` 300/type
+— under ACLED's 5000/call cap, single page. **ACLED attribution is mandatory** —
+the Crisis map renders "Armed Conflict Location &
 Event Data Project (ACLED) — acleddata.com" in the sources line + popups; keep it. `lib/acled.ts` is
 pure `fetch` (no new npm dep, so `grep -c esbuild package-lock.json` stays `0`).
 
