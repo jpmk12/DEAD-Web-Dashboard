@@ -592,13 +592,15 @@ shared with the AI crisis read) is sourced from **UCDP** (Uppsala Conflict Data
 Program GED) — keyless, georeferenced. It **replaced GDELT's GEO 2.0 API**, which
 was retired (every geo path 404s — confirmed via `/api/osint/crisis-diag`). GDELT
 is NOT fully gone: its **DOC 2.0** API still powers the TDY local-news strip
-(`lib/localNews.ts`), which is alive. UCDP's monthly *candidate* version string
-couldn't be confirmed from the build sandbox (no egress), so `getConflictPoints`
-probes `ucdpVersionCandidates()` newest-first and caches the first that returns
-rows; `diagnoseUcdp()` (in the crisis-diag UCDP block) reports which version/shape
-actually works so the list can be pinned. ACLED stays as the higher-fidelity
-layer, but its free tier embargoes data <12 months old (the diag surfaces this as
-a `restriction`), so UCDP is the keyless source for *current* events.
+(`lib/localNews.ts`), which is alive. GED row order is **arbitrary** (per UCDP's
+docs), so `getConflictPoints` filters recency server-side with the **`StartDate`**
+parameter (operates on `date_end`) and pages `Result[]` — it does NOT slice a
+page. Pinned to `UCDP_VERSION` (`26.1`, the latest *yearly* GED, which covers
+through end-2025, so it lags ~6 months); `diagnoseUcdp()` reports the newest event
+date so freshness is visible. If UCDP exposes a monthly **candidate (CED)**
+version, bump `UCDP_VERSION` to it for ~1-month-fresh data. ACLED stays the
+higher-fidelity layer, but its free tier embargoes data <12 months old (the diag
+surfaces this as a `restriction`), so UCDP is the keyless current-events source.
 
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X

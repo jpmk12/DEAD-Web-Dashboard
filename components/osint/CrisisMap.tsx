@@ -127,7 +127,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
-  conflict: "Recent armed-conflict events (UCDP, ~last 60 days) — georeferenced battles and organized violence with coordinates and fatality counts, from the Uppsala Conflict Data Program. Keyless; the freshest no-account source (UCDP candidate data lags ~1 month). Top events surface in the crisis list; the rest as density.",
+  conflict: "Armed-conflict events (UCDP GED) — georeferenced battles and organized violence with coordinates and fatality counts, from the Uppsala Conflict Data Program. Keyless, no account. Shows the most recent data UCDP's yearly dataset holds (it lags ~6 months); still surfaces active conflict zones. Top events by fatalities surface in the crisis list.",
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   enroute: "AMC en route / mobility hubs.",
@@ -523,7 +523,7 @@ export default function CrisisMap() {
               </Polygon>
             ))}
 
-            {/* Conflict events (UCDP, ~last 60 days) — drawn first, under the crisis markers. */}
+            {/* Conflict events (UCDP GED, most recent available) — drawn first, under the crisis markers. */}
             {on.conflict && conflict.map((c, i) => (
               <CircleMarker key={`cf-${i}`} center={[c.lat, c.lon]} radius={Math.min(4 + Math.log2(c.count + 1) * 1.6, 16)} pathOptions={{ color: "#f43f5e", fillColor: "#f43f5e", fillOpacity: 0.18, weight: 0.5, opacity: 0.45 }}>
                 <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}<div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div><div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></div></Popup>
@@ -713,8 +713,8 @@ export default function CrisisMap() {
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
         NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
         convergence strip flags AORs where signals stack; AI read is a Claude SITREP of the board. The Conflict layer
-        surfaces recent armed-conflict events (UCDP, ~last 60 days) — georeferenced battles and organized violence with
-        coordinates and fatality counts — with the top events promoted into the crisis list.
+        surfaces armed-conflict events (UCDP GED, most recent available) — georeferenced battles and organized violence
+        with coordinates and fatality counts — with the top events promoted into the crisis list.
         The ACLED layer (◆) adds higher-fidelity, human-coded strike events — precise coordinates, sub-event type, named
         actors, and fatalities (requires an ACLED account configured server-side; data &copy; Armed Conflict Location &amp; Event Data Project (ACLED), acleddata.com).
         GPS interference / EW (GPSJam) is an optional overlay. Click a

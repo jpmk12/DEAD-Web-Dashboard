@@ -1,19 +1,22 @@
-// Recent armed-conflict / kinetic events for the Crisis map's "Conflict" layer
-// (and the AI crisis read), sourced from UCDP — the Uppsala Conflict Data
-// Program's Georeferenced Event Dataset (GED). Keyless, reputable, with precise
+// Recent armed-conflict events for the Crisis map's "Conflict" layer (and the AI
+// crisis read), sourced from UCDP — the Uppsala Conflict Data Program's
+// Georeferenced Event Dataset (GED). Keyless, reputable, with precise
 // coordinates and fatality counts.
 //
-// Why UCDP and not GDELT: GDELT's GEO 2.0 API (the old source here) was retired
-// — every geo path now 404s (confirmed via /api/osint/crisis-diag) — while its
-// DOC API returns articles without coordinates, useless for a map layer. ACLED
-// is higher-fidelity but the free tier embargoes data <12 months old. UCDP's
-// monthly "candidate" dataset (UCDP-CED) is keyless and ~1 month fresh, the best
-// no-account option for current geocoded events.
+// Why UCDP and not GDELT: GDELT's GEO 2.0 API (the old source) was retired —
+// every geo path 404s (confirmed via /api/osint/crisis-diag) — while its DOC API
+// returns articles without coordinates, useless for a map layer. ACLED is
+// higher-fidelity but its free tier embargoes data <12 months old. UCDP GED is
+// keyless and georeferenced.
 //
-// CAVEAT (verify in prod): the build sandbox has no outbound network, so the
-// exact UCDP *candidate* version string couldn't be confirmed. We probe a small
-// newest-first list and cache the first that returns rows; the crisis-diag UCDP
-// probe reports which version/shape actually works so the list can be pinned.
+// Freshness: the *yearly* GED (version YY.1) lags — 26.1 covers through end-2025
+// — so "recent" here means the most recent ~year the dataset holds (still fresher
+// than ACLED's 12-month embargo, and active conflict zones persist). If/when a
+// monthly UCDP candidate (CED) version is pinned, this gets ~1-month fresh.
+//
+// API contract (per ucdpapi.pcr.uu.se): GED row order is ARBITRARY, so we filter
+// recency server-side with the StartDate parameter (operates on date_end) rather
+// than slicing a page; results are paged (Result[] + TotalPages).
 
 import { aorFromCoords } from "./aor";
 import { recordDailySignals, utcDate } from "./trends";
@@ -21,18 +24,19 @@ import { recordDailySignals, utcDate } from "./trends";
 export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string }
 
 const UCDP_BASE = "https://ucdpapi.pcr.uu.se/api/gedevents/";
+// Latest yearly GED. Update when a newer version (or a monthly candidate) is
+// confirmed via diagnoseUcdp(); the yearly dataset covers through the prior year.
+const UCDP_VERSION = "26.1";
 const PAGE_SIZE = 1000;
-// Candidate data lags ~1 month, so a 60-day window keeps the layer populated
-// with the freshest available events without dredging up stale history.
-const RECENT_DAYS = 60;
+const MAX_PAGES = 3;                  // sample up to 3k recent events, then rank
+// Annual GED lags, so a 1-year window captures the most recent data it holds.
+const RECENT_DAYS = 365;
 const MAX_POINTS = 250;
 
 const TTL = 30 * 60 * 1000;
-const STALE_TTL = 6 * 60 * 60 * 1000;   // serve last-good points up to 6h on failure
-const VERSION_TTL = 24 * 60 * 60 * 1000; // re-confirm the working version daily
+const STALE_TTL = 6 * 60 * 60 * 1000; // serve last-good points up to 6h on failure
 let cache: { points: ConflictPoint[]; expires: number } | null = null;
 let staleCache: { points: ConflictPoint[]; at: number } | null = null;
-let versionCache: { version: string; expires: number } | null = null;
 
 let lastFetch: { ok: boolean; at: number; stale?: boolean } = { ok: false, at: 0 };
 export function getConflictHealth(): { ok: boolean; at: number; stale?: boolean } { return lastFetch; }
@@ -46,22 +50,12 @@ function conflictFallback(): ConflictPoint[] {
   return [];
 }
 
-// Best-guess UCDP version strings, newest-first. Candidate (monthly) versions
-// carry the freshest events; annual GED (YY.1) is a stable but older fallback.
-// The candidate scheme is unconfirmed from the sandbox — see file header.
-export function ucdpVersionCandidates(now = new Date()): string[] {
-  const yy = now.getUTCFullYear() % 100;
-  const mm = now.getUTCMonth() + 1;
-  const cand: string[] = [];
-  for (let m = mm; m >= Math.max(1, mm - 2); m--) cand.push(`${yy}.0.${m}`);
-  cand.push(`${yy - 1}.0.12`);
-  return [...cand, `${yy}.1`, `${yy - 1}.1`];
-}
+function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
 
 interface UcdpEvent {
   latitude?: unknown; longitude?: unknown; date_start?: unknown; best?: unknown;
   side_a?: unknown; side_b?: unknown; country?: unknown; where_coordinates?: unknown;
-  conflict_name?: unknown; id?: unknown;
+  conflict_name?: unknown;
 }
 
 // UCDP returns events under `Result`; parse defensively in case the shape shifts.
@@ -69,11 +63,6 @@ function extractResult(data: unknown): UcdpEvent[] {
   const d = data as { Result?: unknown; result?: unknown; data?: unknown };
   const arr = d?.Result ?? d?.result ?? d?.data;
   return Array.isArray(arr) ? (arr as UcdpEvent[]) : [];
-}
-
-function withinRecentWindow(dateStart: string, sinceMs: number): boolean {
-  const t = Date.parse(dateStart);
-  return Number.isFinite(t) && t >= sinceMs;
 }
 
 function toPoint(e: UcdpEvent): ConflictPoint | null {
@@ -86,46 +75,39 @@ function toPoint(e: UcdpEvent): ConflictPoint | null {
   return { lat, lon, name, count: Number.isFinite(deaths) && deaths > 0 ? deaths : 1, title };
 }
 
-async function fetchVersion(version: string, sinceMs: number, signal: AbortSignal): Promise<ConflictPoint[] | null> {
-  const url = `${UCDP_BASE}${version}?pagesize=${PAGE_SIZE}&page=0`;
-  const res = await fetch(url, { signal, headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" }, cache: "no-store" });
-  if (!res.ok) return null;
-  const rows = extractResult(await res.json());
-  if (rows.length === 0) return null; // version doesn't exist / empty → try next
-  const points: ConflictPoint[] = [];
-  for (const e of rows) {
-    if (!withinRecentWindow(String(e.date_start ?? ""), sinceMs)) continue;
-    const p = toPoint(e);
-    if (p) points.push(p);
+const reqHeaders = { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" };
+
+// Page through GED events with date_end >= `since` (StartDate filter), up to
+// MAX_PAGES. Returns null only if the very first request fails (source down).
+async function fetchRecent(since: string, signal: AbortSignal): Promise<ConflictPoint[] | null> {
+  const all: ConflictPoint[] = [];
+  let anyOk = false;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = `${UCDP_BASE}${UCDP_VERSION}?pagesize=${PAGE_SIZE}&page=${page}&StartDate=${since}`;
+    const res = await fetch(url, { signal, headers: reqHeaders, cache: "no-store" });
+    if (!res.ok) break;
+    anyOk = true;
+    const data = await res.json().catch(() => null);
+    const rows = extractResult(data);
+    for (const e of rows) { const p = toPoint(e); if (p) all.push(p); }
+    const totalPages = Number((data as { TotalPages?: unknown })?.TotalPages) || 1;
+    if (rows.length === 0 || page + 1 >= totalPages) break;
   }
-  return points; // may be [] if the version exists but has no recent events
+  return anyOk ? all : null;
 }
 
 export async function getConflictPoints(): Promise<ConflictPoint[]> {
   if (cache && cache.expires > Date.now()) { lastFetch = { ok: true, at: lastFetch.at || Date.now() }; return cache.points; }
-  const sinceMs = Date.now() - RECENT_DAYS * 86_400_000;
+  const since = ymd(new Date(Date.now() - RECENT_DAYS * 86_400_000));
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), 20_000);
   try {
-    // Prefer the last confirmed-working version; otherwise probe newest-first.
-    const versions = versionCache && versionCache.expires > Date.now()
-      ? [versionCache.version, ...ucdpVersionCandidates().filter((v) => v !== versionCache!.version)]
-      : ucdpVersionCandidates();
+    const got = await fetchRecent(since, ctrl.signal).catch(() => null);
+    if (got === null) return conflictFallback();
 
-    let points: ConflictPoint[] | null = null;
-    for (const v of versions) {
-      const got = await fetchVersion(v, sinceMs, ctrl.signal).catch(() => null);
-      if (got !== null) { // version exists (returned rows); lock it in
-        versionCache = { version: v, expires: Date.now() + VERSION_TTL };
-        points = got;
-        break;
-      }
-    }
-    if (points === null) return conflictFallback(); // no version responded
-
-    points.sort((a, b) => b.count - a.count);
-    const top = points.slice(0, MAX_POINTS);
-    if (top.length === 0) return conflictFallback(); // endpoint ok but no recent events
+    got.sort((a, b) => b.count - a.count); // highest-fatality first
+    const top = got.slice(0, MAX_POINTS);
+    if (top.length === 0) return conflictFallback();
     cache = { points: top, expires: Date.now() + TTL };
     staleCache = { points: top, at: Date.now() };
     lastFetch = { ok: true, at: Date.now() };
@@ -148,42 +130,42 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
   }
 }
 
-// Discovery probe for /api/osint/crisis-diag: reports which UCDP version responds,
-// its row count, a sample event, and how many rows fall in the recent window —
-// so the candidate-version list above can be pinned to what actually works.
+// Probe for /api/osint/crisis-diag: confirms the pinned version responds with
+// recent (StartDate-filtered) rows, and reports the newest event date so the
+// layer's true freshness is visible.
 export interface UcdpDiag {
-  version?: string;
+  version: string;
   status?: number;
   total?: number;
-  recent?: number;
+  returned?: number;
+  newest?: string;
   sample?: string;
-  tried: string[];
   note: string;
 }
 
 export async function diagnoseUcdp(): Promise<UcdpDiag> {
-  const sinceMs = Date.now() - RECENT_DAYS * 86_400_000;
-  const tried = ucdpVersionCandidates();
-  for (const v of tried) {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 20_000);
-    try {
-      const res = await fetch(`${UCDP_BASE}${v}?pagesize=200&page=0`, { headers: { "User-Agent": "DEAD-Dashboard", Accept: "application/json" }, cache: "no-store", signal: ctrl.signal });
-      if (!res.ok) { continue; }
-      const data = await res.json().catch(() => null);
-      const rows = extractResult(data);
-      if (rows.length === 0) continue;
-      const recent = rows.filter((e) => withinRecentWindow(String(e.date_start ?? ""), sinceMs)).length;
-      const f = rows[0];
-      const sample = `${String(f.date_start ?? "?").slice(0, 10)} · ${String(f.country ?? "?")} · ${String(f.side_a ?? "?")} vs ${String(f.side_b ?? "?")}`.slice(0, 160);
-      const total = Number((data as { TotalCount?: unknown })?.TotalCount) || rows.length;
-      return {
-        version: v, status: res.status, total, recent, sample, tried,
-        note: recent > 0
-          ? `UCDP ${v} works — ${recent} of ${rows.length} sampled rows are within ${RECENT_DAYS}d. Pin this version.`
-          : `UCDP ${v} responds but the first page has no events within ${RECENT_DAYS}d — likely an annual (older) version; a monthly candidate version would be fresher.`,
-      };
-    } catch { /* try next */ } finally { clearTimeout(tid); }
+  const since = ymd(new Date(Date.now() - RECENT_DAYS * 86_400_000));
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch(`${UCDP_BASE}${UCDP_VERSION}?pagesize=200&page=0&StartDate=${since}`, { headers: reqHeaders, cache: "no-store", signal: ctrl.signal });
+    if (!res.ok) return { version: UCDP_VERSION, status: res.status, note: `UCDP ${UCDP_VERSION} returned HTTP ${res.status} — check the version at ucdpapi.pcr.uu.se/apiinfo or whether a token is now required.` };
+    const data = await res.json().catch(() => null);
+    const rows = extractResult(data);
+    const total = Number((data as { TotalCount?: unknown })?.TotalCount) || rows.length;
+    let newest = "";
+    for (const e of rows) { const d = String(e.date_start ?? "").slice(0, 10); if (d > newest) newest = d; }
+    const f = rows[0];
+    const sample = f ? `${String(f.date_start ?? "?").slice(0, 10)} · ${String(f.country ?? "?")} · ${String(f.side_a ?? "?")} vs ${String(f.side_b ?? "?")}`.slice(0, 160) : undefined;
+    return {
+      version: UCDP_VERSION, status: res.status, total, returned: rows.length, newest, sample,
+      note: rows.length > 0
+        ? `UCDP ${UCDP_VERSION} working — ${total} events since ${since}; newest ${newest || "?"}. (Yearly GED lags ~6mo; pin a monthly candidate version here for fresher data if one exists.)`
+        : `UCDP ${UCDP_VERSION} responded 200 but no rows since ${since} — widen RECENT_DAYS or the version has no data in range.`,
+    };
+  } catch (e) {
+    return { version: UCDP_VERSION, note: "UCDP probe failed: " + (e instanceof Error ? e.message : String(e)) };
+  } finally {
+    clearTimeout(tid);
   }
-  return { tried, note: "No UCDP version in the probe list responded with rows — the candidate scheme differs; check ucdpapi.pcr.uu.se/apiinfo for the current version and update ucdpVersionCandidates()." };
 }
