@@ -8,6 +8,16 @@ import { getStateAdvisories } from "@/lib/stateAdvisories";
 import { getConflictPoints } from "@/lib/conflictEvents";
 import { getAcledEvents } from "@/lib/acled";
 import { aorFromCoords } from "@/lib/aor";
+import { nearestAirfields } from "@/lib/airfields";
+
+// Compact "nearest mobility airfield(s)" hint for a demand point, so the read can
+// name a real field for the access note instead of guessing.
+function accessHint(lat: number | null, lon: number | null): string {
+  if (lat == null || lon == null) return "";
+  const near = nearestAirfields(lat, lon, 2, 4000);
+  if (near.length === 0) return " | access: no curated field <4000km";
+  return " | access: " + near.map((a) => `${a.icao} ${a.name} ~${a.km}km`).join("; ");
+}
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +44,7 @@ export async function GET() {
     const [threats, advisories, conflict, acled] = await Promise.all([getWeatherThreats(locations), getStateAdvisories(), getConflictPoints().catch(() => []), getAcledEvents().catch(() => [])]);
 
     const lines: string[] = [];
-    for (const d of threats.disasters.slice(0, 16)) lines.push(`DISASTER ${d.severity} ${d.type} "${d.title}"${d.country ? ` (${d.country})` : ""} [${d.aor}]${d.nearLocations.length ? ` near ${d.nearLocations.join("/")}` : ""} hadr=${d.hadrScore}`);
+    for (const d of threats.disasters.slice(0, 16)) lines.push(`DISASTER ${d.severity} ${d.type} "${d.title}"${d.country ? ` (${d.country})` : ""} [${d.aor}]${d.nearLocations.length ? ` near ${d.nearLocations.join("/")}` : ""} hadr=${d.hadrScore}${accessHint(d.lat, d.lon)}`);
     for (const z of threats.hazards) lines.push(`HUB-WX ${z.severity} ${z.label}: ${z.flags.join(", ")}`);
     for (const t of threats.tropical) lines.push(`TROPICAL ${t.category} ${t.name} ${t.intensityKt ?? "?"}kt moving ${t.movement}`);
     for (const a of advisories.filter((x) => x.orderedDeparture || x.authorizedDeparture)) lines.push(`NEO ${a.country} [${a.aor}] ${a.orderedDeparture ? "ordered" : "authorized"} departure`);
@@ -46,9 +56,9 @@ export async function GET() {
       for (const e of top) lines.push(`STRIKE [${aorFromCoords(e.lat, e.lon)}] ${e.subType} ${[e.location, e.country].filter(Boolean).join(", ")}${e.actors ? ` (${e.actors})` : ""}${e.fatalities > 0 ? ` ${e.fatalities} killed` : ""} [ACLED]`);
     } else {
       for (const c of conflict.slice(0, 10)) {
-        lines.push(c.src === "reliefweb"
+        lines.push((c.src === "reliefweb"
           ? `CONFLICT/EMERGENCY [${aorFromCoords(c.lat, c.lon)}] "${c.title || c.name}" (${c.name})`
-          : `KINETIC [${aorFromCoords(c.lat, c.lon)}] "${c.title || c.name}"${c.title && c.name ? ` (${c.name})` : ""}${c.count > 1 ? ` ${c.count} fatalities` : ""}`);
+          : `KINETIC [${aorFromCoords(c.lat, c.lon)}] "${c.title || c.name}"${c.title && c.name ? ` (${c.name})` : ""}${c.count > 1 ? ` ${c.count} fatalities` : ""}`) + accessHint(c.lat, c.lon));
       }
     }
 
