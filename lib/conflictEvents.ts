@@ -163,47 +163,65 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
   }
 }
 
-// Probe for /api/osint/crisis-diag: reports which version resolved, the recent
-// (StartDate-filtered) row count, and the newest event date so freshness is
-// visible (candidate ≈ current year; yearly fallback lags ~6 months).
+// Probe for /api/osint/crisis-diag: reports the actual HTTP status / body / row
+// count for a few known-good versions, so a blank conflict layer shows its real
+// cause (404 wrong version vs 401/403 token-required vs timeout/unreachable vs an
+// HTML/WAF body) instead of a vague "no version responded".
 export interface UcdpDiag {
   version?: string;
-  status?: number;
-  total?: number;
-  returned?: number;
   newest?: string;
   sample?: string;
-  tried: string[];
+  variants: { version: string; status: number; ms: number; rows: number; body?: string; error?: string }[];
   note: string;
 }
 
 export async function diagnoseUcdp(): Promise<UcdpDiag> {
   const since = ymd(new Date(Date.now() - RECENT_DAYS * 86_400_000));
-  const tried = ucdpVersionCandidates();
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 25_000);
-  try {
-    const version = await resolveVersion(ctrl.signal);
-    if (!version) return { tried, note: "No UCDP version in the probe list responded with rows — check ucdpapi.pcr.uu.se/apiinfo (or whether a token is now required) and update ucdpVersionCandidates()." };
-    const res = await fetch(`${UCDP_BASE}${version}?pagesize=200&page=0&StartDate=${since}`, { headers: reqHeaders, cache: "no-store", signal: ctrl.signal });
-    if (!res.ok) return { version, status: res.status, tried, note: `UCDP ${version} resolved but a StartDate read returned HTTP ${res.status}.` };
-    const data = await res.json().catch(() => null);
-    const rows = extractResult(data);
-    const total = Number((data as { TotalCount?: unknown })?.TotalCount) || rows.length;
-    let newest = "";
-    for (const e of rows) { const d = String(e.date_start ?? "").slice(0, 10); if (d > newest) newest = d; }
-    const f = rows[0];
-    const sample = f ? `${String(f.date_start ?? "?").slice(0, 10)} · ${String(f.country ?? "?")} · ${String(f.side_a ?? "?")} vs ${String(f.side_b ?? "?")}`.slice(0, 160) : undefined;
-    const isCandidate = /\.0\./.test(version);
-    return {
-      version, status: res.status, total, returned: rows.length, newest, sample, tried,
-      note: rows.length > 0
-        ? `UCDP ${version} (${isCandidate ? "monthly candidate" : "yearly"}) working — ${total} events since ${since}; newest ${newest || "?"}.`
-        : `UCDP ${version} responded 200 but no rows since ${since}.`,
-    };
-  } catch (e) {
-    return { tried, note: "UCDP probe failed: " + (e instanceof Error ? e.message : String(e)) };
-  } finally {
-    clearTimeout(tid);
+  // 26.1 / 25.1 are large yearly versions that definitely exist — if even these
+  // fail, it's reachability/token, not a version mismatch. 26.0.4 is the latest
+  // monthly candidate from the version list.
+  const probeVersions = ["26.0.4", "26.1", "25.1"];
+  const variants: UcdpDiag["variants"] = [];
+  let working: { version: string; newest: string; sample?: string } | null = null;
+
+  for (const v of probeVersions) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 20_000);
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`${UCDP_BASE}${v}?pagesize=3&page=0&StartDate=${since}`, { headers: reqHeaders, cache: "no-store", signal: ctrl.signal });
+      const text = await res.text();
+      let rows: UcdpEvent[] = [];
+      let parsed = false;
+      try { rows = extractResult(JSON.parse(text)); parsed = true; } catch { /* non-JSON */ }
+      variants.push({
+        version: v, status: res.status, ms: Date.now() - t0, rows: rows.length,
+        body: (!res.ok || !parsed) ? text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160) : undefined,
+      });
+      if (res.ok && rows.length > 0 && !working) {
+        let newest = "";
+        for (const e of rows) { const d = String(e.date_start ?? "").slice(0, 10); if (d > newest) newest = d; }
+        const f = rows[0];
+        working = { version: v, newest, sample: `${String(f.date_start ?? "?").slice(0, 10)} · ${String(f.country ?? "?")} · ${String(f.side_a ?? "?")} vs ${String(f.side_b ?? "?")}`.slice(0, 160) };
+      }
+    } catch (e) {
+      variants.push({ version: v, status: 0, ms: Date.now() - t0, rows: 0, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      clearTimeout(tid);
+    }
   }
+
+  if (working) {
+    return { version: working.version, newest: working.newest, sample: working.sample, variants, note: `UCDP ${working.version} working — newest event ${working.newest || "?"}.` };
+  }
+  const allZeroStatus = variants.every((v) => v.status === 0);
+  const allForbidden = variants.every((v) => v.status === 401 || v.status === 403);
+  return {
+    variants,
+    note: allZeroStatus
+      ? "Every UCDP request failed before a response (timeout/DNS) — ucdpapi.pcr.uu.se is likely unreachable from the hosting environment. Confirm by running the URL from your own machine."
+      : allForbidden
+      ? "UCDP returned 401/403 for known-good versions — an API token is now required. See the body snippet + ucdpapi.pcr.uu.se for how to obtain one."
+      : "UCDP responded but returned no usable rows — see the per-version status/body below.",
+  };
 }
