@@ -9,14 +9,16 @@
 // higher-fidelity but its free tier embargoes data <12 months old. UCDP GED is
 // keyless and georeferenced.
 //
-// Freshness: the *yearly* GED (version YY.1) lags — 26.1 covers through end-2025
-// — so "recent" here means the most recent ~year the dataset holds (still fresher
-// than ACLED's 12-month embargo, and active conflict zones persist). If/when a
-// monthly UCDP candidate (CED) version is pinned, this gets ~1-month fresh.
+// Freshness / version: UCDP publishes a monthly CANDIDATE dataset (GED-CED) with
+// versions like "26.0.4" (year.0.month, ~1-2 month lag) plus the yearly GED
+// ("26.1", covers through the prior year). Candidates increment monthly, so we
+// PROBE newest-first (current month down) and fall back to the yearly version,
+// caching whichever responds. diagnoseUcdp() reports the resolved version + the
+// newest event date so freshness is visible.
 //
-// API contract (per ucdpapi.pcr.uu.se): GED row order is ARBITRARY, so we filter
-// recency server-side with the StartDate parameter (operates on date_end) rather
-// than slicing a page; results are paged (Result[] + TotalPages).
+// API contract (per ucdpapi.pcr.uu.se): GED row order is ARBITRARY, so recency
+// is filtered server-side with the StartDate parameter (operates on date_end),
+// and results are paged (Result[] + TotalPages) — we never slice a page.
 
 import { aorFromCoords } from "./aor";
 import { recordDailySignals, utcDate } from "./trends";
@@ -24,19 +26,19 @@ import { recordDailySignals, utcDate } from "./trends";
 export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string }
 
 const UCDP_BASE = "https://ucdpapi.pcr.uu.se/api/gedevents/";
-// Latest yearly GED. Update when a newer version (or a monthly candidate) is
-// confirmed via diagnoseUcdp(); the yearly dataset covers through the prior year.
-const UCDP_VERSION = "26.1";
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 3;                  // sample up to 3k recent events, then rank
-// Annual GED lags, so a 1-year window captures the most recent data it holds.
+// Generous window: the candidate holds the current year; the yearly fallback
+// lags. 365d captures whatever recent data the resolved version holds.
 const RECENT_DAYS = 365;
 const MAX_POINTS = 250;
 
 const TTL = 30 * 60 * 1000;
-const STALE_TTL = 6 * 60 * 60 * 1000; // serve last-good points up to 6h on failure
+const STALE_TTL = 6 * 60 * 60 * 1000;    // serve last-good points up to 6h on failure
+const VERSION_TTL = 24 * 60 * 60 * 1000; // re-resolve the working version daily
 let cache: { points: ConflictPoint[]; expires: number } | null = null;
 let staleCache: { points: ConflictPoint[]; at: number } | null = null;
+let versionCache: { version: string; expires: number } | null = null;
 
 let lastFetch: { ok: boolean; at: number; stale?: boolean } = { ok: false, at: 0 };
 export function getConflictHealth(): { ok: boolean; at: number; stale?: boolean } { return lastFetch; }
@@ -51,6 +53,18 @@ function conflictFallback(): ConflictPoint[] {
 }
 
 function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
+
+// UCDP GED versions to try, newest-first: monthly candidates for the current year
+// (down to month 1), prior-year late-month candidates, then the yearly fallbacks.
+export function ucdpVersionCandidates(now = new Date()): string[] {
+  const yy = now.getUTCFullYear() % 100;
+  const mm = now.getUTCMonth() + 1;
+  const out: string[] = [];
+  for (let m = mm; m >= 1; m--) out.push(`${yy}.0.${m}`);
+  for (let m = 12; m >= 9; m--) out.push(`${yy - 1}.0.${m}`);
+  out.push(`${yy}.1`, `${yy - 1}.1`);
+  return out;
+}
 
 interface UcdpEvent {
   latitude?: unknown; longitude?: unknown; date_start?: unknown; best?: unknown;
@@ -77,13 +91,30 @@ function toPoint(e: UcdpEvent): ConflictPoint | null {
 
 const reqHeaders = { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" };
 
-// Page through GED events with date_end >= `since` (StartDate filter), up to
-// MAX_PAGES. Returns null only if the very first request fails (source down).
-async function fetchRecent(since: string, signal: AbortSignal): Promise<ConflictPoint[] | null> {
+// Resolve the freshest UCDP version that exists, newest-first (cached daily). A
+// minimal pagesize=1 probe confirms a version responds with rows before we
+// commit to paging it.
+async function resolveVersion(signal: AbortSignal): Promise<string | null> {
+  if (versionCache && versionCache.expires > Date.now()) return versionCache.version;
+  for (const v of ucdpVersionCandidates()) {
+    try {
+      const res = await fetch(`${UCDP_BASE}${v}?pagesize=1&page=0`, { signal, headers: reqHeaders, cache: "no-store" });
+      if (!res.ok) continue;
+      if (extractResult(await res.json()).length === 0) continue;
+      versionCache = { version: v, expires: Date.now() + VERSION_TTL };
+      return v;
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+// Page through `version`'s events with date_end >= `since` (StartDate filter),
+// up to MAX_PAGES. Returns null only if the first request fails (source down).
+async function fetchRecent(version: string, since: string, signal: AbortSignal): Promise<ConflictPoint[] | null> {
   const all: ConflictPoint[] = [];
   let anyOk = false;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const url = `${UCDP_BASE}${UCDP_VERSION}?pagesize=${PAGE_SIZE}&page=${page}&StartDate=${since}`;
+    const url = `${UCDP_BASE}${version}?pagesize=${PAGE_SIZE}&page=${page}&StartDate=${since}`;
     const res = await fetch(url, { signal, headers: reqHeaders, cache: "no-store" });
     if (!res.ok) break;
     anyOk = true;
@@ -100,10 +131,12 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
   if (cache && cache.expires > Date.now()) { lastFetch = { ok: true, at: lastFetch.at || Date.now() }; return cache.points; }
   const since = ymd(new Date(Date.now() - RECENT_DAYS * 86_400_000));
   const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 20_000);
+  const tid = setTimeout(() => ctrl.abort(), 25_000);
   try {
-    const got = await fetchRecent(since, ctrl.signal).catch(() => null);
-    if (got === null) return conflictFallback();
+    const version = await resolveVersion(ctrl.signal);
+    if (!version) return conflictFallback();
+    const got = await fetchRecent(version, since, ctrl.signal).catch(() => null);
+    if (got === null) { versionCache = null; return conflictFallback(); } // version went bad — re-resolve next time
 
     got.sort((a, b) => b.count - a.count); // highest-fatality first
     const top = got.slice(0, MAX_POINTS);
@@ -130,26 +163,30 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
   }
 }
 
-// Probe for /api/osint/crisis-diag: confirms the pinned version responds with
-// recent (StartDate-filtered) rows, and reports the newest event date so the
-// layer's true freshness is visible.
+// Probe for /api/osint/crisis-diag: reports which version resolved, the recent
+// (StartDate-filtered) row count, and the newest event date so freshness is
+// visible (candidate ≈ current year; yearly fallback lags ~6 months).
 export interface UcdpDiag {
-  version: string;
+  version?: string;
   status?: number;
   total?: number;
   returned?: number;
   newest?: string;
   sample?: string;
+  tried: string[];
   note: string;
 }
 
 export async function diagnoseUcdp(): Promise<UcdpDiag> {
   const since = ymd(new Date(Date.now() - RECENT_DAYS * 86_400_000));
+  const tried = ucdpVersionCandidates();
   const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 20_000);
+  const tid = setTimeout(() => ctrl.abort(), 25_000);
   try {
-    const res = await fetch(`${UCDP_BASE}${UCDP_VERSION}?pagesize=200&page=0&StartDate=${since}`, { headers: reqHeaders, cache: "no-store", signal: ctrl.signal });
-    if (!res.ok) return { version: UCDP_VERSION, status: res.status, note: `UCDP ${UCDP_VERSION} returned HTTP ${res.status} — check the version at ucdpapi.pcr.uu.se/apiinfo or whether a token is now required.` };
+    const version = await resolveVersion(ctrl.signal);
+    if (!version) return { tried, note: "No UCDP version in the probe list responded with rows — check ucdpapi.pcr.uu.se/apiinfo (or whether a token is now required) and update ucdpVersionCandidates()." };
+    const res = await fetch(`${UCDP_BASE}${version}?pagesize=200&page=0&StartDate=${since}`, { headers: reqHeaders, cache: "no-store", signal: ctrl.signal });
+    if (!res.ok) return { version, status: res.status, tried, note: `UCDP ${version} resolved but a StartDate read returned HTTP ${res.status}.` };
     const data = await res.json().catch(() => null);
     const rows = extractResult(data);
     const total = Number((data as { TotalCount?: unknown })?.TotalCount) || rows.length;
@@ -157,14 +194,15 @@ export async function diagnoseUcdp(): Promise<UcdpDiag> {
     for (const e of rows) { const d = String(e.date_start ?? "").slice(0, 10); if (d > newest) newest = d; }
     const f = rows[0];
     const sample = f ? `${String(f.date_start ?? "?").slice(0, 10)} · ${String(f.country ?? "?")} · ${String(f.side_a ?? "?")} vs ${String(f.side_b ?? "?")}`.slice(0, 160) : undefined;
+    const isCandidate = /\.0\./.test(version);
     return {
-      version: UCDP_VERSION, status: res.status, total, returned: rows.length, newest, sample,
+      version, status: res.status, total, returned: rows.length, newest, sample, tried,
       note: rows.length > 0
-        ? `UCDP ${UCDP_VERSION} working — ${total} events since ${since}; newest ${newest || "?"}. (Yearly GED lags ~6mo; pin a monthly candidate version here for fresher data if one exists.)`
-        : `UCDP ${UCDP_VERSION} responded 200 but no rows since ${since} — widen RECENT_DAYS or the version has no data in range.`,
+        ? `UCDP ${version} (${isCandidate ? "monthly candidate" : "yearly"}) working — ${total} events since ${since}; newest ${newest || "?"}.`
+        : `UCDP ${version} responded 200 but no rows since ${since}.`,
     };
   } catch (e) {
-    return { version: UCDP_VERSION, note: "UCDP probe failed: " + (e instanceof Error ? e.message : String(e)) };
+    return { tried, note: "UCDP probe failed: " + (e instanceof Error ? e.message : String(e)) };
   } finally {
     clearTimeout(tid);
   }

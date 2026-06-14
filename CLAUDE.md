@@ -595,12 +595,14 @@ is NOT fully gone: its **DOC 2.0** API still powers the TDY local-news strip
 (`lib/localNews.ts`), which is alive. GED row order is **arbitrary** (per UCDP's
 docs), so `getConflictPoints` filters recency server-side with the **`StartDate`**
 parameter (operates on `date_end`) and pages `Result[]` — it does NOT slice a
-page. Pinned to `UCDP_VERSION` (`26.1`, the latest *yearly* GED, which covers
-through end-2025, so it lags ~6 months); `diagnoseUcdp()` reports the newest event
-date so freshness is visible. If UCDP exposes a monthly **candidate (CED)**
-version, bump `UCDP_VERSION` to it for ~1-month-fresh data. ACLED stays the
-higher-fidelity layer, but its free tier embargoes data <12 months old (the diag
-surfaces this as a `restriction`), so UCDP is the keyless current-events source.
+page. UCDP ships a **monthly candidate** dataset (`YY.0.M`, e.g. `26.0.4`, ~1-2mo
+lag) plus a **yearly** GED (`26.1`, covers through the prior year). Candidates
+increment monthly, so `ucdpVersionCandidates()` lists them newest-first (current
+month down) then the yearly fallback, and `resolveVersion()` probes + caches
+(24h) the first that returns rows. `diagnoseUcdp()` reports the resolved version
++ newest event date so freshness is visible. ACLED stays the higher-fidelity
+layer, but its free tier embargoes data <12 months old (the diag surfaces this as
+a `restriction`), so UCDP is the keyless current-events source.
 
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
