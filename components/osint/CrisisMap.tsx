@@ -459,7 +459,7 @@ export default function CrisisMap() {
         <button onClick={() => setFitKey((k) => k + 1)} title="Fit the map to the active crises" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">Fit</button>
         <button onClick={() => setRefreshKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200" title="Refresh all feeds now">↻</button>
         <button onClick={() => setFullscreen((v) => !v)} title="Toggle fullscreen" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
-        <button onClick={runRead} title="Claude situation read of the current board" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">AI read</button>
+        <button onClick={runRead} title="Claude anticipatory mobility-demand read of the current board" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">Demand read</button>
         <span className="flex-1" />
         {srcDown.length > 0 && (
           <span
@@ -501,8 +501,8 @@ export default function CrisisMap() {
       {/* AI map read */}
       {aiOpen && (
         <div className="bg-emerald-500/[0.06] border border-emerald-500/30 rounded-md px-3 py-2 text-[12px] text-slate-200 leading-relaxed flex items-start gap-2">
-          <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest flex-shrink-0 mt-0.5">AI read</span>
-          <p className="flex-1 min-w-0">{aiLoading ? "Reading the board…" : aiText}</p>
+          <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest flex-shrink-0 mt-0.5">Mobility<br/>demand</span>
+          <p className="flex-1 min-w-0 whitespace-pre-line">{aiLoading ? "Reading the board…" : aiText}</p>
           <button onClick={() => setAiOpen(false)} className="text-slate-500 hover:text-slate-300 flex-shrink-0">×</button>
         </div>
       )}
@@ -712,7 +712,7 @@ export default function CrisisMap() {
       <p className={`text-[10px] text-slate-700 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
         NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
-        convergence strip flags AORs where signals stack; AI read is a Claude SITREP of the board. The Conflict layer
+        convergence strip flags AORs where signals stack; the Demand read is a Claude anticipatory mobility-demand read — where airlift/HADR/NEO demand is emerging by AOR and the airfield-access implication. The Conflict layer
         surfaces armed-conflict events (UCDP GED, most recent available) — georeferenced battles and organized violence
         with coordinates and fatality counts — with the top events promoted into the crisis list.
         The ACLED layer (◆) adds higher-fidelity, human-coded strike events — precise coordinates, sub-event type, named
