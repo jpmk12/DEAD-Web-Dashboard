@@ -113,9 +113,9 @@ async function fetchUsgsQuakes(): Promise<RawDisaster[]> {
 // ── ReliefWeb: epidemics / pandemics / complex emergencies (humanitarian) ──
 async function fetchReliefWeb(): Promise<RawDisaster[]> {
   try {
-    const url = "https://api.reliefweb.int/v1/disasters?appname=dead-web-dashboard&profile=list&preset=latest&limit=25"
+    const url = "https://api.reliefweb.int/v1/disasters?appname=dead-web-dashboard&profile=list&preset=latest&limit=40"
       + "&fields[include][]=name&fields[include][]=status&fields[include][]=primary_type"
-      + "&fields[include][]=country&fields[include][]=date&fields[include][]=url_alias";
+      + "&fields[include][]=country&fields[include][]=primary_country.location&fields[include][]=date&fields[include][]=url_alias";
     const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" }, 10_000);
     if (!res.ok) return [];
     const data = await res.json();
@@ -130,13 +130,21 @@ async function fetchReliefWeb(): Promise<RawDisaster[]> {
       const country = Array.isArray(fields.country)
         ? (fields.country as { name?: string }[]).map((c) => c.name).filter(Boolean).slice(0, 2).join(", ")
         : String((fields.country as { name?: string })?.name ?? "");
+      // primary_country.location gives a centroid lat/lon — without it ReliefWeb
+      // events have no coords and get dropped from the map (it filters null
+      // coords), which hid every complex-emergency / conflict situation.
+      const pc = fields.primary_country as { location?: { lat?: unknown; lon?: unknown } } | undefined;
+      const plat = Number(pc?.location?.lat), plon = Number(pc?.location?.lon);
       return [{
         id: `rw-${(row as { id?: string | number }).id ?? Math.random().toString(36).slice(2)}`,
         type: /epidemic|pandemic|disease/i.test(ptype) ? "epidemic" : "other",
         title: String(fields.name ?? ptype),
-        severity: status === "alert" ? "orange" : "green",
+        // Complex emergencies / conflict / insecurity are standing HADR-airlift
+        // drivers — mark them orange so they rank above routine green entries.
+        severity: (status === "alert" || /complex|insecurit|conflict|violence/i.test(ptype)) ? "orange" : "green",
         country: country.slice(0, 80),
-        lat: null, lon: null,
+        lat: Number.isFinite(plat) ? plat : null,
+        lon: Number.isFinite(plon) ? plon : null,
         time: String((fields.date as { created?: string })?.created ?? ""),
         magnitude: null,
         tsunami: false,

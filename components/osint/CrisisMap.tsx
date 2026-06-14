@@ -122,7 +122,7 @@ type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflic
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
-  disasters: "GDACS/USGS disaster events — dot colour = severity, size = HADR-airlift relevance. Click for details.",
+  disasters: "Disaster & humanitarian events — GDACS (cyclone/quake/flood/drought/volcano), USGS quakes, and ReliefWeb complex-emergency / conflict / epidemic situations (plotted at country centroid). Dot colour = severity, size = HADR-airlift relevance. Click for details.",
   hazards: "Model weather hazards at your hubs/locations, next ~30 h (gusts, IFR/LIFR visibility, thunderstorms, snow/ice, temp extremes).",
   tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
