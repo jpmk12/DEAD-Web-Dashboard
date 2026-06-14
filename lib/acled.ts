@@ -35,7 +35,9 @@ const KINETIC_TYPES = ["Battles", "Explosions/Remote violence"];
 
 const DATA_TTL = 30 * 60 * 1000;        // re-pull events at most every 30 min
 const SESSION_TTL = 12 * 60 * 60 * 1000; // re-login at most every 12h (or on 401/403)
-const WINDOW_DAYS = 7;
+// ACLED has a reporting lag, so the most recent couple of days are sparse — a
+// 14-day window keeps the kinetic layer populated without going stale.
+const WINDOW_DAYS = 14;
 const PER_TYPE_LIMIT = 300;
 const MAX_EVENTS = 400;
 
@@ -169,10 +171,14 @@ function normalize(raw: Record<string, unknown>): AcledEvent | null {
 // 5000-events-per-call default, so a single page suffices and there's no
 // timeout/pagination concern; if it ever needs to grow past 5000, add
 // &page=N paging (which ACLED exempts from rate limits).
-async function readType(cookie: string, type: string, from: string, to: string): Promise<AcledEvent[]> {
+async function readType(cookie: string, type: string, from: string): Promise<AcledEvent[]> {
   const params = new URLSearchParams();
-  params.set("event_date", `${from}|${to}`);
-  params.set("event_date_where", "BETWEEN");
+  // ACLED's event_date is a single-date '=' filter; a range uses the _where
+  // operator. ">=" returns everything on/after `from` (no upper bound needed —
+  // no future-dated events). The old pipe-BETWEEN form is NOT honored by the
+  // current API (returns 0). See ACLED API "Query filters".
+  params.set("event_date", from);
+  params.set("event_date_where", ">=");
   params.set("event_type", type);
   params.set("fields", "event_id_cnty|event_date|event_type|sub_event_type|actor1|actor2|country|admin1|location|latitude|longitude|fatalities|notes|source");
   params.set("limit", String(PER_TYPE_LIMIT));
@@ -211,7 +217,7 @@ export async function getAcledEvents(): Promise<AcledEvent[]> {
 
   const to = new Date();
   const from = new Date(to.getTime() - WINDOW_DAYS * 24 * 3600_000);
-  const results = await Promise.all(KINETIC_TYPES.map((t) => readType(cookie, t, ymd(from), ymd(to))));
+  const results = await Promise.all(KINETIC_TYPES.map((t) => readType(cookie, t, ymd(from))));
   const merged = results.flat();
   merged.sort((a, b) => b.date.localeCompare(a.date)); // newest first
   const events = merged.slice(0, MAX_EVENTS);
@@ -264,8 +270,8 @@ export async function diagnoseAcled(): Promise<AcledDiag> {
   const to = new Date();
   const from = new Date(to.getTime() - WINDOW_DAYS * 24 * 3600_000);
   const params = new URLSearchParams();
-  params.set("event_date", `${ymd(from)}|${ymd(to)}`);
-  params.set("event_date_where", "BETWEEN");
+  params.set("event_date", ymd(from));
+  params.set("event_date_where", ">=");
   params.set("event_type", "Battles");
   params.set("limit", "5");
   params.set("_format", "json");
