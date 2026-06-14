@@ -252,6 +252,7 @@ export interface AcledDiag {
   readStatus?: number;
   count?: number;
   sample?: string;
+  restriction?: string;  // account access limit ACLED echoed (e.g. "12 Months old")
   error?: string;
   note?: string;
 }
@@ -297,18 +298,27 @@ export async function diagnoseAcled(): Promise<AcledDiag> {
       : (res.status >= 400 ? text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || undefined : undefined);
     const first = data && data[0];
     const sample = first ? `${first.event_date} · ${first.event_type} · ${first.country}` : undefined;
+    // ACLED echoes the account's access limits here. A "date_recency" restriction
+    // (e.g. "12 Months old") means the tier can't see recent events — the usual
+    // reason a well-formed recent-window query returns 0 rows.
+    const recency = (body?.data_query_restrictions as { date_recency?: { description?: string; date?: string } } | undefined)?.date_recency;
+    const restriction = recency?.description
+      ? `${recency.description}${recency.date ? ` (only events on/before ${recency.date})` : ""}`
+      : undefined;
 
     let note: string | undefined;
     if (res.status === 401 || res.status === 403) {
       note = "Login works but the READ endpoint refused the session — your myACLED account most likely doesn't have API data access enabled yet. Log in at acleddata.com → check API access / accept the data-access terms, then retry.";
     } else if (apiError) {
       note = `ACLED rejected the query: ${apiError}`;
+    } else if (count === 0 && restriction) {
+      note = `Authenticated, but your ACLED access tier restricts data to "${restriction}". Recent events can't be pulled on this account, so the Crisis map's ACLED layer will be empty — request recent/real-time data access from ACLED, or use a keyless source (UCDP) for current events.`;
     } else if (count === 0) {
-      note = "Authenticated and the read succeeded, but 0 events came back for the last 7 days — unusual for global Battles. Likely an access tier with no rows, or a query the API didn't like.";
+      note = "Authenticated and the read succeeded, but 0 events came back for the recent window — likely an access tier with no rows, or a query the API didn't like.";
     } else if ((count ?? 0) > 0) {
       note = "Working — events are flowing. If the map is still empty, toggle the ACLED layer on (Standard/Contested preset) and check the AOR filter isn't excluding them.";
     }
-    return { configured: true, source, tokenOk: true, readStatus: res.status, count, sample, error: apiError, note };
+    return { configured: true, source, tokenOk: true, readStatus: res.status, count, sample, error: apiError, restriction, note };
   } catch (e) {
     return { configured: true, source, tokenOk: true, error: "Read request failed: " + (e instanceof Error ? e.message : String(e)) };
   } finally {
