@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { diagnoseAcled } from "@/lib/acled";
 import { diagnoseUcdp } from "@/lib/conflictEvents";
 import { diagnoseOurAirports } from "@/lib/ourAirports";
+import { diagnoseInform } from "@/lib/inform";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,10 @@ export async function GET() {
     };
   })();
 
-  const [ucdp, gpsjam, acled, ourairports] = await Promise.all([ucdpP, gpsjamP, diagnoseAcled(), diagnoseOurAirports().catch((e) => ({ count: 0, note: "probe threw: " + (e instanceof Error ? e.message : String(e)) }))]);
-  return NextResponse.json({ acled, ucdp, gpsjam, ourairports, at: Date.now() });
+  const [ucdp, gpsjam, acled, ourairports, inform] = await Promise.all([
+    ucdpP, gpsjamP, diagnoseAcled(),
+    diagnoseOurAirports().catch((e) => ({ count: 0, note: "probe threw: " + (e instanceof Error ? e.message : String(e)) })),
+    diagnoseInform().catch((e) => [{ product: "risk" as const, note: "probe threw: " + (e instanceof Error ? e.message : String(e)) }]),
+  ]);
+  return NextResponse.json({ acled, ucdp, gpsjam, ourairports, inform, at: Date.now() });
 }
