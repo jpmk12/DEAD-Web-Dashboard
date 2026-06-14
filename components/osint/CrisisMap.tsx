@@ -127,7 +127,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
-  conflict: "Armed-conflict events (UCDP GED) — georeferenced battles and organized violence with coordinates and fatality counts, from the Uppsala Conflict Data Program. Requires a free UCDP API token (set UCDP_API_TOKEN); empty if not set. Uses UCDP's monthly candidate data (~1-2 month lag) when available, else the yearly dataset. Top events by fatalities surface in the crisis list.",
+  conflict: "Armed-conflict events. With a UCDP API token (UCDP_API_TOKEN): precise georeferenced events from the Uppsala Conflict Data Program — coordinates + fatalities, monthly candidate data (~1-2mo lag). Without a token, falls back to keyless ReliefWeb (UN OCHA) complex-emergency / conflict situations plotted at country level. Top events surface in the crisis list.",
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   enroute: "AMC en route / mobility hubs.",
@@ -197,7 +197,7 @@ export default function CrisisMap() {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
-  const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string }[]>([]);
+  const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
   // Sources that reported "upstream down" (ok:false) — rendered as an amber
@@ -271,9 +271,9 @@ export default function CrisisMap() {
       .catch(() => {});
     fetch("/api/osint/conflict", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { points?: { lat: number; lon: number; name: string; count: number; title?: string; url?: string }[]; ok?: boolean } | null) => {
+      .then((d: { points?: { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]; ok?: boolean; source?: string | null } | null) => {
         if (Array.isArray(d?.points)) setConflict(d!.points);
-        if (d) markSrc("UCDP", d.ok === false);
+        if (d) markSrc(d.source === "reliefweb" ? "ReliefWeb" : "UCDP", d.ok === false);
       })
       .catch(() => {});
     fetch("/api/osint/gpsjam", { signal: ctrl.signal })
@@ -526,7 +526,7 @@ export default function CrisisMap() {
             {/* Conflict events (UCDP GED, most recent available) — drawn first, under the crisis markers. */}
             {on.conflict && conflict.map((c, i) => (
               <CircleMarker key={`cf-${i}`} center={[c.lat, c.lon]} radius={Math.min(4 + Math.log2(c.count + 1) * 1.6, 16)} pathOptions={{ color: "#f43f5e", fillColor: "#f43f5e", fillOpacity: 0.18, weight: 0.5, opacity: 0.45 }}>
-                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}<div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div><div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}{c.src === "reliefweb" ? (<><div className="text-rose-600">Active complex emergency / conflict</div>{c.url ? <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">ReliefWeb ↗</a> : <div className="text-slate-500">ReliefWeb (UN OCHA) — country-level</div>}</>) : (<><div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div><div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></>)}</div></Popup>
               </CircleMarker>
             ))}
 
@@ -705,7 +705,7 @@ export default function CrisisMap() {
         </ul>
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP){" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 

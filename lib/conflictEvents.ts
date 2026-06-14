@@ -23,7 +23,7 @@
 import { aorFromCoords } from "./aor";
 import { recordDailySignals, utcDate } from "./trends";
 
-export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string }
+export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }
 
 const UCDP_BASE = "https://ucdpapi.pcr.uu.se/api/gedevents/";
 const PAGE_SIZE = 1000;
@@ -40,8 +40,8 @@ let cache: { points: ConflictPoint[]; expires: number } | null = null;
 let staleCache: { points: ConflictPoint[]; at: number } | null = null;
 let versionCache: { version: string; expires: number } | null = null;
 
-let lastFetch: { ok: boolean; at: number; stale?: boolean } = { ok: false, at: 0 };
-export function getConflictHealth(): { ok: boolean; at: number; stale?: boolean } { return lastFetch; }
+let lastFetch: { ok: boolean; at: number; stale?: boolean; source?: "ucdp" | "reliefweb" } = { ok: false, at: 0 };
+export function getConflictHealth(): { ok: boolean; at: number; stale?: boolean; source?: "ucdp" | "reliefweb" } { return lastFetch; }
 
 function conflictFallback(): ConflictPoint[] {
   if (staleCache && Date.now() - staleCache.at < STALE_TTL) {
@@ -86,7 +86,34 @@ function toPoint(e: UcdpEvent): ConflictPoint | null {
   const title = a && b ? `${a} vs ${b}` : (String(e.conflict_name ?? "").trim() || a || b || undefined);
   const name = String(e.where_coordinates ?? e.country ?? "").slice(0, 120);
   const deaths = Number(e.best);
-  return { lat, lon, name, count: Number.isFinite(deaths) && deaths > 0 ? deaths : 1, title };
+  return { lat, lon, name, count: Number.isFinite(deaths) && deaths > 0 ? deaths : 1, title, src: "ucdp" };
+}
+
+// Keyless fallback for the Conflict layer when UCDP has no token: ReliefWeb's
+// active complex-emergency / conflict / insecurity situations, plotted at the
+// primary country's centroid (country-level, not precise events). ReliefWeb is
+// keyless (just an appname) and already trusted elsewhere (lib/disasters.ts).
+const RELIEFWEB_CONFLICT_URL =
+  "https://api.reliefweb.int/v1/disasters?appname=dead-web-dashboard&profile=list&preset=latest&limit=60" +
+  "&fields[include][]=name&fields[include][]=primary_type&fields[include][]=primary_country.name" +
+  "&fields[include][]=primary_country.location&fields[include][]=url_alias";
+
+async function reliefWebConflictPoints(signal: AbortSignal): Promise<ConflictPoint[]> {
+  const res = await fetch(RELIEFWEB_CONFLICT_URL, { signal, headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" }, cache: "no-store" }).catch(() => null);
+  if (!res || !res.ok) return [];
+  const data = await res.json().catch(() => null);
+  const rows = Array.isArray((data as { data?: unknown[] })?.data) ? (data as { data: unknown[] }).data : [];
+  const out: ConflictPoint[] = [];
+  for (const row of rows) {
+    const f = (row as { fields?: Record<string, unknown> })?.fields ?? {};
+    const ptype = String((f.primary_type as { name?: string })?.name ?? "");
+    if (!/complex|insecurit|conflict|violence/i.test(ptype)) continue;
+    const pc = f.primary_country as { name?: string; location?: { lat?: unknown; lon?: unknown } } | undefined;
+    const lat = Number(pc?.location?.lat), lon = Number(pc?.location?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    out.push({ lat, lon, name: String(pc?.name ?? "").slice(0, 120), count: 1, title: String(f.name ?? ptype).slice(0, 140), url: String(f.url_alias ?? "") || undefined, src: "reliefweb" });
+  }
+  return out;
 }
 
 // UCDP now requires an API token (returns 401 "API token required. Add header:
@@ -141,29 +168,42 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), 25_000);
   try {
+    // Preferred: UCDP precise georeferenced events (needs UCDP_API_TOKEN).
     const version = await resolveVersion(ctrl.signal);
-    if (!version) return conflictFallback();
-    const got = await fetchRecent(version, since, ctrl.signal).catch(() => null);
-    if (got === null) { versionCache = null; return conflictFallback(); } // version went bad — re-resolve next time
+    if (version) {
+      const got = await fetchRecent(version, since, ctrl.signal).catch(() => null);
+      if (got === null) versionCache = null; // version went bad — re-resolve next time
+      else if (got.length > 0) {
+        got.sort((a, b) => b.count - a.count); // highest-fatality first
+        const top = got.slice(0, MAX_POINTS);
+        cache = { points: top, expires: Date.now() + TTL };
+        staleCache = { points: top, at: Date.now() };
+        lastFetch = { ok: true, at: Date.now(), source: "ucdp" };
 
-    got.sort((a, b) => b.count - a.count); // highest-fatality first
-    const top = got.slice(0, MAX_POINTS);
-    if (top.length === 0) return conflictFallback();
-    cache = { points: top, expires: Date.now() + TTL };
-    staleCache = { points: top, at: Date.now() };
-    lastFetch = { ok: true, at: Date.now() };
+        // Trend recorder (P1): one count per place per UTC day. Fire-and-forget.
+        const day = utcDate();
+        recordDailySignals(top.filter((p) => p.name).map((p) => ({
+          id: `ucdp|${day}|${p.name}`,
+          terms: [
+            { kind: "region" as const, term: p.name },
+            { kind: "aor" as const, term: aorFromCoords(p.lat, p.lon) },
+          ].filter((t) => t.term !== "UNKNOWN"),
+        }))).catch(() => {});
 
-    // Trend recorder (P1): one count per place per UTC day. Fire-and-forget.
-    const day = utcDate();
-    recordDailySignals(top.filter((p) => p.name).map((p) => ({
-      id: `ucdp|${day}|${p.name}`,
-      terms: [
-        { kind: "region" as const, term: p.name },
-        { kind: "aor" as const, term: aorFromCoords(p.lat, p.lon) },
-      ].filter((t) => t.term !== "UNKNOWN"),
-    }))).catch(() => {});
+        return top;
+      }
+    }
 
-    return top;
+    // Fallback (keyless): ReliefWeb complex-emergency / conflict situations.
+    const rw = await reliefWebConflictPoints(ctrl.signal).catch(() => []);
+    if (rw.length > 0) {
+      const top = rw.slice(0, MAX_POINTS);
+      cache = { points: top, expires: Date.now() + TTL };
+      staleCache = { points: top, at: Date.now() };
+      lastFetch = { ok: true, at: Date.now(), source: "reliefweb" };
+      return top;
+    }
+    return conflictFallback();
   } catch {
     return conflictFallback();
   } finally {

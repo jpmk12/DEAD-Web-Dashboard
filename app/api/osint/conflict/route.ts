@@ -16,5 +16,5 @@ export async function GET() {
   // points after a failed refresh (a transient blip, not down). The map shows a
   // source badge from these.
   const h = getConflictHealth();
-  return NextResponse.json({ points, ok: h.ok, stale: h.stale ?? false });
+  return NextResponse.json({ points, ok: h.ok, stale: h.stale ?? false, source: h.source ?? null });
 }
