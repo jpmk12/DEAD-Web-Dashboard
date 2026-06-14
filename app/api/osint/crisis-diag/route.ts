@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { diagnoseAcled } from "@/lib/acled";
 import { diagnoseUcdp } from "@/lib/conflictEvents";
+import { diagnoseOurAirports } from "@/lib/ourAirports";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,6 @@ export async function GET() {
     };
   })();
 
-  const [ucdp, gpsjam, acled] = await Promise.all([ucdpP, gpsjamP, diagnoseAcled()]);
-  return NextResponse.json({ acled, ucdp, gpsjam, at: Date.now() });
+  const [ucdp, gpsjam, acled, ourairports] = await Promise.all([ucdpP, gpsjamP, diagnoseAcled(), diagnoseOurAirports().catch((e) => ({ count: 0, note: "probe threw: " + (e instanceof Error ? e.message : String(e)) }))]);
+  return NextResponse.json({ acled, ucdp, gpsjam, ourairports, at: Date.now() });
 }
