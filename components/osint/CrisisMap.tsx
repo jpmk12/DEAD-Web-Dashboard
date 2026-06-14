@@ -6,6 +6,7 @@ import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup
 import L from "leaflet";
 import { cellToBoundary } from "h3-js";
 import { AMC_HUBS } from "@/lib/amcHubs";
+import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
 import { aorFromCoords, type Aor } from "@/lib/aor";
 import type { AcledEvent } from "@/lib/acled";
@@ -111,6 +112,7 @@ const glyph = (html: string, size = 14) =>
   L.divIcon({ html: `<div style="line-height:1;text-shadow:0 0 3px #020617,0 0 3px #020617">${html}</div>`, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 const enrouteIcon = glyph(`<span style="color:#34d399;font-size:13px">✈</span>`);
 const crfIcon = glyph(`<span style="color:#5eead4;font-size:16px;font-weight:900">★</span>`, 16);
+const airfieldIcon = glyph(`<span style="color:#38bdf8;font-size:12px">✈</span>`);
 const homeIcon = glyph(`<span style="color:#34d399;font-size:18px;font-weight:900">⌂</span>`, 18);
 const trackedIcon = glyph(`<span style="color:#94a3b8;font-size:11px">◇</span>`, 11);
 const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
@@ -118,7 +120,7 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "acled" | "gps" | "enroute" | "crf" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "acled" | "gps" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
@@ -132,6 +134,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
+  airfields: "Mobility gateway airfields — major C-17/C-130-capable international fields near crisis-prone regions (AFRICOM/CENTCOM/EUCOM/INDOPACOM/SOUTHCOM), the candidate fields to open/reopen for HADR or evacuation when no US hub is close.",
   tracked: "Your home + tracked locations (from Preferences).",
   lines: "Reach line from each significant crisis to its nearest CRF (great-circle distance + nominal flight time).",
   rings: "Reach rings — the selected airframe's nominal one-way radius around CRF nodes.",
@@ -149,7 +152,8 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
   ] },
   { label: "Nodes", keys: [
-    { k: "enroute", label: "Hubs", dot: "#34d399" }, { k: "crf", label: "CRF", dot: "#5eead4" }, { k: "tracked", label: "Tracked", dot: "#94a3b8" },
+    { k: "enroute", label: "Hubs", dot: "#34d399" }, { k: "crf", label: "CRF", dot: "#5eead4" },
+    { k: "airfields", label: "Gateways", dot: "#38bdf8" }, { k: "tracked", label: "Tracked", dot: "#94a3b8" },
   ] },
   { label: "Reach", keys: [
     { k: "lines", label: "Reach" }, { k: "rings", label: "Rings" }, { k: "ar", label: "AR" }, { k: "bridges", label: "Bridges" },
@@ -163,9 +167,9 @@ const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
   Object.fromEntries(ALL_KEYS.map((k) => [k, onKeys.includes(k)])) as Record<LayerKey, boolean>;
 const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
   { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "enroute", "crf", "tracked", "lines", "labels"]) },
-  { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "tracked", "lines", "rings", "labels"]) },
+  { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
   { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, GPS interference, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "gps", "enroute", "crf", "tracked", "lines", "labels"]) },
-  { name: "Mobility", desc: "Network/reach focus — hubs, CRF, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "tracked", "rings", "ar", "bridges", "labels"]) },
+  { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
 ];
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo" | "kinetic" | "strike"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
@@ -224,7 +228,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: true, acled: true, gps: false, enroute: true, crf: true, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: true, acled: true, gps: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -583,6 +587,12 @@ export default function CrisisMap() {
               <Marker key={`crf-${h.icao}`} position={[h.lat, h.lon]} icon={crfIcon}>
                 {on.labels && <Tooltip permanent direction="right" offset={[7, 0]} className="cm-label cm-crf">{h.crf} · {h.icao}</Tooltip>}
                 <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div></div></Popup>
+              </Marker>
+            ))}
+            {on.airfields && GATEWAYS.map((g) => (
+              <Marker key={`af-${g.icao}`} position={[g.lat, g.lon]} icon={airfieldIcon}>
+                {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{g.icao}</Tooltip>}
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div><div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div><div className="text-slate-500">Candidate open/reopen field for HADR / evac</div></div></Popup>
               </Marker>
             ))}
             {on.tracked && tracked.map((t, i) => (

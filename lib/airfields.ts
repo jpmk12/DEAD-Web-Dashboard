@@ -9,7 +9,16 @@
 // Coordinates are airfield reference points — coarse SA, not navigation.
 
 import { AMC_HUBS } from "./amcHubs";
-import { haversineKm } from "./disasters";
+
+// Local great-circle distance (km) — inlined so this module stays pure data +
+// math and is safe to import into client components (no server-only deps).
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
 
 export interface MobilityAirfield {
   icao: string;
@@ -24,7 +33,7 @@ export interface MobilityAirfield {
 // Major international gateways with long, hard runways, positioned to cover the
 // crisis-prone peripheries the AMC hub set (mostly US bases) doesn't — East/West
 // Africa, the Levant/Gulf, South & SE Asia, the Pacific, and the Caribbean/LatAm.
-const GATEWAYS: MobilityAirfield[] = [
+export const GATEWAYS: MobilityAirfield[] = [
   // AFRICOM
   { icao: "HKJK", name: "Nairobi (Jomo Kenyatta), KE", lat: -1.32, lon: 36.93, country: "Kenya", kind: "gateway" },
   { icao: "HUEN", name: "Entebbe, UG", lat: 0.04, lon: 32.44, country: "Uganda", kind: "gateway" },
