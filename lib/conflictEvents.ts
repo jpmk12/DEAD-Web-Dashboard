@@ -1,35 +1,42 @@
-// Recent armed-conflict / kinetic-event density via GDELT's GEO 2.0 API (open,
-// no key). Shared by the Crisis map's "Conflict" layer (/api/osint/conflict)
-// and the AI crisis read so both read from one cache and one query.
+// Recent armed-conflict / kinetic events for the Crisis map's "Conflict" layer
+// (and the AI crisis read), sourced from UCDP — the Uppsala Conflict Data
+// Program's Georeferenced Event Dataset (GED). Keyless, reputable, with precise
+// coordinates and fatality counts.
 //
-// The query spans the kinetic spectrum an analyst watches for: air/missile/drone
-// strikes, shelling/rocket fire, air-defense engagements and shootdowns (downed
-// aircraft), naval/tanker attacks, and the recovery/rescue follow-on
-// (search-and-rescue / personnel recovery). Coarse OSINT, not a curated product.
+// Why UCDP and not GDELT: GDELT's GEO 2.0 API (the old source here) was retired
+// — every geo path now 404s (confirmed via /api/osint/crisis-diag) — while its
+// DOC API returns articles without coordinates, useless for a map layer. ACLED
+// is higher-fidelity but the free tier embargoes data <12 months old. UCDP's
+// monthly "candidate" dataset (UCDP-CED) is keyless and ~1 month fresh, the best
+// no-account option for current geocoded events.
+//
+// CAVEAT (verify in prod): the build sandbox has no outbound network, so the
+// exact UCDP *candidate* version string couldn't be confirmed. We probe a small
+// newest-first list and cache the first that returns rows; the crisis-diag UCDP
+// probe reports which version/shape actually works so the list can be pinned.
 
 import { aorFromCoords } from "./aor";
 import { recordDailySignals, utcDate } from "./trends";
 
 export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string }
 
+const UCDP_BASE = "https://ucdpapi.pcr.uu.se/api/gedevents/";
+const PAGE_SIZE = 1000;
+// Candidate data lags ~1 month, so a 60-day window keeps the layer populated
+// with the freshest available events without dredging up stale history.
+const RECENT_DAYS = 60;
+const MAX_POINTS = 250;
+
 const TTL = 30 * 60 * 1000;
-// Serve the last good points for a few hours on an upstream failure before
-// giving up — GDELT GEO is routinely slow and rate-limited (1 req/5s), so a
-// single failed cycle shouldn't blank the layer or read as "source down".
-const STALE_TTL = 3 * 60 * 60 * 1000;
+const STALE_TTL = 6 * 60 * 60 * 1000;   // serve last-good points up to 6h on failure
+const VERSION_TTL = 24 * 60 * 60 * 1000; // re-confirm the working version daily
 let cache: { points: ConflictPoint[]; expires: number } | null = null;
 let staleCache: { points: ConflictPoint[]; at: number } | null = null;
+let versionCache: { version: string; expires: number } | null = null;
 
-// Health of the most recent upstream attempt, so the API layer can tell the
-// UI "GDELT is down" apart from "the world is quiet" (it never is, for this
-// query — empty means failure in practice). `stale` = served last-good points
-// after a failed refresh, so the UI can show "cached" rather than "down".
 let lastFetch: { ok: boolean; at: number; stale?: boolean } = { ok: false, at: 0 };
 export function getConflictHealth(): { ok: boolean; at: number; stale?: boolean } { return lastFetch; }
 
-// On any upstream failure (unreachable, non-200, or an empty/changed-shape
-// GeoJSON), fall back to the last good points if they're recent enough; only
-// report a true "source down" once even the stale copy has aged out.
 function conflictFallback(): ConflictPoint[] {
   if (staleCache && Date.now() - staleCache.at < STALE_TTL) {
     lastFetch = { ok: true, at: staleCache.at, stale: true };
@@ -39,87 +46,144 @@ function conflictFallback(): ConflictPoint[] {
   return [];
 }
 
-const QUERY =
-  '("air strike" OR airstrike OR "missile strike" OR "drone strike" OR ' +
-  '"rocket attack" OR shelling OR "armed clashes" OR "shot down" OR ' +
-  '"downed aircraft" OR "air defense" OR "ballistic missile" OR ' +
-  '"cruise missile" OR "naval strike" OR "tanker attack" OR ' +
-  '"search and rescue" OR "personnel recovery")';
+// Best-guess UCDP version strings, newest-first. Candidate (monthly) versions
+// carry the freshest events; annual GED (YY.1) is a stable but older fallback.
+// The candidate scheme is unconfirmed from the sandbox — see file header.
+export function ucdpVersionCandidates(now = new Date()): string[] {
+  const yy = now.getUTCFullYear() % 100;
+  const mm = now.getUTCMonth() + 1;
+  const cand: string[] = [];
+  for (let m = mm; m >= Math.max(1, mm - 2); m--) cand.push(`${yy}.0.${m}`);
+  cand.push(`${yy - 1}.0.12`);
+  return [...cand, `${yy}.1`, `${yy - 1}.1`];
+}
 
-const GDELT_URL =
-  "https://api.gdeltproject.org/api/v2/geo/geo?query=" +
-  encodeURIComponent(QUERY) +
-  "&format=GeoJSON&timespan=2d";
+interface UcdpEvent {
+  latitude?: unknown; longitude?: unknown; date_start?: unknown; best?: unknown;
+  side_a?: unknown; side_b?: unknown; country?: unknown; where_coordinates?: unknown;
+  conflict_name?: unknown; id?: unknown;
+}
 
-// GDELT GEO GeoJSON puts a small HTML blob of the top articles for each location
-// in properties.html. Pull the first article's headline + URL so each point can
-// show a readable event, not just a density count. Best-effort: if the shape
-// changes or there's no link, callers fall back to the location name.
-function firstArticle(html: string): { title?: string; url?: string } {
-  if (!html) return {};
-  const m = html.match(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
-  if (!m) return {};
-  const url = m[1].trim();
-  const title = m[2]
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return {
-    url: /^https?:\/\//i.test(url) ? url : undefined,
-    title: title ? title.slice(0, 140) : undefined,
-  };
+// UCDP returns events under `Result`; parse defensively in case the shape shifts.
+function extractResult(data: unknown): UcdpEvent[] {
+  const d = data as { Result?: unknown; result?: unknown; data?: unknown };
+  const arr = d?.Result ?? d?.result ?? d?.data;
+  return Array.isArray(arr) ? (arr as UcdpEvent[]) : [];
+}
+
+function withinRecentWindow(dateStart: string, sinceMs: number): boolean {
+  const t = Date.parse(dateStart);
+  return Number.isFinite(t) && t >= sinceMs;
+}
+
+function toPoint(e: UcdpEvent): ConflictPoint | null {
+  const lat = Number(e.latitude), lon = Number(e.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const a = String(e.side_a ?? "").trim(), b = String(e.side_b ?? "").trim();
+  const title = a && b ? `${a} vs ${b}` : (String(e.conflict_name ?? "").trim() || a || b || undefined);
+  const name = String(e.where_coordinates ?? e.country ?? "").slice(0, 120);
+  const deaths = Number(e.best);
+  return { lat, lon, name, count: Number.isFinite(deaths) && deaths > 0 ? deaths : 1, title };
+}
+
+async function fetchVersion(version: string, sinceMs: number, signal: AbortSignal): Promise<ConflictPoint[] | null> {
+  const url = `${UCDP_BASE}${version}?pagesize=${PAGE_SIZE}&page=0`;
+  const res = await fetch(url, { signal, headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" }, cache: "no-store" });
+  if (!res.ok) return null;
+  const rows = extractResult(await res.json());
+  if (rows.length === 0) return null; // version doesn't exist / empty → try next
+  const points: ConflictPoint[] = [];
+  for (const e of rows) {
+    if (!withinRecentWindow(String(e.date_start ?? ""), sinceMs)) continue;
+    const p = toPoint(e);
+    if (p) points.push(p);
+  }
+  return points; // may be [] if the version exists but has no recent events
 }
 
 export async function getConflictPoints(): Promise<ConflictPoint[]> {
   if (cache && cache.expires > Date.now()) { lastFetch = { ok: true, at: lastFetch.at || Date.now() }; return cache.points; }
+  const sinceMs = Date.now() - RECENT_DAYS * 86_400_000;
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 20_000);
   try {
-    const ctrl = new AbortController();
-    // GDELT's GEO API is routinely slow (10-25 s); 12 s aborted too often and
-    // surfaced as a false "source down". This read is best-effort and off the
-    // user-facing critical path (its own cache + the Crisis map renders without
-    // it), so a longer ceiling is the right trade.
-    const tid = setTimeout(() => ctrl.abort(), 25_000);
-    const res = await fetch(GDELT_URL, { signal: ctrl.signal, headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" }, cache: "no-store" });
-    clearTimeout(tid);
-    if (!res.ok) return conflictFallback();
-    const data: unknown = await res.json();
-    const feats = Array.isArray((data as { features?: unknown[] })?.features) ? (data as { features: unknown[] }).features : [];
-    const points: ConflictPoint[] = [];
-    for (const f of feats) {
-      const geom = (f as { geometry?: { coordinates?: unknown[] } })?.geometry;
-      const props = (f as { properties?: Record<string, unknown> })?.properties ?? {};
-      const lon = Number(geom?.coordinates?.[0]);
-      const lat = Number(geom?.coordinates?.[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      const { title, url } = firstArticle(typeof props.html === "string" ? props.html : "");
-      points.push({ lat, lon, name: String(props.name ?? "").slice(0, 120), count: Number(props.count ?? 1) || 1, title, url });
+    // Prefer the last confirmed-working version; otherwise probe newest-first.
+    const versions = versionCache && versionCache.expires > Date.now()
+      ? [versionCache.version, ...ucdpVersionCandidates().filter((v) => v !== versionCache!.version)]
+      : ucdpVersionCandidates();
+
+    let points: ConflictPoint[] | null = null;
+    for (const v of versions) {
+      const got = await fetchVersion(v, sinceMs, ctrl.signal).catch(() => null);
+      if (got !== null) { // version exists (returned rows); lock it in
+        versionCache = { version: v, expires: Date.now() + VERSION_TTL };
+        points = got;
+        break;
+      }
     }
+    if (points === null) return conflictFallback(); // no version responded
+
     points.sort((a, b) => b.count - a.count);
-    const top = points.slice(0, 250);
-    // An empty GeoJSON for a 2-day global kinetic query means GDELT hiccuped or
-    // changed shape, never a quiet world — serve stale rather than blanking.
-    if (top.length === 0) return conflictFallback();
+    const top = points.slice(0, MAX_POINTS);
+    if (top.length === 0) return conflictFallback(); // endpoint ok but no recent events
     cache = { points: top, expires: Date.now() + TTL };
     staleCache = { points: top, at: Date.now() };
     lastFetch = { ok: true, at: Date.now() };
 
-    // Trend recorder (P1): GDELT points have no stable upstream id, so each
-    // place is counted once per UTC day (id embeds the date) — presence-based
-    // velocity, not report volume. Fresh pulls only; fire-and-forget.
-    if (top.length > 0) {
-      const day = utcDate();
-      recordDailySignals(top.filter((p) => p.name).map((p) => ({
-        id: `gdelt|${day}|${p.name}`,
-        terms: [
-          { kind: "region" as const, term: p.name },
-          { kind: "aor" as const, term: aorFromCoords(p.lat, p.lon) },
-        ].filter((t) => t.term !== "UNKNOWN"),
-      }))).catch(() => {});
-    }
+    // Trend recorder (P1): one count per place per UTC day. Fire-and-forget.
+    const day = utcDate();
+    recordDailySignals(top.filter((p) => p.name).map((p) => ({
+      id: `ucdp|${day}|${p.name}`,
+      terms: [
+        { kind: "region" as const, term: p.name },
+        { kind: "aor" as const, term: aorFromCoords(p.lat, p.lon) },
+      ].filter((t) => t.term !== "UNKNOWN"),
+    }))).catch(() => {});
+
     return top;
   } catch {
     return conflictFallback();
+  } finally {
+    clearTimeout(tid);
   }
+}
+
+// Discovery probe for /api/osint/crisis-diag: reports which UCDP version responds,
+// its row count, a sample event, and how many rows fall in the recent window —
+// so the candidate-version list above can be pinned to what actually works.
+export interface UcdpDiag {
+  version?: string;
+  status?: number;
+  total?: number;
+  recent?: number;
+  sample?: string;
+  tried: string[];
+  note: string;
+}
+
+export async function diagnoseUcdp(): Promise<UcdpDiag> {
+  const sinceMs = Date.now() - RECENT_DAYS * 86_400_000;
+  const tried = ucdpVersionCandidates();
+  for (const v of tried) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 20_000);
+    try {
+      const res = await fetch(`${UCDP_BASE}${v}?pagesize=200&page=0`, { headers: { "User-Agent": "DEAD-Dashboard", Accept: "application/json" }, cache: "no-store", signal: ctrl.signal });
+      if (!res.ok) { continue; }
+      const data = await res.json().catch(() => null);
+      const rows = extractResult(data);
+      if (rows.length === 0) continue;
+      const recent = rows.filter((e) => withinRecentWindow(String(e.date_start ?? ""), sinceMs)).length;
+      const f = rows[0];
+      const sample = `${String(f.date_start ?? "?").slice(0, 10)} · ${String(f.country ?? "?")} · ${String(f.side_a ?? "?")} vs ${String(f.side_b ?? "?")}`.slice(0, 160);
+      const total = Number((data as { TotalCount?: unknown })?.TotalCount) || rows.length;
+      return {
+        version: v, status: res.status, total, recent, sample, tried,
+        note: recent > 0
+          ? `UCDP ${v} works — ${recent} of ${rows.length} sampled rows are within ${RECENT_DAYS}d. Pin this version.`
+          : `UCDP ${v} responds but the first page has no events within ${RECENT_DAYS}d — likely an annual (older) version; a monthly candidate version would be fresher.`,
+      };
+    } catch { /* try next */ } finally { clearTimeout(tid); }
+  }
+  return { tried, note: "No UCDP version in the probe list responded with rows — the candidate scheme differs; check ucdpapi.pcr.uu.se/apiinfo for the current version and update ucdpVersionCandidates()." };
 }

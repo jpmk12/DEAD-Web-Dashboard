@@ -4,15 +4,14 @@ import { getConflictPoints, getConflictHealth } from "@/lib/conflictEvents";
 
 export const dynamic = "force-dynamic";
 
-// Recent armed-conflict / kinetic-event density for the Crisis map's "Conflict"
-// layer. The fetch/parse/cache lives in lib/conflictEvents so the AI crisis read
-// can share the same query and cache. Returns simplified points
-// { lat, lon, name, count, title?, url? }. Coarse OSINT, not a curated product.
+// Recent armed-conflict / kinetic events for the Crisis map's "Conflict" layer,
+// sourced from UCDP (lib/conflictEvents) so the AI crisis read shares the same
+// cache. Returns simplified points { lat, lon, name, count, title?, url? }.
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ points: [] }, { status: 401 });
   const points = await getConflictPoints();
-  // ok=false means GDELT was unreachable / returned nothing — "source down",
+  // ok=false means UCDP was unreachable / returned nothing — "source down",
   // not "the world is quiet". stale=true means we're serving recent cached
   // points after a failed refresh (a transient blip, not down). The map shows a
   // source badge from these.

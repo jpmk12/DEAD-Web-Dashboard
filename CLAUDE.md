@@ -586,7 +586,22 @@ Scopes requested: `gmail.modify` + `calendar.readonly`. `lib/secondaryOAuth.ts`
 is `google-auth-library` + `@googleapis/gmail` only (no new esbuild —
 `grep -c esbuild package-lock.json` stays `0`).
 
+### Crisis map conflict layer (UCDP, was GDELT GEO)
+The Crisis map's "Conflict" layer (`lib/conflictEvents.ts` → `/api/osint/conflict`,
+shared with the AI crisis read) is sourced from **UCDP** (Uppsala Conflict Data
+Program GED) — keyless, georeferenced. It **replaced GDELT's GEO 2.0 API**, which
+was retired (every geo path 404s — confirmed via `/api/osint/crisis-diag`). GDELT
+is NOT fully gone: its **DOC 2.0** API still powers the TDY local-news strip
+(`lib/localNews.ts`), which is alive. UCDP's monthly *candidate* version string
+couldn't be confirmed from the build sandbox (no egress), so `getConflictPoints`
+probes `ucdpVersionCandidates()` newest-first and caches the first that returns
+rows; `diagnoseUcdp()` (in the crisis-diag UCDP block) reports which version/shape
+actually works so the list can be pinned. ACLED stays as the higher-fidelity
+layer, but its free tier embargoes data <12 months old (the diag surfaces this as
+a `restriction`), so UCDP is the keyless source for *current* events.
+
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
-embeds, GDELT, and ACLED (`acleddata.com`). The only non-HTTP connection is to
-the platform's managed MySQL, which is explicitly allowed.
+embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), and ACLED
+(`acleddata.com`). The only non-HTTP connection is to the platform's managed
+MySQL, which is explicitly allowed.

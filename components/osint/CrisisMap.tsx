@@ -127,8 +127,8 @@ const LAYER_DESC: Record<LayerKey, string> = {
   tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
-  conflict: "Recent kinetic activity (GDELT, last 2 days): strikes (air/missile/drone), shelling/rockets, air-defense & shootdowns, naval/tanker attacks, and search-and-rescue / personnel recovery. Top events surface in the crisis list with source links; the rest as density. Coarse OSINT.",
-  acled: "Structured conflict events (ACLED, last 7 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Higher fidelity than the GDELT density read. Requires an ACLED account (Preferences → Sources & feeds → ACLED Strikes); empty if not set. Data © ACLED, acleddata.com.",
+  conflict: "Recent armed-conflict events (UCDP, ~last 60 days) — georeferenced battles and organized violence with coordinates and fatality counts, from the Uppsala Conflict Data Program. Keyless; the freshest no-account source (UCDP candidate data lags ~1 month). Top events surface in the crisis list; the rest as density.",
+  acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
@@ -273,7 +273,7 @@ export default function CrisisMap() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { points?: { lat: number; lon: number; name: string; count: number; title?: string; url?: string }[]; ok?: boolean } | null) => {
         if (Array.isArray(d?.points)) setConflict(d!.points);
-        if (d) markSrc("GDELT", d.ok === false);
+        if (d) markSrc("UCDP", d.ok === false);
       })
       .catch(() => {});
     fetch("/api/osint/gpsjam", { signal: ctrl.signal })
@@ -307,10 +307,10 @@ export default function CrisisMap() {
 
   const significant = useMemo(() => disasters.filter(isSignificant).sort((a, b) => (b.hadrScore ?? 0) - (a.hadrScore ?? 0)).slice(0, 8), [disasters]);
 
-  // Top kinetic events from the GDELT conflict feed (AOR-filtered, busiest
+  // Top conflict events from the UCDP feed (AOR-filtered, highest-fatality
   // first). These get promoted out of the density layer into first-class
-  // crisis-list / map entries so strikes, shootdowns, and personnel-recovery
-  // activity are actually visible — keyed off the Conflict toggle so it stays
+  // crisis-list / map entries so the most significant armed-conflict
+  // activity is actually visible — keyed off the Conflict toggle so it stays
   // the single master switch for kinetic data.
   const kineticId = (c: { lat: number; lon: number }) => `k-${c.lat.toFixed(2)}-${c.lon.toFixed(2)}`;
   const kineticEvents = useMemo(
@@ -523,15 +523,15 @@ export default function CrisisMap() {
               </Polygon>
             ))}
 
-            {/* Conflict density (GDELT, last 2 days) — drawn first, under the crisis markers. */}
+            {/* Conflict events (UCDP, ~last 60 days) — drawn first, under the crisis markers. */}
             {on.conflict && conflict.map((c, i) => (
               <CircleMarker key={`cf-${i}`} center={[c.lat, c.lon]} radius={Math.min(4 + Math.log2(c.count + 1) * 1.6, 16)} pathOptions={{ color: "#f43f5e", fillColor: "#f43f5e", fillOpacity: 0.18, weight: 0.5, opacity: 0.45 }}>
-                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Kinetic activity"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}<div className="text-rose-600">{c.count} report{c.count === 1 ? "" : "s"} · last 2 days</div>{c.url ? <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">source ↗</a> : <div className="text-slate-500">GDELT open-source — coarse SA</div>}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}<div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div><div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></div></Popup>
               </CircleMarker>
             ))}
 
             {/* ACLED structured strikes — precise coordinates, sub-event type,
-                actors, fatalities. Higher fidelity than the GDELT density read. */}
+                actors, fatalities. Higher fidelity than the UCDP conflict read. */}
             {on.acled && acledShown.map((e) => (
               <Marker key={`acled-${e.id}`} position={[e.lat, e.lon]} icon={acledIcon} eventHandlers={{ click: () => pick(`a-${e.id}`, e.lat, e.lon) }}>
                 <Popup><div className="text-[12px] font-mono leading-tight max-w-[260px]">
@@ -705,7 +705,7 @@ export default function CrisisMap() {
         </ul>
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict/kinetic (strikes · shootdowns · recovery): GDELT{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP){" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
@@ -713,8 +713,8 @@ export default function CrisisMap() {
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
         NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
         convergence strip flags AORs where signals stack; AI read is a Claude SITREP of the board. The Conflict layer
-        surfaces recent kinetic activity (GDELT) — strikes, shelling, air-defense/shootdowns, naval/tanker attacks, and
-        search-and-rescue / personnel recovery — with the top events promoted into the crisis list with source links.
+        surfaces recent armed-conflict events (UCDP, ~last 60 days) — georeferenced battles and organized violence with
+        coordinates and fatality counts — with the top events promoted into the crisis list.
         The ACLED layer (◆) adds higher-fidelity, human-coded strike events — precise coordinates, sub-event type, named
         actors, and fatalities (requires an ACLED account configured server-side; data &copy; Armed Conflict Location &amp; Event Data Project (ACLED), acleddata.com).
         GPS interference / EW (GPSJam) is an optional overlay. Click a
