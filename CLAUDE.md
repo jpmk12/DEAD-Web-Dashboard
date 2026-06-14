@@ -600,9 +600,11 @@ lag) plus a **yearly** GED (`26.1`, covers through the prior year). Candidates
 increment monthly, so `ucdpVersionCandidates()` lists them newest-first (current
 month down) then the yearly fallback, and `resolveVersion()` probes + caches
 (24h) the first that returns rows. `diagnoseUcdp()` reports the resolved version
-+ newest event date so freshness is visible. ACLED stays the higher-fidelity
-layer, but its free tier embargoes data <12 months old (the diag surfaces this as
-a `restriction`), so UCDP is the keyless current-events source.
++ newest event date so freshness is visible. **UCDP's API now requires a token**
+(returns 401 `API token required. Add header: x-ucdp-access-token:` otherwise) —
+set `UCDP_API_TOKEN` in the env (`ucdpHeaders()` sends it); without it the
+Conflict layer is empty. ACLED stays the higher-fidelity layer, but its free tier
+embargoes data <12 months old (the diag surfaces this as a `restriction`).
 
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X

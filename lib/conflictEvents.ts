@@ -1,13 +1,13 @@
 // Recent armed-conflict events for the Crisis map's "Conflict" layer (and the AI
 // crisis read), sourced from UCDP — the Uppsala Conflict Data Program's
-// Georeferenced Event Dataset (GED). Keyless, reputable, with precise
-// coordinates and fatality counts.
+// Georeferenced Event Dataset (GED). Georeferenced, with precise coordinates and
+// fatality counts. Requires a free UCDP API token (see ucdpHeaders below).
 //
 // Why UCDP and not GDELT: GDELT's GEO 2.0 API (the old source) was retired —
 // every geo path 404s (confirmed via /api/osint/crisis-diag) — while its DOC API
 // returns articles without coordinates, useless for a map layer. ACLED is
 // higher-fidelity but its free tier embargoes data <12 months old. UCDP GED is
-// keyless and georeferenced.
+// georeferenced and (with a free token) carries current-year candidate data.
 //
 // Freshness / version: UCDP publishes a monthly CANDIDATE dataset (GED-CED) with
 // versions like "26.0.4" (year.0.month, ~1-2 month lag) plus the yearly GED
@@ -89,7 +89,15 @@ function toPoint(e: UcdpEvent): ConflictPoint | null {
   return { lat, lon, name, count: Number.isFinite(deaths) && deaths > 0 ? deaths : 1, title };
 }
 
-const reqHeaders = { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" };
+// UCDP now requires an API token (returns 401 "API token required. Add header:
+// x-ucdp-access-token:" otherwise). Request one from UCDP and set UCDP_API_TOKEN
+// in the hosting env; without it the conflict layer is simply off.
+function ucdpHeaders(): Record<string, string> {
+  const h: Record<string, string> = { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" };
+  const t = process.env.UCDP_API_TOKEN?.trim();
+  if (t) h["x-ucdp-access-token"] = t;
+  return h;
+}
 
 // Resolve the freshest UCDP version that exists, newest-first (cached daily). A
 // minimal pagesize=1 probe confirms a version responds with rows before we
@@ -98,7 +106,7 @@ async function resolveVersion(signal: AbortSignal): Promise<string | null> {
   if (versionCache && versionCache.expires > Date.now()) return versionCache.version;
   for (const v of ucdpVersionCandidates()) {
     try {
-      const res = await fetch(`${UCDP_BASE}${v}?pagesize=1&page=0`, { signal, headers: reqHeaders, cache: "no-store" });
+      const res = await fetch(`${UCDP_BASE}${v}?pagesize=1&page=0`, { signal, headers: ucdpHeaders(), cache: "no-store" });
       if (!res.ok) continue;
       if (extractResult(await res.json()).length === 0) continue;
       versionCache = { version: v, expires: Date.now() + VERSION_TTL };
@@ -115,7 +123,7 @@ async function fetchRecent(version: string, since: string, signal: AbortSignal):
   let anyOk = false;
   for (let page = 0; page < MAX_PAGES; page++) {
     const url = `${UCDP_BASE}${version}?pagesize=${PAGE_SIZE}&page=${page}&StartDate=${since}`;
-    const res = await fetch(url, { signal, headers: reqHeaders, cache: "no-store" });
+    const res = await fetch(url, { signal, headers: ucdpHeaders(), cache: "no-store" });
     if (!res.ok) break;
     anyOk = true;
     const data = await res.json().catch(() => null);
@@ -189,7 +197,7 @@ export async function diagnoseUcdp(): Promise<UcdpDiag> {
     const tid = setTimeout(() => ctrl.abort(), 20_000);
     const t0 = Date.now();
     try {
-      const res = await fetch(`${UCDP_BASE}${v}?pagesize=3&page=0&StartDate=${since}`, { headers: reqHeaders, cache: "no-store", signal: ctrl.signal });
+      const res = await fetch(`${UCDP_BASE}${v}?pagesize=3&page=0&StartDate=${since}`, { headers: ucdpHeaders(), cache: "no-store", signal: ctrl.signal });
       const text = await res.text();
       let rows: UcdpEvent[] = [];
       let parsed = false;
@@ -216,12 +224,15 @@ export async function diagnoseUcdp(): Promise<UcdpDiag> {
   }
   const allZeroStatus = variants.every((v) => v.status === 0);
   const allForbidden = variants.every((v) => v.status === 401 || v.status === 403);
+  const tokenSet = !!process.env.UCDP_API_TOKEN?.trim();
   return {
     variants,
     note: allZeroStatus
       ? "Every UCDP request failed before a response (timeout/DNS) — ucdpapi.pcr.uu.se is likely unreachable from the hosting environment. Confirm by running the URL from your own machine."
       : allForbidden
-      ? "UCDP returned 401/403 for known-good versions — an API token is now required. See the body snippet + ucdpapi.pcr.uu.se for how to obtain one."
+      ? (tokenSet
+          ? "UCDP returned 401/403 WITH a token set — the token is invalid/expired or lacks the x-ucdp-access-token header. Request a fresh token from UCDP."
+          : "UCDP requires an API token (header x-ucdp-access-token). Request one from UCDP, then set UCDP_API_TOKEN in the hosting env.")
       : "UCDP responded but returned no usable rows — see the per-version status/body below.",
   };
 }

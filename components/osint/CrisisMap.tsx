@@ -127,7 +127,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
-  conflict: "Armed-conflict events (UCDP GED) — georeferenced battles and organized violence with coordinates and fatality counts, from the Uppsala Conflict Data Program. Keyless, no account. Uses UCDP's monthly candidate data (~1-2 month lag) when available, else the yearly dataset. Top events by fatalities surface in the crisis list.",
+  conflict: "Armed-conflict events (UCDP GED) — georeferenced battles and organized violence with coordinates and fatality counts, from the Uppsala Conflict Data Program. Requires a free UCDP API token (set UCDP_API_TOKEN); empty if not set. Uses UCDP's monthly candidate data (~1-2 month lag) when available, else the yearly dataset. Top events by fatalities surface in the crisis list.",
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   enroute: "AMC en route / mobility hubs.",
