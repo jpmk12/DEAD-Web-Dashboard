@@ -120,7 +120,7 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "informSeverity" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "informSeverity" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
@@ -128,6 +128,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   hazards: "Model weather hazards at your hubs/locations, next ~30 h (gusts, IFR/LIFR visibility, thunderstorms, snow/ice, temp extremes).",
   tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
   cone: "~48 h forecast cone — approximate (storm motion × NHC average track error); not the official cone.",
+  radar: "Precipitation / convection radar (RainViewer, global) — animated ~2 h loop + ~30 min nowcast. Tactical, short-range weather; most useful zoomed into a theater/airfield to judge weather impeding airlift / field access. Coverage is ground-radar-dependent (sparse over oceans/deserts) and there is NO multi-day forecast — blank ≠ clear, just no radar. Off by default.",
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
   conflict: "Armed-conflict events. With a UCDP API token (UCDP_API_TOKEN): precise georeferenced events from the Uppsala Conflict Data Program — coordinates + fatalities, monthly candidate data (~1-2mo lag). Without a token, falls back to keyless ReliefWeb (UN OCHA) complex-emergency / conflict situations plotted at country level. Top events surface in the crisis list.",
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
@@ -150,6 +151,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
   { label: "Threats", keys: [
     { k: "disasters", label: "Disasters", dot: "#f87171" }, { k: "hazards", label: "Hub wx", dot: "#fbbf24" },
     { k: "tropical", label: "Tropical", dot: "#38bdf8" }, { k: "cone", label: "Cone" },
+    { k: "radar", label: "Radar", dot: "#22d3ee" },
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
   ] },
@@ -212,6 +214,14 @@ export default function CrisisMap() {
   type InformPt = { country: string; score: number; lat: number; lon: number };
   const [informRisk, setInformRisk] = useState<InformPt[]>([]);
   const [informSeverity, setInformSeverity] = useState<InformPt[]>([]);
+  // Optional precipitation/convection radar (RainViewer) — animated loop.
+  type RadarFrame = { time: number; path: string; kind: "past" | "nowcast" };
+  const [radarHost, setRadarHost] = useState("");
+  const [radarFrames, setRadarFrames] = useState<RadarFrame[]>([]);
+  const [radarIdx, setRadarIdx] = useState(0);
+  const [radarNowIdx, setRadarNowIdx] = useState(0);
+  const [radarPlaying, setRadarPlaying] = useState(true);
+  const [radarOpacity, setRadarOpacity] = useState(0.6);
   // Sources that reported "upstream down" (ok:false) — rendered as an amber
   // badge so a blank layer reads as "source down", never as "all quiet".
   const [srcDown, setSrcDown] = useState<string[]>([]);
@@ -236,7 +246,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, neo: true, conflict: true, acled: true, gps: false, informRisk: false, informSeverity: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, informSeverity: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -307,11 +317,29 @@ export default function CrisisMap() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { points?: InformPt[] } | null) => { if (Array.isArray(d?.points)) setInformSeverity(d!.points); })
       .catch(() => {});
+    fetch("/api/osint/radar", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { host?: string; frames?: RadarFrame[]; nowIdx?: number } | null) => {
+        if (d?.host && Array.isArray(d.frames) && d.frames.length) {
+          setRadarHost(d.host); setRadarFrames(d.frames);
+          setRadarNowIdx(d.nowIdx ?? 0); setRadarIdx(d.nowIdx ?? 0);
+        }
+      })
+      .catch(() => {});
     return () => ctrl.abort();
   }, [refreshKey]);
 
   // Auto-refresh every 5 min.
   useEffect(() => { const id = setInterval(() => setRefreshKey((k) => k + 1), 5 * 60 * 1000); return () => clearInterval(id); }, []);
+
+  // Radar time-loop — advance one frame every 600 ms when the layer is on and
+  // playing (only the radar tiles re-render; the browser caches frames after the
+  // first loop). Pauses when the layer is off so we don't churn tiles unseen.
+  useEffect(() => {
+    if (!on.radar || !radarPlaying || radarFrames.length < 2) return;
+    const id = setInterval(() => setRadarIdx((i) => (i + 1) % radarFrames.length), 600);
+    return () => clearInterval(id);
+  }, [on.radar, radarPlaying, radarFrames.length]);
 
   const allDisasters = useMemo(() => (Array.isArray(data.disasters) ? data.disasters : []).filter((d) => d.lat != null && d.lon != null), [data]);
   const hazards = Array.isArray(data.hazards) ? data.hazards : [];
@@ -532,6 +560,9 @@ export default function CrisisMap() {
         <div className={`relative bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden flex-1 ${fullscreen ? "min-h-0" : "h-[58vh] min-h-[360px] lg:h-[600px]"}`} style={{ isolation: "isolate", zIndex: 0 }}>
           <MapContainer center={[25, 10]} zoom={2} worldCopyJump style={{ height: "100%", width: "100%", background: "#020617" }} scrollWheelZoom>
             <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OpenStreetMap &copy; CARTO" maxZoom={19} />
+            {on.radar && radarFrames[radarIdx] && (
+              <TileLayer url={`${radarHost}${radarFrames[radarIdx].path}/256/{z}/{x}/{y}/2/1_1.png`} opacity={radarOpacity} zIndex={5} attribution="radar &copy; RainViewer" />
+            )}
             <ZoomWatcher onZoom={setZoom} />
             <Flyer target={flyTo} />
             <Fitter points={crisisPoints} fitKey={fitKey} />
@@ -678,6 +709,24 @@ export default function CrisisMap() {
             })}
           </MapContainer>
 
+          {/* Radar time-loop bar — play/scrub + frame time + opacity, only when radar is on. */}
+          {on.radar && radarFrames[radarIdx] && (() => {
+            const f = radarFrames[radarIdx];
+            const mins = Math.round((f.time * 1000 - Date.now()) / 60000);
+            const zulu = new Date(f.time * 1000).toISOString().slice(11, 16) + "Z";
+            const rel = mins === 0 ? "now" : mins > 0 ? `+${mins}m${f.kind === "nowcast" ? " nowcast" : ""}` : `${mins}m`;
+            return (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[400] flex items-center gap-2 bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-1.5 text-[10px] text-slate-300 font-mono">
+                <button onClick={() => setRadarPlaying((p) => !p)} title={radarPlaying ? "Pause" : "Play"} className="text-cyan-300 hover:text-cyan-200 w-4 text-center">{radarPlaying ? "⏸" : "▶"}</button>
+                <input type="range" min={0} max={radarFrames.length - 1} value={radarIdx} onChange={(e) => { setRadarPlaying(false); setRadarIdx(Number(e.target.value)); }} className="w-28 accent-cyan-400" title="Scrub radar frames" />
+                <span className="tabular-nums whitespace-nowrap">{zulu} <span className={mins > 0 ? "text-cyan-400" : "text-slate-500"}>{rel}</span></span>
+                <span className="text-slate-700">·</span>
+                <span className="text-slate-500">α</span>
+                <input type="range" min={0} max={100} value={Math.round(radarOpacity * 100)} onChange={(e) => setRadarOpacity(Number(e.target.value) / 100)} className="w-12 accent-cyan-400" title="Radar opacity" />
+              </div>
+            );
+          })()}
+
           {legend ? (
             <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-2 text-[9px] text-slate-400 font-mono leading-relaxed">
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
@@ -748,7 +797,7 @@ export default function CrisisMap() {
         </ul>
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Crisis risk/severity: INFORM (JRC DRMKC){" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Crisis risk/severity: INFORM (JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
