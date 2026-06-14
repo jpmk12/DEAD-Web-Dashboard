@@ -560,9 +560,16 @@ export default function CrisisMap() {
         <div className={`relative bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden flex-1 ${fullscreen ? "min-h-0" : "h-[58vh] min-h-[360px] lg:h-[600px]"}`} style={{ isolation: "isolate", zIndex: 0 }}>
           <MapContainer center={[25, 10]} zoom={2} worldCopyJump style={{ height: "100%", width: "100%", background: "#020617" }} scrollWheelZoom>
             <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OpenStreetMap &copy; CARTO" maxZoom={19} />
-            {on.radar && radarFrames[radarIdx] && (
-              <TileLayer url={`${radarHost}${radarFrames[radarIdx].path}/256/{z}/{x}/{y}/2/1_1.png`} opacity={radarOpacity} zIndex={5} attribution="radar &copy; RainViewer" />
-            )}
+            {on.radar && radarFrames.map((f, i) => (
+              <TileLayer
+                key={f.path}
+                url={`${radarHost}${f.path}/256/{z}/{x}/{y}/2/1_1.png`}
+                opacity={i === radarIdx ? radarOpacity : 0}
+                zIndex={5}
+                updateWhenZooming={false}
+                attribution={i === 0 ? "radar &copy; RainViewer" : undefined}
+              />
+            ))}
             <ZoomWatcher onZoom={setZoom} />
             <Flyer target={flyTo} />
             <Fitter points={crisisPoints} fitKey={fitKey} />

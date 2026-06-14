@@ -26,15 +26,22 @@ const workflowCache = new Map<InformProduct, { id: string; expires: number }>();
 interface Workflow { WorkflowId?: unknown; Name?: unknown }
 
 async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store", signal });
+  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json", "Accept-Encoding": "identity" }, cache: "no-store", signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+// The INFORM "Scores" action lives under the Countries controller:
+//   API/InformAPI/countries/Scores/?workflowid=<id>&indicatorId=INFORM
+// (params are lowercase workflowid / indicatorId per the JRC API docs).
+function scoresUrl(wf: string): string {
+  return `${API}/countries/Scores/?workflowid=${encodeURIComponent(wf)}&indicatorId=INFORM`;
 }
 
 // INFORM Risk workflows are named like "INFORM Risk 2026"; Severity like
 // "INFORM Severity - <Month> <Year>". Pick the newest match (highest WorkflowId).
 function pickWorkflow(list: Workflow[], product: InformProduct): string | null {
-  const re = product === "risk" ? /inform\s*risk/i : /inform\s*severity|severity\s*index/i;
+  const re = product === "risk" ? /inform\s*risk/i : /severity/i;
   const matches = list
     .filter((w) => re.test(String(w.Name ?? "")) && w.WorkflowId != null)
     .map((w) => ({ id: String(w.WorkflowId), n: Number(w.WorkflowId) }))
@@ -76,7 +83,7 @@ export async function getInformPoints(product: InformProduct): Promise<InformPoi
   try {
     const wf = await resolveWorkflow(product, ctrl.signal);
     if (!wf) return hit?.points ?? [];
-    const data = await getJson(`${API}/countries/Scores/?WorkflowId=${encodeURIComponent(wf)}&IndicatorId=INFORM`, ctrl.signal).catch(() => null);
+    const data = await getJson(scoresUrl(wf), ctrl.signal).catch(() => null);
     const rows = Array.isArray(data) ? (data as ScoreRow[]) : [];
     const points = rowsToPoints(rows);
     if (points.length > 0) cache.set(product, { points, expires: Date.now() + TTL });
@@ -88,30 +95,60 @@ export async function getInformPoints(product: InformProduct): Promise<InformPoi
   }
 }
 
-export async function diagnoseInform(): Promise<{ product: InformProduct; workflow?: string; rows?: number; plotted?: number; sample?: string; note: string }[]> {
-  const out: { product: InformProduct; workflow?: string; rows?: number; plotted?: number; sample?: string; note: string }[] = [];
-  for (const product of ["risk", "severity"] as InformProduct[]) {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 20_000);
-    try {
-      const wf = await resolveWorkflow(product, ctrl.signal);
-      if (!wf) { out.push({ product, note: "No matching workflow found at /workflows/ — check the INFORM API base/path or name matching." }); continue; }
-      const data = await getJson(`${API}/countries/Scores/?WorkflowId=${encodeURIComponent(wf)}&IndicatorId=INFORM`, ctrl.signal).catch((e) => ({ __err: String(e) }));
+// Surface the underlying cause (undici hides socket errors behind a bare
+// "fetch failed" TypeError — the cause carries the real ECONNRESET/abort/etc.).
+function errDetail(e: unknown): string {
+  if (e instanceof Error) {
+    const cause = (e as { cause?: unknown }).cause;
+    return e.message + (cause ? ` (cause: ${cause instanceof Error ? cause.message : String(cause)})` : "");
+  }
+  return String(e);
+}
+
+export interface InformDiag {
+  product: InformProduct; workflow?: string; workflowName?: string; scoresUrl?: string;
+  rows?: number; plotted?: number; sample?: string; note: string;
+}
+
+export async function diagnoseInform(): Promise<{ workflows: { id: string; name: string }[]; products: InformDiag[] }> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 25_000);
+  try {
+    // One workflows fetch, shared — list names so we can see exactly what the API
+    // offers (which risk/severity releases exist + their IDs) in a single run.
+    const wfData = await getJson(`${API}/workflows/`, ctrl.signal).catch((e) => ({ __err: errDetail(e) }));
+    const wfList = Array.isArray(wfData) ? (wfData as Workflow[]) : [];
+    const workflows = wfList
+      .filter((w) => w.WorkflowId != null)
+      .map((w) => ({ id: String(w.WorkflowId), name: String(w.Name ?? "") }))
+      .slice(0, 60);
+    if (!Array.isArray(wfData)) {
+      return { workflows: [], products: [{ product: "risk", note: "workflows fetch failed: " + ((wfData as { __err?: string }).__err ?? "non-array response") }] };
+    }
+
+    const products: InformDiag[] = [];
+    for (const product of ["risk", "severity"] as InformProduct[]) {
+      const wf = pickWorkflow(wfList, product);
+      if (!wf) { products.push({ product, note: `No workflow name matched (${product}). See the workflows list above to pick the right one.` }); continue; }
+      const wfName = workflows.find((w) => w.id === wf)?.name;
+      const url = scoresUrl(wf);
+      const data = await getJson(url, ctrl.signal).catch((e) => ({ __err: errDetail(e) }));
       const rows = Array.isArray(data) ? (data as ScoreRow[]) : [];
       const points = rowsToPoints(rows);
       const f = rows[0];
-      out.push({
-        product, workflow: wf, rows: rows.length, plotted: points.length,
-        sample: f ? JSON.stringify(f).slice(0, 160) : (data as { __err?: string })?.__err,
+      products.push({
+        product, workflow: wf, workflowName: wfName, scoresUrl: url, rows: rows.length, plotted: points.length,
+        sample: f ? JSON.stringify(f).slice(0, 200) : (data as { __err?: string })?.__err,
         note: points.length > 0 ? `Working — ${points.length}/${rows.length} countries plotted.`
-          : rows.length > 0 ? "Scores returned but none matched a country centroid — check name keys vs lib/countryCentroids."
-          : "Workflow resolved but the Scores call returned no rows — check the Scores path / IndicatorId.",
+          : rows.length > 0 ? "Scores returned but none matched a country centroid — compare the sample's country/name key vs lib/countryCentroids."
+          : Array.isArray(data) ? "Scores call returned an empty array — workflow has no INFORM indicator scores at this path."
+          : "Scores call errored — see sample for the cause.",
       });
-    } catch (e) {
-      out.push({ product, note: "Probe threw: " + (e instanceof Error ? e.message : String(e)) });
-    } finally {
-      clearTimeout(tid);
     }
+    return { workflows, products };
+  } catch (e) {
+    return { workflows: [], products: [{ product: "risk", note: "Probe threw: " + errDetail(e) }] };
+  } finally {
+    clearTimeout(tid);
   }
-  return out;
 }

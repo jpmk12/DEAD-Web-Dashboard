@@ -65,7 +65,7 @@ export async function GET() {
   const [ucdp, gpsjam, acled, ourairports, inform] = await Promise.all([
     ucdpP, gpsjamP, diagnoseAcled(),
     diagnoseOurAirports().catch((e) => ({ count: 0, note: "probe threw: " + (e instanceof Error ? e.message : String(e)) })),
-    diagnoseInform().catch((e) => [{ product: "risk" as const, note: "probe threw: " + (e instanceof Error ? e.message : String(e)) }]),
+    diagnoseInform().catch((e) => ({ workflows: [], products: [{ product: "risk" as const, note: "probe threw: " + (e instanceof Error ? e.message : String(e)) }] })),
   ]);
   return NextResponse.json({ acled, ucdp, gpsjam, ourairports, inform, at: Date.now() });
 }
