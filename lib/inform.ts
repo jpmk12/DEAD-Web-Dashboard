@@ -1,102 +1,77 @@
-// INFORM (JRC DRMKC) anticipatory layers for the Crisis map:
-//   - INFORM Risk: structural country crisis risk 0-10 (annual) — "where crises
-//     are likely" baseline.
-//   - INFORM Severity: current crisis severity (monthly) — "where crises are
-//     happening now, how bad".
-// Both are country-level; plotted at centroids (lib/countryCentroids).
+// INFORM Risk anticipatory layer for the Crisis map: the structural country
+// crisis-risk index (INFORM_OVRL, 0-10), updated annually — a "where crises are
+// likely" baseline under the live disaster/conflict signals.
 //
-// The INFORM API serves data per "workflow" (a release), and workflow IDs change
-// each cycle — so we DISCOVER the latest workflow whose name matches the product,
-// then read its country scores. The exact endpoints/shape couldn't be verified
-// from the build sandbox (no egress), so parsing is defensive and diagnoseInform()
-// reports what the API actually returns, to pin it in prod. Server-only.
+// Sourced from the World Bank **Data360** API (DRMKC_INFORM dataset), NOT the JRC
+// site directly: the JRC data endpoint resets datacenter/hosting IPs mid-response
+// (ECONNRESET), whereas Data360 is a CDN-backed host built for programmatic
+// access. Country-level; plotted at centroids (lib/countryCentroids) by name —
+// only countries we have a centroid for are plotted (the crisis-prone set).
+//
+// INFORM **Severity** is intentionally NOT sourced here: it isn't carried by this
+// dataset (Data360/JRC GRI are Risk-only) — it's distributed as Excel on HDX. The
+// Severity map toggle is omitted until/unless that separate source is wired.
 
 import { countryCentroid } from "./countryCentroids";
 
-const API = "https://drmkc.jrc.ec.europa.eu/inform-index/API/InformAPI";
+const DATA_URL = "https://data360api.worldbank.org/data360/data";
+// INFORM_OVRL = overall INFORM Risk index. top large enough to return all
+// countries × all release years in one page; we then keep the latest year each.
+const QUERY = "DATABASE_ID=DRMKC_INFORM&INDICATOR=INFORM_OVRL&skip=0&top=5000";
 const UA = "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)";
 const TTL = 12 * 60 * 60 * 1000;
 
 export type InformProduct = "risk" | "severity";
-export interface InformPoint { country: string; iso3: string; score: number; lat: number; lon: number }
+export interface InformPoint { country: string; iso3: string; score: number; lat: number; lon: number; year: string }
 
-const cache = new Map<InformProduct, { points: InformPoint[]; expires: number }>();
-const workflowCache = new Map<InformProduct, { id: string; expires: number }>();
+interface Row { OBS_VALUE?: unknown; TIME_PERIOD?: unknown; REF_AREA?: unknown; REF_AREA_NAME?: unknown }
 
-interface Workflow { WorkflowId?: unknown; Name?: unknown }
+let cache: { points: InformPoint[]; expires: number } | null = null;
 
-async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json", "Accept-Encoding": "identity" }, cache: "no-store", signal });
+async function fetchRows(signal?: AbortSignal): Promise<Row[]> {
+  const res = await fetch(`${DATA_URL}?${QUERY}`, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store", signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const j = (await res.json()) as { value?: unknown };
+  return Array.isArray(j?.value) ? (j.value as Row[]) : [];
 }
 
-// The INFORM "Scores" action lives under the Countries controller:
-//   API/InformAPI/countries/Scores/?workflowid=<id>&indicatorId=INFORM
-// (params are lowercase workflowid / indicatorId per the JRC API docs).
-function scoresUrl(wf: string): string {
-  return `${API}/countries/Scores/?workflowid=${encodeURIComponent(wf)}&indicatorId=INFORM`;
-}
-
-// INFORM Risk workflows are named like "INFORM Risk 2026"; Severity like
-// "INFORM Severity - <Month> <Year>". Pick the newest match (highest WorkflowId).
-function pickWorkflow(list: Workflow[], product: InformProduct): string | null {
-  const re = product === "risk" ? /inform\s*risk/i : /severity/i;
-  const matches = list
-    .filter((w) => re.test(String(w.Name ?? "")) && w.WorkflowId != null)
-    .map((w) => ({ id: String(w.WorkflowId), n: Number(w.WorkflowId) }))
-    .sort((a, b) => b.n - a.n);
-  return matches[0]?.id ?? null;
-}
-
-async function resolveWorkflow(product: InformProduct, signal?: AbortSignal): Promise<string | null> {
-  const hit = workflowCache.get(product);
-  if (hit && hit.expires > Date.now()) return hit.id;
-  const data = await getJson(`${API}/workflows/`, signal).catch(() => null);
-  const list = Array.isArray(data) ? (data as Workflow[]) : [];
-  const id = pickWorkflow(list, product);
-  if (id) workflowCache.set(product, { id, expires: Date.now() + TTL });
-  return id;
-}
-
-interface ScoreRow { Iso3?: unknown; ISO3?: unknown; CountryName?: unknown; Country?: unknown; IndicatorScore?: unknown; Value?: unknown }
-
-function rowsToPoints(rows: ScoreRow[]): InformPoint[] {
-  const out: InformPoint[] = [];
+// Keep the most recent TIME_PERIOD per country, then map to a plottable point.
+function rowsToPoints(rows: Row[]): InformPoint[] {
+  const latest = new Map<string, Row>();
   for (const r of rows) {
-    const score = Number(r.IndicatorScore ?? r.Value);
+    const iso3 = String(r.REF_AREA ?? "");
+    if (!iso3) continue;
+    const prev = latest.get(iso3);
+    if (!prev || String(r.TIME_PERIOD ?? "") > String(prev.TIME_PERIOD ?? "")) latest.set(iso3, r);
+  }
+  const out: InformPoint[] = [];
+  for (const r of latest.values()) {
+    const score = Number(r.OBS_VALUE);
     if (!Number.isFinite(score)) continue;
-    const iso3 = String(r.Iso3 ?? r.ISO3 ?? "");
-    const name = String(r.CountryName ?? r.Country ?? "").trim();
+    const name = String(r.REF_AREA_NAME ?? "").trim();
     const c = countryCentroid(name.toLowerCase());
     if (!c) continue; // only plot countries we have a centroid for
-    out.push({ country: name, iso3, score, lat: c[0], lon: c[1] });
+    out.push({ country: name, iso3: String(r.REF_AREA ?? ""), score, lat: c[0], lon: c[1], year: String(r.TIME_PERIOD ?? "") });
   }
   return out;
 }
 
 export async function getInformPoints(product: InformProduct): Promise<InformPoint[]> {
-  const hit = cache.get(product);
-  if (hit && hit.expires > Date.now()) return hit.points;
+  if (product !== "risk") return []; // Severity not sourced (see file header)
+  if (cache && cache.expires > Date.now()) return cache.points;
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), 20_000);
   try {
-    const wf = await resolveWorkflow(product, ctrl.signal);
-    if (!wf) return hit?.points ?? [];
-    const data = await getJson(scoresUrl(wf), ctrl.signal).catch(() => null);
-    const rows = Array.isArray(data) ? (data as ScoreRow[]) : [];
-    const points = rowsToPoints(rows);
-    if (points.length > 0) cache.set(product, { points, expires: Date.now() + TTL });
-    return points.length > 0 ? points : (hit?.points ?? []);
+    const points = rowsToPoints(await fetchRows(ctrl.signal));
+    if (points.length > 0) cache = { points, expires: Date.now() + TTL };
+    return points.length > 0 ? points : (cache?.points ?? []);
   } catch {
-    return hit?.points ?? [];
+    return cache?.points ?? [];
   } finally {
     clearTimeout(tid);
   }
 }
 
-// Surface the underlying cause (undici hides socket errors behind a bare
-// "fetch failed" TypeError — the cause carries the real ECONNRESET/abort/etc.).
 function errDetail(e: unknown): string {
   if (e instanceof Error) {
     const cause = (e as { cause?: unknown }).cause;
@@ -105,49 +80,26 @@ function errDetail(e: unknown): string {
   return String(e);
 }
 
-export interface InformDiag {
-  product: InformProduct; workflow?: string; workflowName?: string; scoresUrl?: string;
-  rows?: number; plotted?: number; sample?: string; note: string;
-}
-
-export async function diagnoseInform(): Promise<{ workflows: { id: string; name: string }[]; products: InformDiag[] }> {
+export async function diagnoseInform(): Promise<{ source: string; rows?: number; plotted?: number; latestYear?: string; sample?: string; note: string }> {
   const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 25_000);
+  const tid = setTimeout(() => ctrl.abort(), 20_000);
   try {
-    // One workflows fetch, shared — list names so we can see exactly what the API
-    // offers (which risk/severity releases exist + their IDs) in a single run.
-    const wfData = await getJson(`${API}/workflows/`, ctrl.signal).catch((e) => ({ __err: errDetail(e) }));
-    const wfList = Array.isArray(wfData) ? (wfData as Workflow[]) : [];
-    const workflows = wfList
-      .filter((w) => w.WorkflowId != null)
-      .map((w) => ({ id: String(w.WorkflowId), name: String(w.Name ?? "") }))
-      .slice(0, 60);
-    if (!Array.isArray(wfData)) {
-      return { workflows: [], products: [{ product: "risk", note: "workflows fetch failed: " + ((wfData as { __err?: string }).__err ?? "non-array response") }] };
-    }
-
-    const products: InformDiag[] = [];
-    for (const product of ["risk", "severity"] as InformProduct[]) {
-      const wf = pickWorkflow(wfList, product);
-      if (!wf) { products.push({ product, note: `No workflow name matched (${product}). See the workflows list above to pick the right one.` }); continue; }
-      const wfName = workflows.find((w) => w.id === wf)?.name;
-      const url = scoresUrl(wf);
-      const data = await getJson(url, ctrl.signal).catch((e) => ({ __err: errDetail(e) }));
-      const rows = Array.isArray(data) ? (data as ScoreRow[]) : [];
-      const points = rowsToPoints(rows);
-      const f = rows[0];
-      products.push({
-        product, workflow: wf, workflowName: wfName, scoresUrl: url, rows: rows.length, plotted: points.length,
-        sample: f ? JSON.stringify(f).slice(0, 200) : (data as { __err?: string })?.__err,
-        note: points.length > 0 ? `Working — ${points.length}/${rows.length} countries plotted.`
-          : rows.length > 0 ? "Scores returned but none matched a country centroid — compare the sample's country/name key vs lib/countryCentroids."
-          : Array.isArray(data) ? "Scores call returned an empty array — workflow has no INFORM indicator scores at this path."
-          : "Scores call errored — see sample for the cause.",
-      });
-    }
-    return { workflows, products };
+    const rows = await fetchRows(ctrl.signal);
+    const points = rowsToPoints(rows);
+    const latestYear = points.reduce((m, p) => (p.year > m ? p.year : m), "");
+    const f = points[0];
+    return {
+      source: "data360 DRMKC_INFORM / INFORM_OVRL",
+      rows: rows.length, plotted: points.length, latestYear,
+      sample: f ? `${f.country} (${f.iso3}) ${f.score} [${f.year}]` : JSON.stringify(rows[0] ?? null).slice(0, 160),
+      note: points.length > 0
+        ? `INFORM Risk working — ${points.length} countries plotted (latest ${latestYear}).`
+        : rows.length > 0
+          ? "Rows returned but none matched a country centroid — check REF_AREA_NAME vs lib/countryCentroids."
+          : "Data360 returned no rows — check DATABASE_ID/INDICATOR or host reachability.",
+    };
   } catch (e) {
-    return { workflows: [], products: [{ product: "risk", note: "Probe threw: " + errDetail(e) }] };
+    return { source: "data360 DRMKC_INFORM / INFORM_OVRL", note: "Probe failed: " + errDetail(e) };
   } finally {
     clearTimeout(tid);
   }

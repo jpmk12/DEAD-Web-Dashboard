@@ -120,7 +120,7 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "informSeverity" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
@@ -133,8 +133,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   conflict: "Armed-conflict events. With a UCDP API token (UCDP_API_TOKEN): precise georeferenced events from the Uppsala Conflict Data Program — coordinates + fatalities, monthly candidate data (~1-2mo lag). Without a token, falls back to keyless ReliefWeb (UN OCHA) complex-emergency / conflict situations plotted at country level. Top events surface in the crisis list.",
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
-  informRisk: "INFORM Risk (JRC) — structural country crisis-risk index 0-10, annual. Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level.",
-  informSeverity: "INFORM Severity (JRC) — current crisis severity by country, monthly. 'Where crises are happening now and how bad'; larger/redder = more severe. Country-level.",
+  informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
   airfields: "Mobility gateway airfields — major C-17/C-130-capable international fields near crisis-prone regions (AFRICOM/CENTCOM/EUCOM/INDOPACOM/SOUTHCOM), the candidate fields to open/reopen for HADR or evacuation when no US hub is close.",
@@ -156,7 +155,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
   ] },
   { label: "Anticipatory", keys: [
-    { k: "informSeverity", label: "INFORM Sev", dot: "#fb923c" }, { k: "informRisk", label: "INFORM Risk", dot: "#f59e0b" },
+    { k: "informRisk", label: "INFORM Risk", dot: "#f59e0b" },
   ] },
   { label: "Nodes", keys: [
     { k: "enroute", label: "Hubs", dot: "#34d399" }, { k: "crf", label: "CRF", dot: "#5eead4" },
@@ -213,7 +212,6 @@ export default function CrisisMap() {
   const [acled, setAcled] = useState<AcledEvent[]>([]);
   type InformPt = { country: string; score: number; lat: number; lon: number };
   const [informRisk, setInformRisk] = useState<InformPt[]>([]);
-  const [informSeverity, setInformSeverity] = useState<InformPt[]>([]);
   // Optional precipitation/convection radar (RainViewer) — animated loop.
   type RadarFrame = { time: number; path: string; kind: "past" | "nowcast" };
   const [radarHost, setRadarHost] = useState("");
@@ -246,7 +244,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, informSeverity: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -312,10 +310,6 @@ export default function CrisisMap() {
     fetch("/api/osint/inform?product=risk", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { points?: InformPt[] } | null) => { if (Array.isArray(d?.points)) setInformRisk(d!.points); })
-      .catch(() => {});
-    fetch("/api/osint/inform?product=severity", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { points?: InformPt[] } | null) => { if (Array.isArray(d?.points)) setInformSeverity(d!.points); })
       .catch(() => {});
     fetch("/api/osint/radar", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
@@ -581,20 +575,12 @@ export default function CrisisMap() {
               </Polygon>
             ))}
 
-            {/* INFORM anticipatory country layers — drawn first, faint, under everything. */}
+            {/* INFORM Risk anticipatory baseline — drawn first, faint, under everything. */}
             {on.informRisk && informRisk.map((p, i) => {
               const f = Math.min(Math.max(p.score, 0) / 10, 1);
               return (
                 <CircleMarker key={`ir-${i}`} center={[p.lat, p.lon]} radius={6 + f * 14} pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.08 + f * 0.16, weight: 0.5, opacity: 0.35 }}>
-                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div className="text-amber-700">INFORM Risk {p.score.toFixed(1)}/10</div><div className="text-slate-500">Structural crisis-risk baseline (JRC)</div></div></Popup>
-                </CircleMarker>
-              );
-            })}
-            {on.informSeverity && informSeverity.map((p, i) => {
-              const f = Math.min(Math.max(p.score, 0) / 5, 1);
-              return (
-                <CircleMarker key={`is-${i}`} center={[p.lat, p.lon]} radius={6 + f * 14} pathOptions={{ color: "#fb923c", fillColor: "#fb923c", fillOpacity: 0.10 + f * 0.20, weight: 0.6, opacity: 0.45 }}>
-                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div className="text-orange-700">INFORM Severity {p.score.toFixed(1)}</div><div className="text-slate-500">Current crisis severity (JRC, monthly)</div></div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div className="text-amber-700">INFORM Risk {p.score.toFixed(1)}/10</div><div className="text-slate-500">Structural crisis-risk baseline (INFORM, via Data360)</div></div></Popup>
                 </CircleMarker>
               );
             })}
@@ -804,7 +790,7 @@ export default function CrisisMap() {
         </ul>
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Crisis risk/severity: INFORM (JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
