@@ -120,6 +120,11 @@
     font-size: 14px; font-weight: 700; color: var(--text);
     text-transform: uppercase; letter-spacing: 0.12em;
   }
+  h5 {
+    margin: 16px 0 6px;
+    font-size: 13px; font-weight: 700; color: var(--text-dim);
+    letter-spacing: 0.01em;
+  }
   p, ul, ol { margin: 0 0 14px; color: var(--text-dim); }
   ul, ol { padding-left: 22px; }
   li { margin: 4px 0; }
@@ -617,7 +622,8 @@
   <h3><span class="num">05</span>OSINT</h3>
   <p>
     Aggregated open-source intelligence feeds plus live aircraft and
-    maritime maps. Six panes selectable from pill row.
+    maritime maps and a strategic crisis / situation map. Seven panes
+    selectable from the pill row.
   </p>
 
   <h4>Panes</h4>
@@ -638,6 +644,9 @@
             filter on.</td></tr>
     <tr><td><strong>Maritime</strong></td>
         <td>MarineTraffic map centred on your home location.</td></tr>
+    <tr><td><strong>Crisis</strong></td>
+        <td>Strategic situation map — disasters, conflict, weather and the
+            airlift network on one board (see below).</td></tr>
   </table>
 
   <h4>Configuring feeds</h4>
@@ -663,6 +672,84 @@
     5 min server-side cache per feed. If a feed stops loading, swap to a
     different rsshub instance — the OSINT input is generic, any RSS/Atom
     URL works.
+  </p>
+
+  <h4>Crisis / situation map &nbsp;<small style="color: var(--text-faint); font-size: 12px; text-transform: none; letter-spacing: 0;">— the "Global Reach Watch", spatial</small></h4>
+  <p>
+    One board that fuses <strong>what's happening</strong> (disasters,
+    conflict, weather, GPS jamming) over <strong>where we operate
+    from</strong> (AMC hubs, contingency-response stations, gateway
+    airfields) and <strong>what it takes to reach it</strong> (reach lines,
+    rings, air-bridges) — built to anticipate where mobility forces get
+    tasked. Every layer fails honestly: a blank layer shows an amber
+    <span class="ui">⚠ source down</span> chip rather than reading as
+    "all quiet".
+  </p>
+
+  <h5>Layers (grouped toggles, collapsible)</h5>
+  <table>
+    <tr><th>Group</th><th>Layers</th></tr>
+    <tr><td><strong>Threats</strong></td>
+        <td>Disasters (sized by humanitarian-airlift relevance), hub weather
+            hazards, tropical cyclones + ~48 h forecast cone,
+            <strong>Radar</strong> (animated precip/convection, off by
+            default), NEO / ordered-departure advisories, armed conflict,
+            ACLED strikes, GPS interference.</td></tr>
+    <tr><td><strong>Anticipatory</strong></td>
+        <td><strong>INFORM Risk</strong> — structural 0–10 country
+            crisis-risk baseline (off by default): "where crises are
+            likely" under the live signals.</td></tr>
+    <tr><td><strong>Nodes</strong></td>
+        <td>AMC en-route hubs, contingency-response (CRF) stations, gateway
+            airfields (C-17/C-130-capable fields near crisis-prone regions,
+            off by default), your tracked locations.</td></tr>
+    <tr><td><strong>Reach</strong></td>
+        <td>Reach lines (each crisis → nearest CRF, with nominal flight
+            time), reach rings (selected airframe's one-way radius),
+            air-refuelling-extended ring, major air-bridge corridors.</td></tr>
+  </table>
+
+  <h5>Controls</h5>
+  <ul>
+    <li><strong>Presets:</strong> one-click layer sets — Standard / HADR /
+      Contested / Mobility.</li>
+    <li><strong>Airframe</strong> selector (C-17 / C-5 / C-130 / KC-135 …)
+      drives the reach-ring radius and reach-line flight times.</li>
+    <li><strong>AOR filter</strong>, <strong>ICAO / base search</strong>
+      (fly-to), <strong>Fit</strong> (frame the active crises), and
+      <strong>fullscreen</strong>.</li>
+    <li><strong>Convergence strip:</strong> highlights AORs where two or more
+      signal types stack up — click to filter the board to that AOR.</li>
+    <li><strong>Radar loop:</strong> play / pause, frame scrubber, Zulu +
+      relative time, and an opacity slider. ~2 h of past frames plus a
+      ~30 min nowcast — most useful zoomed into a theatre to judge weather
+      against airfield access (blank ≠ clear, just no radar coverage there).</li>
+  </ul>
+
+  <h5>Mobility Demand read</h5>
+  <p>
+    The <span class="ui">Demand read</span> button asks Claude for an
+    anticipatory read of the current board: AOR-prioritised demand signals,
+    each naming the airfield to open or reopen for humanitarian airlift or
+    evacuation. It draws on a curated airfield set (AMC hubs + gateways) and
+    falls back to a global open-airfield database (OurAirports) to "search
+    others" when no curated field is near a crisis — so even gateway-sparse
+    regions get a real candidate field.
+  </p>
+
+  <h5>Sources &amp; setup</h5>
+  <p>
+    Disasters (GDACS / USGS / ReliefWeb), tropical (NOAA NHC), NEO (US State
+    Dept), GPS (GPSJam), INFORM Risk (World Bank Data360), radar (RainViewer),
+    airfields (AMC + OurAirports) are all <strong>keyless</strong> — nothing
+    to configure. Two layers are optional and account-gated: the precise
+    <strong>conflict</strong> layer (UCDP) needs <code>UCDP_API_TOKEN</code>
+    set in the host env (otherwise it falls back to keyless ReliefWeb), and
+    <strong>ACLED</strong> strikes need an ACLED account
+    (<span class="ui">Preferences → Sources &amp; feeds → ACLED Strikes</span>,
+    or the <code>ACLED_EMAIL</code>/<code>ACLED_PASSWORD</code> env vars).
+    The owner-only <code>/api/osint/crisis-diag</code> endpoint reports each
+    source's health.
   </p>
 
 
@@ -1676,6 +1763,37 @@
     Same idle / saving / saved / error UX on every button. The Docs editor
     footer also grew a <strong>word count + chars + ~N min read</strong>
     strip so you can see at a glance how long a note has gotten.
+  </p>
+
+  <h3><span class="num">#27</span>Crisis map: the mobility-demand board</h3>
+  <p>
+    The OSINT <span class="ui">Crisis</span> pane grew from a situation map
+    into a strategic mobility-demand board (full walkthrough under
+    <em>The seven tabs → OSINT → Crisis / situation map</em>):
+  </p>
+  <ul>
+    <li><strong>Gateway airfields</strong> layer — curated C-17/C-130-capable
+      international fields near crisis-prone regions, the candidates to open
+      or reopen for humanitarian airlift or evacuation.</li>
+    <li><strong>"Search others" fill</strong> — a global open-airfield
+      database (OurAirports) backstops the curated set, so a crisis with no
+      gateway nearby still gets a real candidate field.</li>
+    <li><strong>INFORM Risk</strong> anticipatory layer — structural 0–10
+      country crisis-risk baseline (via World Bank Data360), the "where
+      crises are likely" backdrop under the live signals.</li>
+    <li><strong>Animated weather radar</strong> — an optional RainViewer
+      precip/convection loop (play / scrub / opacity) for judging weather
+      against airfield access when zoomed into a theatre.</li>
+    <li><strong>Mobility Demand read</strong> — a one-click Claude read that
+      prioritises the board by AOR and names the airfield to open/reopen for
+      each demand signal.</li>
+  </ul>
+  <p>
+    Every layer fails honestly (a down source shows an amber badge, never a
+    false "all quiet"), and an owner-only diagnostics endpoint reports each
+    feed's health. INFORM Severity was evaluated but deliberately left out —
+    it isn't served by the same dataset (Excel-only on HDX), so there's no
+    half-working toggle in the UI.
   </p>
 </section>
 
