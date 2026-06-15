@@ -190,6 +190,27 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **Notable names**: same watchlist source as aircraft; orange ⚑ markers
 - **Same AOI controls as aircraft**
 
+#### Crisis / situation map (the "Global Reach Watch", spatial)
+
+**Purpose**: a single strategic board fusing *what's happening* (disasters, conflict, weather, GPS/EW) over *where we operate from* (AMC hubs, CRF nodes, gateway airfields) and *what it takes to reach it* (reach lines/rings/air-bridges) — to anticipate where mobility forces get tasked. Self-rendered Leaflet map (`components/osint/CrisisMap.tsx`), OSINT tab → **Crisis** pane. Dark CARTO basemap; every overlay degrades silently (blank ≠ "all quiet" — see source-down badge).
+
+- **Layer toggles** (grouped, collapsible; counts shown per layer; persisted to UI state):
+  - **Threats** — Disasters (GDACS/USGS/ReliefWeb, sized by HADR score), Hub wx (Open-Meteo model hazards at hubs), Tropical (NOAA NHC) + ~48 h forecast Cone, **Radar** (RainViewer precip/convection, animated — *off by default*), NEO (State Dept Level-4 / ordered-departure), Conflict (UCDP georeferenced, else ReliefWeb), ACLED structured strikes, GPS interference (GPSJam).
+  - **Anticipatory** — **INFORM Risk** (structural 0-10 crisis-risk baseline, World Bank Data360 — *off by default*).
+  - **Nodes** — AMC en-route Hubs, CRF stations (contingency-response "open the airfield" units), **Gateways** (curated C-17/C-130-capable international fields near crisis-prone regions — *off by default*), Tracked (home + Preferences locations).
+  - **Reach** — reach Lines (each significant crisis → nearest CRF, great-circle + nominal flight time), reach Rings (selected airframe's one-way radius), AR-extended ring, air-Bridges (major en-route corridors).
+  - **Labels** — show/hide map labels.
+- **Presets**: Standard / HADR / Contested / Mobility — one-click layer combinations (HADR + Mobility include Gateways).
+- **Airframe selector** (C-17 / C-5 / C-130 / KC-135 …): drives reach-ring radius + reach-line flight-time estimates.
+- **AOR filter** + **ICAO/base search** (fly-to) + **Fit** (frame active crises) + **fullscreen**.
+- **Convergence strip**: AORs where ≥2 signal kinds stack up, click to filter.
+- **Mobility Demand read** (Claude sonnet, `POST /api/crisis-read`): an anticipatory read of the current board — AOR-prioritized demand signals, each naming the candidate airfield to open/reopen for HADR or evacuation (curated gateway, or nearest OurAirports civil field where none is close).
+- **Airfields**: curated set (`lib/airfields.ts` — AMC hubs + gateways) plus a global **OurAirports** fill (`lib/ourAirports.ts`, lazily fetched/cached) used as the "search others" fallback when no curated field is near a crisis.
+- **Radar loop**: play/pause + frame scrubber + Zulu/relative time + opacity; ~2 h past + ~30 min nowcast (RainViewer). Frame index proxied via `/api/osint/radar` (CSP); tiles load direct.
+- **Source-down badge**: any feed reporting upstream-down surfaces an amber "⚠ source down" chip so a blank layer never reads as "all quiet".
+- **Diagnostics**: `GET /api/osint/crisis-diag` (owner) reports per-source health (ACLED tier, UCDP token, GPSJam, OurAirports, INFORM Risk).
+
+
 ### 6. Markets
 
 **Purpose**: Editable ticker watchlist + DOD daily contract awards feed.
@@ -434,6 +455,14 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/osint/geocode             GET — Nominatim proxy
 /api/osint/aircraft            GET — OpenSky proxy
 /api/osint/ships               GET — AISStream snapshot
+/api/osint/conflict            GET — UCDP georeferenced events (ReliefWeb fallback)
+/api/osint/acled               GET — ACLED structured strikes (settings/env creds)
+/api/osint/gpsjam              GET — GPSJam GPS-interference H3 cells
+/api/osint/inform              GET — INFORM Risk country scores (World Bank Data360)
+/api/osint/radar               GET — RainViewer radar frame index (proxied for CSP)
+/api/osint/situation           GET — Claude one-line "situation now" read
+/api/osint/crisis-diag         GET — per-source health (owner-only)
+/api/crisis-read               POST — Claude mobility-demand read of the crisis board
 
 /api/markets/contracts         GET — DOD RSS parse
 /api/weather/forecast          GET — NWS forecast
@@ -471,8 +500,14 @@ GMAIL_SECONDARY_REDIRECT_URI       Secondary-account callback URL
 OWNER_EMAIL                        Allowlisted email — only this account can sign in
 ANTHROPIC_API_KEY                  Claude API key
 AISSTREAM_API_KEY                  (optional) — live ship tracking
+UCDP_API_TOKEN                     (optional) — Crisis map Conflict layer; without it, falls back to keyless ReliefWeb
+ACLED_EMAIL / ACLED_PASSWORD       (optional) — Crisis map ACLED strikes; env overrides Preferences settings when both set
 DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD   Managed MySQL
 ```
+
+> The Crisis map's OurAirports fill, RainViewer radar, and INFORM Risk
+> (World Bank Data360) layers are **keyless** — no env vars needed; each layer is
+> simply empty if its upstream is unreachable (never a hard error).
 
 ---
 

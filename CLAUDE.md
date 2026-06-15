@@ -611,8 +611,55 @@ via `primary_country.location`; coarser than UCDP's precise events). Each
 higher-fidelity layer, but its free tier embargoes data <12 months old (the diag
 surfaces this as a `restriction`).
 
+### Crisis map airfields (`lib/airfields.ts` + OurAirports fill)
+The Crisis map's **Gateways** layer and the Demand read's access hints come from
+two sources:
+- `lib/airfields.ts` — curated AMC hubs + C-17/C-130 gateways. It must stay
+  **pure data + math**: the haversine is **inlined**, NOT imported from
+  `lib/disasters.ts`. This is load-bearing — `CrisisMap.tsx` (a client component)
+  imports `GATEWAYS` from here, so re-adding the `disasters` import would drag
+  `rss-parser` (and its tree) into the **client bundle**. Keep it dependency-free.
+- `lib/ourAirports.ts` — the global "search others" fill. Lazily fetches +
+  caches (24 h) the keyless OurAirports CSV
+  (`davidmegginson.github.io/ourairports-data/airports.csv`), filtered to
+  large/medium airports. Pure `fetch` + a hand CSV split (no new dep → esbuild
+  stays `0`). The Demand read (`/api/crisis-read`) uses it only when no curated
+  gateway is within ~600 km. Verified in prod: ~5,276 fields.
+
+### Crisis map INFORM Risk (`lib/inform.ts` → World Bank Data360, NOT JRC)
+The **INFORM Risk** layer (structural country crisis-risk index `INFORM_OVRL`,
+0-10) is sourced from the **World Bank Data360** API
+(`data360api.worldbank.org/data360/data?DATABASE_ID=DRMKC_INFORM&INDICATOR=INFORM_OVRL`),
+NOT the JRC site. Why: the JRC GRI API (`drmkc.jrc.ec.europa.eu`) **resets
+datacenter IPs** on its data endpoint (`read ECONNRESET`) — its lightweight
+`/workflows/` metadata call succeeds but the Scores call dies mid-response —
+almost certainly server-side anti-scraping, not fixable from our side. Data360 is
+a CDN-backed, programmatic-access host. Response is OData (`{ value: [...] }`,
+rows carry `OBS_VALUE` / `TIME_PERIOD` / `REF_AREA` ISO3 / `REF_AREA_NAME`); we
+keep the latest year per country and plot at `countryCentroid(REF_AREA_NAME)`
+(loose name match, same as NEO advisories — only crisis-prone centroids plot).
+Keyless, pure `fetch` (esbuild `0`). The data360 contract was pinned from the
+official `worldbank/data360-mcp` client source.
+
+**INFORM Severity is intentionally NOT implemented**: the Data360/JRC GRI dataset
+is Risk-only (0 severity workflows), and Severity is distributed as **Excel on
+HDX** — adding it would need an xlsx parser + CKAN discovery. The map has no
+Severity toggle. Don't re-add one without wiring that separate source.
+
+### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)
+The optional **Radar** layer (off by default) animates RainViewer precip/
+convection. Two CSP facts make it work: the app's `connect-src` (next.config.ts)
+does **not** allow `api.rainviewer.com`, so the frame **index** is proxied via
+`/api/osint/radar`; the **tiles** load directly from `tilecache.rainviewer.com`
+because `img-src https:` allows them. Render note: the loop mounts **all frames
+and animates by opacity** (the active frame opaque, the rest at 0) rather than
+swapping one TileLayer's `url` — swapping `url` drops the old tiles before the
+new load and **blinks**. Keyless, no new dep.
+
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
-embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), and ACLED
-(`acleddata.com`). The only non-HTTP connection is to the platform's managed
-MySQL, which is explicitly allowed.
+embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), ACLED
+(`acleddata.com`), OurAirports (`davidmegginson.github.io`), INFORM Risk
+(`data360api.worldbank.org`), and RainViewer (`api.rainviewer.com` index +
+`tilecache.rainviewer.com` tiles). The only non-HTTP connection is to the
+platform's managed MySQL, which is explicitly allowed.
