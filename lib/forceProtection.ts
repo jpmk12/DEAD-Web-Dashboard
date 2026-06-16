@@ -20,6 +20,7 @@ import { getConflictPoints } from "./conflictEvents";
 import { getAcledEvents } from "./acled";
 import { getInformPoints } from "./inform";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
+import { getFlightCategories, type AviationWx } from "./aviationWx";
 
 export type Severity = "green" | "amber" | "red" | "unknown";
 export type ForceCategory = "conflict" | "weather" | "gps" | "civil" | "hazard";
@@ -64,6 +65,7 @@ export interface ForceContext {
   acled: AcledEvent[];
   inform: InformPoint[];
   gps: GpsHex[];
+  aviation: Record<string, AviationWx>; // decoded METAR flight category, keyed by ICAO
   // Per-source liveness: distinguishes "checked, clean" from "couldn't check".
   // A category whose source(s) weren't live scores UNKNOWN, never green — so a
   // downed feed never reads as "all clear" (the cardinal safety rule). Sources
@@ -75,7 +77,7 @@ export interface ForceContext {
 export interface ForceProtectionResult {
   assessments: ForceAssessment[];
   generatedAt: string;
-  sources: { gps: boolean; acled: boolean; conflict: "ucdp" | "reliefweb" | "none" };
+  sources: { gps: boolean; acled: boolean; aviationWx: boolean; conflict: "ucdp" | "reliefweb" | "none" };
 }
 
 // Rank orders BOTH for sorting and for "worst category" rollup. UNKNOWN sits
@@ -143,10 +145,28 @@ function assessConflict(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
   return { category: "conflict", severity: sev, signals };
 }
 
+const FLIGHT_CAT_SEV: Record<string, Severity> = { LIFR: "red", IFR: "amber", MVFR: "amber", VFR: "green", UNKNOWN: "green" };
+
 function assessWeather(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   if (!ctx.live.weather) return { category: "weather", severity: "unknown", signals: ["Weather feeds unavailable — conditions UNKNOWN"] };
   const signals: string[] = [];
   let sev: Severity = "green";
+
+  // Current observed flight category at the base (decoded METAR) — the most
+  // direct "can we shoot the approach" read when an ICAO is set. MVFR is a soft
+  // amber; IFR amber; LIFR red.
+  if (loc.icao) {
+    const wx = ctx.aviation[loc.icao.toUpperCase()];
+    if (wx && wx.flightCategory !== "VFR" && wx.flightCategory !== "UNKNOWN") {
+      const bits = [
+        wx.ceilingFt != null ? `ceil ${wx.ceilingFt}ft` : null,
+        wx.visMi != null ? `vis ${wx.visMi}sm` : null,
+        wx.gustKt != null ? `gust ${wx.gustKt}kt` : (wx.windKt != null ? `wind ${wx.windKt}kt` : null),
+      ].filter(Boolean);
+      signals.push(`${wx.flightCategory}${bits.length ? ` (${bits.join(", ")})` : ""}`);
+      sev = worse(sev, FLIGHT_CAT_SEV[wx.flightCategory] ?? "amber");
+    }
+  }
 
   // Open-Meteo model hazards (worldwide, aviation-relevant: crosswind gusts,
   // IFR/LIFR vis, convection, ice, temp extremes) — keyed by the base label.
@@ -252,14 +272,16 @@ export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAsse
 export async function getForceProtection(locations: ForceLocation[]): Promise<ForceProtectionResult> {
   const active = locations.filter((l) => isForceLocationActive(l, Date.now()));
   const points: NamedPoint[] = active.map((l) => ({ label: l.label, lat: l.lat, lon: l.lon }));
+  const icaos = active.map((l) => l.icao).filter((x): x is string => !!x);
 
-  const [weather, advisories, conflict, acled, inform, gps] = await Promise.all([
+  const [weather, advisories, conflict, acled, inform, gps, aviation] = await Promise.all([
     points.length ? getWeatherThreats(points).catch(() => null) : Promise.resolve(null),
     getStateAdvisories().catch(() => []),
     getConflictPoints().catch(() => [] as ConflictPoint[]),
     getAcledEvents().catch(() => [] as AcledEvent[]),
     getInformPoints("risk").catch(() => [] as InformPoint[]),
     getGpsInterference().catch(() => ({ ok: false, hexes: [] as GpsHex[], date: "" })),
+    getFlightCategories(icaos).catch(() => ({ live: false, byIcao: {} as Record<string, AviationWx> })),
   ]);
 
   // getWeatherThreats already pulls disasters; only fetch separately if it failed.
@@ -275,10 +297,11 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
     acled,
     inform,
     gps: gps.hexes,
-    // weather is "live" only if the aggregate fetch succeeded (null = failed, but
-    // also null when there are no points to query — treat no-points as live so a
-    // location with no ICAO/coords issue isn't falsely UNKNOWN).
-    live: { weather: points.length === 0 || weather !== null, gps: gps.ok },
+    aviation: aviation.byIcao,
+    // weather is "live" if EITHER source returned: the Open-Meteo aggregate
+    // (model hazards/alerts) OR the AWC METAR pull. Both down → UNKNOWN, never a
+    // false "clear". No points to query also counts as live (nothing to check).
+    live: { weather: points.length === 0 || weather !== null || aviation.live, gps: gps.ok },
   };
 
   const assessments = active
@@ -291,6 +314,7 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
     sources: {
       gps: gps.ok,
       acled: acled.length > 0,
+      aviationWx: aviation.live && icaos.length > 0,
       conflict: conflict.length === 0 ? "none" : (conflict[0].src === "reliefweb" ? "reliefweb" : "ucdp"),
     },
   };

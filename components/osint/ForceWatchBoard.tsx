@@ -24,7 +24,7 @@ const SEV_RANK: Record<Severity, number> = { red: 0, amber: 1, unknown: 2, green
 
 interface FpResponse {
   assessments?: ForceAssessment[];
-  sources?: { gps: boolean; acled: boolean; conflict: string };
+  sources?: { gps: boolean; acled: boolean; aviationWx: boolean; conflict: string };
   empty?: boolean;
 }
 
@@ -175,7 +175,7 @@ export default function ForceWatchBoard() {
       {data?.sources && all.length > 0 && (
         <p className="px-3 py-1.5 text-[9px] text-slate-600 border-t border-slate-800">
           Conflict: {data.sources.conflict === "none" ? "—" : data.sources.conflict.toUpperCase()}
-          {data.sources.acled && " + ACLED"} · GPS: {data.sources.gps ? "GPSJam" : "unavailable"} · weather: NWS/Open-Meteo/NHC · risk: INFORM · advisories: US State.
+          {data.sources.acled && " + ACLED"} · GPS: {data.sources.gps ? "GPSJam" : "unavailable"} · weather: {data.sources.aviationWx ? "AWC METAR + " : ""}NWS/Open-Meteo/NHC · risk: INFORM · advisories: US State.
           Coarse open-source SA — not authoritative tasking.
         </p>
       )}

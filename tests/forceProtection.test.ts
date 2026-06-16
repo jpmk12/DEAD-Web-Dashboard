@@ -13,7 +13,7 @@ const base = (over: Partial<ForceLocation> = {}): ForceLocation => ({
 
 const emptyCtx: ForceContext = {
   disasters: [], threats: [], tropical: [], hazards: [],
-  advisories: [], conflict: [], acled: [], inform: [], gps: [],
+  advisories: [], conflict: [], acled: [], inform: [], gps: [], aviation: {},
   live: { weather: true, gps: true },
 };
 
@@ -48,6 +48,13 @@ describe("assessLocation", () => {
     const ctx = { ...emptyCtx, advisories: [{ country: "Qatar", level: 4, aor: "CENTCOM", orderedDeparture: true, authorizedDeparture: false, title: "", link: "", pubDate: "" }] };
     const a = assessLocation(base(), ctx);
     expect(a.categories.find((c) => c.category === "civil")!.severity).toBe("red");
+  });
+
+  it("LIFR METAR at the base ICAO → weather RED; VFR → green", () => {
+    const lifr = { ...emptyCtx, aviation: { OTBH: { icao: "OTBH", flightCategory: "LIFR" as const, windKt: 8, gustKt: null, visMi: 0.5, ceilingFt: 200, observedAt: "" } } };
+    expect(assessLocation(base(), lifr).categories.find((c) => c.category === "weather")!.severity).toBe("red");
+    const vfr = { ...emptyCtx, aviation: { OTBH: { icao: "OTBH", flightCategory: "VFR" as const, windKt: 8, gustKt: null, visMi: 10, ceilingFt: null, observedAt: "" } } };
+    expect(assessLocation(base(), vfr).categories.find((c) => c.category === "weather")!.severity).toBe("green");
   });
 
   it("severe model hazard at the base → weather RED", () => {
