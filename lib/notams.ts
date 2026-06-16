@@ -17,6 +17,7 @@
 
 import https from "node:https";
 import { readFileSync } from "node:fs";
+import { DOD_CA_PEM_BUNDLED } from "./certs/dodCa";
 
 export type NotamCategory =
   | "runway" | "approach" | "gps_raim" | "lighting" | "obstacle"
@@ -106,15 +107,16 @@ export function buildNotam(icao: string, text: string): Notam {
 
 // ── DAIP fetch (network; fails safe to live:false / UNKNOWN) ─────────────────
 
-// Load the DoD CA bundle the operator supplies. Inline PEM (DOD_CA_PEM) takes
-// precedence over a file path (DOD_CA_PATH). Returns null when unconfigured —
-// in which case we don't even attempt the call (it would fail cert validation).
+// The DoD CA bundle used to validate DAIP's TLS chain. Resolution order: an
+// operator override via DOD_CA_PEM (inline) or DOD_CA_PATH (file), else the
+// bundled DoD Root CA 6 (committed — a public root cert). So NOTAMs work
+// out-of-the-box; overrides exist only to supply a fuller/updated chain.
 function dodCaBundle(): string | null {
   const inline = process.env.DOD_CA_PEM?.trim();
   if (inline) return inline;
   const path = process.env.DOD_CA_PATH?.trim();
-  if (path) { try { return readFileSync(path, "utf8"); } catch { return null; } }
-  return null;
+  if (path) { try { return readFileSync(path, "utf8"); } catch { /* fall back to bundled */ } }
+  return DOD_CA_PEM_BUNDLED;
 }
 
 const DAIP_HOST = "www.daip.jcs.mil";
