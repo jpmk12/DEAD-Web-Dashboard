@@ -15,13 +15,15 @@ import type { InformPoint } from "./inform";
 import type { GpsHex } from "./gpsjam";
 import { haversineKm, getDisasters } from "./disasters";
 import { getWeatherThreats, type NamedPoint } from "./severeWeather";
-import { getStateAdvisories } from "./stateAdvisories";
 import { getConflictPoints } from "./conflictEvents";
 import { getAcledEvents } from "./acled";
 import { getInformPoints } from "./inform";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
 import { getFlightCategories, type AviationWx } from "./aviationWx";
 import { getNotams, type Notam } from "./notams";
+import { getAllStateAdvisories } from "./stateAdvisories";
+import { civilCalendarEvents } from "./civilCalendar";
+import { getHealthEvents, type HealthEvent } from "./health";
 
 export type Severity = "green" | "amber" | "red" | "unknown";
 export type ForceCategory = "conflict" | "weather" | "gps" | "airspace" | "civil" | "hazard";
@@ -70,6 +72,8 @@ export interface ForceContext {
   aviation: Record<string, AviationWx>; // decoded METAR flight category, keyed by ICAO
   notams: Record<string, Notam[]>;      // NOTAMs keyed by ICAO (DAIP)
   notamsConfigured: boolean;            // DoD CA bundle present → airspace category enabled
+  health: HealthEvent[];                // WHO Disease Outbreak News
+  nowMs: number;                        // evaluation time (civil calendar lookahead)
   // Per-source liveness: distinguishes "checked, clean" from "couldn't check".
   // A category whose source(s) weren't live scores UNKNOWN, never green — so a
   // downed feed never reads as "all clear" (the cardinal safety rule). Sources
@@ -254,13 +258,21 @@ function assessAirspace(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
 function assessCivil(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   const signals: string[] = [];
   let sev: Severity = "green";
-  // State advisories currently surface only the hot spots (Level 4 / embassy
-  // departure). Phase 2 generalizes to all levels + cultural/health overlays.
+  // State advisory level for the base country (all levels available now).
   const adv = ctx.advisories.find((a) => countryMatch(a.country, loc.country));
   if (adv) {
-    if (adv.orderedDeparture) { signals.push(`State: ordered departure (${adv.country})`); sev = "red"; }
-    else if (adv.authorizedDeparture) { signals.push(`State: authorized departure (${adv.country})`); sev = "red"; }
-    else if (adv.level === 4) { signals.push(`State: Level 4 — Do Not Travel`); sev = worse(sev, "amber"); }
+    if (adv.orderedDeparture) { signals.push(`State: ordered departure (${adv.country})`); sev = worse(sev, "red"); }
+    else if (adv.authorizedDeparture) { signals.push(`State: authorized departure (${adv.country})`); sev = worse(sev, "red"); }
+    else if (adv.level === 4) { signals.push("State: Level 4 — Do Not Travel"); sev = worse(sev, "amber"); }
+    else if (adv.level === 3) { signals.push("State: Level 3 — Reconsider Travel"); sev = worse(sev, "amber"); }
+  }
+  // Cultural / civil calendar — observances, national days, elections that raise
+  // force-protection posture or sensitivity (amber; they're context, not threats).
+  if (loc.country) {
+    for (const e of civilCalendarEvents(loc.country, ctx.nowMs).slice(0, 2)) {
+      signals.push(e.active ? `${e.label} — active` : `${e.label} in ${e.daysUntil}d`);
+      sev = worse(sev, "amber");
+    }
   }
   return { category: "civil", severity: sev, signals };
 }
@@ -277,6 +289,11 @@ function assessHazard(loc: ForceLocation, ctx: ForceContext): CategoryAssessment
     signals.push(`${d.type} (${d.severity}) ~${km}km`);
     if (d.severity === "red" && km <= 300) sev = worse(sev, "red");
     else sev = worse(sev, "amber");
+  }
+  // WHO Disease Outbreak News in the base country — force-health posture (amber).
+  for (const h of ctx.health.filter((e) => countryMatch(e.country, loc.country)).slice(0, 2)) {
+    signals.push(`WHO: ${h.disease} outbreak (${h.country})`);
+    sev = worse(sev, "amber");
   }
   return { category: "hazard", severity: sev, signals };
 }
@@ -325,15 +342,16 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
   const points: NamedPoint[] = active.map((l) => ({ label: l.label, lat: l.lat, lon: l.lon }));
   const icaos = active.map((l) => l.icao).filter((x): x is string => !!x);
 
-  const [weather, advisories, conflict, acled, inform, gps, aviation, notams] = await Promise.all([
+  const [weather, advisories, conflict, acled, inform, gps, aviation, notams, health] = await Promise.all([
     points.length ? getWeatherThreats(points).catch(() => null) : Promise.resolve(null),
-    getStateAdvisories().catch(() => []),
+    getAllStateAdvisories().catch(() => []),
     getConflictPoints().catch(() => [] as ConflictPoint[]),
     getAcledEvents().catch(() => [] as AcledEvent[]),
     getInformPoints("risk").catch(() => [] as InformPoint[]),
     getGpsInterference().catch(() => ({ ok: false, hexes: [] as GpsHex[], date: "" })),
     getFlightCategories(icaos).catch(() => ({ live: false, byIcao: {} as Record<string, AviationWx> })),
     getNotams(icaos).catch(() => ({ configured: false, live: false, byIcao: {} as Record<string, Notam[]> })),
+    getHealthEvents().catch(() => ({ live: false, events: [] as HealthEvent[] })),
   ]);
 
   // getWeatherThreats already pulls disasters; only fetch separately if it failed.
@@ -352,6 +370,8 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
     aviation: aviation.byIcao,
     notams: notams.byIcao,
     notamsConfigured: notams.configured,
+    health: health.events,
+    nowMs: Date.now(),
     // weather is "live" if EITHER source returned: the Open-Meteo aggregate
     // (model hazards/alerts) OR the AWC METAR pull. Both down → UNKNOWN, never a
     // false "clear". No points to query also counts as live (nothing to check).

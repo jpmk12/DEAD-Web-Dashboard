@@ -175,7 +175,7 @@ export default function ForceWatchBoard() {
       {data?.sources && all.length > 0 && (
         <p className="px-3 py-1.5 text-[9px] text-slate-600 border-t border-slate-800">
           Conflict: {data.sources.conflict === "none" ? "—" : data.sources.conflict.toUpperCase()}
-          {data.sources.acled && " + ACLED"} · GPS: {data.sources.gps ? "GPSJam" : "unavailable"} · weather: {data.sources.aviationWx ? "AWC METAR + " : ""}NWS/Open-Meteo/NHC · NOTAMs: {data.sources.notams === "live" ? "DAIP" : data.sources.notams === "down" ? "feed down" : "not configured"} · risk: INFORM · advisories: US State.
+          {data.sources.acled && " + ACLED"} · GPS: {data.sources.gps ? "GPSJam" : "unavailable"} · weather: {data.sources.aviationWx ? "AWC METAR + " : ""}NWS/Open-Meteo/NHC · NOTAMs: {data.sources.notams === "live" ? "DAIP" : data.sources.notams === "down" ? "feed down" : "not configured"} · risk: INFORM · advisories: US State (all levels) + civil calendar · health: WHO.
           Coarse open-source SA — not authoritative tasking.
         </p>
       )}

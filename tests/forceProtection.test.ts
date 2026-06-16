@@ -14,7 +14,7 @@ const base = (over: Partial<ForceLocation> = {}): ForceLocation => ({
 const emptyCtx: ForceContext = {
   disasters: [], threats: [], tropical: [], hazards: [],
   advisories: [], conflict: [], acled: [], inform: [], gps: [], aviation: {},
-  notams: {}, notamsConfigured: false,
+  notams: {}, notamsConfigured: false, health: [], nowMs: Date.UTC(2026, 5, 16),
   live: { weather: true, gps: true, notams: false },
 };
 
@@ -49,6 +49,16 @@ describe("assessLocation", () => {
     const ctx = { ...emptyCtx, advisories: [{ country: "Qatar", level: 4, aor: "CENTCOM", orderedDeparture: true, authorizedDeparture: false, title: "", link: "", pubDate: "" }] };
     const a = assessLocation(base(), ctx);
     expect(a.categories.find((c) => c.category === "civil")!.severity).toBe("red");
+  });
+
+  it("Level 3 advisory → civil AMBER", () => {
+    const ctx = { ...emptyCtx, advisories: [{ country: "Qatar", level: 3, aor: "CENTCOM", orderedDeparture: false, authorizedDeparture: false, title: "", link: "", pubDate: "" }] };
+    expect(assessLocation(base(), ctx).categories.find((c) => c.category === "civil")!.severity).toBe("amber");
+  });
+
+  it("WHO outbreak in the base country → hazard AMBER", () => {
+    const ctx = { ...emptyCtx, health: [{ disease: "Cholera", country: "Qatar", title: "Cholera – Qatar", link: "", pubDate: "2026-06-10" }] };
+    expect(assessLocation(base(), ctx).categories.find((c) => c.category === "hazard")!.severity).toBe("amber");
   });
 
   it("LIFR METAR at the base ICAO → weather RED; VFR → green", () => {

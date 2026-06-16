@@ -53,8 +53,10 @@ export async function parseAdvisories(xml: string): Promise<TravelAdvisory[]> {
     // ("ordered the departure of family members"), so allow an optional "the".
     const orderedDeparture = /order(?:ed)?\s+(?:the\s+)?departure/i.test(text);
     const authorizedDeparture = /authoriz(?:ed)?\s+(?:the\s+)?departure/i.test(text);
-    // Keep the hot spots: Level 4, or any embassy-departure signal.
-    if (!(level === 4 || orderedDeparture || authorizedDeparture)) continue;
+    // Keep anything with a usable level (1-4) OR a departure signal. The NEO
+    // accessor narrows to hot spots; the force-protection accessor wants all
+    // levels so a base in a Level-2/3 country can score its civil axis.
+    if (!(level != null || orderedDeparture || authorizedDeparture)) continue;
     const country = countryFrom(title);
     out.push({
       country,
@@ -74,7 +76,17 @@ export async function parseAdvisories(xml: string): Promise<TravelAdvisory[]> {
   return out;
 }
 
+// Hot-spots only (Level 4 / embassy departure) — the NEO/evacuation watch used
+// by the Crisis demand read and the Glance "Global Reach Watch". Unchanged
+// behaviour for those callers.
 export async function getStateAdvisories(): Promise<TravelAdvisory[]> {
+  const all = await getAllStateAdvisories();
+  return all.filter((a) => a.level === 4 || a.orderedDeparture || a.authorizedDeparture);
+}
+
+// Every current advisory with a level (1-4) or departure signal — used by the
+// Force Protection scorer to colour the civil/diplomatic axis even at Level 2/3.
+export async function getAllStateAdvisories(): Promise<TravelAdvisory[]> {
   if (cache && cache.expires > Date.now()) return cache.data;
   try {
     const controller = new AbortController();

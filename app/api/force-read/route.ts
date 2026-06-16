@@ -48,7 +48,7 @@ FOCUS: <the single location needing attention first — where, why, what to do>
 <one line per other notable location: LOCATION (COCOM) — driver — recommended attention>
 WATCH: <what could deteriorate in the coming days across these locations>
 
-Be specific and operational (crosswind/ceiling for airfields, GPS-degraded approaches, conflict proximity, civil unrest, embassy posture). Treat any category marked UNKNOWN as a BLIND SPOT (a feed was unavailable) — call it out as a gap to close, never as "clear". Coarse open-source SA — not authoritative tasking.
+Be specific and operational (crosswind/ceiling for airfields, GPS-degraded approaches, conflict proximity, civil unrest, embassy posture, cultural/observance windows, disease outbreaks). Treat any category marked UNKNOWN as a BLIND SPOT (a feed was unavailable) — call it out as a gap to close, never as "clear". Coarse open-source SA — not authoritative tasking.
 
 WATCHED LOCATIONS:
 ${lines.join("\n")}`;
