@@ -2,8 +2,10 @@
 
 import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
+import { classifyAor, AOR_LABELS, type Aor } from "@/lib/aor";
+import { GATEWAYS } from "@/lib/airfields";
 import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, allKnownNewsSources, type NewsSource } from "@/lib/newsSources";
 import { AMC_HUBS, type AmcHub } from "@/lib/amcHubs";
@@ -311,6 +313,224 @@ function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: Tracke
           Add
         </button>
       </div>
+      {error && <p className="mt-1.5 text-[10px] text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+// ─── Force locations editor (Crisis tab → Force Protection Watch) ────────────
+// Bases/locations where the user's forces & aircraft operate. Standing or
+// transient (a presence window that auto-expires off the board). COCOM is
+// derived from coords/name (shown as a badge), re-derived authoritatively on
+// save server-side. International C-17/C-130 gateways are one-tap quick-adds.
+
+const COCOM_BADGE: Record<string, string> = {
+  NORTHCOM: "text-sky-300 border-sky-500/40 bg-sky-500/10",
+  SOUTHCOM: "text-teal-300 border-teal-500/40 bg-teal-500/10",
+  EUCOM: "text-blue-300 border-blue-500/40 bg-blue-500/10",
+  CENTCOM: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  AFRICOM: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  INDOPACOM: "text-violet-300 border-violet-500/40 bg-violet-500/10",
+  UNKNOWN: "text-slate-400 border-slate-600 bg-slate-700/30",
+};
+
+function ForceLocationsEditor({ value, onChange }: { value: ForceLocation[]; onChange: (v: ForceLocation[]) => void; }) {
+  const [geoQuery, setGeoQuery] = useState("");
+  const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
+  const [geoBusy, setGeoBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Draft being assembled (label + country + coords from a search/manual entry),
+  // then enriched with optional ICAO / note / presence window before Add.
+  const [draft, setDraft] = useState<{ label: string; country: string; lat: number; lon: number } | null>(null);
+  const [icao, setIcao] = useState("");
+  const [note, setNote] = useState("");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [gwOpen, setGwOpen] = useState(false);
+
+  const MAX = 30;
+  const onMap = (lat: number, lon: number) => value.some((v) => Math.abs(v.lat - lat) < 0.05 && Math.abs(v.lon - lon) < 0.05);
+  const cocomOf = (lat: number, lon: number, country: string) => classifyAor({ lat, lon, name: country });
+
+  const push = (loc: Omit<ForceLocation, "id" | "cocom">) => {
+    if (value.length >= MAX) { setError(`Maximum of ${MAX} force locations reached.`); return false; }
+    const id = `${loc.lat.toFixed(2)},${loc.lon.toFixed(2)}-${Date.now()}`;
+    onChange([...value, { ...loc, id, cocom: cocomOf(loc.lat, loc.lon, loc.country) }]);
+    setError(null);
+    return true;
+  };
+
+  const searchPlace = async () => {
+    const q = geoQuery.trim();
+    if (q.length < 2) return;
+    setGeoBusy(true); setError(null); setGeoResults([]);
+    try {
+      const res = await fetch(`/api/osint/geocode?q=${encodeURIComponent(q)}`);
+      const data = await res.json().catch(() => ({}));
+      const results: GeoResult[] = Array.isArray(data?.results) ? data.results : [];
+      setGeoResults(results);
+      if (results.length === 0) setError("No match found. Try a base name, city, or country.");
+    } catch {
+      setError("Place lookup failed — check your connection.");
+    } finally {
+      setGeoBusy(false);
+    }
+  };
+
+  // Clicking a result stages a draft so optional ICAO / note / dates can be set.
+  const startDraft = (r: GeoResult) => {
+    const segs = r.displayName.split(",").map((s) => s.trim()).filter(Boolean);
+    setDraft({
+      label: segs.slice(0, 2).join(", ").slice(0, 60) || "Location",
+      country: segs[segs.length - 1]?.slice(0, 60) || "",
+      lat: r.lat, lon: r.lon,
+    });
+    setIcao(""); setNote(""); setStart(""); setEnd("");
+    setGeoResults([]); setGeoQuery(""); setError(null);
+  };
+
+  const addDraft = () => {
+    if (!draft) return;
+    if (start && end && end < start) { setError("End date is before the start date."); return; }
+    const ok = push({
+      label: draft.label.trim().slice(0, 60) || "Location",
+      country: draft.country.trim().slice(0, 60),
+      lat: draft.lat, lon: draft.lon,
+      ...(/^[A-Za-z0-9]{4}$/.test(icao.trim()) ? { icao: icao.trim().toUpperCase() } : {}),
+      ...(note.trim() ? { note: note.trim().slice(0, 80) } : {}),
+      ...(start ? { start } : {}),
+      ...(end ? { end } : {}),
+    });
+    if (ok) setDraft(null);
+  };
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        Force Locations
+      </label>
+      <p className="text-[10px] text-slate-600 mb-3">
+        Bases / locations where your forces &amp; aircraft operate. The Crisis tab&apos;s
+        <span className="text-slate-500"> Force Protection Watch</span> fuses conflict, aviation weather,
+        GPS interference, civil/diplomatic posture, and hazards at each into a per-location read so you
+        see where to focus. Add an <span className="text-slate-500">ICAO</span> for per-base aviation
+        weather. Set a date window for a transient deployment (drops off the board once it ends). Up to {MAX}.
+      </p>
+
+      {value.length > 0 && (
+        <ul className="mb-2 space-y-1.5">
+          {value.map((loc) => (
+            <li key={loc.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-200 truncate">{loc.label}</span>
+                  {loc.icao && <span className="text-[9px] font-mono text-slate-400 bg-slate-900/60 px-1 rounded">{loc.icao}</span>}
+                  <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border ${COCOM_BADGE[loc.cocom] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[loc.cocom as Aor] ?? loc.cocom}</span>
+                </div>
+                <div className="text-[9px] text-slate-500 truncate">
+                  {loc.country || "—"} · {loc.lat.toFixed(2)}, {loc.lon.toFixed(2)}
+                  {(loc.start || loc.end) && <span className="text-amber-400/80"> · {loc.start || "…"}→{loc.end || "…"}</span>}
+                  {loc.note && <span className="text-slate-600"> · {loc.note}</span>}
+                </div>
+              </div>
+              <button
+                onClick={() => onChange(value.filter((x) => x.id !== loc.id))}
+                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1 flex-shrink-0"
+                title="Remove"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* International C-17/C-130 gateway quick-add (ICAO + country prefilled). */}
+      <button
+        onClick={() => setGwOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-300 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-500 rounded-md px-2.5 py-1.5 transition-all mb-2"
+      >
+        <span>✈ Add a gateway</span>
+        <span className="text-slate-500">{gwOpen ? "▴" : "▾"}</span>
+      </button>
+      {gwOpen && (
+        <div className="mb-3 border border-slate-800 rounded-md p-2.5 bg-slate-900/40 max-h-56 overflow-y-auto flex flex-wrap gap-1">
+          {GATEWAYS.map((g) => {
+            const on = onMap(g.lat, g.lon);
+            return (
+              <button
+                key={g.icao}
+                onClick={() => { if (!on) push({ label: g.name.split(",")[0], country: g.country ?? "", lat: g.lat, lon: g.lon, icao: g.icao }); }}
+                title={on ? `${g.name} — already added` : `Add ${g.name} (${g.icao})`}
+                className={`text-[10px] px-2 py-1 rounded border font-mono transition-all ${on ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400" : "border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-400 hover:bg-emerald-500/10"}`}
+              >
+                {on ? "✓ " : "+ "}{g.icao}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Search by base name, city, or country → stages a draft. */}
+      <div className="flex gap-1.5">
+        <input
+          value={geoQuery}
+          onChange={(e) => { setGeoQuery(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchPlace(); } }}
+          placeholder="Search a base, city, or country…"
+          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <button
+          onClick={searchPlace}
+          disabled={geoBusy || geoQuery.trim().length < 2}
+          className="text-[11px] font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40"
+        >
+          {geoBusy ? "…" : "Find"}
+        </button>
+      </div>
+
+      {geoResults.length > 0 && (
+        <ul className="mt-1.5 space-y-1">
+          {geoResults.map((r, i) => (
+            <li key={i}>
+              <button
+                onClick={() => startDraft(r)}
+                className="w-full text-left flex items-center gap-2 bg-slate-800/40 hover:bg-emerald-500/10 border border-slate-700/60 hover:border-emerald-500/40 rounded-md px-2.5 py-1.5 transition-colors group"
+              >
+                <span className="text-emerald-400 font-bold text-sm leading-none flex-shrink-0">+</span>
+                <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{r.displayName}</span>
+                <span className="text-[10px] text-slate-500 group-hover:text-emerald-400/80 font-mono flex-shrink-0">{r.lat.toFixed(2)}, {r.lon.toFixed(2)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Draft details: enrich the staged location before adding. */}
+      {draft && (
+        <div className="mt-2 border border-emerald-500/30 rounded-md p-2.5 bg-emerald-500/5 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <input value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} placeholder="Label" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-slate-500" />
+            <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-1 rounded border flex-shrink-0 ${COCOM_BADGE[cocomOf(draft.lat, draft.lon, draft.country)] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[cocomOf(draft.lat, draft.lon, draft.country) as Aor]}</span>
+          </div>
+          <div className="flex gap-1.5">
+            <input value={draft.country} onChange={(e) => setDraft({ ...draft, country: e.target.value })} placeholder="Country" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-slate-500" />
+            <input value={icao} onChange={(e) => setIcao(e.target.value.toUpperCase())} maxLength={4} placeholder="ICAO" title="4-letter ICAO → per-base aviation weather" className="w-20 bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 outline-none focus:border-slate-500" />
+          </div>
+          <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={80} placeholder="Note (optional, e.g. '3 tails')" className="w-full bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-slate-500" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] uppercase tracking-wider text-slate-500 flex-shrink-0">Window</span>
+            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} title="Presence start (optional)" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-200 outline-none focus:border-slate-500" />
+            <span className="text-slate-600 text-[10px]">→</span>
+            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} title="Presence end (optional, transient)" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-200 outline-none focus:border-slate-500" />
+          </div>
+          <div className="flex items-center gap-2 pt-0.5">
+            <button onClick={addDraft} className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-4 py-1.5 rounded-md transition-all uppercase tracking-wider">Add location</button>
+            <button onClick={() => setDraft(null)} className="text-[11px] text-slate-500 hover:text-slate-300">Cancel</button>
+          </div>
+        </div>
+      )}
+
       {error && <p className="mt-1.5 text-[10px] text-red-400">{error}</p>}
     </div>
   );
@@ -2196,6 +2416,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [vipSenders, setVipSenders] = useState<string[]>([]);
   const [muteSenders, setMuteSenders] = useState<string[]>([]);
   const [trackedLocations, setTrackedLocations] = useState<TrackedLocation[]>([]);
+  const [forceLocations, setForceLocations] = useState<ForceLocation[]>([]);
   const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
   const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
   const [newsletterSources, setNewsletterSources] = useState<NewsletterSourceRule[]>([]);
@@ -2294,6 +2515,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
     if (key === "sources") {
       const parts: (string | ReactElement)[] = [];
       if (trackedLocations.length) parts.push(`${trackedLocations.length} loc`);
+      if (forceLocations.length) parts.push(`${forceLocations.length} force loc`);
       if (marketsWatchlist.length) parts.push(`${marketsWatchlist.length} tickers`);
       // News-source count: total enabled, with a muted "(N off)" only when
       // any are disabled — keeps the header quiet for the default state.
@@ -2356,6 +2578,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setVipSenders(prefs.vipSenders ?? []);
         setMuteSenders(prefs.muteSenders ?? []);
         setTrackedLocations(prefs.trackedLocations ?? []);
+        setForceLocations(prefs.forceLocations ?? []);
         setMarketsWatchlist(prefs.marketsWatchlist ?? []);
         setOsintFeeds(prefs.osintFeeds ?? []);
         setNewsletterSources(prefs.newsletterSources ?? []);
@@ -2441,7 +2664,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         body: JSON.stringify({
           role, priorityTopics, deprioritizeTopics, watchlist,
           vipSenders, muteSenders,
-          trackedLocations, marketsWatchlist, osintFeeds, newsletterSources, metarStations,
+          trackedLocations, forceLocations, marketsWatchlist, osintFeeds, newsletterSources, metarStations,
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
           localFeedKey,
@@ -2803,6 +3026,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                     )
                   }
                 />
+                <ForceLocationsEditor value={forceLocations} onChange={setForceLocations} />
                 <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
                 <NewsSourcesEditor
                   value={disabledNewsSources}
