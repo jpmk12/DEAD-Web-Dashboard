@@ -8,7 +8,7 @@ import { useEventActions, EventActionCluster, EventActionPanels } from "@/compon
 
 // Minimal shape from /api/force-protection — defined locally (not imported from
 // the server scoring lib) so Glance's client bundle stays clean.
-interface GlanceForceItem { id: string; label: string; cocom: string; composite: "red" | "amber" | "green"; topDriver: string }
+interface GlanceForceItem { id: string; label: string; cocom: string; composite: "red" | "amber" | "green" | "unknown"; topDriver: string }
 
 // Glyphs for the Global Reach Watch rows, by disaster type (matches the
 // ThreatBoard vocabulary so a quake reads the same on both surfaces).

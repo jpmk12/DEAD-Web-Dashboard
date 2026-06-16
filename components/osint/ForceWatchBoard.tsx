@@ -15,10 +15,12 @@ const COCOM_LABEL: Record<string, string> = {
   CENTCOM: "USCENTCOM", AFRICOM: "USAFRICOM", INDOPACOM: "USINDOPACOM", UNKNOWN: "—",
 };
 
-const SEV_DOT: Record<Severity, string> = { red: "#ef4444", amber: "#fbbf24", green: "#10b981" };
-const SEV_TEXT: Record<Severity, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400" };
-const SEV_BORDER: Record<Severity, string> = { red: "border-l-red-500/70", amber: "border-l-amber-500/70", green: "border-l-emerald-500/40" };
-const SEV_RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
+const SEV_DOT: Record<Severity, string> = { red: "#ef4444", amber: "#fbbf24", green: "#10b981", unknown: "#64748b" };
+const SEV_TEXT: Record<Severity, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400", unknown: "text-slate-400" };
+const SEV_BORDER: Record<Severity, string> = { red: "border-l-red-500/70", amber: "border-l-amber-500/70", green: "border-l-emerald-500/40", unknown: "border-l-slate-500/50" };
+// Sort order for the board: red first, then amber, then UNKNOWN blind spots,
+// then green.
+const SEV_RANK: Record<Severity, number> = { red: 0, amber: 1, unknown: 2, green: 3 };
 
 interface FpResponse {
   assessments?: ForceAssessment[];
@@ -109,6 +111,9 @@ export default function ForceWatchBoard() {
   const counts = useMemo(() => ({
     red: all.filter((a) => a.composite === "red").length,
     amber: all.filter((a) => a.composite === "amber").length,
+    // Locations with any blind-spot (unknown) category — including those green
+    // overall but missing a feed.
+    blind: all.filter((a) => a.categories.some((c) => c.severity === "unknown")).length,
   }), [all]);
 
   const empty = !loading && all.length === 0;
@@ -118,11 +123,11 @@ export default function ForceWatchBoard() {
       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 flex-wrap">
         <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Force Protection Watch</span>
         {!empty && !loading && (
-          <span className="text-[10px] text-slate-500">
+          <span className="text-[10px] text-slate-500 flex items-center gap-1.5">
             {counts.red > 0 && <span className="text-red-400">{counts.red} red</span>}
-            {counts.red > 0 && counts.amber > 0 && " · "}
             {counts.amber > 0 && <span className="text-amber-400">{counts.amber} amber</span>}
-            {counts.red === 0 && counts.amber === 0 && <span className="text-emerald-400">all clear</span>}
+            {counts.red === 0 && counts.amber === 0 && counts.blind === 0 && <span className="text-emerald-400">all clear</span>}
+            {counts.blind > 0 && <span className="text-slate-400" title="Locations with a feed unavailable — status unknown, not confirmed clear">{counts.blind} blind</span>}
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">

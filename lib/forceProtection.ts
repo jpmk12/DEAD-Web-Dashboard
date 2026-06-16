@@ -21,7 +21,7 @@ import { getAcledEvents } from "./acled";
 import { getInformPoints } from "./inform";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
 
-export type Severity = "green" | "amber" | "red";
+export type Severity = "green" | "amber" | "red" | "unknown";
 export type ForceCategory = "conflict" | "weather" | "gps" | "civil" | "hazard";
 
 export const CATEGORY_LABEL: Record<ForceCategory, string> = {
@@ -64,6 +64,12 @@ export interface ForceContext {
   acled: AcledEvent[];
   inform: InformPoint[];
   gps: GpsHex[];
+  // Per-source liveness: distinguishes "checked, clean" from "couldn't check".
+  // A category whose source(s) weren't live scores UNKNOWN, never green — so a
+  // downed feed never reads as "all clear" (the cardinal safety rule). Sources
+  // that can't tell down-from-empty (conflict/advisories/etc. swallow errors to
+  // []) are best-effort and assumed live; gps/weather report real liveness.
+  live: { weather: boolean; gps: boolean };
 }
 
 export interface ForceProtectionResult {
@@ -72,7 +78,12 @@ export interface ForceProtectionResult {
   sources: { gps: boolean; acled: boolean; conflict: "ucdp" | "reliefweb" | "none" };
 }
 
-const SEV_RANK: Record<Severity, number> = { green: 0, amber: 1, red: 2 };
+// Rank orders BOTH for sorting and for "worst category" rollup. UNKNOWN sits
+// between green and amber: a blind spot deserves a look, but never outranks a
+// known amber/red, and never counts as clear.
+const SEV_RANK: Record<Severity, number> = { green: 0, unknown: 1, amber: 2, red: 3 };
+// `worse` is only ever called among KNOWN severities (unknown is filtered out
+// before rollup), so the green/amber/red ordering is what matters here.
 const worse = (a: Severity, b: Severity): Severity => (SEV_RANK[a] >= SEV_RANK[b] ? a : b);
 
 // Loose country-name match (normalize, substring either way). Mirrors the loose
@@ -133,6 +144,7 @@ function assessConflict(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
 }
 
 function assessWeather(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
+  if (!ctx.live.weather) return { category: "weather", severity: "unknown", signals: ["Weather feeds unavailable — conditions UNKNOWN"] };
   const signals: string[] = [];
   let sev: Severity = "green";
 
@@ -163,6 +175,8 @@ function assessWeather(loc: ForceLocation, ctx: ForceContext): CategoryAssessmen
 }
 
 function assessGps(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
+  // Cardinal rule: feed down ≠ "no interference". Absent data is UNKNOWN.
+  if (!ctx.live.gps) return { category: "gps", severity: "unknown", signals: ["GPS interference feed unavailable — status UNKNOWN"] };
   const level = gpsLevelAt(loc.lat, loc.lon, ctx.gps);
   if (level >= 2) return { category: "gps", severity: "red", signals: ["High GPS interference (GPSJam)"] };
   if (level === 1) return { category: "gps", severity: "amber", signals: ["Moderate GPS interference (GPSJam)"] };
@@ -213,12 +227,18 @@ export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAsse
     assessCivil(loc, ctx),
     assessHazard(loc, ctx),
   ];
-  const composite = categories.reduce<Severity>((acc, c) => worse(acc, c.severity), "green");
-  // Headline: worst category that actually has a signal.
+  // Composite = worst KNOWN category. If nothing could be checked, the whole
+  // location is UNKNOWN (a blind spot), not green.
+  const known = categories.filter((c) => c.severity !== "unknown");
+  const composite: Severity = known.length === 0 ? "unknown" : known.reduce<Severity>((acc, c) => worse(acc, c.severity), "green");
+  // Headline: worst category with a signal (red/amber beat unknown beat green).
   const driver = [...categories]
     .filter((c) => c.signals.length > 0)
     .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])[0];
-  const topDriver = driver ? `${CATEGORY_LABEL[driver.category]} — ${driver.signals[0]}` : "No active threat signals";
+  const blind = categories.filter((c) => c.severity === "unknown").map((c) => CATEGORY_LABEL[c.category]);
+  const topDriver = composite === "green" && blind.length
+    ? `No active signals — blind on ${blind.join(", ")}`
+    : driver ? `${CATEGORY_LABEL[driver.category]} — ${driver.signals[0]}` : "No active threat signals";
   return {
     id: loc.id, label: loc.label, country: loc.country, cocom: loc.cocom,
     lat: loc.lat, lon: loc.lon, ...(loc.icao ? { icao: loc.icao } : {}), ...(loc.note ? { note: loc.note } : {}),
@@ -255,6 +275,10 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
     acled,
     inform,
     gps: gps.hexes,
+    // weather is "live" only if the aggregate fetch succeeded (null = failed, but
+    // also null when there are no points to query — treat no-points as live so a
+    // location with no ICAO/coords issue isn't falsely UNKNOWN).
+    live: { weather: points.length === 0 || weather !== null, gps: gps.ok },
   };
 
   const assessments = active

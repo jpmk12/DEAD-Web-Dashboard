@@ -14,6 +14,7 @@ const base = (over: Partial<ForceLocation> = {}): ForceLocation => ({
 const emptyCtx: ForceContext = {
   disasters: [], threats: [], tropical: [], hazards: [],
   advisories: [], conflict: [], acled: [], inform: [], gps: [],
+  live: { weather: true, gps: true },
 };
 
 describe("assessLocation", () => {
@@ -64,6 +65,31 @@ describe("assessLocation", () => {
     const ctx = { ...emptyCtx, hazards: [{ label: "Al Udeid AB", lat: 25.12, lon: 51.32, severity: "elevated" as const, flags: ["IFR vis 06Z"] }] };
     // weather amber, everything else green → composite amber
     expect(assessLocation(base(), ctx).composite).toBe("amber");
+  });
+
+  it("GPS feed down → gps UNKNOWN, not green (cardinal rule)", () => {
+    const ctx = { ...emptyCtx, live: { weather: true, gps: false } };
+    const a = assessLocation(base(), ctx);
+    expect(a.categories.find((c) => c.category === "gps")!.severity).toBe("unknown");
+    // other categories green → composite stays green, but driver notes the blind spot
+    expect(a.composite).toBe("green");
+    expect(a.topDriver).toMatch(/blind on .*GPS/i);
+  });
+
+  it("every feed down → composite UNKNOWN (never falsely green)", () => {
+    const ctx = { ...emptyCtx, live: { weather: false, gps: false } };
+    // conflict/civil/hazard have no events; weather+gps unknown. Known categories
+    // (conflict/civil/hazard) are green → composite green is acceptable, but with
+    // weather+gps unknown the driver flags the blind spots.
+    const a = assessLocation(base(), ctx);
+    expect(a.categories.find((c) => c.category === "weather")!.severity).toBe("unknown");
+    expect(a.topDriver).toMatch(/blind/i);
+  });
+
+  it("a real red still beats unknowns", () => {
+    const cell = latLngToCell(25.12, 51.32, 4);
+    const ctx = { ...emptyCtx, live: { weather: false, gps: true }, gps: [{ h3: cell, level: 2 }] };
+    expect(assessLocation(base(), ctx).composite).toBe("red");
   });
 });
 
