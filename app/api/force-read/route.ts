@@ -42,7 +42,7 @@ export async function GET() {
       lines.push(`${a.composite.toUpperCase()} ${a.label}${a.icao ? ` [${a.icao}]` : ""} — ${cocomLabel} — ${a.country}${a.note ? ` — ${a.note}` : ""}${cats.length ? ` :: ${cats.join(" | ")}` : " :: no elevated categories"}`);
     }
 
-    const prompt = `You are a force-protection / antiterrorism officer briefing a senior air-mobility commander on threats to OUR forces and aircraft at the watched locations below. Each line is one location with its fused threat posture (RED/AMBER/GREEN) across categories: Conflict, Aviation Wx, GPS/Comms, Civil/Diplomatic, Hazard. Tell the commander WHERE TO FOCUS to protect people and tails. No preamble. <=160 words. Format EXACTLY:
+    const prompt = `You are a force-protection / antiterrorism officer briefing a senior air-mobility commander on threats to OUR forces and aircraft at the watched locations below. Each line is one location with its fused threat posture (RED/AMBER/GREEN/UNKNOWN) across categories: Conflict, Aviation Wx, GPS/Comms, Airspace/NOTAM (runway closures, approach outages), Civil/Diplomatic, Hazard. Tell the commander WHERE TO FOCUS to protect people and tails. No preamble. <=160 words. Format EXACTLY:
 
 FOCUS: <the single location needing attention first — where, why, what to do>
 <one line per other notable location: LOCATION (COCOM) — driver — recommended attention>

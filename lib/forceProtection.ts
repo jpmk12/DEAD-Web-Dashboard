@@ -21,14 +21,16 @@ import { getAcledEvents } from "./acled";
 import { getInformPoints } from "./inform";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
 import { getFlightCategories, type AviationWx } from "./aviationWx";
+import { getNotams, type Notam } from "./notams";
 
 export type Severity = "green" | "amber" | "red" | "unknown";
-export type ForceCategory = "conflict" | "weather" | "gps" | "civil" | "hazard";
+export type ForceCategory = "conflict" | "weather" | "gps" | "airspace" | "civil" | "hazard";
 
 export const CATEGORY_LABEL: Record<ForceCategory, string> = {
   conflict: "Conflict",
   weather: "Aviation Wx",
   gps: "GPS / Comms",
+  airspace: "Airspace / NOTAM",
   civil: "Civil / Diplomatic",
   hazard: "Hazard",
 };
@@ -66,18 +68,20 @@ export interface ForceContext {
   inform: InformPoint[];
   gps: GpsHex[];
   aviation: Record<string, AviationWx>; // decoded METAR flight category, keyed by ICAO
+  notams: Record<string, Notam[]>;      // NOTAMs keyed by ICAO (DAIP)
+  notamsConfigured: boolean;            // DoD CA bundle present → airspace category enabled
   // Per-source liveness: distinguishes "checked, clean" from "couldn't check".
   // A category whose source(s) weren't live scores UNKNOWN, never green — so a
   // downed feed never reads as "all clear" (the cardinal safety rule). Sources
   // that can't tell down-from-empty (conflict/advisories/etc. swallow errors to
-  // []) are best-effort and assumed live; gps/weather report real liveness.
-  live: { weather: boolean; gps: boolean };
+  // []) are best-effort and assumed live; gps/weather/notams report real liveness.
+  live: { weather: boolean; gps: boolean; notams: boolean };
 }
 
 export interface ForceProtectionResult {
   assessments: ForceAssessment[];
   generatedAt: string;
-  sources: { gps: boolean; acled: boolean; aviationWx: boolean; conflict: "ucdp" | "reliefweb" | "none" };
+  sources: { gps: boolean; acled: boolean; aviationWx: boolean; notams: "live" | "down" | "off"; conflict: "ucdp" | "reliefweb" | "none" };
 }
 
 // Rank orders BOTH for sorting and for "worst category" rollup. UNKNOWN sits
@@ -195,12 +199,56 @@ function assessWeather(loc: ForceLocation, ctx: ForceContext): CategoryAssessmen
 }
 
 function assessGps(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
-  // Cardinal rule: feed down ≠ "no interference". Absent data is UNKNOWN.
-  if (!ctx.live.gps) return { category: "gps", severity: "unknown", signals: ["GPS interference feed unavailable — status UNKNOWN"] };
-  const level = gpsLevelAt(loc.lat, loc.lon, ctx.gps);
-  if (level >= 2) return { category: "gps", severity: "red", signals: ["High GPS interference (GPSJam)"] };
-  if (level === 1) return { category: "gps", severity: "amber", signals: ["Moderate GPS interference (GPSJam)"] };
-  return { category: "gps", severity: "green", signals: [] };
+  // Two complementary sources: GPSJam = OBSERVED interference; RAIM NOTAMs =
+  // PREDICTED outages. Cardinal rule: a down feed is UNKNOWN, never "clear".
+  const raimNotams = loc.icao ? (ctx.notams[loc.icao.toUpperCase()] ?? []).filter((n) => n.category === "gps_raim") : [];
+  const signals: string[] = [];
+  let sev: Severity = "green";
+
+  // Observed (GPSJam).
+  if (ctx.live.gps) {
+    const level = gpsLevelAt(loc.lat, loc.lon, ctx.gps);
+    if (level >= 2) { signals.push("High GPS interference (GPSJam)"); sev = worse(sev, "red"); }
+    else if (level === 1) { signals.push("Moderate GPS interference (GPSJam)"); sev = worse(sev, "amber"); }
+  }
+
+  // Predicted (RAIM NOTAMs) — only meaningful when NOTAMs are live.
+  if (ctx.live.notams && loc.icao) {
+    for (const n of raimNotams.slice(0, 2)) {
+      const w = n.raimWindows?.length ? ` ${n.raimWindows.join(", ")}` : "";
+      signals.push(`RAIM outage NOTAM${w}`);
+      sev = worse(sev, "amber");
+    }
+  }
+
+  // Liveness: if BOTH the observed feed and (when configured) the NOTAM feed are
+  // down, we genuinely couldn't check → UNKNOWN. If GPSJam is down but NOTAMs are
+  // live (or vice-versa) we still have a partial read; flag the gap in a signal.
+  const gpsBlind = !ctx.live.gps;
+  const raimBlind = ctx.notamsConfigured && !ctx.live.notams;
+  if (gpsBlind && (raimBlind || !ctx.notamsConfigured)) {
+    return { category: "gps", severity: "unknown", signals: ["GPS interference feed unavailable — status UNKNOWN (check FAA SAPT for RAIM)"] };
+  }
+  if (gpsBlind) signals.push("Observed-interference feed down — RAIM only");
+  else if (raimBlind) signals.push("RAIM NOTAM feed down — observed only");
+  return { category: "gps", severity: sev, signals };
+}
+
+const NOTAM_SEV: Partial<Record<Notam["category"], Severity>> = { runway: "red", approach: "amber", airspace: "amber", obstacle: "amber" };
+
+function assessAirspace(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
+  // Only present when NOTAMs are configured (else omitted, not a blind spot).
+  if (!ctx.live.notams) return { category: "airspace", severity: "unknown", signals: ["NOTAM feed unavailable — airfield/airspace status UNKNOWN"] };
+  const list = loc.icao ? (ctx.notams[loc.icao.toUpperCase()] ?? []) : [];
+  const signals: string[] = [];
+  let sev: Severity = "green";
+  for (const n of list.filter((x) => x.category in NOTAM_SEV).slice(0, 3)) {
+    const s = NOTAM_SEV[n.category] ?? "amber";
+    sev = worse(sev, s);
+    if (n.category === "runway" && n.runwaysClosed?.length) signals.push(`RWY ${n.runwaysClosed.join(", ")} CLSD`);
+    else signals.push(n.text.replace(/\s+/g, " ").slice(0, 90));
+  }
+  return { category: "airspace", severity: sev, signals };
 }
 
 function assessCivil(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
@@ -244,6 +292,9 @@ export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAsse
     assessConflict(loc, ctx),
     assessWeather(loc, ctx),
     assessGps(loc, ctx),
+    // Airspace/NOTAM only appears when the DAIP feed is configured — otherwise
+    // it's a disabled feature, not a perpetual blind spot.
+    ...(ctx.notamsConfigured ? [assessAirspace(loc, ctx)] : []),
     assessCivil(loc, ctx),
     assessHazard(loc, ctx),
   ];
@@ -274,7 +325,7 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
   const points: NamedPoint[] = active.map((l) => ({ label: l.label, lat: l.lat, lon: l.lon }));
   const icaos = active.map((l) => l.icao).filter((x): x is string => !!x);
 
-  const [weather, advisories, conflict, acled, inform, gps, aviation] = await Promise.all([
+  const [weather, advisories, conflict, acled, inform, gps, aviation, notams] = await Promise.all([
     points.length ? getWeatherThreats(points).catch(() => null) : Promise.resolve(null),
     getStateAdvisories().catch(() => []),
     getConflictPoints().catch(() => [] as ConflictPoint[]),
@@ -282,6 +333,7 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
     getInformPoints("risk").catch(() => [] as InformPoint[]),
     getGpsInterference().catch(() => ({ ok: false, hexes: [] as GpsHex[], date: "" })),
     getFlightCategories(icaos).catch(() => ({ live: false, byIcao: {} as Record<string, AviationWx> })),
+    getNotams(icaos).catch(() => ({ configured: false, live: false, byIcao: {} as Record<string, Notam[]> })),
   ]);
 
   // getWeatherThreats already pulls disasters; only fetch separately if it failed.
@@ -298,10 +350,12 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
     inform,
     gps: gps.hexes,
     aviation: aviation.byIcao,
+    notams: notams.byIcao,
+    notamsConfigured: notams.configured,
     // weather is "live" if EITHER source returned: the Open-Meteo aggregate
     // (model hazards/alerts) OR the AWC METAR pull. Both down → UNKNOWN, never a
     // false "clear". No points to query also counts as live (nothing to check).
-    live: { weather: points.length === 0 || weather !== null || aviation.live, gps: gps.ok },
+    live: { weather: points.length === 0 || weather !== null || aviation.live, gps: gps.ok, notams: notams.live },
   };
 
   const assessments = active
@@ -315,6 +369,7 @@ export async function getForceProtection(locations: ForceLocation[]): Promise<Fo
       gps: gps.ok,
       acled: acled.length > 0,
       aviationWx: aviation.live && icaos.length > 0,
+      notams: !notams.configured ? "off" : (notams.live ? "live" : "down"),
       conflict: conflict.length === 0 ? "none" : (conflict[0].src === "reliefweb" ? "reliefweb" : "ucdp"),
     },
   };

@@ -14,7 +14,8 @@ const base = (over: Partial<ForceLocation> = {}): ForceLocation => ({
 const emptyCtx: ForceContext = {
   disasters: [], threats: [], tropical: [], hazards: [],
   advisories: [], conflict: [], acled: [], inform: [], gps: [], aviation: {},
-  live: { weather: true, gps: true },
+  notams: {}, notamsConfigured: false,
+  live: { weather: true, gps: true, notams: false },
 };
 
 describe("assessLocation", () => {
@@ -75,7 +76,7 @@ describe("assessLocation", () => {
   });
 
   it("GPS feed down → gps UNKNOWN, not green (cardinal rule)", () => {
-    const ctx = { ...emptyCtx, live: { weather: true, gps: false } };
+    const ctx = { ...emptyCtx, live: { weather: true, gps: false, notams: false } };
     const a = assessLocation(base(), ctx);
     expect(a.categories.find((c) => c.category === "gps")!.severity).toBe("unknown");
     // other categories green → composite stays green, but driver notes the blind spot
@@ -84,7 +85,7 @@ describe("assessLocation", () => {
   });
 
   it("every feed down → composite UNKNOWN (never falsely green)", () => {
-    const ctx = { ...emptyCtx, live: { weather: false, gps: false } };
+    const ctx = { ...emptyCtx, live: { weather: false, gps: false, notams: false } };
     // conflict/civil/hazard have no events; weather+gps unknown. Known categories
     // (conflict/civil/hazard) are green → composite green is acceptable, but with
     // weather+gps unknown the driver flags the blind spots.
@@ -95,8 +96,29 @@ describe("assessLocation", () => {
 
   it("a real red still beats unknowns", () => {
     const cell = latLngToCell(25.12, 51.32, 4);
-    const ctx = { ...emptyCtx, live: { weather: false, gps: true }, gps: [{ h3: cell, level: 2 }] };
+    const ctx = { ...emptyCtx, live: { weather: false, gps: true, notams: false }, gps: [{ h3: cell, level: 2 }] };
     expect(assessLocation(base(), ctx).composite).toBe("red");
+  });
+
+  it("airspace category only present when NOTAMs configured", () => {
+    expect(assessLocation(base(), emptyCtx).categories.some((c) => c.category === "airspace")).toBe(false);
+    const ctx = { ...emptyCtx, notamsConfigured: true, live: { weather: true, gps: true, notams: true } };
+    expect(assessLocation(base(), ctx).categories.some((c) => c.category === "airspace")).toBe(true);
+  });
+
+  it("runway-closure NOTAM → airspace RED", () => {
+    const ctx = {
+      ...emptyCtx, notamsConfigured: true, live: { weather: true, gps: true, notams: true },
+      notams: { OTBH: [{ icao: "OTBH", category: "runway" as const, rank: 0, text: "RWY 16R/34L CLSD", runwaysClosed: ["16R/34L"] }] },
+    };
+    const a = assessLocation(base(), ctx);
+    expect(a.categories.find((c) => c.category === "airspace")!.severity).toBe("red");
+    expect(a.composite).toBe("red");
+  });
+
+  it("NOTAMs configured but feed down → airspace UNKNOWN", () => {
+    const ctx = { ...emptyCtx, notamsConfigured: true, live: { weather: true, gps: true, notams: false } };
+    expect(assessLocation(base(), ctx).categories.find((c) => c.category === "airspace")!.severity).toBe("unknown");
   });
 });
 
