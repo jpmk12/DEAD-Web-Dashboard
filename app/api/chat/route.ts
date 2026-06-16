@@ -17,8 +17,10 @@ const VALID_ROLES = new Set(["user", "assistant"]);
 
 function formatEvents(events: CalendarEvent[]): string {
   if (!events.length) return "No upcoming events found.";
+  // Each event gets a [N] handle (1-based, matching the order the client sent)
+  // so the assistant can reference a specific one in a MOVE/EDIT/DELETE action.
   return events
-    .map((e) => {
+    .map((e, i) => {
       const start = e.isAllDay
         ? format(parseISO(e.start), "MMM d, yyyy")
         : format(parseISO(e.start), "MMM d, yyyy h:mm a");
@@ -27,7 +29,8 @@ function formatEvents(events: CalendarEvent[]): string {
         : ` – ${format(parseISO(e.end), "h:mm a")}`;
       const location = e.location ? ` @ ${String(e.location).slice(0, 80)}` : "";
       const desc = e.description ? ` — ${String(e.description).slice(0, 150)}` : "";
-      return `• ${String(e.title).slice(0, 100)} on ${start}${end}${location}${desc}`;
+      const acct = e.account ? ` {${e.account}}` : "";
+      return `[${i + 1}] ${String(e.title).slice(0, 100)} on ${start}${end}${location}${desc}${acct}`;
     })
     .join("\n");
 }
@@ -137,22 +140,37 @@ export async function POST(request: Request) {
   const cacheableBlock = `You are a personal scheduling and productivity assistant.${userContext}${memoryContext}${docsContext}
 
 You can:
-- Find free time slots and check for conflicts in the calendar
-- Suggest meeting times and schedules
-- Add events directly to the calendar
+- Find free time slots and detect conflicts / double-bookings in the calendar
+- Add events to the calendar, and MOVE, EDIT, or DELETE existing ones
+- Suggest meeting times, reschedules, and ways to resolve conflicts
 - Create tasks and to-do items
+
+Each upcoming calendar event is listed with a [N] handle. To act on an EXISTING event, reference it by that exact handle.
 
 TO ADD A CALENDAR EVENT: When the user asks you to schedule or add something, end your response with this on its own line (valid JSON, always include timeZone using the user's timezone):
 [ADD_EVENT:{"summary":"Event title","start":"2026-05-20T10:00:00","end":"2026-05-20T11:00:00","timeZone":"<USER_TZ>"}]
+
+TO MOVE / RESCHEDULE AN EVENT (keep the original duration unless the user says otherwise):
+[MOVE_EVENT:{"ref":N,"start":"2026-05-20T14:00:00","end":"2026-05-20T15:00:00","timeZone":"<USER_TZ>"}]
+
+TO EDIT AN EVENT'S DETAILS (any subset of title / location / description):
+[EDIT_EVENT:{"ref":N,"summary":"New title","location":"New place"}]
+
+TO DELETE / CANCEL AN EVENT:
+[DELETE_EVENT:{"ref":N}]
 
 TO CREATE A TASK: When the user asks you to create a task or reminder, end your response with this on its own line (valid JSON only):
 [ADD_TASK:{"title":"Task description","due":"2026-05-20"}]
 
 Rules:
 - Only emit an action block when you have enough information — ask first if you need a date/time
+- Reference existing events ONLY by the [N] handle shown in the calendar list — never invent an id
+- If it's unclear which event the user means (e.g. several could match), ask which one rather than guessing
+- When you spot a conflict or double-booking, point it out and offer to move one of them
+- The user reviews and confirms every change before it happens, so propose the specific change directly rather than asking "should I?"
 - Check for conflicts before suggesting a time slot
 - The "due" field for tasks is optional; "description" and "location" for events are also optional
-- Include only one action block per response; ask for confirmation if multiple actions are needed`;
+- Include only one action block per response; if several changes are needed, do them one at a time`;
 
   const dynamicBlock = `Today is ${today}. User's timezone: ${tz}.
 

@@ -18,10 +18,25 @@ interface FloatingAssistantProps {
 // a right-side slide-over. The Calendar tab keeps its inline rail assistant too.
 export default function FloatingAssistant({ calendarEvents, tasks, articles, newsletters, onTaskAdded }: FloatingAssistantProps) {
   const [open, setOpen] = useState(false);
+  // A prompt to prefill the composer with, seeded from elsewhere (e.g. a Glance
+  // "reschedule" click dispatches `assistant:open` with a starter sentence).
+  const [seed, setSeed] = useState<{ text: string; nonce: number } | null>(null);
   // Fetch tasks independently so the assistant has them even if the Calendar
   // tab (and its background TasksPanel) hasn't loaded yet. Falls back to the
   // prop until the fetch lands.
   const [fetchedTasks, setFetchedTasks] = useState<GoogleTask[] | null>(null);
+
+  // Any component can open the assistant pre-seeded:
+  //   window.dispatchEvent(new CustomEvent("assistant:open", { detail: { prompt } }))
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt ?? "";
+      setSeed({ text: prompt, nonce: Date.now() });
+      setOpen(true);
+    };
+    window.addEventListener("assistant:open", onOpen as EventListener);
+    return () => window.removeEventListener("assistant:open", onOpen as EventListener);
+  }, []);
 
   const loadTasks = useCallback(async () => {
     try {
@@ -81,6 +96,9 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
                 articles={articles}
                 newsletters={newsletters}
                 onTaskAdded={() => { onTaskAdded(); loadTasks(); }}
+                onEventChanged={() => window.dispatchEvent(new Event("calendar:changed"))}
+                initialInput={seed?.text}
+                initialInputNonce={seed?.nonce}
               />
             </div>
           </div>

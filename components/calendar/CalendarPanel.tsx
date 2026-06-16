@@ -238,6 +238,15 @@ export default function CalendarPanel({ onEventsLoaded }: CalendarPanelProps) {
   const onEventsLoadedRef = useRef(onEventsLoaded);
   useEffect(() => { onEventsLoadedRef.current = onEventsLoaded; });
 
+  // The assistant fires `calendar:changed` after it moves/edits/deletes an
+  // event; refetch so the calendar (and the context the assistant sees next)
+  // reflect the change instead of showing the stale time.
+  useEffect(() => {
+    const onChanged = () => setRefreshKey((k) => k + 1);
+    window.addEventListener("calendar:changed", onChanged);
+    return () => window.removeEventListener("calendar:changed", onChanged);
+  }, []);
+
   useEffect(() => {
     if (status !== "authenticated") return;
 

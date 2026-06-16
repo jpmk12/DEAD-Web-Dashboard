@@ -32,6 +32,7 @@ export interface CalendarEvent {
   location?: string;
   isAllDay: boolean;
   account?: string;        // email address of the Google account this event belongs to
+  calendarId?: string;     // the calendar this event lives on (needed to patch/delete it)
   attendees?: string[];    // lowercased emails of non-self attendees (used by meeting prep)
 }
 

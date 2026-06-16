@@ -113,6 +113,38 @@ function clockTime(iso: string): string {
   if (!t) return "";
   return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
+// Open the AI assistant pre-seeded to reschedule/cancel this event. The
+// trailing "to " invites the user to finish the sentence ("…tomorrow 10am",
+// "…cancel it"); the assistant references the event by its calendar handle.
+function askAssistantToReschedule(e: CalendarEvent, when: "today" | "tomorrow") {
+  const at = e.isAllDay ? "" : `, ${clockTime(e.start)}`;
+  const prompt = `Reschedule "${e.title}" (${when}${at}) to `;
+  window.dispatchEvent(new CustomEvent("assistant:open", { detail: { prompt } }));
+}
+
+// A Today/Tomorrow agenda row: time + title jumps to the Calendar; the ⇄ button
+// (revealed on hover/focus) hands the event to the assistant to move or cancel.
+function ScheduleRow({ e, when, onNavigate }: { e: CalendarEvent; when: "today" | "tomorrow"; onNavigate: (tab: Tab) => void }) {
+  return (
+    <li className="group flex items-center hover:bg-slate-800/40 transition-colors">
+      <button onClick={() => onNavigate("calendar")} className="flex-1 min-w-0 text-left flex items-baseline gap-3 px-3 py-2.5">
+        <span className="text-[11px] font-mono font-semibold text-emerald-400 w-16 flex-shrink-0">
+          {e.isAllDay ? "All day" : clockTime(e.start)}
+        </span>
+        <span className="text-sm text-slate-200 truncate group-hover:text-slate-100">{e.title}</span>
+      </button>
+      <button
+        onClick={() => askAssistantToReschedule(e, when)}
+        title="Ask the assistant to move or cancel this"
+        aria-label={`Reschedule ${e.title}`}
+        className="flex-shrink-0 mr-2 px-2 py-1 rounded text-slate-500 hover:text-emerald-300 hover:bg-slate-800 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all text-xs"
+      >
+        ⇄
+      </button>
+    </li>
+  );
+}
+
 function greeting(): string {
   const h = new Date().getHours();
   if (h < 5) return "Late night";
@@ -769,19 +801,7 @@ export default function GlanceTab({
             ) : (
               <ul className="divide-y divide-slate-800/60">
                 {todayEvents.map((e) => (
-                  <li key={e.id}>
-                    <button
-                      onClick={() => onNavigate("calendar")}
-                      className="group w-full text-left flex items-baseline gap-3 px-3 py-2.5 hover:bg-slate-800/40 transition-colors"
-                    >
-                      <span className="text-[11px] font-mono font-semibold text-emerald-400 w-16 flex-shrink-0">
-                        {e.isAllDay ? "All day" : clockTime(e.start)}
-                      </span>
-                      <span className="text-sm text-slate-200 truncate group-hover:text-slate-100">
-                        {e.title}
-                      </span>
-                    </button>
-                  </li>
+                  <ScheduleRow key={e.id} e={e} when="today" onNavigate={onNavigate} />
                 ))}
               </ul>
             )}
@@ -794,19 +814,7 @@ export default function GlanceTab({
             ) : (
               <ul className="divide-y divide-slate-800/60">
                 {tomorrowEvents.map((e) => (
-                  <li key={e.id}>
-                    <button
-                      onClick={() => onNavigate("calendar")}
-                      className="group w-full text-left flex items-baseline gap-3 px-3 py-2.5 hover:bg-slate-800/40 transition-colors"
-                    >
-                      <span className="text-[11px] font-mono font-semibold text-emerald-400 w-16 flex-shrink-0">
-                        {e.isAllDay ? "All day" : clockTime(e.start)}
-                      </span>
-                      <span className="text-sm text-slate-200 truncate group-hover:text-slate-100">
-                        {e.title}
-                      </span>
-                    </button>
-                  </li>
+                  <ScheduleRow key={e.id} e={e} when="tomorrow" onNavigate={onNavigate} />
                 ))}
               </ul>
             )}

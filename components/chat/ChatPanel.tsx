@@ -12,12 +12,15 @@ interface ChatPanelProps {
   articles?: NewsItem[];
   newsletters?: NewsletterSummary[];
   onTaskAdded?: () => void;
+  onEventChanged?: () => void;   // fired after a successful add/move/edit/delete
+  initialInput?: string;         // prefill the composer (e.g. seeded from Glance)
+  initialInputNonce?: number;    // bump to re-apply initialInput when already open
 }
 
 const WELCOME: ChatMessageType = {
   role: "assistant",
   content:
-    "I'm your scheduling and task assistant. I can see your calendar events and tasks — ask me to find free time, add an event, or create a task.",
+    "I'm your scheduling and task assistant. I can see your calendar and tasks — ask me to find free time, add an event, or move, reschedule, or cancel something.",
 };
 
 // ── Action block types ──────────────────────────────────────────────────────
@@ -37,23 +40,31 @@ interface TaskPayload {
   notes?: string;
 }
 
+// Mutations target an existing event. The assistant references it by a [N]
+// handle; we resolve that to the concrete event (id + calendarId + its current
+// time, for the before→after display) on the client from the same list we sent.
+interface ResolvedEvent {
+  eventId: string;
+  calendarId?: string;
+  title: string;
+  start: string;
+  end: string;
+  isAllDay: boolean;
+}
+
+interface MovePayload { ref: number; start: string; end: string; timeZone?: string }
+interface EditPayload { ref: number; summary?: string; location?: string; description?: string }
+interface DeletePayload { ref: number }
+
 type ActionStatus = "pending" | "loading" | "done" | "dismissed" | "error";
 
-interface EventAction {
-  type: "event";
-  data: EventPayload;
-  status: ActionStatus;
-  errorMsg?: string;
-}
+interface EventAction { type: "event"; data: EventPayload; status: ActionStatus; errorMsg?: string }
+interface TaskAction { type: "task"; data: TaskPayload; status: ActionStatus; errorMsg?: string }
+interface MoveAction { type: "move"; data: MovePayload; event?: ResolvedEvent; status: ActionStatus; errorMsg?: string }
+interface EditAction { type: "edit"; data: EditPayload; event?: ResolvedEvent; status: ActionStatus; errorMsg?: string }
+interface DeleteAction { type: "delete"; data: DeletePayload; event?: ResolvedEvent; status: ActionStatus; errorMsg?: string }
 
-interface TaskAction {
-  type: "task";
-  data: TaskPayload;
-  status: ActionStatus;
-  errorMsg?: string;
-}
-
-type PendingAction = EventAction | TaskAction;
+type PendingAction = EventAction | TaskAction | MoveAction | EditAction | DeleteAction;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -61,32 +72,54 @@ function stripActionBlocks(text: string): string {
   return text
     .replace(/^\[ADD_EVENT:.*\]$/gm, "")
     .replace(/^\[ADD_TASK:.*\]$/gm, "")
+    .replace(/^\[MOVE_EVENT:.*\]$/gm, "")
+    .replace(/^\[EDIT_EVENT:.*\]$/gm, "")
+    .replace(/^\[DELETE_EVENT:.*\]$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function parseActionBlocks(text: string): PendingAction[] {
-  const blocks: PendingAction[] = [];
-  const eventRe = /^\[ADD_EVENT:(.*)\]$/gm;
-  const taskRe = /^\[ADD_TASK:(.*)\]$/gm;
+// Resolve a [N] handle (1-based, matching the order we sent to /api/chat) to the
+// concrete event. Returns undefined if out of range / lacks an id, so the card
+// can show an honest "couldn't identify that event" rather than acting blindly.
+function resolveRef(ref: unknown, events: CalendarEvent[]): ResolvedEvent | undefined {
+  if (typeof ref !== "number" || !Number.isInteger(ref)) return undefined;
+  const e = events[ref - 1];
+  if (!e || !e.id) return undefined;
+  return { eventId: e.id, calendarId: e.calendarId, title: e.title, start: e.start, end: e.end, isAllDay: e.isAllDay };
+}
 
-  let m: RegExpExecArray | null;
-  while ((m = eventRe.exec(text)) !== null) {
-    try {
-      const data = JSON.parse(m[1]) as EventPayload;
-      if (data.summary && data.start && data.end) {
-        blocks.push({ type: "event", data, status: "pending" });
-      }
-    } catch { /* skip malformed */ }
-  }
-  while ((m = taskRe.exec(text)) !== null) {
-    try {
-      const data = JSON.parse(m[1]) as TaskPayload;
-      if (data.title) {
-        blocks.push({ type: "task", data, status: "pending" });
-      }
-    } catch { /* skip malformed */ }
-  }
+function parseActionBlocks(text: string, events: CalendarEvent[]): PendingAction[] {
+  const blocks: PendingAction[] = [];
+  const run = (re: RegExp, fn: (json: string) => PendingAction | null) => {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      try { const b = fn(m[1]); if (b) blocks.push(b); } catch { /* skip malformed */ }
+    }
+  };
+
+  run(/^\[ADD_EVENT:(.*)\]$/gm, (j) => {
+    const data = JSON.parse(j) as EventPayload;
+    return data.summary && data.start && data.end ? { type: "event", data, status: "pending" } : null;
+  });
+  run(/^\[ADD_TASK:(.*)\]$/gm, (j) => {
+    const data = JSON.parse(j) as TaskPayload;
+    return data.title ? { type: "task", data, status: "pending" } : null;
+  });
+  run(/^\[MOVE_EVENT:(.*)\]$/gm, (j) => {
+    const data = JSON.parse(j) as MovePayload;
+    if (!data.start || !data.end) return null;
+    return { type: "move", data, event: resolveRef(data.ref, events), status: "pending" };
+  });
+  run(/^\[EDIT_EVENT:(.*)\]$/gm, (j) => {
+    const data = JSON.parse(j) as EditPayload;
+    if (data.summary === undefined && data.location === undefined && data.description === undefined) return null;
+    return { type: "edit", data, event: resolveRef(data.ref, events), status: "pending" };
+  });
+  run(/^\[DELETE_EVENT:(.*)\]$/gm, (j) => {
+    const data = JSON.parse(j) as DeletePayload;
+    return { type: "delete", data, event: resolveRef(data.ref, events), status: "pending" };
+  });
   return blocks;
 }
 
@@ -193,6 +226,91 @@ function TaskActionCard({ action, onConfirm, onDismiss }: ActionCardProps<TaskAc
   );
 }
 
+// Shared footer (confirm / dismiss / done / error+retry) for the mutation cards,
+// so move/edit/delete keep one consistent confirmation UX.
+function CardFooter({ status, errorMsg, confirmLabel, busyLabel, doneLabel, danger, onConfirm, onDismiss }: {
+  status: ActionStatus; errorMsg?: string; confirmLabel: string; busyLabel: string; doneLabel: string;
+  danger?: boolean; onConfirm: () => void; onDismiss: () => void;
+}) {
+  if (status === "done") return <p className="text-[11px] text-emerald-400 mt-2 font-mono">✓ {doneLabel}</p>;
+  if (status === "error") return (
+    <p className="text-[11px] text-red-400 mt-2">
+      {errorMsg ?? "Failed"}
+      <button onClick={onConfirm} className="ml-2 underline hover:text-red-300">Retry</button>
+    </p>
+  );
+  const btn = danger
+    ? "bg-red-600/80 hover:bg-red-600"
+    : "bg-emerald-600/80 hover:bg-emerald-600";
+  return (
+    <div className="flex gap-2 mt-2">
+      <button onClick={onConfirm} disabled={status === "loading"} className={`flex items-center gap-1 ${btn} disabled:opacity-50 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition-colors`}>
+        {status === "loading" ? busyLabel : confirmLabel}
+      </button>
+      <button onClick={onDismiss} className="text-[11px] text-slate-500 hover:text-slate-300 px-2 transition-colors">Dismiss</button>
+    </div>
+  );
+}
+
+function UnresolvedCard({ label }: { label: string }) {
+  return (
+    <div className="ml-0 mt-1 bg-slate-800/80 border border-amber-500/30 rounded-xl p-3 text-sm">
+      <p className="text-[11px] text-amber-400">Couldn&apos;t identify which event to {label} — tell me which one (by title or time) and I&apos;ll try again.</p>
+    </div>
+  );
+}
+
+function MoveEventCard({ action, onConfirm, onDismiss }: ActionCardProps<MoveAction>) {
+  const { data, event, status } = action;
+  if (!event) return <UnresolvedCard label="move" />;
+  return (
+    <div className="ml-0 mt-1 bg-slate-800/80 border border-amber-500/30 rounded-xl p-3 text-sm">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-amber-400 text-xs">⇄</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Reschedule</span>
+      </div>
+      <p className="text-slate-100 font-semibold leading-snug">{event.title}</p>
+      <p className="text-[11px] text-slate-500 mt-1 line-through">{formatDateTime(event.start)} → {formatDateTime(event.end)}</p>
+      <p className="text-[11px] text-amber-300 mt-0.5">{formatDateTime(data.start)} → {formatDateTime(data.end)}</p>
+      <CardFooter status={status} errorMsg={action.errorMsg} confirmLabel="Move event" busyLabel="Moving…" doneLabel="Event moved" onConfirm={onConfirm} onDismiss={onDismiss} />
+    </div>
+  );
+}
+
+function EditEventCard({ action, onConfirm, onDismiss }: ActionCardProps<EditAction>) {
+  const { data, event, status } = action;
+  if (!event) return <UnresolvedCard label="edit" />;
+  return (
+    <div className="ml-0 mt-1 bg-slate-800/80 border border-emerald-500/30 rounded-xl p-3 text-sm">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-emerald-400 text-xs">✎</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">Edit event</span>
+      </div>
+      <p className="text-slate-100 font-semibold leading-snug">{event.title}</p>
+      {data.summary !== undefined && <p className="text-[11px] text-slate-300 mt-1">Title → <span className="text-emerald-300">{data.summary}</span></p>}
+      {data.location !== undefined && <p className="text-[11px] text-slate-300 mt-0.5">📍 → <span className="text-emerald-300">{data.location}</span></p>}
+      {data.description !== undefined && <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">Notes → <span className="text-emerald-300">{data.description}</span></p>}
+      <CardFooter status={status} errorMsg={action.errorMsg} confirmLabel="Save changes" busyLabel="Saving…" doneLabel="Event updated" onConfirm={onConfirm} onDismiss={onDismiss} />
+    </div>
+  );
+}
+
+function DeleteEventCard({ action, onConfirm, onDismiss }: ActionCardProps<DeleteAction>) {
+  const { event, status } = action;
+  if (!event) return <UnresolvedCard label="cancel" />;
+  return (
+    <div className="ml-0 mt-1 bg-slate-800/80 border border-red-500/40 rounded-xl p-3 text-sm">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-red-400 text-xs">🗑</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">Cancel event</span>
+      </div>
+      <p className="text-slate-100 font-semibold leading-snug">{event.title}</p>
+      <p className="text-[11px] text-slate-400 mt-0.5">{formatDateTime(event.start)}</p>
+      <CardFooter status={status} errorMsg={action.errorMsg} confirmLabel="Delete event" busyLabel="Deleting…" doneLabel="Event deleted" danger onConfirm={onConfirm} onDismiss={onDismiss} />
+    </div>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 
 export default function ChatPanel({
@@ -201,6 +319,9 @@ export default function ChatPanel({
   articles = [],
   newsletters = [],
   onTaskAdded,
+  onEventChanged,
+  initialInput,
+  initialInputNonce,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessageType[]>([WELCOME]);
   const [streaming, setStreaming] = useState(false);
@@ -235,7 +356,7 @@ export default function ChatPanel({
       setMessages((prev) => {
         const msg = prev[streamedIdx];
         if (!msg) return prev;
-        const blocks = parseActionBlocks(msg.content);
+        const blocks = parseActionBlocks(msg.content, calendarEvents);
         if (blocks.length > 0) {
           setActionMap((m) => {
             const next = new Map(m);
@@ -300,6 +421,51 @@ export default function ChatPanel({
         errorMsg: err instanceof Error ? err.message : "Failed to create task",
       });
     }
+  };
+
+  // Move / edit / delete all hit /api/calendar/events with the resolved event's
+  // id + calendarId. Each shows its result in-card and refreshes the calendar.
+  const mutateEvent = async (
+    msgIdx: number, actionIdx: number,
+    method: "PATCH" | "DELETE", body: Record<string, unknown>, failMsg: string,
+  ) => {
+    updateAction(msgIdx, actionIdx, { status: "loading" });
+    try {
+      const res = await fetch("/api/calendar/events", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error === "reauth_required" ? "Calendar permission needed — sign out and back in." : (err.error ?? failMsg));
+      }
+      updateAction(msgIdx, actionIdx, { status: "done" });
+      onEventChanged?.();
+    } catch (err) {
+      updateAction(msgIdx, actionIdx, { status: "error", errorMsg: err instanceof Error ? err.message : failMsg });
+    }
+  };
+
+  const confirmMove = (msgIdx: number, actionIdx: number, a: MoveAction) => {
+    if (!a.event) return;
+    mutateEvent(msgIdx, actionIdx, "PATCH", {
+      eventId: a.event.eventId, calendarId: a.event.calendarId,
+      start: a.data.start, end: a.data.end, timeZone: a.data.timeZone,
+    }, "Failed to move event");
+  };
+
+  const confirmEdit = (msgIdx: number, actionIdx: number, a: EditAction) => {
+    if (!a.event) return;
+    mutateEvent(msgIdx, actionIdx, "PATCH", {
+      eventId: a.event.eventId, calendarId: a.event.calendarId,
+      summary: a.data.summary, location: a.data.location, description: a.data.description,
+    }, "Failed to edit event");
+  };
+
+  const confirmDelete = (msgIdx: number, actionIdx: number, a: DeleteAction) => {
+    if (!a.event) return;
+    mutateEvent(msgIdx, actionIdx, "DELETE", { eventId: a.event.eventId, calendarId: a.event.calendarId }, "Failed to delete event");
   };
 
   const sendMessage = async (text: string) => {
@@ -392,23 +558,21 @@ export default function ChatPanel({
           return (
             <div key={i}>
               <ChatMessage message={displayContent} />
-              {actions.map((action, j) =>
-                action.type === "event" ? (
-                  <EventActionCard
-                    key={j}
-                    action={action}
-                    onConfirm={() => confirmEvent(i, j, action.data)}
-                    onDismiss={() => updateAction(i, j, { status: "dismissed" })}
-                  />
-                ) : (
-                  <TaskActionCard
-                    key={j}
-                    action={action}
-                    onConfirm={() => confirmTask(i, j, action.data)}
-                    onDismiss={() => updateAction(i, j, { status: "dismissed" })}
-                  />
-                )
-              )}
+              {actions.map((action, j) => {
+                const dismiss = () => updateAction(i, j, { status: "dismissed" });
+                switch (action.type) {
+                  case "event":
+                    return <EventActionCard key={j} action={action} onConfirm={() => confirmEvent(i, j, action.data)} onDismiss={dismiss} />;
+                  case "task":
+                    return <TaskActionCard key={j} action={action} onConfirm={() => confirmTask(i, j, action.data)} onDismiss={dismiss} />;
+                  case "move":
+                    return <MoveEventCard key={j} action={action} onConfirm={() => confirmMove(i, j, action)} onDismiss={dismiss} />;
+                  case "edit":
+                    return <EditEventCard key={j} action={action} onConfirm={() => confirmEdit(i, j, action)} onDismiss={dismiss} />;
+                  case "delete":
+                    return <DeleteEventCard key={j} action={action} onConfirm={() => confirmDelete(i, j, action)} onDismiss={dismiss} />;
+                }
+              })}
             </div>
           );
         })}
@@ -426,7 +590,7 @@ export default function ChatPanel({
       </div>
 
       <div className="px-3 pb-3 pt-1 border-t border-slate-800/60">
-        <ChatInput onSend={sendMessage} disabled={streaming} />
+        <ChatInput onSend={sendMessage} disabled={streaming} seedText={initialInput} seedNonce={initialInputNonce} />
       </div>
     </div>
   );
