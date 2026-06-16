@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
+import { useEventActions, EventActionCluster, EventActionPanels } from "@/components/calendar/eventActions";
 
 // Glyphs for the Global Reach Watch rows, by disaster type (matches the
 // ThreatBoard vocabulary so a quake reads the same on both surfaces).
@@ -113,34 +114,25 @@ function clockTime(iso: string): string {
   if (!t) return "";
   return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
-// Open the AI assistant pre-seeded to reschedule/cancel this event. The
-// trailing "to " invites the user to finish the sentence ("…tomorrow 10am",
-// "…cancel it"); the assistant references the event by its calendar handle.
-function askAssistantToReschedule(e: CalendarEvent, when: "today" | "tomorrow") {
-  const at = e.isAllDay ? "" : `, ${clockTime(e.start)}`;
-  const prompt = `Reschedule "${e.title}" (${when}${at}) to `;
-  window.dispatchEvent(new CustomEvent("assistant:open", { detail: { prompt } }));
-}
-
-// A Today/Tomorrow agenda row: time + title jumps to the Calendar; the ⇄ button
-// (revealed on hover/focus) hands the event to the assistant to move or cancel.
-function ScheduleRow({ e, when, onNavigate }: { e: CalendarEvent; when: "today" | "tomorrow"; onNavigate: (tab: Tab) => void }) {
+// A Today/Tomorrow agenda row: time + title jumps to the Calendar; the quick
+// actions (AI-edit / edit / nudge / delete) come from the same shared cluster as
+// the Calendar upcoming view, so the two surfaces behave identically.
+function ScheduleRow({ e, onNavigate }: { e: CalendarEvent; onNavigate: (tab: Tab) => void }) {
+  const a = useEventActions(e);
   return (
-    <li className="group flex items-center hover:bg-slate-800/40 transition-colors">
-      <button onClick={() => onNavigate("calendar")} className="flex-1 min-w-0 text-left flex items-baseline gap-3 px-3 py-2.5">
-        <span className="text-[11px] font-mono font-semibold text-emerald-400 w-16 flex-shrink-0">
-          {e.isAllDay ? "All day" : clockTime(e.start)}
-        </span>
-        <span className="text-sm text-slate-200 truncate group-hover:text-slate-100">{e.title}</span>
-      </button>
-      <button
-        onClick={() => askAssistantToReschedule(e, when)}
-        title="Ask the assistant to move or cancel this"
-        aria-label={`Reschedule ${e.title}`}
-        className="flex-shrink-0 mr-2 px-2 py-1 rounded text-slate-500 hover:text-emerald-300 hover:bg-slate-800 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all text-xs"
-      >
-        ⇄
-      </button>
+    <li className="group hover:bg-slate-800/40 transition-colors">
+      <div className="flex items-center">
+        <button onClick={() => onNavigate("calendar")} className="flex-1 min-w-0 text-left flex items-baseline gap-3 px-3 py-2.5">
+          <span className="text-[11px] font-mono font-semibold text-emerald-400 w-16 flex-shrink-0">
+            {e.isAllDay ? "All day" : clockTime(e.start)}
+          </span>
+          <span className="text-sm text-slate-200 truncate group-hover:text-slate-100">{e.title}</span>
+        </button>
+        <div className="flex-shrink-0 mr-2 opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <EventActionCluster a={a} />
+        </div>
+      </div>
+      {a.mode !== "idle" || a.err ? <div className="px-3 pb-2"><EventActionPanels a={a} /></div> : null}
     </li>
   );
 }
@@ -801,7 +793,7 @@ export default function GlanceTab({
             ) : (
               <ul className="divide-y divide-slate-800/60">
                 {todayEvents.map((e) => (
-                  <ScheduleRow key={e.id} e={e} when="today" onNavigate={onNavigate} />
+                  <ScheduleRow key={e.id} e={e} onNavigate={onNavigate} />
                 ))}
               </ul>
             )}
@@ -814,7 +806,7 @@ export default function GlanceTab({
             ) : (
               <ul className="divide-y divide-slate-800/60">
                 {tomorrowEvents.map((e) => (
-                  <ScheduleRow key={e.id} e={e} when="tomorrow" onNavigate={onNavigate} />
+                  <ScheduleRow key={e.id} e={e} onNavigate={onNavigate} />
                 ))}
               </ul>
             )}

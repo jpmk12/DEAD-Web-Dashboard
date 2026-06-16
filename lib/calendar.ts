@@ -87,6 +87,7 @@ export async function getUpcomingEvents(
       isAllDay: !event.start?.dateTime,
       ...(accountEmail ? { account: accountEmail } : {}),
       calendarId,
+      ...(event.recurringEventId ? { recurringEventId: event.recurringEventId } : {}),
       ...(attendeeEmails.length ? { attendees: attendeeEmails } : {}),
     };
   });

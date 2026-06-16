@@ -7,6 +7,7 @@ import { CalendarEvent } from "@/lib/types";
 import { Calendar } from "@/lib/icons";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import SignInButton from "./SignInButton";
+import { useEventActions, EventActionCluster, EventActionPanels } from "./eventActions";
 
 const CACHE_KEY = "calendar:events";
 
@@ -71,18 +72,6 @@ function parsePrepSender(from: string): string {
   return (m ? m[1] : from).replace(/"/g, "").trim();
 }
 
-const pad2 = (n: number) => String(n).padStart(2, "0");
-// Shift a floating YYYY-MM-DD (all-day events) by N days without tz drift.
-function shiftYmd(ymd: string, days: number): string {
-  const [y, m, d] = ymd.slice(0, 10).split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
-}
-function daysBetweenYmd(a: string, b: string): number {
-  return Math.round((Date.parse(`${b.slice(0, 10)}T00:00:00Z`) - Date.parse(`${a.slice(0, 10)}T00:00:00Z`)) / 86_400_000);
-}
-
 function AgendaEvent({ event }: { event: CalendarEvent }) {
   const [expanded, setExpanded] = useState(false);
   const time = formatEventTime(event);
@@ -113,94 +102,7 @@ function AgendaEvent({ event }: { event: CalendarEvent }) {
   };
 
   const isExpandable = hasDetails || hasAttendees;
-
-  // Quick-action state: inline edit / delete-confirm, plus an in-row error.
-  const [mode, setMode] = useState<"idle" | "edit" | "confirmDelete">("idle");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [eTitle, setETitle] = useState(event.title);
-  const [eDate, setEDate] = useState("");
-  const [eTime, setETime] = useState("");
-
-  const stop = (e: React.MouseEvent) => e.stopPropagation();
-
-  // All mutations go through PATCH/DELETE then fire calendar:changed, which the
-  // panel listens for and refetches.
-  const apply = async (method: "PATCH" | "DELETE", body: Record<string, unknown>) => {
-    setBusy(true); setErr(null);
-    try {
-      const res = await fetch("/api/calendar/events", {
-        method, headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId: event.id, calendarId: event.calendarId, ...body }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error === "reauth_required" ? "Calendar permission needed — sign out and back in." : (d.error ?? "Update failed"));
-      setMode("idle");
-      window.dispatchEvent(new Event("calendar:changed"));
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Update failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Instant nudge — keeps the duration; works for timed (ms shift) and all-day
-  // (whole-day shift) events.
-  const nudge = (e: React.MouseEvent, days: number, hours = 0) => {
-    stop(e);
-    if (event.isAllDay) {
-      apply("PATCH", { start: shiftYmd(event.start, days), end: shiftYmd(event.end || event.start, days) });
-    } else {
-      const delta = (days * 24 + hours) * 3_600_000;
-      apply("PATCH", { start: new Date(Date.parse(event.start) + delta).toISOString(), end: new Date(Date.parse(event.end) + delta).toISOString() });
-    }
-  };
-
-  const openEdit = (e: React.MouseEvent) => {
-    stop(e);
-    const d = new Date(event.start);
-    setETitle(event.title);
-    setEDate(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`);
-    setETime(event.isAllDay ? "" : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`);
-    setErr(null); setMode("edit");
-  };
-
-  const saveEdit = (e: React.MouseEvent) => {
-    stop(e);
-    const body: Record<string, unknown> = {};
-    if (eTitle.trim() && eTitle.trim() !== event.title) body.summary = eTitle.trim();
-    if (eDate) {
-      if (event.isAllDay) {
-        const shift = daysBetweenYmd(event.start, eDate);
-        if (shift !== 0) { body.start = eDate; body.end = shiftYmd(event.end || event.start, shift); }
-      } else {
-        const [y, mo, da] = eDate.split("-").map(Number);
-        const [h, mi] = eTime.split(":").map(Number);
-        if ([y, mo, da, h, mi].every(Number.isFinite)) {
-          const ns = new Date(y, mo - 1, da, h, mi);
-          const dur = Date.parse(event.end) - Date.parse(event.start);
-          body.start = ns.toISOString();
-          body.end = new Date(ns.getTime() + (Number.isFinite(dur) ? dur : 3_600_000)).toISOString();
-        }
-      }
-    }
-    if (!body.start && !body.summary) { setMode("idle"); return; }
-    apply("PATCH", body);
-  };
-
-  // Edit-with-AI: open the assistant seeded to PROPOSE conflict-free options for
-  // this event; the user picks one and confirms the move there.
-  const askAI = (e: React.MouseEvent) => {
-    stop(e);
-    const when = event.isAllDay
-      ? new Date(`${event.start.slice(0, 10)}T00:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })
-      : new Date(event.start).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-    const loc = event.location ? ` @ ${event.location}` : "";
-    const prompt = `Suggest 2–3 good alternative times to reschedule "${event.title}" (currently ${when}${loc}). Pick conflict-free slots from my calendar, then I'll choose one and you can move it.`;
-    window.dispatchEvent(new CustomEvent("assistant:open", { detail: { prompt } }));
-  };
-
-  const btn = "text-slate-600 hover:text-slate-200 transition-colors px-1 py-0.5 rounded text-[11px] leading-none disabled:opacity-40";
+  const a = useEventActions(event);
 
   return (
     <div
@@ -227,43 +129,13 @@ function AgendaEvent({ event }: { event: CalendarEvent }) {
             {event.title}
           </p>
           {/* Quick actions — muted, brighten on hover; always tappable (mobile). */}
-          <div className="flex items-center gap-0.5 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" onClick={stop}>
-            <button onClick={askAI} disabled={busy} title="Edit with AI — suggest a better time" className={btn}>✦</button>
-            <button onClick={openEdit} disabled={busy} title="Edit date / time / title" className={btn}>✎</button>
-            <button onClick={(e) => nudge(e, 1)} disabled={busy} title="Move to next day (same time)" className={`${btn} font-mono`}>+1d</button>
-            <button onClick={(e) => nudge(e, 7)} disabled={busy} title="Move one week later" className={`${btn} font-mono`}>+1w</button>
-            <button onClick={(e) => { stop(e); setErr(null); setMode("confirmDelete"); }} disabled={busy} title="Delete event" className={`${btn} hover:text-red-400`}>🗑</button>
-            {isExpandable && <span className="text-slate-600 text-[10px] mt-0.5 ml-0.5">{expanded ? "▲" : "▼"}</span>}
+          <div className="opacity-60 group-hover:opacity-100 transition-opacity flex items-center">
+            <EventActionCluster a={a} />
+            {isExpandable && <span className="text-slate-600 text-[10px] mt-0.5 ml-1">{expanded ? "▲" : "▼"}</span>}
           </div>
         </div>
 
-        {/* Inline delete confirm — deliberate two-tap, never an accidental wipe. */}
-        {mode === "confirmDelete" && (
-          <div className="mt-1.5 flex items-center gap-2 text-[11px]" onClick={stop}>
-            <span className="text-red-400">Delete this event?</span>
-            <button onClick={() => apply("DELETE", {})} disabled={busy} className="font-bold text-red-400 hover:text-red-300 disabled:opacity-40">{busy ? "Deleting…" : "✓ Delete"}</button>
-            <button onClick={() => setMode("idle")} className="text-slate-500 hover:text-slate-300">✕ Cancel</button>
-          </div>
-        )}
-
-        {/* Inline manual edit — title + date (+ time for timed events). */}
-        {mode === "edit" && (
-          <div className="mt-2 space-y-2 bg-slate-900/60 border border-slate-700/60 rounded-md p-2" onClick={stop}>
-            <input value={eTitle} onChange={(e) => setETitle(e.target.value)} placeholder="Title" className="w-full bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-slate-500" />
-            <div className="flex items-center gap-2 flex-wrap">
-              <input type="date" value={eDate} onChange={(e) => setEDate(e.target.value)} className="bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-slate-500" />
-              {!event.isAllDay && (
-                <input type="time" value={eTime} onChange={(e) => setETime(e.target.value)} className="bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-slate-500" />
-              )}
-              <div className="ml-auto flex items-center gap-1.5">
-                <button onClick={saveEdit} disabled={busy} className="px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wider border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40">{busy ? "Saving…" : "Save"}</button>
-                <button onClick={() => setMode("idle")} className="text-[11px] text-slate-500 hover:text-slate-300">Cancel</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {err && <p className="text-[11px] text-red-400 mt-1" onClick={stop}>{err}</p>}
+        <EventActionPanels a={a} />
 
         {/* Collapsed: show location preview only */}
         {!expanded && event.location && (

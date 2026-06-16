@@ -33,6 +33,7 @@ export interface CalendarEvent {
   isAllDay: boolean;
   account?: string;        // email address of the Google account this event belongs to
   calendarId?: string;     // the calendar this event lives on (needed to patch/delete it)
+  recurringEventId?: string; // base series id when this is one instance of a recurring event
   attendees?: string[];    // lowercased emails of non-self attendees (used by meeting prep)
 }
 
