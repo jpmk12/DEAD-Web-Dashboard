@@ -162,8 +162,8 @@ export default function ForceWatchBoard() {
 
       {empty && (
         <p className="px-3 py-4 text-[11px] text-slate-500">
-          No force locations watched yet. Add bases in <span className="text-slate-400">Preferences → Content sources → Force Locations</span> to
-          monitor conflict, aviation weather, GPS interference, and civil/diplomatic posture where your forces operate.
+          No countries watched yet. Add <span className="text-slate-400">Countries of Interest</span> (and optional pinned bases) in
+          Preferences → Content sources to monitor conflict, civil/diplomatic posture, health, and risk where your forces operate.
         </p>
       )}
 

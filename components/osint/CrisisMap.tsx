@@ -8,6 +8,7 @@ import { cellToBoundary } from "h3-js";
 import { AMC_HUBS } from "@/lib/amcHubs";
 import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
+import ForceWatchBoard from "./ForceWatchBoard";
 import { aorFromCoords, type Aor } from "@/lib/aor";
 import type { AcledEvent } from "@/lib/acled";
 import type { ForceAssessment } from "@/lib/forceProtection";
@@ -476,7 +477,10 @@ export default function CrisisMap() {
   const nearCount = disasters.filter((d) => d.nearLocations.length > 0).length;
   const neoDep = neoPins.filter((x) => x.a.orderedDeparture || x.a.authorizedDeparture).length;
   const severeWx = hazShown.filter((z) => z.severity === "severe").length;
-  const watchTop = items.slice(0, 5);
+  // The Watch box now carries the FULL crisis-event index (was top-5), so moving
+  // Force Protection into the side panel loses nothing — every event is still
+  // enumerated here, scrollable, with map-selection sync.
+  const watchList = items;
 
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
@@ -492,7 +496,6 @@ export default function CrisisMap() {
     </button>
   );
   const toneText = (t: Item["tone"]) => (t === "red" ? "text-red-400" : t === "sky" ? "text-sky-400" : "text-amber-400");
-  const toneBorder = (t: Item["tone"]) => (t === "red" ? "border-l-red-500/70" : t === "sky" ? "border-l-sky-500/70" : "border-l-amber-500/70");
 
   return (
     <div className={fullscreen ? "fixed inset-0 z-[60] bg-slate-950 p-3 flex flex-col gap-2 overflow-auto" : "space-y-2"}>
@@ -760,31 +763,12 @@ export default function CrisisMap() {
           )}
         </div>
 
-        {/* Synced list */}
-        <aside className={`lg:w-80 flex-shrink-0 bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden flex flex-col ${fullscreen ? "min-h-0" : "max-h-[58vh] lg:max-h-[600px]"}`}>
-          <div className="px-3 py-2 border-b border-slate-800 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Crisis list</span>
-            <span className="text-[9px] text-slate-600 font-mono">{items.length} · {aorFilter === "ALL" ? "all AORs" : aorFilter}</span>
-          </div>
-          <ul className="overflow-y-auto flex-1 divide-y divide-slate-800/60">
-            {items.length === 0 && <li className="px-3 py-4 text-[11px] text-slate-600 font-mono">No events match{loading ? " (loading…)" : ""}.</li>}
-            {items.map((it) => (
-              <li key={it.id} id={`row-${it.id}`} className={`flex items-stretch border-l-2 ${toneBorder(it.tone)} transition-colors ${selected === it.id ? "bg-slate-800/70" : "hover:bg-slate-800/40"}`}>
-                <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="flex-1 min-w-0 text-left flex items-start gap-2 px-3 py-2">
-                  <span className={`mt-0.5 ${toneText(it.tone)} flex-shrink-0`}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "strike" ? "◆" : it.kind === "kinetic" ? "✸" : "●"}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs text-slate-200 truncate">{it.title}</span>
-                    {it.sub && <span className="block text-[10px] text-slate-500 truncate">{it.sub}</span>}
-                  </span>
-                  {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">{it.aor}</span>}
-                </button>
-                {it.href && (
-                  <a href={it.href} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Open source ↗" className="flex items-center px-2 text-slate-600 hover:text-emerald-400 transition-colors flex-shrink-0">↗</a>
-                )}
-              </li>
-            ))}
-          </ul>
-        </aside>
+        {/* Side panel: Force Protection Watch — your countries of interest +
+            pinned bases. (Replaces the old generic crisis list; the full
+            crisis-event index now lives in the Watch box below the map.) */}
+        <div className={`lg:w-80 flex-shrink-0 overflow-y-auto ${fullscreen ? "min-h-0" : "max-h-[58vh] lg:max-h-[600px]"}`}>
+          <ForceWatchBoard />
+        </div>
       </div>
 
       {/* Watch box — the key conditions/alerts + data provenance, below the map. */}
@@ -797,16 +781,16 @@ export default function CrisisMap() {
           </span>
           {convergence.length > 0 && <span className="text-[10px] font-mono text-amber-300">· convergence: {convergence.map((c) => c.aor).join(", ")}</span>}
           <span className="flex-1" />
-          <span className="text-[9px] text-slate-600 font-mono">{fetchedAt ? `as of ${new Date(fetchedAt).toISOString().slice(11, 16)}Z` : loading ? "loading…" : ""}</span>
+          <span className="text-[9px] text-slate-600 font-mono">{items.length} event{items.length === 1 ? "" : "s"} · {aorFilter === "ALL" ? "all AORs" : aorFilter}{fetchedAt ? ` · as of ${new Date(fetchedAt).toISOString().slice(11, 16)}Z` : loading ? " · loading…" : ""}</span>
         </div>
-        <ul className="px-3 py-2 space-y-1">
-          {watchTop.length === 0 && <li className="text-[11px] text-slate-600 font-mono">No watch conditions{loading ? " (loading…)" : ""} — quiet across tracked AORs and the hub network.</li>}
-          {watchTop.map((it) => {
+        <ul className="px-3 py-2 space-y-1 max-h-[42vh] overflow-y-auto">
+          {watchList.length === 0 && <li className="text-[11px] text-slate-600 font-mono">No crisis events{loading ? " (loading…)" : ""} — quiet across tracked AORs and the hub network.</li>}
+          {watchList.map((it) => {
             const reach = it.kind !== "hazard" && CRF.length ? (() => { const n = nearest(CRF, it.lat, it.lon); return n ? legText(n.node, n.distKm, AF.cruiseKt) : ""; })() : "";
             return (
-              <li key={it.id} className="text-[11px] flex flex-wrap items-baseline gap-x-2">
+              <li key={it.id} id={`row-${it.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === it.id ? "bg-slate-800/70" : ""}`}>
                 <span className={toneText(it.tone)}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "strike" ? "◆" : it.kind === "kinetic" ? "✸" : "●"}</span>
-                <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="text-slate-200 hover:text-emerald-400 font-medium">{it.title}</button>
+                <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="text-slate-200 hover:text-emerald-400 font-medium text-left">{it.title}</button>
                 {it.sub && <span className="text-slate-500">{it.sub}</span>}
                 {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{it.aor}</span>}
                 {reach && <span className="text-[10px] text-emerald-500/80 font-mono">{reach}</span>}
