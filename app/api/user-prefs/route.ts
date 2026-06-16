@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
 import { clearBriefingCache } from "@/lib/briefingCache";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
+import { classifyAor } from "@/lib/aor";
 
 const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
 const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
@@ -23,6 +24,34 @@ function sanitizeTrackedLocations(v: unknown): TrackedLocation[] {
     const id = String(r.id ?? "").slice(0, 60) || `${lat.toFixed(2)},${lon.toFixed(2)}`;
     return [{ id, label, lat, lon }];
   }).slice(0, 10);
+}
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function sanitizeForceLocations(v: unknown): ForceLocation[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): ForceLocation[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const lat = Number(r.lat);
+    const lon = Number(r.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return [];
+    const label = String(r.label ?? "").trim().slice(0, 60);
+    if (!label) return [];
+    const id = String(r.id ?? "").slice(0, 60) || `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const country = String(r.country ?? "").trim().slice(0, 60);
+    const icaoRaw = String(r.icao ?? "").trim().toUpperCase();
+    const icao = /^[A-Z0-9]{4}$/.test(icaoRaw) ? icaoRaw : undefined;
+    const note = String(r.note ?? "").trim().slice(0, 80) || undefined;
+    const start = typeof r.start === "string" && YMD_RE.test(r.start) ? r.start : undefined;
+    const end = typeof r.end === "string" && YMD_RE.test(r.end) ? r.end : undefined;
+    // Always re-derive the combatant command (coords win) so the stored value
+    // is authoritative regardless of what the client sent.
+    const cocom = classifyAor({ lat, lon, name: country });
+    return [{ id, label, ...(icao ? { icao } : {}), lat, lon, country, cocom,
+      ...(note ? { note } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}) }];
+  }).slice(0, 30);
 }
 
 function sanitizeMarketsWatchlist(v: unknown): TickerEntry[] {
@@ -163,6 +192,7 @@ export async function POST(request: Request) {
       .slice(0, 500).map((t) => String(t).trim().slice(0, 254))
       .filter((t) => t.length > 0),
     trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
+    forceLocations: sanitizeForceLocations(raw.forceLocations),
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
     osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
     newsletterSources: sanitizeNewsletterSources(raw.newsletterSources),

@@ -108,6 +108,9 @@ export interface UserPrefs {
   // Weather tab — additional locations the user wants tracked alongside the
   // home location. Each has a stable id + display label + coords.
   trackedLocations: TrackedLocation[];
+  // Crisis tab — bases / locations where the user's forces operate, watched for
+  // fused threats (Force Protection Watch). Standing or transient (date window).
+  forceLocations: ForceLocation[];
   // Markets tab — custom ticker watchlist. TradingView symbol format,
   // e.g. "NYSE:LMT", "NASDAQ:CACI", "NYMEX:CL1!".
   marketsWatchlist: TickerEntry[];
@@ -145,6 +148,24 @@ export interface TrackedLocation {
   label: string;
   lat: number;
   lon: number;
+}
+
+// A place where the user's forces / aircraft operate, watched by the Force
+// Protection board in the Crisis tab. `cocom` is auto-derived from coords/name
+// (see classifyAor) and stored for grouping/filtering. A standing base omits
+// the date window; a transient presence sets start/end (YYYY-MM-DD) and drops
+// off the active board once `end` has passed.
+export interface ForceLocation {
+  id: string;
+  label: string;        // e.g. "Al Udeid AB"
+  icao?: string;        // optional ICAO → enables per-base METAR/TAF aviation wx
+  lat: number;
+  lon: number;
+  country: string;      // for country-keyed sources (State advisories, INFORM)
+  cocom: string;        // Aor literal, e.g. "CENTCOM"; auto-classified server-side
+  note?: string;        // free text, e.g. "3 tails, 14-20 Jun"
+  start?: string;       // optional presence-window start, YYYY-MM-DD
+  end?: string;         // optional presence-window end, YYYY-MM-DD
 }
 
 export interface TickerEntry {

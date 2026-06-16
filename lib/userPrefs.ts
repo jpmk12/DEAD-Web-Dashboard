@@ -1,7 +1,8 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { UserPrefs, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "./types";
+import { UserPrefs, TrackedLocation, ForceLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "./types";
 import { ALL_AI_FEATURES } from "./aiFeatures";
+import { classifyAor } from "./aor";
 import { encryptSecret, decryptSecret } from "./secretBox";
 
 const DEFAULT_MARKETS_WATCHLIST: TickerEntry[] = [
@@ -45,6 +46,7 @@ const DEFAULT_PREFS: UserPrefs = {
   muteSenders: [],
   dismissedVipSuggestions: [],
   trackedLocations: [],
+  forceLocations: [],
   marketsWatchlist: DEFAULT_MARKETS_WATCHLIST,
   osintFeeds: [],
   newsletterSources: DEFAULT_NEWSLETTER_SOURCES,
@@ -71,6 +73,7 @@ interface PrefsRow extends RowDataPacket {
   mute_senders: string[] | null;
   dismissed_vip_suggestions: string[] | null;
   tracked_locations: TrackedLocation[] | null;
+  force_locations: ForceLocation[] | null;
   markets_watchlist: TickerEntry[] | null;
   osint_feeds: OsintFeed[] | null;
   newsletter_sources: NewsletterSourceRule[] | null;
@@ -104,6 +107,33 @@ function asTrackedLocations(v: unknown): TrackedLocation[] {
     if (typeof r.id !== "string" || typeof r.label !== "string") return [];
     return [{ id: r.id, label: r.label.slice(0, 60), lat, lon }];
   });
+}
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+function asForceLocations(v: unknown): ForceLocation[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): ForceLocation[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const lat = Number(r.lat);
+    const lon = Number(r.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+    if (typeof r.id !== "string" || typeof r.label !== "string") return [];
+    const country = typeof r.country === "string" ? r.country.trim().slice(0, 60) : "";
+    const icaoRaw = typeof r.icao === "string" ? r.icao.trim().toUpperCase() : "";
+    const icao = /^[A-Z0-9]{4}$/.test(icaoRaw) ? icaoRaw : undefined;
+    const note = typeof r.note === "string" && r.note.trim() ? r.note.trim().slice(0, 80) : undefined;
+    const start = typeof r.start === "string" && YMD.test(r.start) ? r.start : undefined;
+    const end = typeof r.end === "string" && YMD.test(r.end) ? r.end : undefined;
+    // cocom is always re-derived server-side (coords win) so a stale/forged
+    // client value can never mislabel a base's combatant command.
+    const cocom = classifyAor({ lat, lon, name: country });
+    return [{
+      id: r.id, label: r.label.slice(0, 60), ...(icao ? { icao } : {}), lat, lon,
+      country, cocom, ...(note ? { note } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}),
+    }];
+  }).slice(0, 30);
 }
 
 function asTickerEntries(v: unknown): TickerEntry[] {
@@ -171,7 +201,7 @@ function asMetarStations(v: unknown): MetarStation[] {
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -185,6 +215,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     muteSenders: asStringArray(r.mute_senders),
     dismissedVipSuggestions: asStringArray(r.dismissed_vip_suggestions),
     trackedLocations: asTrackedLocations(r.tracked_locations),
+    forceLocations: asForceLocations(r.force_locations),
     // First-time users get the curated defense default until they edit.
     marketsWatchlist: r.markets_watchlist ? asTickerEntries(r.markets_watchlist) : DEFAULT_MARKETS_WATCHLIST,
     osintFeeds: asOsintFeeds(r.osint_feeds),
@@ -220,13 +251,13 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
         vip_senders, mute_senders, dismissed_vip_suggestions,
-        tracked_locations, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
+        tracked_locations, force_locations, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
         ai_enabled, ai_feature_toggles,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
@@ -238,6 +269,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        mute_senders               = VALUES(mute_senders),
        dismissed_vip_suggestions  = VALUES(dismissed_vip_suggestions),
        tracked_locations          = VALUES(tracked_locations),
+       force_locations            = VALUES(force_locations),
        markets_watchlist          = VALUES(markets_watchlist),
        osint_feeds                = VALUES(osint_feeds),
        newsletter_sources         = VALUES(newsletter_sources),
@@ -262,6 +294,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.muteSenders),
       JSON.stringify(prefs.dismissedVipSuggestions),
       JSON.stringify(prefs.trackedLocations),
+      JSON.stringify(prefs.forceLocations ?? []),
       JSON.stringify(prefs.marketsWatchlist),
       JSON.stringify(prefs.osintFeeds),
       JSON.stringify(prefs.newsletterSources ?? []),
