@@ -31,9 +31,18 @@ interface FpResponse {
 function Card({ a }: { a: ForceAssessment }) {
   const [open, setOpen] = useState(false);
   const elevated = a.categories.filter((c) => c.severity !== "green");
+  // Clicking a card expands its signals AND flies the Crisis map to the entry
+  // (the map listens for crisis-map:flyto). Skip the fly when we have no real
+  // coords (e.g. a country whose centroid isn't known → lat/lon 0,0).
+  const onClick = () => {
+    setOpen((v) => !v);
+    if (!(a.lat === 0 && a.lon === 0)) {
+      window.dispatchEvent(new CustomEvent("crisis-map:flyto", { detail: { id: a.id, lat: a.lat, lon: a.lon } }));
+    }
+  };
   return (
     <li className={`border-l-2 ${SEV_BORDER[a.composite]} bg-slate-800/40 rounded-r-md`}>
-      <button onClick={() => setOpen((v) => !v)} className="w-full text-left px-3 py-2 flex items-start gap-2.5">
+      <button onClick={onClick} className="w-full text-left px-3 py-2 flex items-start gap-2.5">
         <span className="mt-1 flex-shrink-0" style={{ color: SEV_DOT[a.composite] }}>●</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">

@@ -10,6 +10,7 @@ import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
 import ForceWatchBoard from "./ForceWatchBoard";
 import { aorFromCoords, type Aor } from "@/lib/aor";
+import { isMobilityType } from "@/lib/aircraftTypes";
 import type { AcledEvent } from "@/lib/acled";
 import type { ForceAssessment } from "@/lib/forceProtection";
 import type { WeatherThreats, DisasterEvent, TravelAdvisory } from "@/lib/types";
@@ -249,6 +250,7 @@ export default function CrisisMap() {
   const [legend, setLegend] = useState(true);
   const [layersOpen, setLayersOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [milMobility, setMilMobility] = useState(true);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -348,6 +350,19 @@ export default function CrisisMap() {
     const reload = () => setRefreshKey((k) => k + 1);
     window.addEventListener("force-locations:changed", reload);
     return () => window.removeEventListener("force-locations:changed", reload);
+  }, []);
+
+  // Fly to a Force Protection entry when its card is clicked in the side panel.
+  useEffect(() => {
+    const onFly = (e: Event) => {
+      const d = (e as CustomEvent<{ id: string; lat: number; lon: number }>).detail;
+      if (d && Number.isFinite(d.lat) && Number.isFinite(d.lon) && !(d.lat === 0 && d.lon === 0)) {
+        setSelected(`force-${d.id}`);
+        setFlyTo({ lat: d.lat, lon: d.lon, zoom: 5, key: Date.now() });
+      }
+    };
+    window.addEventListener("crisis-map:flyto", onFly);
+    return () => window.removeEventListener("crisis-map:flyto", onFly);
   }, []);
 
   // Military aircraft (ADS-B) — only fetched/polled while the layer is on, since
@@ -454,6 +469,11 @@ export default function CrisisMap() {
 
   // Auto-fit once when crisis data first arrives.
   const crisisPoints = useMemo(() => items.map((i) => [i.lat, i.lon] as [number, number]), [items]);
+  // Mil aircraft after the AOR + mobility-only filters (shared by markers + count).
+  const milShown = useMemo(
+    () => milair.filter((m) => (aorFilter === "ALL" || aorFromCoords(m.lat, m.lon) === aorFilter) && (!milMobility || isMobilityType(m.type))),
+    [milair, aorFilter, milMobility],
+  );
   useEffect(() => { if (!didFit.current && crisisPoints.length > 0) { didFit.current = true; setFitKey((k) => k + 1); } }, [crisisPoints]);
   // Scroll the list to the selected row.
   useEffect(() => { if (selected) document.getElementById(`row-${selected}`)?.scrollIntoView({ block: "nearest" }); }, [selected]);
@@ -506,7 +526,7 @@ export default function CrisisMap() {
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
     neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
-    forces: forces.length || undefined, milair: (on.milair && milair.length) || undefined,
+    forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
   };
   const activeCount = Object.values(on).filter(Boolean).length;
@@ -528,6 +548,9 @@ export default function CrisisMap() {
         ))}
         <button onClick={() => setLayersOpen((v) => !v)} title="Show/hide individual layer toggles" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Layers {layersOpen ? "▴" : "▾"} <span className="text-slate-500">({activeCount})</span></button>
         <button onClick={() => setLegendOpen((v) => !v)} title="Show/hide the marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend {legendOpen ? "▴" : "▾"}</button>
+        {on.milair && (
+          <button onClick={() => setMilMobility((v) => !v)} title="Mil air: show only mobility/tanker airframes (C-17/C-5/C-130/KC-*/A400/An/Il…) vs all military aircraft" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${milMobility ? "bg-lime-500/20 text-lime-300 border-lime-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
+        )}
         <span className="mx-1 h-3 w-px bg-slate-700" />
         {/* Airframe selector — drives reach rings + flight-time callouts. */}
         <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe — drives reach-ring radius + flight-time callouts">
@@ -732,7 +755,7 @@ export default function CrisisMap() {
                 </CircleMarker>
               );
             })}
-            {on.milair && milair.filter((m) => aorFilter === "ALL" || aorFromCoords(m.lat, m.lon) === aorFilter).map((m) => (
+            {on.milair && milShown.map((m) => (
               <Marker
                 key={`mil-${m.hex}`}
                 position={[m.lat, m.lon]}
