@@ -69,10 +69,14 @@ function Card({ a }: { a: ForceAssessment }) {
   );
 }
 
-export default function ForceWatchBoard() {
+// `cocomFilter` (optional) lets a parent — the Crisis map's AOR dropdown — drive
+// the filter so the two surfaces share one control; when omitted the board shows
+// its own COCOM selector (standalone use).
+export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { cocomFilter?: string } = {}) {
   const [data, setData] = useState<FpResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [cocomFilter, setCocomFilter] = useState<string>("ALL");
+  const [internalFilter, setInternalFilter] = useState<string>("ALL");
+  const cocomFilter = controlledFilter ?? internalFilter;
   // AI read
   const [aiText, setAiText] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -121,7 +125,7 @@ export default function ForceWatchBoard() {
 
   return (
     <div className="border border-slate-800 rounded-lg bg-slate-900/40 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 flex-wrap">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 flex-wrap sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm">
         <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Force Protection Watch</span>
         {!empty && !loading && (
           <span className="text-[10px] text-slate-500 flex items-center gap-1.5">
@@ -132,10 +136,11 @@ export default function ForceWatchBoard() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
-          {cocoms.length > 1 && (
+          {/* Internal COCOM selector only when not parent-controlled. */}
+          {controlledFilter === undefined && cocoms.length > 1 && (
             <select
-              value={cocomFilter}
-              onChange={(e) => setCocomFilter(e.target.value)}
+              value={internalFilter}
+              onChange={(e) => setInternalFilter(e.target.value)}
               className="bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-300 px-1.5 py-1 outline-none"
               title="Filter by combatant command"
             >
@@ -144,8 +149,8 @@ export default function ForceWatchBoard() {
             </select>
           )}
           {!empty && (
-            <button onClick={runRead} disabled={aiLoading} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 disabled:opacity-40">
-              {aiLoading ? "Reading…" : "✦ AI read"}
+            <button onClick={runRead} disabled={aiLoading} title="AI force-protection read — where to focus to protect your forces (distinct from the map's mobility Demand read)" className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 disabled:opacity-40">
+              {aiLoading ? "Reading…" : "✦ Force read"}
             </button>
           )}
           <button onClick={load} title="Refresh" className="text-[10px] text-slate-500 hover:text-slate-300 px-1">↻</button>

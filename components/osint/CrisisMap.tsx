@@ -122,7 +122,9 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "forces" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "forces" | "milair" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+
+interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
@@ -137,6 +139,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
   forces: "Force Protection Watch — your countries of interest (🌐, at centroid) and pinned bases (🛡), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Force Protection. Click for the top driver.",
+  milair: "Military aircraft currently broadcasting ADS-B (keyless community feed — airplanes.live / adsb.lol). ✈ rotated to heading; click for callsign/type/altitude. Coverage follows the volunteer receiver network (sparse mid-ocean) and many mil aircraft fly dark — 'what's broadcasting', not ground truth. Off by default; filter by AOR. Refreshes ~30 s.",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
   airfields: "Mobility gateway airfields — major C-17/C-130-capable international fields near crisis-prone regions (AFRICOM/CENTCOM/EUCOM/INDOPACOM/SOUTHCOM), the candidate fields to open/reopen for HADR or evacuation when no US hub is close.",
@@ -156,6 +159,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "radar", label: "Radar", dot: "#22d3ee" },
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
+    { k: "milair", label: "Mil air", dot: "#a3e635" },
   ] },
   { label: "Anticipatory", keys: [
     { k: "informRisk", label: "INFORM Risk", dot: "#f59e0b" },
@@ -180,6 +184,7 @@ const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] =
   { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
   { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, GPS interference, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "gps", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
+  { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
 ];
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo" | "kinetic" | "strike"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
@@ -212,6 +217,7 @@ export default function CrisisMap() {
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
   const [forces, setForces] = useState<ForceAssessment[]>([]);
+  const [milair, setMilair] = useState<MilAc[]>([]);
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
@@ -242,6 +248,7 @@ export default function CrisisMap() {
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(true);
   const [layersOpen, setLayersOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -249,7 +256,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, forces: true, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, forces: true, milair: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -342,6 +349,20 @@ export default function CrisisMap() {
     window.addEventListener("force-locations:changed", reload);
     return () => window.removeEventListener("force-locations:changed", reload);
   }, []);
+
+  // Military aircraft (ADS-B) — only fetched/polled while the layer is on, since
+  // it's a fast-moving global feed. ~30 s cadence matches the server cache.
+  useEffect(() => {
+    if (!on.milair) return;
+    let cancelled = false;
+    const load = () => fetch("/api/osint/aircraft-mil")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { aircraft?: MilAc[]; ok?: boolean } | null) => { if (!cancelled && Array.isArray(d?.aircraft)) { setMilair(d!.aircraft); markSrc("Mil ADS-B", d?.ok === false); } })
+      .catch(() => {});
+    load();
+    const id = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [on.milair]);
 
   // Radar time-loop — advance one frame every 600 ms when the layer is on and
   // playing (only the radar tiles re-render; the browser caches frames after the
@@ -485,7 +506,7 @@ export default function CrisisMap() {
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
     neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
-    forces: forces.length || undefined,
+    forces: forces.length || undefined, milair: (on.milair && milair.length) || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
   };
   const activeCount = Object.values(on).filter(Boolean).length;
@@ -506,6 +527,7 @@ export default function CrisisMap() {
           <button key={pz.name} onClick={() => setOn(pz.on)} title={pz.desc} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 transition-all">{pz.name}</button>
         ))}
         <button onClick={() => setLayersOpen((v) => !v)} title="Show/hide individual layer toggles" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Layers {layersOpen ? "▴" : "▾"} <span className="text-slate-500">({activeCount})</span></button>
+        <button onClick={() => setLegendOpen((v) => !v)} title="Show/hide the marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend {legendOpen ? "▴" : "▾"}</button>
         <span className="mx-1 h-3 w-px bg-slate-700" />
         {/* Airframe selector — drives reach rings + flight-time callouts. */}
         <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe — drives reach-ring radius + flight-time callouts">
@@ -521,7 +543,7 @@ export default function CrisisMap() {
         <button onClick={() => setFitKey((k) => k + 1)} title="Fit the map to the active crises" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">Fit</button>
         <button onClick={() => setRefreshKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200" title="Refresh all feeds now">↻</button>
         <button onClick={() => setFullscreen((v) => !v)} title="Toggle fullscreen" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
-        <button onClick={runRead} title="Claude anticipatory mobility-demand read of the current board" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">Demand read</button>
+        <button onClick={runRead} title="Claude MOBILITY-DEMAND read — where airlift/HADR/NEO demand is emerging (distinct from the side panel's force-protection 'Force read')" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">Demand read</button>
         <span className="flex-1" />
         {srcDown.length > 0 && (
           <span
@@ -545,6 +567,24 @@ export default function CrisisMap() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Collapsible marker glyph legend (the layer chips show colours; this
+          decodes the map symbols). */}
+      {legendOpen && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-slate-900/40 border border-slate-800 rounded-md px-3 py-2 text-[10px] text-slate-400">
+          <span><span className="text-red-400">●</span> disaster (size=HADR)</span>
+          <span><span style={{ color: "#ef4444" }}>◯</span> hub wx</span>
+          <span>🌀 tropical</span>
+          <span><span className="text-rose-300">🛫</span> NEO / <span className="text-rose-300">⛔</span> L4</span>
+          <span><span className="text-red-400">◆</span> ACLED strike</span>
+          <span><span className="text-purple-400">▰</span> GPS interference</span>
+          <span><span className="text-emerald-400">✈</span> hub / <span className="text-sky-400">✈</span> gateway</span>
+          <span><span className="text-teal-300">★</span> CRF</span>
+          <span><span className="text-emerald-400">⌂</span> home / <span className="text-slate-400">◇</span> tracked</span>
+          <span><span style={{ color: "#a3e635" }}>✈</span> mil aircraft</span>
+          <span className="text-slate-300">Force Protection: 🌐 country · 🛡 base — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
         </div>
       )}
 
@@ -692,6 +732,16 @@ export default function CrisisMap() {
                 </CircleMarker>
               );
             })}
+            {on.milair && milair.filter((m) => aorFilter === "ALL" || aorFromCoords(m.lat, m.lon) === aorFilter).map((m) => (
+              <Marker
+                key={`mil-${m.hex}`}
+                position={[m.lat, m.lon]}
+                icon={glyph(`<span style="display:inline-block;transform:rotate(${(m.track ?? 0) - 45}deg);color:#a3e635;font-size:13px">✈</span>`, 14)}
+                eventHandlers={{ click: () => pick(`mil-${m.hex}`, m.lat, m.lon, 5) }}
+              >
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{m.flight || m.reg || m.hex.toUpperCase()}</div><div className="text-slate-600">{[m.type, m.desc].filter(Boolean).join(" · ") || "Military"}</div><div className="text-slate-500">{m.onGround ? "on ground" : m.altFt != null ? `FL${Math.round(m.altFt / 100)}` : "alt n/a"}{m.gs != null ? ` · ${Math.round(m.gs)} kt` : ""}{m.squawk ? ` · sq ${m.squawk}` : ""}</div><div className="text-[10px] text-slate-600">{aorFromCoords(m.lat, m.lon)} · ADS-B (broadcasting only)</div></div></Popup>
+              </Marker>
+            ))}
             {on.neo && neoPins.map(({ a, pos }) => { const evac = a.orderedDeparture || a.authorizedDeparture; return (
               <Marker key={`neo-${a.country}`} position={pos} icon={evac ? neoDepartIcon : neoLevel4Icon} eventHandlers={{ click: () => pick(`neo-${a.country}`, pos[0], pos[1]) }}>
                 {on.labels && evac && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{a.country}{a.aor !== "UNKNOWN" ? ` · ${a.aor}` : ""} · {a.orderedDeparture ? "ORDERED DEP" : "AUTH DEP"}</Tooltip>}
@@ -767,7 +817,8 @@ export default function CrisisMap() {
             pinned bases. (Replaces the old generic crisis list; the full
             crisis-event index now lives in the Watch box below the map.) */}
         <div className={`lg:w-80 flex-shrink-0 overflow-y-auto ${fullscreen ? "min-h-0" : "max-h-[58vh] lg:max-h-[600px]"}`}>
-          <ForceWatchBoard />
+          {/* The map's AOR dropdown drives the board filter too (one control). */}
+          <ForceWatchBoard cocomFilter={aorFilter} />
         </div>
       </div>
 
