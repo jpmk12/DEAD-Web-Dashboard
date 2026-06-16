@@ -10,6 +10,7 @@ import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
 import { aorFromCoords, type Aor } from "@/lib/aor";
 import type { AcledEvent } from "@/lib/acled";
+import type { ForceAssessment } from "@/lib/forceProtection";
 import type { WeatherThreats, DisasterEvent, TravelAdvisory } from "@/lib/types";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 
@@ -120,7 +121,7 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "forces" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
@@ -134,6 +135,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
+  forces: "Force Protection Watch — your countries of interest (🌐, at centroid) and pinned bases (🛡), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Force Protection. Click for the top driver.",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
   airfields: "Mobility gateway airfields — major C-17/C-130-capable international fields near crisis-prone regions (AFRICOM/CENTCOM/EUCOM/INDOPACOM/SOUTHCOM), the candidate fields to open/reopen for HADR or evacuation when no US hub is close.",
@@ -160,6 +162,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
   { label: "Nodes", keys: [
     { k: "enroute", label: "Hubs", dot: "#34d399" }, { k: "crf", label: "CRF", dot: "#5eead4" },
     { k: "airfields", label: "Gateways", dot: "#38bdf8" }, { k: "tracked", label: "Tracked", dot: "#94a3b8" },
+    { k: "forces", label: "Forces", dot: "#f87171" },
   ] },
   { label: "Reach", keys: [
     { k: "lines", label: "Reach" }, { k: "rings", label: "Rings" }, { k: "ar", label: "AR" }, { k: "bridges", label: "Bridges" },
@@ -207,6 +210,7 @@ export default function CrisisMap() {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
+  const [forces, setForces] = useState<ForceAssessment[]>([]);
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
@@ -244,7 +248,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, forces: true, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -289,6 +293,10 @@ export default function CrisisMap() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { advisories?: TravelAdvisory[] } | null) => { if (Array.isArray(d?.advisories)) setAdvisories(d!.advisories); })
       .catch(() => {});
+    fetch("/api/force-protection", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { assessments?: ForceAssessment[] } | null) => { if (Array.isArray(d?.assessments)) setForces(d!.assessments); })
+      .catch(() => {});
     fetch("/api/osint/conflict", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { points?: { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]; ok?: boolean; source?: string | null } | null) => {
@@ -325,6 +333,14 @@ export default function CrisisMap() {
 
   // Auto-refresh every 5 min.
   useEffect(() => { const id = setInterval(() => setRefreshKey((k) => k + 1), 5 * 60 * 1000); return () => clearInterval(id); }, []);
+
+  // Refetch when the watched countries/bases change (Preferences save) so the
+  // Forces layer updates without a full reload.
+  useEffect(() => {
+    const reload = () => setRefreshKey((k) => k + 1);
+    window.addEventListener("force-locations:changed", reload);
+    return () => window.removeEventListener("force-locations:changed", reload);
+  }, []);
 
   // Radar time-loop — advance one frame every 600 ms when the layer is on and
   // playing (only the radar tiles re-render; the browser caches frames after the
@@ -465,6 +481,7 @@ export default function CrisisMap() {
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
     neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
+    forces: forces.length || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
   };
   const activeCount = Object.values(on).filter(Boolean).length;
@@ -662,6 +679,16 @@ export default function CrisisMap() {
                 <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{t.label}</div><div className="text-slate-500">{t.home ? "Home" : "Tracked location"}</div></div></Popup>
               </Marker>
             ))}
+            {on.forces && forces.filter((f) => !(f.lat === 0 && f.lon === 0)).map((f) => {
+              const color = f.composite === "red" ? "#ef4444" : f.composite === "amber" ? "#fbbf24" : f.composite === "unknown" ? "#94a3b8" : "#10b981";
+              const sel = selected === `force-${f.id}`;
+              return (
+                <CircleMarker key={`force-${f.id}`} center={[f.lat, f.lon]} radius={sel ? 13 : 10} pathOptions={{ color: sel ? "#fff" : color, fillColor: color, fillOpacity: 0.3, weight: 3 }} eventHandlers={{ click: () => pick(`force-${f.id}`, f.lat, f.lon) }}>
+                  {on.labels && <Tooltip permanent direction="top" offset={[0, -8]} className="cm-label cm-crisis">{f.kind === "country" ? "🌐" : "🛡"} {f.label}</Tooltip>}
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div><div className="text-slate-700 mt-0.5">{f.topDriver}</div></div></Popup>
+                </CircleMarker>
+              );
+            })}
             {on.neo && neoPins.map(({ a, pos }) => { const evac = a.orderedDeparture || a.authorizedDeparture; return (
               <Marker key={`neo-${a.country}`} position={pos} icon={evac ? neoDepartIcon : neoLevel4Icon} eventHandlers={{ click: () => pick(`neo-${a.country}`, pos[0], pos[1]) }}>
                 {on.labels && evac && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{a.country}{a.aor !== "UNKNOWN" ? ` · ${a.aor}` : ""} · {a.orderedDeparture ? "ORDERED DEP" : "AUTH DEP"}</Tooltip>}
