@@ -5,10 +5,9 @@ import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
 import { useEventActions, EventActionCluster, EventActionPanels } from "@/components/calendar/eventActions";
-
-// Minimal shape from /api/force-protection — defined locally (not imported from
-// the server scoring lib) so Glance's client bundle stays clean.
-interface GlanceForceItem { id: string; label: string; cocom: string; composite: "red" | "amber" | "green" | "unknown"; topDriver: string }
+import { getForceProtectionData } from "@/lib/forceProtectionClient";
+import type { ForceAssessment } from "@/lib/forceProtection";
+type ForceWatchItem = ForceAssessment;
 
 // Glyphs for the Global Reach Watch rows, by disaster type (matches the
 // ThreatBoard vocabulary so a quake reads the same on both surfaces).
@@ -248,7 +247,7 @@ export default function GlanceTab({
   const [threats, setThreats] = useState<WeatherThreats | null>(null);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
   // Force Protection Watch — RED/AMBER locations surface in needs-you-now.
-  const [forceWatch, setForceWatch] = useState<GlanceForceItem[]>([]);
+  const [forceWatch, setForceWatch] = useState<ForceWatchItem[]>([]);
 
   // Last-seen "On your radar" values, persisted so rises since your last look
   // can be highlighted. Frozen for this session (read once on mount).
@@ -291,11 +290,10 @@ export default function GlanceTab({
     if (!active || status !== "authenticated") return;
     let cancelled = false;
     const load = () => {
-      fetch("/api/force-protection")
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d: { assessments?: GlanceForceItem[] } | null) => {
+      getForceProtectionData()
+        .then((d) => {
           if (cancelled) return;
-          setForceWatch((d?.assessments ?? []).filter((a) => a.composite !== "green"));
+          setForceWatch((d.assessments ?? []).filter((a) => a.composite !== "green"));
         })
         .catch(() => {});
     };

@@ -11,6 +11,7 @@ import { countryCentroid } from "@/lib/countryCentroids";
 import ForceWatchBoard from "./ForceWatchBoard";
 import { aorFromCoords, type Aor } from "@/lib/aor";
 import { isMobilityType } from "@/lib/aircraftTypes";
+import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { AcledEvent } from "@/lib/acled";
 import type { ForceAssessment } from "@/lib/forceProtection";
 import type { WeatherThreats, DisasterEvent, TravelAdvisory } from "@/lib/types";
@@ -303,9 +304,8 @@ export default function CrisisMap() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { advisories?: TravelAdvisory[] } | null) => { if (Array.isArray(d?.advisories)) setAdvisories(d!.advisories); })
       .catch(() => {});
-    fetch("/api/force-protection", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { assessments?: ForceAssessment[] } | null) => { if (Array.isArray(d?.assessments)) setForces(d!.assessments); })
+    getForceProtectionData()
+      .then((d) => { if (Array.isArray(d.assessments)) setForces(d.assessments); })
       .catch(() => {});
     fetch("/api/osint/conflict", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
@@ -551,6 +551,9 @@ export default function CrisisMap() {
         {on.milair && (
           <button onClick={() => setMilMobility((v) => !v)} title="Mil air: show only mobility/tanker airframes (C-17/C-5/C-130/KC-*/A400/An/Il…) vs all military aircraft" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${milMobility ? "bg-lime-500/20 text-lime-300 border-lime-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
         )}
+        {on.milair && !milMobility && zoom < 4 && (
+          <span className="text-[9px] text-slate-500 font-mono" title="The full military feed is hidden at this zoom to avoid a swarm — zoom into a theater, or switch to Mobility only.">zoom in for all-mil</span>
+        )}
         <span className="mx-1 h-3 w-px bg-slate-700" />
         {/* Airframe selector — drives reach rings + flight-time callouts. */}
         <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe — drives reach-ring radius + flight-time callouts">
@@ -632,8 +635,10 @@ export default function CrisisMap() {
         </div>
       )}
 
-      {/* Map + list */}
-      <div className={`flex flex-col lg:flex-row gap-2 ${fullscreen ? "flex-1 min-h-0" : ""}`}>
+      {/* Map + Force Protection side panel. On mobile the panel (2nd child) comes
+          FIRST via col-reverse — "what I'm watching" above the map; on desktop
+          it's a normal row (map left, panel right). */}
+      <div className={`flex flex-col-reverse lg:flex-row gap-2 ${fullscreen ? "flex-1 min-h-0" : ""}`}>
         <div className={`relative bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden flex-1 ${fullscreen ? "min-h-0" : "h-[58vh] min-h-[360px] lg:h-[600px]"}`} style={{ isolation: "isolate", zIndex: 0 }}>
           <MapContainer center={[25, 10]} zoom={2} worldCopyJump style={{ height: "100%", width: "100%", background: "#020617" }} scrollWheelZoom>
             <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OpenStreetMap &copy; CARTO" maxZoom={19} />
@@ -755,7 +760,7 @@ export default function CrisisMap() {
                 </CircleMarker>
               );
             })}
-            {on.milair && milShown.map((m) => (
+            {on.milair && (milMobility || zoom >= 4) && milShown.map((m) => (
               <Marker
                 key={`mil-${m.hex}`}
                 position={[m.lat, m.lon]}

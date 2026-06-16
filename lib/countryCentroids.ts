@@ -55,6 +55,25 @@ const CENTROIDS: Record<string, [number, number]> = {
   brazil: [-14.2, -51.9], argentina: [-38.4, -63.6], chile: [-35.7, -71.5], paraguay: [-23.4, -58.4],
   "dominican republic": [18.7, -70.2], jamaica: [18.1, -77.3], "trinidad and tobago": [10.7, -61.2],
   "costa rica": [9.7, -83.8], belize: [17.2, -88.5], guyana: [4.9, -58.9], suriname: [4.0, -56.0],
+
+  // Long-tail fill so virtually any watched country pins on the map.
+  // Europe
+  ireland: [53.4, -8.2], switzerland: [46.8, 8.2], austria: [47.6, 14.1], croatia: [45.1, 15.2],
+  slovenia: [46.1, 14.8], montenegro: [42.7, 19.4], albania: [41.2, 20.2], iceland: [64.9, -19.0],
+  luxembourg: [49.8, 6.1], malta: [35.9, 14.4], macedonia: [41.6, 21.7],
+  // Middle East / Central & South Asia
+  maldives: [3.2, 73.2], bhutan: [27.5, 90.4], "east timor": [-8.8, 125.7],
+  // Africa
+  botswana: [-22.3, 24.7], namibia: [-22.6, 17.2], lesotho: [-29.6, 28.2], eswatini: [-26.5, 31.5],
+  swaziland: [-26.5, 31.5], "equatorial guinea": [1.5, 10.3], comoros: [-11.6, 43.3], mauritius: [-20.3, 57.6],
+  seychelles: [-4.7, 55.5], "cape verde": [16.0, -24.0], "cabo verde": [16.0, -24.0], "sao tome and principe": [0.2, 6.6],
+  gambia: [13.4, -15.4], "the gambia": [13.4, -15.4],
+  // Indo-Pacific
+  "solomon islands": [-9.6, 160.2], vanuatu: [-15.4, 166.9], samoa: [-13.8, -172.1], tonga: [-21.2, -175.2],
+  micronesia: [6.9, 158.2], "marshall islands": [7.1, 171.2], kiribati: [1.9, -157.4], "new caledonia": [-21.3, 165.5],
+  // Caribbean / Central & South America
+  "the bahamas": [25.0, -77.4], bahamas: [25.0, -77.4], barbados: [13.2, -59.5], grenada: [12.1, -61.7],
+  "saint lucia": [13.9, -61.0], dominica: [15.4, -61.4], uruguay: [-32.5, -55.8],
 };
 
 // Look up a centroid by free-text country name (case/whitespace-insensitive).

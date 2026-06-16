@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 // Type-only import: keeps the server-side scoring module (which pulls disasters/
 // acled/etc.) OUT of this client bundle. Runtime data comes from the API.
 import type { ForceAssessment, Severity, ForceCategory } from "@/lib/forceProtection";
+import { getForceProtectionData, type FpResponse } from "@/lib/forceProtectionClient";
 
 // Local label/colour vocab (not imported from the server lib, to avoid bundling
 // it). COCOM labels mirror lib/aor's AOR_LABELS.
@@ -21,12 +22,6 @@ const SEV_BORDER: Record<Severity, string> = { red: "border-l-red-500/70", amber
 // Sort order for the board: red first, then amber, then UNKNOWN blind spots,
 // then green.
 const SEV_RANK: Record<Severity, number> = { red: 0, amber: 1, unknown: 2, green: 3 };
-
-interface FpResponse {
-  assessments?: ForceAssessment[];
-  sources?: { gps: boolean; acled: boolean; aviationWx: boolean; notams: "live" | "down" | "off"; conflict: string };
-  empty?: boolean;
-}
 
 function Card({ a }: { a: ForceAssessment }) {
   const [open, setOpen] = useState(false);
@@ -90,16 +85,16 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
   const [aiText, setAiText] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
-  const load = () => {
+  const load = (force = false) => {
     setLoading(true);
-    fetch("/api/force-protection")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: FpResponse | null) => setData(d ?? { assessments: [] }))
-      .catch(() => setData({ assessments: [] }))
+    getForceProtectionData(force)
+      .then((d) => setData(d))
       .finally(() => setLoading(false));
   };
   useEffect(() => {
     load();
+    // The shared client invalidates its cache on this event, so a plain reload
+    // refetches fresh.
     const onChange = () => load();
     window.addEventListener("force-locations:changed", onChange);
     return () => window.removeEventListener("force-locations:changed", onChange);
@@ -162,7 +157,7 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
               {aiLoading ? "Reading…" : "✦ Force read"}
             </button>
           )}
-          <button onClick={load} title="Refresh" className="text-[10px] text-slate-500 hover:text-slate-300 px-1">↻</button>
+          <button onClick={() => load(true)} title="Refresh" className="text-[10px] text-slate-500 hover:text-slate-300 px-1">↻</button>
         </div>
       </div>
 
