@@ -7,7 +7,7 @@ import { getRecentDocsForContext } from "@/lib/documents";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { format, parseISO } from "date-fns";
+import { formatInTz, timeInTz, formatFloatingDate, longDateInTz } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -15,18 +15,17 @@ const MAX_MESSAGES = 40;
 const MAX_CONTENT_LENGTH = 4000;
 const VALID_ROLES = new Set(["user", "assistant"]);
 
-function formatEvents(events: CalendarEvent[]): string {
+// Event times are rendered in the USER's timezone — without it, formatting falls
+// back to the server's tz (UTC in production) and every time is shifted (e.g.
+// 08:30 CDT shown as 13:30), which had the assistant misreading the calendar.
+function formatEvents(events: CalendarEvent[], tz: string): string {
   if (!events.length) return "No upcoming events found.";
   // Each event gets a [N] handle (1-based, matching the order the client sent)
   // so the assistant can reference a specific one in a MOVE/EDIT/DELETE action.
   return events
     .map((e, i) => {
-      const start = e.isAllDay
-        ? format(parseISO(e.start), "MMM d, yyyy")
-        : format(parseISO(e.start), "MMM d, yyyy h:mm a");
-      const end = e.isAllDay
-        ? ""
-        : ` – ${format(parseISO(e.end), "h:mm a")}`;
+      const start = e.isAllDay ? formatFloatingDate(e.start) : formatInTz(e.start, tz);
+      const end = e.isAllDay ? "" : ` – ${timeInTz(e.end, tz)}`;
       const location = e.location ? ` @ ${String(e.location).slice(0, 80)}` : "";
       const desc = e.description ? ` — ${String(e.description).slice(0, 150)}` : "";
       const acct = e.account ? ` {${e.account}}` : "";
@@ -128,7 +127,7 @@ export async function POST(request: Request) {
     : "";
 
   const tz = userPrefs.timezone || "America/Chicago";
-  const today = format(new Date(), "EEEE, MMMM d, yyyy");
+  const today = longDateInTz(tz);
 
   // The system prompt splits into a cacheable "rules + identity + user
   // preferences + long-term memory" block (stable across turns within a
@@ -175,7 +174,7 @@ Rules:
   const dynamicBlock = `Today is ${today}. User's timezone: ${tz}.
 
 USER'S UPCOMING CALENDAR:
-${formatEvents(sanitizedContext)}
+${formatEvents(sanitizedContext, tz)}
 
 USER'S PENDING TASKS:
 ${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
