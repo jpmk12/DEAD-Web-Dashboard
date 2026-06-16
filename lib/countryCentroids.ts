@@ -23,6 +23,38 @@ const CENTROIDS: Record<string, [number, number]> = {
   haiti: [19.0, -72.3], cuba: [21.5, -77.8], "el salvador": [13.8, -88.9], honduras: [15.2, -86.2],
   nicaragua: [12.9, -85.2], guatemala: [15.8, -90.2], mexico: [23.6, -102.5], ecuador: [-1.8, -78.2],
   peru: [-9.2, -75.0], bolivia: [-16.3, -63.6],
+
+  // Mobility / US-force-presence countries (so country-of-interest watches pin
+  // on the map and INFORM/advisory country signals plot more broadly).
+  // CENTCOM / Gulf
+  qatar: [25.3, 51.2], kuwait: [29.3, 47.5], bahrain: [26.0, 50.5],
+  "united arab emirates": [23.4, 53.8], uae: [23.4, 53.8], oman: [21.5, 55.9],
+  kazakhstan: [48.0, 66.9], uzbekistan: [41.4, 64.6], turkmenistan: [38.9, 59.6],
+  tajikistan: [38.9, 71.3], kyrgyzstan: [41.2, 74.8],
+  // EUCOM / Europe
+  germany: [51.2, 10.4], poland: [51.9, 19.1], romania: [45.9, 24.9], italy: [41.9, 12.6],
+  spain: [40.0, -3.7], france: [46.6, 2.2], "united kingdom": [54.0, -2.5], greece: [39.1, 21.8],
+  norway: [60.5, 8.5], "north macedonia": [41.6, 21.7], bulgaria: [42.7, 25.5], hungary: [47.2, 19.5],
+  slovakia: [48.7, 19.7], "czech republic": [49.8, 15.5], czechia: [49.8, 15.5], netherlands: [52.1, 5.3],
+  belgium: [50.6, 4.6], portugal: [39.5, -8.0], estonia: [58.6, 25.0], latvia: [56.9, 24.6],
+  lithuania: [55.2, 23.9], finland: [61.9, 25.7], sweden: [60.1, 18.6], moldova: [47.4, 28.4],
+  cyprus: [35.1, 33.4], kosovo: [42.6, 20.9], serbia: [44.0, 21.0], "bosnia and herzegovina": [43.9, 17.7],
+  // AFRICOM (additional)
+  djibouti: [11.8, 42.6], morocco: [31.8, -7.1], ghana: [7.9, -1.0], senegal: [14.5, -14.5],
+  "cote d'ivoire": [7.5, -5.5], "ivory coast": [7.5, -5.5], gabon: [-0.8, 11.6], angola: [-11.2, 17.9],
+  "south africa": [-30.6, 22.9], zambia: [-13.1, 27.8], malawi: [-13.3, 34.3], "sierra leone": [8.5, -11.8],
+  liberia: [6.4, -9.4], benin: [9.3, 2.3], togo: [8.6, 0.8],
+  // INDOPACOM (additional)
+  japan: [36.2, 138.3], "south korea": [36.5, 127.8], korea: [36.5, 127.8], taiwan: [23.7, 121.0],
+  australia: [-25.3, 133.8], "new zealand": [-41.8, 172.0], thailand: [15.0, 101.0],
+  vietnam: [14.1, 108.3], indonesia: [-2.5, 118.0], malaysia: [3.9, 102.3], singapore: [1.35, 103.8],
+  cambodia: [12.6, 104.9], laos: [19.9, 102.5], mongolia: [46.9, 103.8], "timor-leste": [-8.8, 125.7],
+  guam: [13.4, 144.8], palau: [7.5, 134.6], fiji: [-17.7, 178.1],
+  // NORTHCOM / SOUTHCOM (additional)
+  "united states": [39.8, -98.6], usa: [39.8, -98.6], canada: [56.1, -106.3], panama: [8.5, -80.1],
+  brazil: [-14.2, -51.9], argentina: [-38.4, -63.6], chile: [-35.7, -71.5], paraguay: [-23.4, -58.4],
+  "dominican republic": [18.7, -70.2], jamaica: [18.1, -77.3], "trinidad and tobago": [10.7, -61.2],
+  "costa rica": [9.7, -83.8], belize: [17.2, -88.5], guyana: [4.9, -58.9], suriname: [4.0, -56.0],
 };
 
 // Look up a centroid by free-text country name (case/whitespace-insensitive).
