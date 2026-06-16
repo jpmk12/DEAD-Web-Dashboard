@@ -24,22 +24,23 @@ export async function GET() {
   const prefs = await getUserPrefs().catch(() => null);
   if (prefs && !isFeatureEnabled("chat", prefs)) return NextResponse.json({ text: "", disabled: true });
 
-  const locations = prefs?.forceLocations ?? [];
-  if (locations.length === 0) return NextResponse.json({ text: "No force locations are being watched. Add bases in Preferences → Forces.", empty: true });
-  const key = locations.map((l) => `${l.id}:${l.lat},${l.lon}:${l.start ?? ""}-${l.end ?? ""}`).join("|");
+  const countries = prefs?.countriesOfInterest ?? [];
+  const bases = prefs?.forceLocations ?? [];
+  if (countries.length === 0 && bases.length === 0) return NextResponse.json({ text: "No countries or bases are being watched. Add countries of interest in Preferences → Force Protection.", empty: true });
+  const key = [...countries.map((c) => `c:${c.id}:${c.country}`), ...bases.map((l) => `b:${l.id}:${l.lat},${l.lon}:${l.icao ?? ""}`)].join("|");
   if (cache && cache.key === key && cache.expires > Date.now()) return NextResponse.json({ text: cache.text, cached: true });
 
   try {
-    const { assessments } = await getForceProtection(locations);
+    const { assessments } = await getForceProtection(countries, bases);
 
-    // Compact signal board: one block per location, worst categories first.
+    // Compact signal board: one block per watch entry, worst categories first.
     const lines: string[] = [];
     for (const a of assessments) {
       const cocomLabel = AOR_LABELS[a.cocom as Aor] ?? a.cocom;
       const cats = a.categories
         .filter((c) => c.severity !== "green")
         .map((c) => `${CATEGORY_LABEL[c.category]}=${c.severity.toUpperCase()} (${c.signals.join("; ")})`);
-      lines.push(`${a.composite.toUpperCase()} ${a.label}${a.icao ? ` [${a.icao}]` : ""} — ${cocomLabel} — ${a.country}${a.note ? ` — ${a.note}` : ""}${cats.length ? ` :: ${cats.join(" | ")}` : " :: no elevated categories"}`);
+      lines.push(`${a.composite.toUpperCase()} ${a.kind === "country" ? "COUNTRY" : "BASE"} ${a.label}${a.icao ? ` [${a.icao}]` : ""} — ${cocomLabel} — ${a.country}${a.note ? ` — ${a.note}` : ""}${cats.length ? ` :: ${cats.join(" | ")}` : " :: no elevated categories"}`);
     }
 
     const prompt = `You are a force-protection / antiterrorism officer briefing a senior air-mobility commander on threats to OUR forces and aircraft at the watched locations below. Each line is one location with its fused threat posture (RED/AMBER/GREEN/UNKNOWN) across categories: Conflict, Aviation Wx, GPS/Comms, Airspace/NOTAM (runway closures, approach outages), Civil/Diplomatic, Hazard. Tell the commander WHERE TO FOCUS to protect people and tails. No preamble. <=160 words. Format EXACTLY:

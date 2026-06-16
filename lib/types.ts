@@ -108,8 +108,10 @@ export interface UserPrefs {
   // Weather tab — additional locations the user wants tracked alongside the
   // home location. Each has a stable id + display label + coords.
   trackedLocations: TrackedLocation[];
-  // Crisis tab — bases / locations where the user's forces operate, watched for
-  // fused threats (Force Protection Watch). Standing or transient (date window).
+  // Crisis tab — Force Protection Watch. Countries of interest are the primary
+  // unit (tails move; countries are what you watch); pinned bases are optional
+  // and add airfield-specific signals when given an ICAO.
+  countriesOfInterest: CountryWatch[];
   forceLocations: ForceLocation[];
   // Markets tab — custom ticker watchlist. TradingView symbol format,
   // e.g. "NYSE:LMT", "NASDAQ:CACI", "NYMEX:CL1!".
@@ -163,9 +165,21 @@ export interface ForceLocation {
   lon: number;
   country: string;      // for country-keyed sources (State advisories, INFORM)
   cocom: string;        // Aor literal, e.g. "CENTCOM"; auto-classified server-side
+  kind?: "country" | "base"; // scoring discriminator (default "base")
   note?: string;        // free text, e.g. "3 tails, 14-20 Jun"
   start?: string;       // optional presence-window start, YYYY-MM-DD
   end?: string;         // optional presence-window end, YYYY-MM-DD
+}
+
+// A country of interest — the primary Force Protection unit. Scored purely from
+// country-keyed sources (no airfield signals; those need a pinned base + ICAO).
+// COCOM is auto-derived from the name (classifyAor). No coordinates: the country
+// is the unit, not a point.
+export interface CountryWatch {
+  id: string;
+  country: string;
+  cocom: string;
+  note?: string;
 }
 
 export interface TickerEntry {

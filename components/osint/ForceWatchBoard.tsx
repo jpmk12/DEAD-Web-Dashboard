@@ -37,6 +37,7 @@ function Card({ a }: { a: ForceAssessment }) {
         <span className="mt-1 flex-shrink-0" style={{ color: SEV_DOT[a.composite] }}>●</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="flex-shrink-0" title={a.kind === "country" ? "Country of interest" : "Pinned base"}>{a.kind === "country" ? "🌐" : "🛡"}</span>
             <span className="text-sm font-semibold text-slate-100">{a.label}</span>
             {a.icao && <span className="text-[9px] font-mono text-slate-400 bg-slate-900/60 px-1 rounded">{a.icao}</span>}
             <span className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{COCOM_LABEL[a.cocom] ?? a.cocom}</span>

@@ -18,13 +18,17 @@ export async function GET() {
 
   try {
     const prefs = await getUserPrefs().catch(() => null);
-    const locations = prefs?.forceLocations ?? [];
-    if (locations.length === 0) {
-      return NextResponse.json({ assessments: [], generatedAt: new Date().toISOString(), sources: { gps: false, acled: false, conflict: "none" }, empty: true });
+    const countries = prefs?.countriesOfInterest ?? [];
+    const bases = prefs?.forceLocations ?? [];
+    if (countries.length === 0 && bases.length === 0) {
+      return NextResponse.json({ assessments: [], generatedAt: new Date().toISOString(), sources: { gps: false, acled: false, aviationWx: false, notams: "off", conflict: "none" }, empty: true });
     }
-    const key = locations.map((l) => `${l.id}:${l.lat},${l.lon}:${l.start ?? ""}-${l.end ?? ""}`).join("|");
+    const key = [
+      ...countries.map((c) => `c:${c.id}:${c.country}`),
+      ...bases.map((l) => `b:${l.id}:${l.lat},${l.lon}:${l.icao ?? ""}:${l.start ?? ""}-${l.end ?? ""}`),
+    ].join("|");
     if (cache && cache.key === key && cache.expires > Date.now()) return NextResponse.json(cache.body);
-    const result = await getForceProtection(locations);
+    const result = await getForceProtection(countries, bases);
     cache = { key, body: result, expires: Date.now() + TTL };
     return NextResponse.json(result);
   } catch {

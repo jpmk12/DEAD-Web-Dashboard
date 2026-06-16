@@ -132,6 +132,30 @@ describe("assessLocation", () => {
   });
 });
 
+describe("country watch (kind=country)", () => {
+  const country = (over: Partial<ForceLocation> = {}): ForceLocation => ({
+    id: "c1", label: "Qatar", country: "Qatar", cocom: "CENTCOM", kind: "country", lat: 0, lon: 0, ...over,
+  });
+
+  it("scores only country-keyed categories — no airfield categories", () => {
+    const cats = assessLocation(country(), emptyCtx).categories.map((c) => c.category);
+    expect(cats).toEqual(["conflict", "civil", "hazard"]);
+    expect(cats).not.toContain("weather");
+    expect(cats).not.toContain("gps");
+    expect(cats).not.toContain("airspace");
+  });
+
+  it("matches conflict by country name, not proximity (coords are 0,0)", () => {
+    const ctx = { ...emptyCtx, acled: [{ id: "x", date: "2026-06-15", type: "Battles", subType: "Armed clash", lat: 25.3, lon: 51.5, country: "Qatar", admin1: "", location: "Doha", notes: "", fatalities: 6, source: "", actors: "" }] };
+    expect(assessLocation(country(), ctx).categories.find((c) => c.category === "conflict")!.severity).toBe("red");
+  });
+
+  it("matches a disaster by country name", () => {
+    const ctx = { ...emptyCtx, disasters: [{ id: "d", type: "flood", severity: "red" as const, country: "Qatar", lat: 25.3, lon: 51.5, time: "", magnitude: null, tsunami: false, summary: "", source: "GDACS" as const, link: "", nearLocations: [], alertScore: null, aor: "CENTCOM" as const, hadrScore: 50, title: "Flooding" }] };
+    expect(assessLocation(country(), ctx).categories.find((c) => c.category === "hazard")!.severity).toBe("red");
+  });
+});
+
 describe("isForceLocationActive", () => {
   const now = Date.UTC(2026, 5, 16);
   it("standing base (no window) is always active", () => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { classifyAor, AOR_LABELS, type Aor } from "@/lib/aor";
 import { GATEWAYS } from "@/lib/airfields";
@@ -334,6 +334,75 @@ const COCOM_BADGE: Record<string, string> = {
   UNKNOWN: "text-slate-400 border-slate-600 bg-slate-700/30",
 };
 
+// Countries of interest — the primary Force Protection unit. Name a country;
+// the app aggregates its whole-country threat picture (conflict, advisories,
+// civil/cultural, health, INFORM risk, disasters). COCOM auto-derived.
+function CountriesOfInterestEditor({ value, onChange }: { value: CountryWatch[]; onChange: (v: CountryWatch[]) => void; }) {
+  const [country, setCountry] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const MAX = 40;
+
+  const add = () => {
+    const c = country.trim().slice(0, 60);
+    if (!c) { setError("Enter a country name."); return; }
+    if (value.length >= MAX) { setError(`Maximum of ${MAX} countries reached.`); return; }
+    if (value.some((x) => x.country.toLowerCase() === c.toLowerCase())) { setError(`${c} is already watched.`); return; }
+    const id = `${c.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
+    onChange([...value, { id, country: c, cocom: classifyAor({ name: c }), ...(note.trim() ? { note: note.trim().slice(0, 80) } : {}) }]);
+    setCountry(""); setNote(""); setError(null);
+  };
+
+  return (
+    <div className="mb-5">
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        Countries of Interest
+      </label>
+      <p className="text-[10px] text-slate-600 mb-3">
+        Where your forces &amp; aircraft operate. The Crisis tab&apos;s <span className="text-slate-500">Force Protection Watch</span> fuses
+        conflict/strikes, State advisory level, civil unrest &amp; cultural calendar, WHO health, INFORM risk, and disasters
+        for each country into a single read so you see where to focus. COCOM is auto-tagged. Up to {MAX}.
+        <span className="text-slate-500"> Airfield-specific signals (aviation weather, GPS, NOTAMs) come from pinned bases below.</span>
+      </p>
+
+      {value.length > 0 && (
+        <ul className="mb-2 space-y-1.5">
+          {value.map((c) => (
+            <li key={c.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
+              <span className="text-sm">🌐</span>
+              <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{c.country}{c.note ? <span className="text-slate-600"> · {c.note}</span> : null}</span>
+              <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border flex-shrink-0 ${COCOM_BADGE[c.cocom] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[c.cocom as Aor] ?? c.cocom}</span>
+              <button onClick={() => onChange(value.filter((x) => x.id !== c.id))} className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1 flex-shrink-0" title="Remove">×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex gap-1.5">
+        <input
+          value={country}
+          onChange={(e) => { setCountry(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          placeholder="Country (e.g. Qatar)"
+          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          placeholder="Note (optional)"
+          className="w-32 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
+        />
+        <button onClick={add} className="flex-shrink-0 text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-4 py-1.5 rounded-md transition-all uppercase tracking-wider">Add</button>
+      </div>
+      {country.trim() && (
+        <p className="text-[10px] text-slate-600 mt-1">COCOM: <span className="text-slate-400">{AOR_LABELS[classifyAor({ name: country.trim() }) as Aor]}</span></p>
+      )}
+      {error && <p className="mt-1.5 text-[10px] text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 function ForceLocationsEditor({ value, onChange }: { value: ForceLocation[]; onChange: (v: ForceLocation[]) => void; }) {
   const [geoQuery, setGeoQuery] = useState("");
   const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
@@ -407,14 +476,13 @@ function ForceLocationsEditor({ value, onChange }: { value: ForceLocation[]; onC
   return (
     <div className="mb-5">
       <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Force Locations
+        Pinned Bases <span className="text-slate-600 normal-case tracking-normal font-normal">(optional)</span>
       </label>
       <p className="text-[10px] text-slate-600 mb-3">
-        Bases / locations where your forces &amp; aircraft operate. The Crisis tab&apos;s
-        <span className="text-slate-500"> Force Protection Watch</span> fuses conflict, aviation weather,
-        GPS interference, civil/diplomatic posture, and hazards at each into a per-location read so you
-        see where to focus. Add an <span className="text-slate-500">ICAO</span> for per-base aviation
-        weather. Set a date window for a transient deployment (drops off the board once it ends). Up to {MAX}.
+        Optional — pin a specific base for <span className="text-slate-500">airfield-precise</span> signals on top of its
+        country. Add an <span className="text-slate-500">ICAO</span> to switch on per-base aviation weather, GPS
+        interference, and NOTAMs (runway/approach closures, RAIM outages) — these only apply with an airfield. Set a date
+        window for a transient deployment (drops off the board once it ends). Up to {MAX}.
       </p>
 
       {value.length > 0 && (
@@ -2417,6 +2485,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [muteSenders, setMuteSenders] = useState<string[]>([]);
   const [trackedLocations, setTrackedLocations] = useState<TrackedLocation[]>([]);
   const [forceLocations, setForceLocations] = useState<ForceLocation[]>([]);
+  const [countriesOfInterest, setCountriesOfInterest] = useState<CountryWatch[]>([]);
   const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
   const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
   const [newsletterSources, setNewsletterSources] = useState<NewsletterSourceRule[]>([]);
@@ -2515,7 +2584,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
     if (key === "sources") {
       const parts: (string | ReactElement)[] = [];
       if (trackedLocations.length) parts.push(`${trackedLocations.length} loc`);
-      if (forceLocations.length) parts.push(`${forceLocations.length} force loc`);
+      if (countriesOfInterest.length) parts.push(`${countriesOfInterest.length} countr${countriesOfInterest.length === 1 ? "y" : "ies"}`);
+      if (forceLocations.length) parts.push(`${forceLocations.length} base${forceLocations.length === 1 ? "" : "s"}`);
       if (marketsWatchlist.length) parts.push(`${marketsWatchlist.length} tickers`);
       // News-source count: total enabled, with a muted "(N off)" only when
       // any are disabled — keeps the header quiet for the default state.
@@ -2579,6 +2649,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setMuteSenders(prefs.muteSenders ?? []);
         setTrackedLocations(prefs.trackedLocations ?? []);
         setForceLocations(prefs.forceLocations ?? []);
+        setCountriesOfInterest(prefs.countriesOfInterest ?? []);
         setMarketsWatchlist(prefs.marketsWatchlist ?? []);
         setOsintFeeds(prefs.osintFeeds ?? []);
         setNewsletterSources(prefs.newsletterSources ?? []);
@@ -2664,7 +2735,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         body: JSON.stringify({
           role, priorityTopics, deprioritizeTopics, watchlist,
           vipSenders, muteSenders,
-          trackedLocations, forceLocations, marketsWatchlist, osintFeeds, newsletterSources, metarStations,
+          trackedLocations, forceLocations, countriesOfInterest, marketsWatchlist, osintFeeds, newsletterSources, metarStations,
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
           localFeedKey,
@@ -3029,6 +3100,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                     )
                   }
                 />
+                <CountriesOfInterestEditor value={countriesOfInterest} onChange={setCountriesOfInterest} />
                 <ForceLocationsEditor value={forceLocations} onChange={setForceLocations} />
                 <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
                 <NewsSourcesEditor

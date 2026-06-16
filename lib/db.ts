@@ -295,6 +295,7 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "newsletter_sources",        ddl: "ALTER TABLE user_prefs ADD COLUMN newsletter_sources JSON NULL" },
   { table: "user_prefs",  column: "metar_stations",            ddl: "ALTER TABLE user_prefs ADD COLUMN metar_stations JSON NULL" },
   { table: "user_prefs",  column: "force_locations",           ddl: "ALTER TABLE user_prefs ADD COLUMN force_locations JSON NULL" },
+  { table: "user_prefs",  column: "countries_of_interest",     ddl: "ALTER TABLE user_prefs ADD COLUMN countries_of_interest JSON NULL" },
   { table: "documents",   column: "archived",                  ddl: "ALTER TABLE documents ADD COLUMN archived TINYINT(1) NOT NULL DEFAULT 0" },
   { table: "user_prefs",  column: "acled_email",               ddl: "ALTER TABLE user_prefs ADD COLUMN acled_email    VARCHAR(255) NULL" },
   { table: "user_prefs",  column: "acled_password",            ddl: "ALTER TABLE user_prefs ADD COLUMN acled_password TEXT NULL" },

@@ -8,7 +8,8 @@
 // the shared context once and maps every location through it. No new external
 // feeds in Phase 1 — every source here is already used by the Crisis map.
 
-import type { ForceLocation, DisasterEvent, SevereThreat, TropicalSystem, LocationHazard, TravelAdvisory } from "./types";
+import type { ForceLocation, CountryWatch, DisasterEvent, SevereThreat, TropicalSystem, LocationHazard, TravelAdvisory } from "./types";
+import { countryCentroid } from "./countryCentroids";
 import type { ConflictPoint } from "./conflictEvents";
 import type { AcledEvent } from "./acled";
 import type { InformPoint } from "./inform";
@@ -48,6 +49,7 @@ export interface ForceAssessment {
   label: string;
   country: string;
   cocom: string;
+  kind: "country" | "base";  // country of interest vs pinned base
   lat: number;
   lon: number;
   icao?: string;
@@ -117,32 +119,35 @@ export function isForceLocationActive(loc: ForceLocation, nowMs: number): boolea
 function assessConflict(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   const signals: string[] = [];
   let sev: Severity = "green";
+  const byCountry = (loc.kind ?? "base") === "country";
 
   // Structured strikes (ACLED) — precise, highest fidelity when available.
-  const strikes = ctx.acled
-    .map((e) => ({ e, km: Math.round(haversineKm(loc.lat, loc.lon, e.lat, e.lon)) }))
-    .filter((x) => x.km <= 400)
-    .sort((a, b) => a.km - b.km);
-  for (const { e, km } of strikes.slice(0, 2)) {
-    signals.push(`${e.subType || "Strike"} ~${km}km${e.fatalities > 0 ? ` (${e.fatalities} killed)` : ""} [ACLED]`);
-    if (km <= 250 || e.fatalities >= 5) sev = worse(sev, "red");
+  // Country watch: every in-country event; base: only those within ~400 km.
+  const strikes = byCountry
+    ? ctx.acled.filter((e) => countryMatch(e.country, loc.country)).map((e) => ({ e, km: null as number | null }))
+    : ctx.acled.map((e) => ({ e, km: Math.round(haversineKm(loc.lat, loc.lon, e.lat, e.lon)) as number | null }))
+        .filter((x) => (x.km as number) <= 400).sort((a, b) => (a.km as number) - (b.km as number));
+  const topStrikes = byCountry ? [...strikes].sort((a, b) => b.e.fatalities - a.e.fatalities) : strikes;
+  for (const { e, km } of topStrikes.slice(0, 2)) {
+    signals.push(`${e.subType || "Strike"}${km != null ? ` ~${km}km` : ` (${e.country})`}${e.fatalities > 0 ? ` ${e.fatalities} killed` : ""} [ACLED]`);
+    if ((km != null && km <= 250) || e.fatalities >= 5) sev = worse(sev, "red");
     else sev = worse(sev, "amber");
   }
 
-  // Conflict events (UCDP precise, or ReliefWeb country-level fallback).
-  const conflicts = ctx.conflict
-    .map((c) => ({ c, km: Math.round(haversineKm(loc.lat, loc.lon, c.lat, c.lon)) }))
-    .filter((x) => x.km <= 400)
-    .sort((a, b) => a.km - b.km);
+  // Conflict events (UCDP precise points, or ReliefWeb country-level fallback).
   if (strikes.length === 0) {
+    const conflicts = byCountry
+      ? ctx.conflict.filter((c) => countryMatch(c.name, loc.country) || (c.title ? countryMatch(c.title, loc.country) : false)).map((c) => ({ c, km: null as number | null }))
+      : ctx.conflict.map((c) => ({ c, km: Math.round(haversineKm(loc.lat, loc.lon, c.lat, c.lon)) as number | null }))
+          .filter((x) => (x.km as number) <= 400).sort((a, b) => (a.km as number) - (b.km as number));
     for (const { c, km } of conflicts.slice(0, 2)) {
-      signals.push(`${c.title || c.name} ~${km}km${c.count > 1 ? ` (${c.count} fatalities)` : ""}`);
-      if (km <= 200 && c.count >= 10) sev = worse(sev, "red");
+      signals.push(`${c.title || c.name}${km != null ? ` ~${km}km` : ""}${c.count > 1 ? ` (${c.count} fatalities)` : ""}`);
+      if (((km != null && km <= 200) || byCountry) && c.count >= 10) sev = worse(sev, "red");
       else sev = worse(sev, "amber");
     }
   }
 
-  // INFORM structural risk (0-10) — baseline even with no live events nearby.
+  // INFORM structural risk (0-10) — baseline even with no live events.
   const inform = ctx.inform.find((p) => countryMatch(p.country, loc.country));
   if (inform) {
     signals.push(`INFORM risk ${inform.score.toFixed(1)}/10`);
@@ -280,14 +285,16 @@ function assessCivil(loc: ForceLocation, ctx: ForceContext): CategoryAssessment 
 function assessHazard(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   const signals: string[] = [];
   let sev: Severity = "green";
-  const near = ctx.disasters
-    .filter((d) => d.lat != null && d.lon != null)
-    .map((d) => ({ d, km: Math.round(haversineKm(loc.lat, loc.lon, d.lat as number, d.lon as number)) }))
-    .filter((x) => x.km <= 500)
-    .sort((a, b) => a.km - b.km);
+  const byCountry = (loc.kind ?? "base") === "country";
+  // Country watch: disasters whose country matches; base: those within ~500 km.
+  const near = byCountry
+    ? ctx.disasters.filter((d) => d.country && countryMatch(d.country, loc.country)).map((d) => ({ d, km: null as number | null }))
+    : ctx.disasters.filter((d) => d.lat != null && d.lon != null)
+        .map((d) => ({ d, km: Math.round(haversineKm(loc.lat, loc.lon, d.lat as number, d.lon as number)) as number | null }))
+        .filter((x) => (x.km as number) <= 500).sort((a, b) => (a.km as number) - (b.km as number));
   for (const { d, km } of near.slice(0, 2)) {
-    signals.push(`${d.type} (${d.severity}) ~${km}km`);
-    if (d.severity === "red" && km <= 300) sev = worse(sev, "red");
+    signals.push(`${d.type} (${d.severity})${km != null ? ` ~${km}km` : ""}`);
+    if (d.severity === "red" && (km == null || km <= 300)) sev = worse(sev, "red");
     else sev = worse(sev, "amber");
   }
   // WHO Disease Outbreak News in the base country — force-health posture (amber).
@@ -305,13 +312,15 @@ function rankScore(categories: CategoryAssessment[]): number {
 }
 
 export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAssessment {
+  // Airfield-specific categories (aviation wx, GPS, airspace/NOTAM) only apply
+  // when an ICAO is given — i.e. a pinned base. A country watch is scored purely
+  // from country-keyed sources (conflict, civil/diplomatic, hazard).
+  const hasAirfield = !!loc.icao;
   const categories = [
     assessConflict(loc, ctx),
-    assessWeather(loc, ctx),
-    assessGps(loc, ctx),
-    // Airspace/NOTAM only appears when the DAIP feed is configured — otherwise
-    // it's a disabled feature, not a perpetual blind spot.
-    ...(ctx.notamsConfigured ? [assessAirspace(loc, ctx)] : []),
+    ...(hasAirfield ? [assessWeather(loc, ctx), assessGps(loc, ctx)] : []),
+    // Airspace/NOTAM needs an airfield AND the DAIP feed configured.
+    ...(hasAirfield && ctx.notamsConfigured ? [assessAirspace(loc, ctx)] : []),
     assessCivil(loc, ctx),
     assessHazard(loc, ctx),
   ];
@@ -328,7 +337,7 @@ export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAsse
     ? `No active signals — blind on ${blind.join(", ")}`
     : driver ? `${CATEGORY_LABEL[driver.category]} — ${driver.signals[0]}` : "No active threat signals";
   return {
-    id: loc.id, label: loc.label, country: loc.country, cocom: loc.cocom,
+    id: loc.id, label: loc.label, country: loc.country, cocom: loc.cocom, kind: loc.kind ?? "base",
     lat: loc.lat, lon: loc.lon, ...(loc.icao ? { icao: loc.icao } : {}), ...(loc.note ? { note: loc.note } : {}),
     transient: !!(loc.start || loc.end),
     composite, score: rankScore(categories), topDriver, categories,
@@ -337,9 +346,25 @@ export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAsse
 
 // ── Fetch + assemble ─────────────────────────────────────────────────────────
 
-export async function getForceProtection(locations: ForceLocation[]): Promise<ForceProtectionResult> {
+// A country of interest as a scoring entry. No coordinates needed (scored by
+// country name); centroid is filled best-effort for any future map use.
+export function countryToEntry(c: CountryWatch): ForceLocation {
+  const cen = countryCentroid(c.country);
+  return {
+    id: c.id, label: c.country, country: c.country, cocom: c.cocom, kind: "country",
+    lat: cen?.[0] ?? 0, lon: cen?.[1] ?? 0, ...(c.note ? { note: c.note } : {}),
+  };
+}
+
+export async function getForceProtection(countries: CountryWatch[], bases: ForceLocation[] = []): Promise<ForceProtectionResult> {
+  const locations: ForceLocation[] = [
+    ...countries.map(countryToEntry),
+    ...bases.map((b) => ({ ...b, kind: "base" as const })),
+  ];
   const active = locations.filter((l) => isForceLocationActive(l, Date.now()));
-  const points: NamedPoint[] = active.map((l) => ({ label: l.label, lat: l.lat, lon: l.lon }));
+  // Weather points only for airfield bases (ICAO present) — the only entries
+  // whose weather category is scored. Disasters/tropical come globally regardless.
+  const points: NamedPoint[] = active.filter((l) => l.icao).map((l) => ({ label: l.label, lat: l.lat, lon: l.lon }));
   const icaos = active.map((l) => l.icao).filter((x): x is string => !!x);
 
   const [weather, advisories, conflict, acled, inform, gps, aviation, notams, health] = await Promise.all([

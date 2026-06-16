@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
 import { clearBriefingCache } from "@/lib/briefingCache";
-import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 import { classifyAor } from "@/lib/aor";
 
@@ -49,9 +49,24 @@ function sanitizeForceLocations(v: unknown): ForceLocation[] {
     // Always re-derive the combatant command (coords win) so the stored value
     // is authoritative regardless of what the client sent.
     const cocom = classifyAor({ lat, lon, name: country });
-    return [{ id, label, ...(icao ? { icao } : {}), lat, lon, country, cocom,
+    const kind = (x as Record<string, unknown>).kind === "country" ? "country" : "base";
+    return [{ id, label, ...(icao ? { icao } : {}), lat, lon, country, cocom, kind,
       ...(note ? { note } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}) }];
   }).slice(0, 30);
+}
+
+function sanitizeCountriesOfInterest(v: unknown): CountryWatch[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): CountryWatch[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const country = String(r.country ?? "").trim().slice(0, 60);
+    if (!country) return [];
+    const id = String(r.id ?? "").slice(0, 60) || country.toLowerCase().replace(/\s+/g, "-");
+    const note = String(r.note ?? "").trim().slice(0, 80) || undefined;
+    const cocom = classifyAor({ name: country }); // authoritative, re-derived
+    return [{ id, country, cocom, ...(note ? { note } : {}) }];
+  }).slice(0, 40);
 }
 
 function sanitizeMarketsWatchlist(v: unknown): TickerEntry[] {
@@ -193,6 +208,7 @@ export async function POST(request: Request) {
       .filter((t) => t.length > 0),
     trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
     forceLocations: sanitizeForceLocations(raw.forceLocations),
+    countriesOfInterest: sanitizeCountriesOfInterest(raw.countriesOfInterest),
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
     osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
     newsletterSources: sanitizeNewsletterSources(raw.newsletterSources),
