@@ -136,6 +136,33 @@ export async function createTrip(t: {
   };
 }
 
+export async function getTripById(id: string): Promise<Trip | null> {
+  const pool = await getDb();
+  const [rows] = await pool.query<TripRow[]>(`SELECT ${TRIP_COLS} FROM trips WHERE id = ? LIMIT 1`, [id]);
+  return rows[0] ? rowToTrip(rows[0]) : null;
+}
+
+// Update a hand-entered trip's dates and/or label in place. Restricted to
+// source='manual' rows (the WHERE clause) — calendar trips are owned by their
+// source event and would just be re-synced, so the route blocks those earlier
+// with a clearer message. Returns the updated trip (or null if nothing matched).
+export async function updateTrip(
+  id: string,
+  fields: { startDate?: string; endDate?: string; label?: string },
+): Promise<Trip | null> {
+  const sets: string[] = [];
+  const vals: string[] = [];
+  if (fields.startDate !== undefined) { sets.push("start_date = ?"); vals.push(fields.startDate); }
+  if (fields.endDate !== undefined) { sets.push("end_date = ?"); vals.push(fields.endDate); }
+  if (fields.label !== undefined) { sets.push("label = ?"); vals.push(fields.label); }
+  if (sets.length > 0) {
+    const pool = await getDb();
+    vals.push(id);
+    await pool.execute(`UPDATE trips SET ${sets.join(", ")} WHERE id = ? AND source = 'manual'`, vals);
+  }
+  return getTripById(id);
+}
+
 export async function deleteTrip(id: string): Promise<void> {
   const pool = await getDb();
   await pool.execute("DELETE FROM trips WHERE id = ?", [id]);
