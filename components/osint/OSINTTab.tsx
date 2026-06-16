@@ -133,6 +133,17 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
   const [pane, setPane] = useState<Pane>("all");
   const [loading, setLoading] = useState(true);
+
+  // Deep-link: other surfaces (e.g. the Glance Force Protection alert) can jump
+  // straight to a specific pane via window event after switching to this tab.
+  useEffect(() => {
+    const onSetPane = (e: Event) => {
+      const p = (e as CustomEvent<string>).detail;
+      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "aircraft" || p === "maritime") setPane(p as Pane);
+    };
+    window.addEventListener("osint:set-pane", onSetPane);
+    return () => window.removeEventListener("osint:set-pane", onSetPane);
+  }, []);
   const [homeLat, setHomeLat] = useState<number>(38.85);
   const [homeLon, setHomeLon] = useState<number>(-104.8);
   const [aircraftProvider, setAircraftProvider] = useState<string>(AIRCRAFT_PROVIDERS[0].id);

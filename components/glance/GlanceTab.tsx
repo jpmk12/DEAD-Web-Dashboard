@@ -6,6 +6,10 @@ import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
 import { useEventActions, EventActionCluster, EventActionPanels } from "@/components/calendar/eventActions";
 
+// Minimal shape from /api/force-protection — defined locally (not imported from
+// the server scoring lib) so Glance's client bundle stays clean.
+interface GlanceForceItem { id: string; label: string; cocom: string; composite: "red" | "amber" | "green"; topDriver: string }
+
 // Glyphs for the Global Reach Watch rows, by disaster type (matches the
 // ThreatBoard vocabulary so a quake reads the same on both surfaces).
 const REACH_DISASTER_GLYPH: Record<string, string> = {
@@ -243,6 +247,8 @@ export default function GlanceTab({
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
   const [threats, setThreats] = useState<WeatherThreats | null>(null);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
+  // Force Protection Watch — RED/AMBER locations surface in needs-you-now.
+  const [forceWatch, setForceWatch] = useState<GlanceForceItem[]>([]);
 
   // Last-seen "On your radar" values, persisted so rises since your last look
   // can be highlighted. Frozen for this session (read once on mount).
@@ -277,6 +283,25 @@ export default function GlanceTab({
       .then((d: { advisories?: TravelAdvisory[] } | null) => { if (!cancelled && d?.advisories) setAdvisories(d.advisories); })
       .catch(() => {});
     return () => { cancelled = true; };
+  }, [active, status]);
+
+  // Force Protection Watch — fused per-base posture. Cached 10 min server-side,
+  // so poll slowly; only elevated (red/amber) locations reach needs-you-now.
+  useEffect(() => {
+    if (!active || status !== "authenticated") return;
+    let cancelled = false;
+    const load = () => {
+      fetch("/api/force-protection")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { assessments?: GlanceForceItem[] } | null) => {
+          if (cancelled) return;
+          setForceWatch((d?.assessments ?? []).filter((a) => a.composite !== "green"));
+        })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [active, status]);
 
   // Tasks are the one "needs you now" source with no shared client cache, so
@@ -364,6 +389,23 @@ export default function GlanceTab({
       sub: near ? `Near ${d.nearLocations.join(", ")}` : [d.country || d.type, d.aor !== "UNKNOWN" ? d.aor : null].filter(Boolean).join(" · "),
       meta: d.aor !== "UNKNOWN" ? d.aor : "Disaster",
       onClick: () => onNavigate("weather"),
+    });
+  }
+
+  // Force Protection Watch — RED outranks (forces at risk), AMBER below.
+  const COCOM_SHORT: Record<string, string> = { NORTHCOM: "NORTHCOM", SOUTHCOM: "SOUTHCOM", EUCOM: "EUCOM", CENTCOM: "CENTCOM", AFRICOM: "AFRICOM", INDOPACOM: "INDOPACOM", UNKNOWN: "" };
+  for (const f of forceWatch.filter((x) => x.composite === "red").slice(0, 3)) {
+    urgent.push({
+      id: `force-${f.id}`, rank: -2, tone: "red", icon: "🛡",
+      label: f.label, sub: f.topDriver, meta: COCOM_SHORT[f.cocom] || "Force",
+      onClick: () => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "crisis" })); },
+    });
+  }
+  for (const f of forceWatch.filter((x) => x.composite === "amber").slice(0, 2)) {
+    urgent.push({
+      id: `force-${f.id}`, rank: 1, tone: "amber", icon: "🛡",
+      label: f.label, sub: f.topDriver, meta: COCOM_SHORT[f.cocom] || "Force",
+      onClick: () => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "crisis" })); },
     });
   }
 
