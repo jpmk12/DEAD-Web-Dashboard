@@ -1,0 +1,179 @@
+"use client";
+
+import { useEffect, useState, useMemo } from "react";
+// Type-only import: keeps the server-side scoring module (which pulls disasters/
+// acled/etc.) OUT of this client bundle. Runtime data comes from the API.
+import type { ForceAssessment, Severity, ForceCategory } from "@/lib/forceProtection";
+
+// Local label/colour vocab (not imported from the server lib, to avoid bundling
+// it). COCOM labels mirror lib/aor's AOR_LABELS.
+const CAT_LABEL: Record<ForceCategory, string> = {
+  conflict: "Conflict", weather: "Aviation Wx", gps: "GPS / Comms", civil: "Civil / Diplomatic", hazard: "Hazard",
+};
+const COCOM_LABEL: Record<string, string> = {
+  NORTHCOM: "USNORTHCOM", SOUTHCOM: "USSOUTHCOM", EUCOM: "USEUCOM",
+  CENTCOM: "USCENTCOM", AFRICOM: "USAFRICOM", INDOPACOM: "USINDOPACOM", UNKNOWN: "—",
+};
+
+const SEV_DOT: Record<Severity, string> = { red: "#ef4444", amber: "#fbbf24", green: "#10b981" };
+const SEV_TEXT: Record<Severity, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400" };
+const SEV_BORDER: Record<Severity, string> = { red: "border-l-red-500/70", amber: "border-l-amber-500/70", green: "border-l-emerald-500/40" };
+const SEV_RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
+
+interface FpResponse {
+  assessments?: ForceAssessment[];
+  sources?: { gps: boolean; acled: boolean; conflict: string };
+  empty?: boolean;
+}
+
+function Card({ a }: { a: ForceAssessment }) {
+  const [open, setOpen] = useState(false);
+  const elevated = a.categories.filter((c) => c.severity !== "green");
+  return (
+    <li className={`border-l-2 ${SEV_BORDER[a.composite]} bg-slate-800/40 rounded-r-md`}>
+      <button onClick={() => setOpen((v) => !v)} className="w-full text-left px-3 py-2 flex items-start gap-2.5">
+        <span className="mt-1 flex-shrink-0" style={{ color: SEV_DOT[a.composite] }}>●</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold text-slate-100">{a.label}</span>
+            {a.icao && <span className="text-[9px] font-mono text-slate-400 bg-slate-900/60 px-1 rounded">{a.icao}</span>}
+            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{COCOM_LABEL[a.cocom] ?? a.cocom}</span>
+            {a.transient && <span className="text-[8px] uppercase tracking-wider text-amber-400/80" title="Transient presence window">◷ transient</span>}
+            {/* Per-category severity dots */}
+            <span className="ml-auto flex items-center gap-0.5">
+              {a.categories.map((c) => (
+                <span key={c.category} title={`${CAT_LABEL[c.category]}: ${c.severity}${c.signals.length ? ` — ${c.signals.join("; ")}` : ""}`} style={{ color: SEV_DOT[c.severity] }} className="text-[8px]">●</span>
+              ))}
+            </span>
+          </div>
+          <p className={`text-[11px] mt-0.5 ${SEV_TEXT[a.composite]}`}>{a.topDriver}</p>
+          <p className="text-[10px] text-slate-500 truncate">{a.country || "—"}{a.note ? ` · ${a.note}` : ""}</p>
+        </div>
+        {elevated.length > 0 && <span className="text-slate-600 text-[10px] mt-0.5">{open ? "▲" : "▼"}</span>}
+      </button>
+      {open && elevated.length > 0 && (
+        <div className="px-3 pb-2.5 pt-0 ml-5 space-y-1">
+          {elevated.map((c) => (
+            <div key={c.category} className="text-[11px]">
+              <span style={{ color: SEV_DOT[c.severity] }} className="mr-1">●</span>
+              <span className="text-slate-300 font-semibold">{CAT_LABEL[c.category]}</span>
+              <span className="text-slate-500"> — {c.signals.join("; ") || c.severity}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export default function ForceWatchBoard() {
+  const [data, setData] = useState<FpResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [cocomFilter, setCocomFilter] = useState<string>("ALL");
+  // AI read
+  const [aiText, setAiText] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    fetch("/api/force-protection")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: FpResponse | null) => setData(d ?? { assessments: [] }))
+      .catch(() => setData({ assessments: [] }))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    load();
+    const onChange = () => load();
+    window.addEventListener("force-locations:changed", onChange);
+    return () => window.removeEventListener("force-locations:changed", onChange);
+  }, []);
+
+  const runRead = () => {
+    setAiLoading(true); setAiText(null);
+    fetch("/api/force-read")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { text?: string; disabled?: boolean; empty?: boolean } | null) =>
+        setAiText(d?.disabled ? "AI features are off (no API key configured)." : d?.text || "Couldn't generate a read."))
+      .catch(() => setAiText("Read failed — a data feed may be unavailable."))
+      .finally(() => setAiLoading(false));
+  };
+
+  const all = data?.assessments ?? [];
+  const cocoms = useMemo(() => Array.from(new Set(all.map((a) => a.cocom))).sort(), [all]);
+  const shown = useMemo(
+    () => (cocomFilter === "ALL" ? all : all.filter((a) => a.cocom === cocomFilter))
+      .slice().sort((a, b) => SEV_RANK[a.composite] - SEV_RANK[b.composite] || b.score - a.score),
+    [all, cocomFilter],
+  );
+  const counts = useMemo(() => ({
+    red: all.filter((a) => a.composite === "red").length,
+    amber: all.filter((a) => a.composite === "amber").length,
+  }), [all]);
+
+  const empty = !loading && all.length === 0;
+
+  return (
+    <div className="border border-slate-800 rounded-lg bg-slate-900/40 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 flex-wrap">
+        <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Force Protection Watch</span>
+        {!empty && !loading && (
+          <span className="text-[10px] text-slate-500">
+            {counts.red > 0 && <span className="text-red-400">{counts.red} red</span>}
+            {counts.red > 0 && counts.amber > 0 && " · "}
+            {counts.amber > 0 && <span className="text-amber-400">{counts.amber} amber</span>}
+            {counts.red === 0 && counts.amber === 0 && <span className="text-emerald-400">all clear</span>}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {cocoms.length > 1 && (
+            <select
+              value={cocomFilter}
+              onChange={(e) => setCocomFilter(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-300 px-1.5 py-1 outline-none"
+              title="Filter by combatant command"
+            >
+              <option value="ALL">All COCOMs</option>
+              {cocoms.map((c) => <option key={c} value={c}>{COCOM_LABEL[c] ?? c}</option>)}
+            </select>
+          )}
+          {!empty && (
+            <button onClick={runRead} disabled={aiLoading} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 disabled:opacity-40">
+              {aiLoading ? "Reading…" : "✦ AI read"}
+            </button>
+          )}
+          <button onClick={load} title="Refresh" className="text-[10px] text-slate-500 hover:text-slate-300 px-1">↻</button>
+        </div>
+      </div>
+
+      {aiText && (
+        <div className="px-3 py-2 border-b border-slate-800 bg-violet-500/5">
+          <pre className="text-[11px] text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{aiText}</pre>
+        </div>
+      )}
+
+      {loading && <p className="px-3 py-4 text-[11px] text-slate-500">Assessing watched locations…</p>}
+
+      {empty && (
+        <p className="px-3 py-4 text-[11px] text-slate-500">
+          No force locations watched yet. Add bases in <span className="text-slate-400">Preferences → Content sources → Force Locations</span> to
+          monitor conflict, aviation weather, GPS interference, and civil/diplomatic posture where your forces operate.
+        </p>
+      )}
+
+      {!loading && shown.length > 0 && (
+        <ul className="divide-y divide-slate-800/60">
+          {shown.map((a) => <Card key={a.id} a={a} />)}
+        </ul>
+      )}
+
+      {data?.sources && all.length > 0 && (
+        <p className="px-3 py-1.5 text-[9px] text-slate-600 border-t border-slate-800">
+          Conflict: {data.sources.conflict === "none" ? "—" : data.sources.conflict.toUpperCase()}
+          {data.sources.acled && " + ACLED"} · GPS: {data.sources.gps ? "GPSJam" : "unavailable"} · weather: NWS/Open-Meteo/NHC · risk: INFORM · advisories: US State.
+          Coarse open-source SA — not authoritative tasking.
+        </p>
+      )}
+    </div>
+  );
+}

@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 // Same data as /api/force-protection; cached 10 min. Sibling of crisis-read
 // (which is demand-focused); this one is threat-to-our-forces-focused.
 const TTL = 10 * 60 * 1000;
-let cache: { text: string; expires: number } | null = null;
+let cache: { key: string; text: string; expires: number } | null = null;
 
 export async function GET() {
   const session = await auth();
@@ -23,10 +23,11 @@ export async function GET() {
 
   const prefs = await getUserPrefs().catch(() => null);
   if (prefs && !isFeatureEnabled("chat", prefs)) return NextResponse.json({ text: "", disabled: true });
-  if (cache && cache.expires > Date.now()) return NextResponse.json({ text: cache.text, cached: true });
 
   const locations = prefs?.forceLocations ?? [];
   if (locations.length === 0) return NextResponse.json({ text: "No force locations are being watched. Add bases in Preferences → Forces.", empty: true });
+  const key = locations.map((l) => `${l.id}:${l.lat},${l.lon}:${l.start ?? ""}-${l.end ?? ""}`).join("|");
+  if (cache && cache.key === key && cache.expires > Date.now()) return NextResponse.json({ text: cache.text, cached: true });
 
   try {
     const { assessments } = await getForceProtection(locations);
@@ -56,7 +57,7 @@ ${lines.join("\n")}`;
     const resp = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 520, messages: [{ role: "user", content: prompt }] });
     logCall({ route: "force_read", model: "claude-sonnet-4-6", usage: resp.usage, durationMs: Date.now() - modelStart }).catch(() => {});
     const text = resp.content[0].type === "text" ? resp.content[0].text.trim() : "";
-    cache = { text, expires: Date.now() + TTL };
+    cache = { key, text, expires: Date.now() + TTL };
     return NextResponse.json({ text });
   } catch {
     return NextResponse.json({ error: "read failed" }, { status: 502 });

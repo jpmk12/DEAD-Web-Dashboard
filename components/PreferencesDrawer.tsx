@@ -2684,6 +2684,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
       // open because nothing re-runs the prefetch after the clear.
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("dashboard-cache-cleared"));
+        // Nudge the Force Protection board (Crisis tab) to re-fetch with the
+        // updated watched locations without a full reload.
+        window.dispatchEvent(new CustomEvent("force-locations:changed"));
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

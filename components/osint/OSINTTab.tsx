@@ -33,6 +33,7 @@ const CrisisMap = dynamic(() => import("./CrisisMap"), {
     </div>
   ),
 });
+const ForceWatchBoard = dynamic(() => import("./ForceWatchBoard"), { ssr: false });
 
 interface OsintItem {
   id: string;
@@ -993,7 +994,12 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       )}
 
       {/* Crisis / situation map — disasters + hub weather + tropical + AMC hubs */}
-      {pane === "crisis" && <CrisisMap />}
+      {pane === "crisis" && (
+        <div className="space-y-3">
+          <ForceWatchBoard />
+          <CrisisMap />
+        </div>
+      )}
 
       {/* Feed list pane */}
       {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && (
