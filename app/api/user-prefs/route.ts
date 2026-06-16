@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
+import { clearBriefingCache } from "@/lib/briefingCache";
 import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 
@@ -186,5 +187,9 @@ export async function POST(request: Request) {
   };
 
   await saveUserPrefs(prefs);
+  // The Morning Brief is cached per date+tz and reads home/role/topics/tz from
+  // prefs — drop that cache so an edit (e.g. changing home) is reflected today
+  // instead of being masked by this morning's already-generated brief.
+  clearBriefingCache().catch((err) => console.error("Briefing cache invalidation failed:", err));
   return NextResponse.json({ ok: true });
 }

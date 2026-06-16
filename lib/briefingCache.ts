@@ -55,3 +55,13 @@ export async function saveCachedBriefing(date: string, tz: string, briefing: Cac
     )
     .catch((err) => console.error("Briefing cache prune failed:", err));
 }
+
+// Drop cached briefings so the next /api/briefing regenerates from scratch.
+// Called when preferences change — home location, role, priority topics, and
+// timezone all feed the brief, and the cache is keyed only by date+tz, so
+// without this a settings edit is masked by the already-generated brief until
+// the date rolls over (e.g. changing home shows the old location all day).
+export async function clearBriefingCache(): Promise<void> {
+  const pool = await getDb();
+  await pool.execute("DELETE FROM briefing_cache");
+}
