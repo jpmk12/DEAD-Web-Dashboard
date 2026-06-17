@@ -474,6 +474,26 @@ export default function CrisisMap() {
     () => milair.filter((m) => (aorFilter === "ALL" || aorFromCoords(m.lat, m.lon) === aorFilter) && (!milMobility || isMobilityType(m.type))),
     [milair, aorFilter, milMobility],
   );
+  // Aircraft↔watch correlation: which shown aircraft are within ~400 km of a
+  // watched country/base, and how many sit near each watched entry.
+  const WATCH_NEAR_KM = 400;
+  const milNearWatch = useMemo(() => {
+    const s = new Set<string>();
+    if (forces.length === 0 || milShown.length === 0) return s;
+    for (const a of milShown) {
+      if (forces.some((f) => !(f.lat === 0 && f.lon === 0) && km(f.lat, f.lon, a.lat, a.lon) <= WATCH_NEAR_KM)) s.add(a.hex);
+    }
+    return s;
+  }, [forces, milShown]);
+  const milNearForce = useMemo(() => {
+    const m: Record<string, number> = {};
+    if (milShown.length === 0) return m;
+    for (const f of forces) {
+      if (f.lat === 0 && f.lon === 0) continue;
+      m[f.id] = milShown.filter((a) => km(f.lat, f.lon, a.lat, a.lon) <= WATCH_NEAR_KM).length;
+    }
+    return m;
+  }, [forces, milShown]);
   useEffect(() => { if (!didFit.current && crisisPoints.length > 0) { didFit.current = true; setFitKey((k) => k + 1); } }, [crisisPoints]);
   // Scroll the list to the selected row.
   useEffect(() => { if (selected) document.getElementById(`row-${selected}`)?.scrollIntoView({ block: "nearest" }); }, [selected]);
@@ -756,20 +776,25 @@ export default function CrisisMap() {
               return (
                 <CircleMarker key={`force-${f.id}`} center={[f.lat, f.lon]} radius={sel ? 13 : 10} pathOptions={{ color: sel ? "#fff" : color, fillColor: color, fillOpacity: 0.3, weight: 3 }} eventHandlers={{ click: () => pick(`force-${f.id}`, f.lat, f.lon) }}>
                   {on.labels && <Tooltip permanent direction="top" offset={[0, -8]} className="cm-label cm-crisis">{f.kind === "country" ? "🌐" : "🛡"} {f.label}</Tooltip>}
-                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div><div className="text-slate-700 mt-0.5">{f.topDriver}</div></div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div><div className="text-slate-700 mt-0.5">{f.topDriver}</div>{on.milair && milNearForce[f.id] > 0 && <div className="text-[10px] text-yellow-700 font-bold mt-0.5">✈ {milNearForce[f.id]} mil aircraft within {WATCH_NEAR_KM} km</div>}</div></Popup>
                 </CircleMarker>
               );
             })}
-            {on.milair && (milMobility || zoom >= 4) && milShown.map((m) => (
-              <Marker
-                key={`mil-${m.hex}`}
-                position={[m.lat, m.lon]}
-                icon={glyph(`<span style="display:inline-block;transform:rotate(${(m.track ?? 0) - 45}deg);color:#a3e635;font-size:13px">✈</span>`, 14)}
-                eventHandlers={{ click: () => pick(`mil-${m.hex}`, m.lat, m.lon, 5) }}
-              >
-                <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{m.flight || m.reg || m.hex.toUpperCase()}</div><div className="text-slate-600">{[m.type, m.desc].filter(Boolean).join(" · ") || "Military"}</div><div className="text-slate-500">{m.onGround ? "on ground" : m.altFt != null ? `FL${Math.round(m.altFt / 100)}` : "alt n/a"}{m.gs != null ? ` · ${Math.round(m.gs)} kt` : ""}{m.squawk ? ` · sq ${m.squawk}` : ""}</div><div className="text-[10px] text-slate-600">{aorFromCoords(m.lat, m.lon)} · ADS-B (broadcasting only)</div></div></Popup>
-              </Marker>
-            ))}
+            {on.milair && (milMobility || zoom >= 4) && milShown.map((m) => {
+              const nearWatch = milNearWatch.has(m.hex); // over/near a watched AOI → emphasize
+              const col = nearWatch ? "#fde047" : "#a3e635";
+              const size = nearWatch ? 16 : 13;
+              return (
+                <Marker
+                  key={`mil-${m.hex}`}
+                  position={[m.lat, m.lon]}
+                  icon={glyph(`<span style="display:inline-block;transform:rotate(${(m.track ?? 0) - 45}deg);color:${col};font-size:${size}px${nearWatch ? ";text-shadow:0 0 4px #fde047" : ""}">✈</span>`, nearWatch ? 18 : 14)}
+                  eventHandlers={{ click: () => pick(`mil-${m.hex}`, m.lat, m.lon, 5) }}
+                >
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{m.flight || m.reg || m.hex.toUpperCase()}</div><div className="text-slate-600">{[m.type, m.desc].filter(Boolean).join(" · ") || "Military"}</div><div className="text-slate-500">{m.onGround ? "on ground" : m.altFt != null ? `FL${Math.round(m.altFt / 100)}` : "alt n/a"}{m.gs != null ? ` · ${Math.round(m.gs)} kt` : ""}{m.squawk ? ` · sq ${m.squawk}` : ""}</div>{nearWatch && <div className="text-[10px] text-yellow-600 font-bold">near a watched location</div>}<div className="text-[10px] text-slate-600">{aorFromCoords(m.lat, m.lon)} · ADS-B (broadcasting only)</div></div></Popup>
+                </Marker>
+              );
+            })}
             {on.neo && neoPins.map(({ a, pos }) => { const evac = a.orderedDeparture || a.authorizedDeparture; return (
               <Marker key={`neo-${a.country}`} position={pos} icon={evac ? neoDepartIcon : neoLevel4Icon} eventHandlers={{ click: () => pick(`neo-${a.country}`, pos[0], pos[1]) }}>
                 {on.labels && evac && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{a.country}{a.aor !== "UNKNOWN" ? ` · ${a.aor}` : ""} · {a.orderedDeparture ? "ORDERED DEP" : "AUTH DEP"}</Tooltip>}
