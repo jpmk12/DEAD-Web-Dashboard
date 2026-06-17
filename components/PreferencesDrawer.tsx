@@ -104,7 +104,7 @@ function parseCoordInput(raw: string): number | null {
   return sign * deg;
 }
 
-interface GeoResult { lat: number; lon: number; displayName: string }
+interface GeoResult { lat: number; lon: number; displayName: string; country?: string }
 
 function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; onAddMetar?: (s: MetarStation) => void; }) {
   const [label, setLabel] = useState("");
@@ -451,7 +451,9 @@ function ForceLocationsEditor({ value, onChange }: { value: ForceLocation[]; onC
     const segs = r.displayName.split(",").map((s) => s.trim()).filter(Boolean);
     setDraft({
       label: segs.slice(0, 2).join(", ").slice(0, 60) || "Location",
-      country: segs[segs.length - 1]?.slice(0, 60) || "",
+      // Prefer the structured English country from the geocoder; fall back to the
+      // last display-name segment for older/edge responses.
+      country: (r.country || segs[segs.length - 1] || "").slice(0, 60),
       lat: r.lat, lon: r.lon,
     });
     setIcao(""); setNote(""); setStart(""); setEnd("");

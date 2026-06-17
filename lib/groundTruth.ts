@@ -8,6 +8,8 @@ import { getAcledEvents } from "./acled";
 import { getConflictPoints } from "./conflictEvents";
 import { gdeltLocalNews } from "./localNews";
 import { fetchFeed } from "./rss";
+import { getAllStateAdvisories } from "./stateAdvisories";
+import { civilCalendarEvents } from "./civilCalendar";
 import { countryCentroid } from "./countryCentroids";
 import { haversineKm } from "./disasters";
 import type { NewsItem, OsintFeed } from "./types";
@@ -24,11 +26,19 @@ export interface Incident {
   url?: string;
 }
 
+export interface CountryCivil {
+  advisoryLevel: number | null;       // State Dept 1–4 (shown even when calm)
+  departure: "ordered" | "authorized" | null;
+  advisoryLink?: string;
+  events: { label: string; when: string }[]; // observances / national days / elections
+}
+
 export interface CountryDossier {
   country: string;
   center: [number, number] | null; // country centroid (for the mini-map)
   incidents: Incident[];
   news: NewsItem[];
+  civil: CountryCivil;
 }
 
 const NEAR_KM = 500;
@@ -56,12 +66,24 @@ async function osintCountryNews(country: string, feeds: OsintFeed[]): Promise<Ne
 
 export async function getCountryDossier(country: string, osintFeeds: OsintFeed[] = []): Promise<CountryDossier> {
   const cen = countryCentroid(country);
-  const [acled, conflict, gdelt, osint] = await Promise.all([
+  const [acled, conflict, gdelt, osint, advisories] = await Promise.all([
     getAcledEvents().catch(() => []),
     getConflictPoints().catch(() => []),
     gdeltLocalNews(country).catch(() => [] as NewsItem[]),
     osintCountryNews(country, osintFeeds).catch(() => [] as NewsItem[]),
+    getAllStateAdvisories().catch(() => []),
   ]);
+
+  // Civil context — the advisory level is shown at every level (1–4), not just
+  // the elevated ones the force-protection threat axis flags, so the section is
+  // populated even for calm countries.
+  const adv = advisories.find((a) => countryMatch(a.country, country));
+  const civil: CountryCivil = {
+    advisoryLevel: adv?.level ?? null,
+    departure: adv?.orderedDeparture ? "ordered" : adv?.authorizedDeparture ? "authorized" : null,
+    ...(adv?.link ? { advisoryLink: adv.link } : {}),
+    events: civilCalendarEvents(country, Date.now()).slice(0, 4).map((e) => ({ label: e.label, when: e.active ? "active" : `in ${e.daysUntil}d` })),
+  };
 
   const incidents: Incident[] = [];
   for (const e of acled) {
@@ -96,5 +118,5 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     .sort((a, b) => Date.parse(b.pubDate || "0") - Date.parse(a.pubDate || "0"))
     .slice(0, 12);
 
-  return { country, center: cen, incidents: incidents.slice(0, 12), news };
+  return { country, center: cen, incidents: incidents.slice(0, 12), news, civil };
 }

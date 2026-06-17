@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // the limit — usage pattern is a user typing a city name into a search box
 // once or twice per session, so it's well under that ceiling in practice.
 
-interface GeocodeResult { lat: number; lon: number; displayName: string }
+interface GeocodeResult { lat: number; lon: number; displayName: string; country: string }
 
 export async function GET(req: Request) {
   const session = await auth();
@@ -21,13 +21,17 @@ export async function GET(req: Request) {
   const q = url.searchParams.get("q")?.slice(0, 200) ?? "";
   if (q.trim().length < 2) return NextResponse.json({ results: [] });
 
-  const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=3`;
+  // accept-language=en forces English place/country names (Nominatim otherwise
+  // returns native scripts — e.g. "قطر"/"Deutschland" — which then don't match
+  // the English-keyed advisory/calendar/news data downstream). addressdetails=1
+  // gives a structured English `country` rather than parsing display_name.
+  const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&accept-language=en&limit=3`;
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), 8_000);
 
   try {
     const res = await fetch(apiUrl, {
-      headers: { "User-Agent": "dead-web-dashboard/1.0 (personal-use)" },
+      headers: { "User-Agent": "dead-web-dashboard/1.0 (personal-use)", "Accept-Language": "en" },
       signal: controller.signal,
     });
     clearTimeout(tid);
@@ -39,7 +43,7 @@ export async function GET(req: Request) {
     if (Array.isArray(data)) {
       for (const item of data.slice(0, 3)) {
         if (!item || typeof item !== "object") continue;
-        const r = item as { lat?: string; lon?: string; display_name?: string };
+        const r = item as { lat?: string; lon?: string; display_name?: string; address?: { country?: string } };
         const lat = parseFloat(String(r.lat ?? ""));
         const lon = parseFloat(String(r.lon ?? ""));
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
@@ -47,6 +51,7 @@ export async function GET(req: Request) {
           lat,
           lon,
           displayName: String(r.display_name ?? "").slice(0, 200),
+          country: String(r.address?.country ?? "").slice(0, 60),
         });
       }
     }

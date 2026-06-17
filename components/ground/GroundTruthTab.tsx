@@ -16,6 +16,9 @@ const SEV_DOT: Record<Sev, string> = { red: "#ef4444", amber: "#fbbf24", green: 
 const SEV_TEXT: Record<Sev, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400", unknown: "text-slate-400" };
 const SEV_RANK: Record<Sev, number> = { red: 0, amber: 1, unknown: 2, green: 3 };
 const COCOM_LABEL: Record<string, string> = { NORTHCOM: "USNORTHCOM", SOUTHCOM: "USSOUTHCOM", EUCOM: "USEUCOM", CENTCOM: "USCENTCOM", AFRICOM: "USAFRICOM", INDOPACOM: "USINDOPACOM", UNKNOWN: "—" };
+const ADV_LABEL: Record<number, string> = { 1: "Exercise Normal Precautions", 2: "Exercise Increased Caution", 3: "Reconsider Travel", 4: "Do Not Travel" };
+const ADV_COLOR: Record<number, string> = { 1: "text-emerald-400", 2: "text-amber-400", 3: "text-orange-400", 4: "text-red-400" };
+const ADV_DOT: Record<number, string> = { 1: "#10b981", 2: "#fbbf24", 3: "#fb923c", 4: "#ef4444" };
 
 const cat = (a: ForceAssessment | null | undefined, name: CategoryAssessment["category"]) => a?.categories.find((c) => c.category === name);
 
@@ -100,7 +103,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     if (!sel) return;
     let cancel = false;
     setDLoading(true); setDossier(null); setSitrep(null); setSLoading(true);
-    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], news: [] };
+    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], news: [], civil: { advisoryLevel: null, departure: null, events: [] } };
     fetch(`/api/ground-truth?country=${encodeURIComponent(sel.country)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!cancel) { setDossier(d ?? empty); setDLoading(false); } })
@@ -228,7 +231,28 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
 
               {/* Civil + Health/Access */}
               <div className="grid md:grid-cols-2 gap-3">
-                <Card title="⚖ Civil / political"><CatLines c={cat(sel, "civil")} /></Card>
+                <Card title="⚖ Civil / political">
+                  {dLoading && <p className="text-[12px] text-slate-500">Loading…</p>}
+                  {!dLoading && dossier && (() => {
+                    const cv = dossier.civil;
+                    const hasAny = cv.advisoryLevel != null || cv.departure || cv.events.length > 0;
+                    if (!hasAny) return <CatLines c={cat(sel, "civil")} />;
+                    return (
+                      <ul className="space-y-1.5">
+                        {cv.advisoryLevel != null && (
+                          <li className="text-[12px] flex items-start gap-1.5">
+                            <span style={{ color: ADV_DOT[cv.advisoryLevel] ?? "#94a3b8" }} className="mt-0.5 text-[8px]">●</span>
+                            <span className="text-slate-300"><b className="text-slate-200">State advisory:</b> Level {cv.advisoryLevel}{ADV_LABEL[cv.advisoryLevel] ? <> — <span className={ADV_COLOR[cv.advisoryLevel]}>{ADV_LABEL[cv.advisoryLevel]}</span></> : null}{cv.advisoryLink && <a href={cv.advisoryLink} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200">State ↗</a>}</span>
+                          </li>
+                        )}
+                        {cv.departure && <li className="text-[12px] text-red-400 flex items-start gap-1.5"><span className="text-[8px] mt-0.5">◆</span><span>{cv.departure === "ordered" ? "Ordered" : "Authorized"} departure in effect</span></li>}
+                        {cv.events.map((e, i) => (
+                          <li key={i} className="text-[12px] text-slate-300 flex items-start gap-1.5"><span className="text-amber-400 text-[8px] mt-0.5">●</span><span>{e.label} — {e.when}</span></li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
+                </Card>
                 <Card title="✚ Health · ✈ Access">
                   <div className="space-y-2">
                     <div><span className="text-[9px] uppercase tracking-wider text-slate-600">Health / hazard</span><CatLines c={cat(sel, "hazard")} /></div>
