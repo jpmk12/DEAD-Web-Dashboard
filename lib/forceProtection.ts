@@ -21,7 +21,7 @@ import { getAcledEvents } from "./acled";
 import { getInformPoints } from "./inform";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
 import { getFlightCategories, type AviationWx } from "./aviationWx";
-import { getNotams, type Notam } from "./notams";
+import { getNotams, startsInLabel, type Notam } from "./notams";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { civilCalendarEvents } from "./civilCalendar";
 import { getHealthEvents, type HealthEvent } from "./health";
@@ -225,7 +225,8 @@ function assessGps(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   if (ctx.live.notams && loc.icao) {
     for (const n of raimNotams.slice(0, 2)) {
       const w = n.raimWindows?.length ? ` ${n.raimWindows.join(", ")}` : "";
-      signals.push(`RAIM outage NOTAM${w}`);
+      const soon = startsInLabel(n, ctx.nowMs);
+      signals.push(`RAIM outage NOTAM${w}${soon ? ` (starts in ${soon})` : ""}`);
       sev = worse(sev, "amber");
     }
   }
@@ -256,8 +257,9 @@ function assessAirspace(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
     // obstacle items (markers, lights, windcones, U/S aids) are amber.
     const closure = n.category === "runway" && !!n.runwaysClosed?.length;
     sev = worse(sev, closure ? "red" : "amber");
-    if (closure) signals.push(`RWY ${n.runwaysClosed!.join(", ")} CLSD`);
-    else signals.push(n.text.replace(/\s+/g, " ").slice(0, 90));
+    const soon = startsInLabel(n, ctx.nowMs); // tag upcoming NOTAMs
+    const base = closure ? `RWY ${n.runwaysClosed!.join(", ")} CLSD` : n.text.replace(/\s+/g, " ").slice(0, 90);
+    signals.push(soon ? `${base} — starts in ${soon}` : base);
   }
   return { category: "airspace", severity: sev, signals };
 }

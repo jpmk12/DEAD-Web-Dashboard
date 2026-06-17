@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { categorizeNotam, parseRunwayClosure, parseRaimWindows, parseNotamEnd, buildNotam, parseDaipNotams } from "@/lib/notams";
+import { categorizeNotam, parseRunwayClosure, parseRaimWindows, parseNotamEnd, parseNotamStart, notamTimeState, startsInLabel, buildNotam, parseDaipNotams } from "@/lib/notams";
 
 describe("categorizeNotam", () => {
   it("runway closure outranks everything (rank 0)", () => {
@@ -46,6 +46,27 @@ describe("parseNotamEnd", () => {
   });
   it("no C) field → undefined", () => {
     expect(parseNotamEnd("RWY 09 CLSD PERM")).toBeUndefined();
+  });
+});
+
+describe("NOTAM time-awareness", () => {
+  const NOW = Date.UTC(2026, 5, 17, 0, 39); // 2026-06-17 00:39Z (matches the live KADW capture)
+  it("parses the B) start field", () => {
+    expect(parseNotamStart("A) KADW B) 2606171100 C) 2606172000 E) ...")).toBe("2026-06-17T11:00:00.000Z");
+  });
+  it("classifies active / upcoming / expired", () => {
+    const up = buildNotam("KADW", "A) KADW B) 2606171100 C) 2606172000 E) RWY 1R/19L CLOSED");
+    expect(notamTimeState(up, NOW)).toBe("upcoming"); // starts 11:00Z, now 00:39Z
+    const active = buildNotam("KADW", "A) KADW B) 2606130000 C) 2609102359 E) RWY 19L WINDCONE OTS");
+    expect(notamTimeState(active, NOW)).toBe("active");
+    const gone = buildNotam("KADW", "A) KADW B) 2606010000 C) 2606160000 E) RWY 01 CLOSED");
+    expect(notamTimeState(gone, NOW)).toBe("expired");
+  });
+  it("labels the lead time for upcoming NOTAMs", () => {
+    const up = buildNotam("KADW", "A) KADW B) 2606171100 C) 2606172000 E) RWY 1R/19L CLOSED");
+    expect(startsInLabel(up, NOW)).toBe("10h"); // ~10h 21m → 10h
+    const active = buildNotam("KADW", "A) KADW B) 2606130000 C) 2609102359 E) RWY 19L WINDCONE OTS");
+    expect(startsInLabel(active, NOW)).toBeNull(); // already started
   });
 });
 

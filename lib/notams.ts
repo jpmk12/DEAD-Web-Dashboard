@@ -30,9 +30,30 @@ export interface Notam {
   category: NotamCategory;
   rank: number;        // lower = more operationally significant
   text: string;
-  end?: string;        // ISO, from the C) field if present
+  start?: string;      // ISO, from the B) field if present (effective time)
+  end?: string;        // ISO, from the C) field if present (expiry)
   runwaysClosed?: string[];
   raimWindows?: string[]; // "1200-1400Z" style outage windows
+}
+
+export type NotamTimeState = "active" | "upcoming" | "expired";
+
+// Active now / starts later / already ended, given the parsed B)/C) times.
+export function notamTimeState(n: Notam, nowMs: number): NotamTimeState {
+  if (n.end) { const e = Date.parse(n.end); if (Number.isFinite(e) && e < nowMs) return "expired"; }
+  if (n.start) { const s = Date.parse(n.start); if (Number.isFinite(s) && s > nowMs) return "upcoming"; }
+  return "active";
+}
+
+// Compact "starts in …" for an upcoming NOTAM (null if active/started).
+export function startsInLabel(n: Notam, nowMs: number): string | null {
+  if (!n.start) return null;
+  const ms = Date.parse(n.start) - nowMs;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const h = ms / 3_600_000;
+  if (h < 1) return `${Math.max(1, Math.round(ms / 60_000))}m`;
+  if (h < 48) return `${Math.round(h)}h`;
+  return `${Math.round(h / 24)}d`;
 }
 
 // First-match-wins, ordered by operational significance. RWY…CLSD is bumped to
@@ -82,25 +103,35 @@ export function parseRaimWindows(text: string): string[] {
   return out;
 }
 
-// NOTAM end time from the ICAO `C)` field: YYMMDDHHMM Zulu → ISO. "PERM"/no
-// field → undefined.
-export function parseNotamEnd(text: string): string | undefined {
-  const m = text.match(/\bC\)\s*(\d{10})\b/);
-  if (!m) return undefined;
-  const s = m[1];
+// Decode an ICAO NOTAM YYMMDDHHMM Zulu group → ISO (or undefined if invalid).
+function decodeNotam10(s: string): string | undefined {
   const yy = Number(s.slice(0, 2)), mo = Number(s.slice(2, 4)), da = Number(s.slice(4, 6)), hh = Number(s.slice(6, 8)), mi = Number(s.slice(8, 10));
   if (mo < 1 || mo > 12 || da < 1 || da > 31 || hh > 23 || mi > 59) return undefined;
   return new Date(Date.UTC(2000 + yy, mo - 1, da, hh, mi)).toISOString();
 }
 
+// NOTAM effective start from the ICAO `B)` field.
+export function parseNotamStart(text: string): string | undefined {
+  const m = text.match(/\bB\)\s*(\d{10})\b/);
+  return m ? decodeNotam10(m[1]) : undefined;
+}
+
+// NOTAM end time from the ICAO `C)` field. "PERM"/no field → undefined.
+export function parseNotamEnd(text: string): string | undefined {
+  const m = text.match(/\bC\)\s*(\d{10})\b/);
+  return m ? decodeNotam10(m[1]) : undefined;
+}
+
 // Build a structured Notam from raw text + its station.
 export function buildNotam(icao: string, text: string): Notam {
   const { category, rank } = categorizeNotam(text);
+  const start = parseNotamStart(text);
   const end = parseNotamEnd(text);
   const runwaysClosed = category === "runway" ? parseRunwayClosure(text) : [];
   const raimWindows = category === "gps_raim" ? parseRaimWindows(text) : [];
   return {
     icao: icao.toUpperCase(), category, rank, text: text.slice(0, 500),
+    ...(start ? { start } : {}),
     ...(end ? { end } : {}),
     ...(runwaysClosed.length ? { runwaysClosed } : {}),
     ...(raimWindows.length ? { raimWindows } : {}),
@@ -171,12 +202,14 @@ export function parseDaipNotams(icao: string, raw: string): Notam[] | null {
     if (!basis) return;
     const { category, rank } = categorizeNotam(basis);
     const num = String(item.idshow ?? item.id ?? "").trim();
+    const start = parseNotamStart(rawtext) ?? parseNotamStart(display);
     const end = parseNotamEnd(rawtext) ?? parseNotamEnd(display);
     const runwaysClosed = category === "runway" ? parseRunwayClosure(basis) : [];
     const raimWindows = category === "gps_raim" ? parseRaimWindows(basis) : [];
     out.push({
       icao: ic, category, rank,
       text: ((num ? `${num} ` : "") + (display || basis)).slice(0, 480),
+      ...(start ? { start } : {}),
       ...(end ? { end } : {}),
       ...(runwaysClosed.length ? { runwaysClosed } : {}),
       ...(raimWindows.length ? { raimWindows } : {}),
@@ -230,13 +263,22 @@ export async function getNotams(icaosRaw: string[]): Promise<{ configured: boole
   // category entirely rather than showing a perpetual blind spot.
   if (!ca) return { configured: false, live: false, byIcao: {} };
 
+  const now = Date.now();
+  const STATE_RANK: Record<NotamTimeState, number> = { active: 0, upcoming: 1, expired: 2 };
   const byIcao: Record<string, Notam[]> = {};
   let anyOk = false;
   await Promise.all(icaos.map(async (icao) => {
     try {
       const raw = await daipPost(daipPayload(icao), ca);
       const parsed = parseDaipNotams(icao, raw) ?? extractNotamTexts(raw).map((t) => buildNotam(icao, t));
-      byIcao[icao] = parsed.sort((a, b) => a.rank - b.rank).slice(0, 40);
+      // Drop expired NOTAMs; order by significance (rank), then active-before-
+      // upcoming, then soonest start — so a live closure outranks a next-week one.
+      byIcao[icao] = parsed
+        .map((n) => ({ n, st: notamTimeState(n, now) }))
+        .filter((x) => x.st !== "expired")
+        .sort((a, b) => a.n.rank - b.n.rank || STATE_RANK[a.st] - STATE_RANK[b.st] || (Date.parse(a.n.start ?? "0") - Date.parse(b.n.start ?? "0")))
+        .slice(0, 40)
+        .map((x) => x.n);
       anyOk = true;
     } catch {
       /* this station failed — leave it out; overall live reflects anyOk */
