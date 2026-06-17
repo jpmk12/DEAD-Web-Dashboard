@@ -224,6 +224,7 @@ export default function CrisisMap() {
   const [forces, setForces] = useState<ForceAssessment[]>([]);
   const [milair, setMilair] = useState<MilAc[]>([]);
   const [ships, setShips] = useState<Vessel[]>([]);
+  const [airfieldCaps, setAirfieldCaps] = useState<Record<string, { lengthFt: number; surface: string; lighted: boolean; cls: string }>>({});
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
@@ -382,6 +383,18 @@ export default function CrisisMap() {
     const id = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [on.milair]);
+
+  // Gateway runway capability — fetched once when the Gateways layer first turns
+  // on (longest open runway + surface → C-17/C-130/light, from OurAirports).
+  useEffect(() => {
+    if (!on.airfields || Object.keys(airfieldCaps).length > 0) return;
+    let cancelled = false;
+    fetch(`/api/airfield-capability?icao=${GATEWAYS.map((g) => g.icao).join(",")}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.caps) setAirfieldCaps(d.caps); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [on.airfields, airfieldCaps]);
 
   // Maritime vessels (AIS) — radius-based around home (AIS has no keyless global
   // feed like ADS-B, so this is local, not worldwide). Polled only while on.
@@ -782,12 +795,14 @@ export default function CrisisMap() {
                 <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div></div></Popup>
               </Marker>
             ))}
-            {on.airfields && GATEWAYS.map((g) => (
+            {on.airfields && GATEWAYS.map((g) => {
+              const cap = airfieldCaps[g.icao];
+              return (
               <Marker key={`af-${g.icao}`} position={[g.lat, g.lon]} icon={airfieldIcon}>
                 {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{g.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div><div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div><div className="text-slate-500">Candidate open/reopen field for HADR / evac</div></div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div>{cap ? <div className={cap.cls === "C-17" ? "text-emerald-700" : cap.cls === "C-130" ? "text-amber-700" : "text-slate-500"}>Longest rwy {cap.lengthFt.toLocaleString()}ft{cap.surface ? ` · ${cap.surface}` : ""}{cap.lighted ? " · lit" : ""} — {cap.cls}{cap.cls !== "light" ? " capable" : ""}</div> : <div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div>}<div className="text-slate-500">Candidate open/reopen field for HADR / evac{cap ? " · rwy advisory (OurAirports)" : ""}</div></div></Popup>
               </Marker>
-            ))}
+            );})}
             {on.tracked && tracked.map((t, i) => (
               <Marker key={`tr-${i}`} position={[t.lat, t.lon]} icon={t.home ? homeIcon : trackedIcon}>
                 {/* Home is a singular anchor — label it whenever the labels layer

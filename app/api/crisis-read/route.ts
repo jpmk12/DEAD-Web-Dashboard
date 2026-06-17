@@ -9,19 +9,22 @@ import { getConflictPoints } from "@/lib/conflictEvents";
 import { getAcledEvents } from "@/lib/acled";
 import { aorFromCoords } from "@/lib/aor";
 import { nearestAirfields } from "@/lib/airfields";
-import { nearestOurAirports } from "@/lib/ourAirports";
+import { nearestOurAirports, airfieldCapabilities, capTag, type RunwayCap } from "@/lib/ourAirports";
 
 // Compact "nearest mobility airfield(s)" hint for a demand point, so the read can
 // name a real field for the access note. Curated set first; if nothing useful is
 // close, fall back to the nearest OurAirports civil/military field (the "search
-// others" hybrid) so even gateway-sparse regions get a candidate.
+// others" hybrid) so even gateway-sparse regions get a candidate. Each field
+// carries a runway-capability tag (longest open rwy + surface → C-17/C-130/light)
+// so the read can reason about whether the airframe actually fits.
 async function accessHint(lat: number | null, lon: number | null): Promise<string> {
   if (lat == null || lon == null) return "";
   const curated = nearestAirfields(lat, lon, 2, 4000);
-  const parts = curated.map((a) => `${a.icao} ${a.name} ~${a.km}km`);
+  const caps: Record<string, RunwayCap> = await airfieldCapabilities(curated.map((a) => a.icao)).catch(() => ({}));
+  const parts = curated.map((a) => { const t = capTag(caps[a.icao]); return `${a.icao} ${a.name} ~${a.km}km${t ? ` [${t}]` : ""}`; });
   if (curated.length === 0 || curated[0].km > 600) {
     const oa = await nearestOurAirports(lat, lon, 1, 2000).catch(() => []);
-    if (oa[0]) parts.push(`${oa[0].ident} ${oa[0].name} ~${oa[0].km}km (civil)`);
+    if (oa[0]) { const t = capTag(oa[0].cap); parts.push(`${oa[0].ident} ${oa[0].name} ~${oa[0].km}km (civil)${t ? ` [${t}]` : ""}`); }
   }
   return parts.length ? " | access: " + parts.join("; ") : " | access: no field <4000km";
 }
