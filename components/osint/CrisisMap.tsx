@@ -124,9 +124,10 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "forces" | "milair" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
+interface Vessel { mmsi: number; name: string; shipType: number; lat: number; lon: number; cog: number; sog: number; heading: number | null }
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
@@ -142,6 +143,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
   forces: "Force Protection Watch — your countries of interest (🌐, at centroid) and pinned bases (🛡), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Force Protection. Click for the top driver.",
   milair: "Military aircraft currently broadcasting ADS-B (keyless community feed — airplanes.live / adsb.lol). ✈ rotated to heading; click for callsign/type/altitude. Coverage follows the volunteer receiver network (sparse mid-ocean) and many mil aircraft fly dark — 'what's broadcasting', not ground truth. Off by default; filter by AOR. Refreshes ~30 s.",
+  ships: "Live maritime vessels (AIS, via AISStream) within ~300 km of your home location. ▲ rotated to heading; click for name/speed/course. Requires AISSTREAM_API_KEY — AIS has no keyless global feed, so unlike Mil air this shows vessels near home, not worldwide. Off by default; refreshes ~30 s.",
   enroute: "AMC en route / mobility hubs.",
   crf: "Contingency Response stations (CRG/CRW/AMOW) — the 'open the airfield' first responders.",
   airfields: "Mobility gateway airfields — major C-17/C-130-capable international fields near crisis-prone regions (AFRICOM/CENTCOM/EUCOM/INDOPACOM/SOUTHCOM), the candidate fields to open/reopen for HADR or evacuation when no US hub is close.",
@@ -162,6 +164,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
     { k: "milair", label: "Mil air", dot: "#a3e635" },
+    { k: "ships", label: "Vessels", dot: "#22d3ee" },
   ] },
   { label: "Anticipatory", keys: [
     { k: "informRisk", label: "INFORM Risk", dot: "#f59e0b" },
@@ -220,6 +223,7 @@ export default function CrisisMap() {
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
   const [forces, setForces] = useState<ForceAssessment[]>([]);
   const [milair, setMilair] = useState<MilAc[]>([]);
+  const [ships, setShips] = useState<Vessel[]>([]);
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
@@ -259,7 +263,7 @@ export default function CrisisMap() {
   const AF = AIRFRAMES[airframe];
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, forces: true, milair: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -379,6 +383,25 @@ export default function CrisisMap() {
     return () => { cancelled = true; clearInterval(id); };
   }, [on.milair]);
 
+  // Maritime vessels (AIS) — radius-based around home (AIS has no keyless global
+  // feed like ADS-B, so this is local, not worldwide). Polled only while on.
+  const home = useMemo(() => tracked.find((t) => t.home) ?? null, [tracked]);
+  useEffect(() => {
+    if (!on.ships || !home) return;
+    let cancelled = false;
+    const load = () => fetch(`/api/osint/ships?lat=${home.lat}&lon=${home.lon}&radius=300`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { ships?: Vessel[]; configured?: boolean; error?: string } | null) => {
+        if (cancelled) return;
+        if (Array.isArray(d?.ships)) setShips(d!.ships);
+        markSrc("AIS vessels", d?.configured === false || !!d?.error);
+      })
+      .catch(() => {});
+    load();
+    const id = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [on.ships, home]);
+
   // Radar time-loop — advance one frame every 600 ms when the layer is on and
   // playing (only the radar tiles re-render; the browser caches frames after the
   // first loop). Pauses when the layer is off so we don't churn tiles unseen.
@@ -485,6 +508,10 @@ export default function CrisisMap() {
     }
     return s;
   }, [forces, milShown]);
+  const shipShown = useMemo(
+    () => ships.filter((s) => aorFilter === "ALL" || aorFromCoords(s.lat, s.lon) === aorFilter),
+    [ships, aorFilter],
+  );
   const milNearForce = useMemo(() => {
     const m: Record<string, number> = {};
     if (milShown.length === 0) return m;
@@ -546,7 +573,7 @@ export default function CrisisMap() {
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
     neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
-    forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined,
+    forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined, ships: (on.ships && shipShown.length) || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
   };
   const activeCount = Object.values(on).filter(Boolean).length;
@@ -630,6 +657,7 @@ export default function CrisisMap() {
           <span><span className="text-teal-300">★</span> CRF</span>
           <span><span className="text-emerald-400">⌂</span> home / <span className="text-slate-400">◇</span> tracked</span>
           <span><span style={{ color: "#a3e635" }}>✈</span> mil aircraft</span>
+          <span><span style={{ color: "#22d3ee" }}>▲</span> vessel (AIS)</span>
           <span className="text-slate-300">Force Protection: 🌐 country · 🛡 base — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
         </div>
       )}
@@ -795,6 +823,16 @@ export default function CrisisMap() {
                 </Marker>
               );
             })}
+            {on.ships && shipShown.map((s) => (
+              <Marker
+                key={`ship-${s.mmsi}`}
+                position={[s.lat, s.lon]}
+                icon={glyph(`<span style="display:inline-block;transform:rotate(${s.heading ?? s.cog ?? 0}deg);color:#22d3ee;font-size:11px">▲</span>`, 12)}
+                eventHandlers={{ click: () => pick(`ship-${s.mmsi}`, s.lat, s.lon, 6) }}
+              >
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[200px]"><div className="font-bold text-sm">{s.name || `MMSI ${s.mmsi}`}</div><div className="text-slate-500">{s.sog.toFixed(1)} kn · {Math.round(s.cog)}°</div><div className="text-[10px] text-slate-600">MMSI {s.mmsi} · {aorFromCoords(s.lat, s.lon)} · AIS (AISStream)</div></div></Popup>
+              </Marker>
+            ))}
             {on.neo && neoPins.map(({ a, pos }) => { const evac = a.orderedDeparture || a.authorizedDeparture; return (
               <Marker key={`neo-${a.country}`} position={pos} icon={evac ? neoDepartIcon : neoLevel4Icon} eventHandlers={{ click: () => pick(`neo-${a.country}`, pos[0], pos[1]) }}>
                 {on.labels && evac && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{a.country}{a.aor !== "UNKNOWN" ? ` · ${a.aor}` : ""} · {a.orderedDeparture ? "ORDERED DEP" : "AUTH DEP"}</Tooltip>}
