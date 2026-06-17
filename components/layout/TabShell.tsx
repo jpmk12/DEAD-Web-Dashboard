@@ -12,6 +12,7 @@ import EmailTab from "@/components/email/EmailTab";
 import MarketsTab from "@/components/markets/MarketsTab";
 import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
+import GroundTruthTab from "@/components/ground/GroundTruthTab";
 import DocumentsTab from "@/components/documents/DocumentsTab";
 import GlanceTab from "@/components/glance/GlanceTab";
 import PreferencesDrawer from "@/components/PreferencesDrawer";
@@ -306,6 +307,10 @@ export default function TabShell() {
             onSignalCount={setOsintSignals}
             onTopSignals={setOsintTop}
           />
+        </div>
+
+        <div className={activeTab !== "ground" ? "hidden" : ""}>
+          <GroundTruthTab active={activeTab === "ground"} />
         </div>
 
         <div className={activeTab !== "markets" ? "hidden" : ""}>
