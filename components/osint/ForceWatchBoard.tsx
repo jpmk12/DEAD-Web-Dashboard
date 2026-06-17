@@ -46,6 +46,10 @@ function Card({ a }: { a: ForceAssessment }) {
             {a.icao && <span className="text-[9px] font-mono text-slate-400 bg-slate-900/60 px-1 rounded">{a.icao}</span>}
             <span className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{COCOM_LABEL[a.cocom] ?? a.cocom}</span>
             {a.transient && <span className="text-[8px] uppercase tracking-wider text-amber-400/80" title="Transient presence window">◷ transient</span>}
+            {a.previousComposite && a.previousComposite !== a.composite && (() => {
+              const worse = SEV_RANK[a.composite] < SEV_RANK[a.previousComposite]; // lower rank index = more severe
+              return <span className={`text-[8px] font-bold ${worse ? "text-red-400" : "text-emerald-400"}`} title={`Changed from ${a.previousComposite.toUpperCase()} since yesterday`}>{worse ? "▲" : "▼"} from {a.previousComposite.toUpperCase()}</span>;
+            })()}
             {/* Per-category severity dots */}
             <span className="ml-auto flex items-center gap-0.5">
               {a.categories.map((c) => (

@@ -14,6 +14,17 @@ const DB_CONFIG = {
 };
 
 const SCHEMA_STATEMENTS = [
+  // Daily Force Protection posture per watched entry, for day-over-day deltas
+  // ("what changed"). entry_key is stable across edits (country name / base
+  // label), not the prefs id (which is timestamped).
+  `CREATE TABLE IF NOT EXISTS force_posture_daily (
+    day         VARCHAR(10)  NOT NULL,
+    entry_key   VARCHAR(160) NOT NULL,
+    label       VARCHAR(80)  NOT NULL,
+    cocom       VARCHAR(16)  NOT NULL,
+    composite   VARCHAR(10)  NOT NULL,
+    PRIMARY KEY (day, entry_key)
+  ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS saved_items (
     id          VARCHAR(255) PRIMARY KEY,
     type        VARCHAR(32)  NOT NULL,

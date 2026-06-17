@@ -25,6 +25,7 @@ import { getNotams, startsInLabel, type Notam } from "./notams";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { civilCalendarEvents } from "./civilCalendar";
 import { getHealthEvents, type HealthEvent } from "./health";
+import { getPreviousComposites, recordPosture, postureKey } from "./forcePostureHistory";
 
 export type Severity = "green" | "amber" | "red" | "unknown";
 export type ForceCategory = "conflict" | "weather" | "gps" | "airspace" | "civil" | "hazard";
@@ -55,6 +56,7 @@ export interface ForceAssessment {
   icao?: string;
   note?: string;
   transient: boolean;        // has a presence window
+  previousComposite?: Severity; // prior day's composite, only when it changed
   composite: Severity;       // worst category
   score: number;             // 0-100 for ranking within a severity tier
   topDriver: string;         // one-line headline ("Conflict — ...")
@@ -410,6 +412,15 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
   const assessments = active
     .map((l) => assessLocation(l, ctx))
     .sort((a, b) => SEV_RANK[b.composite] - SEV_RANK[a.composite] || b.score - a.score);
+
+  // "What changed": attach the prior day's composite where it differs, then
+  // record today's (both best-effort — never block the board).
+  const prev = await getPreviousComposites();
+  for (const a of assessments) {
+    const p = prev[postureKey(a)];
+    if (p && p !== a.composite) a.previousComposite = p;
+  }
+  recordPosture(assessments).catch(() => {});
 
   return {
     assessments,
