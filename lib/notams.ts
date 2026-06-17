@@ -205,10 +205,15 @@ export interface NotamDiag {
   configured: boolean;
   caSubject: string | null;
   tls: { connected: boolean; authorizedAgainstBundle: boolean; authorizationError: string | null; chain: { subject: string; issuer: string }[] };
-  secureRequest: { ok: boolean; status: number | null; bytes: number | null; error: string | null };
-  insecureRequest: { ok: boolean; status: number | null; bytes: number | null; error: string | null };
+  secureRequest: ReqProbe;
+  insecureRequest: ReqProbe;
+  // Alternate request contracts tried in one run, so we can spot which path/body
+  // DAIP accepts without a slow guess-and-redeploy loop.
+  variants: { label: string; status: number | null; contentType: string | null; sample: string | null; error: string | null }[];
   verdict: string;
 }
+
+interface ReqProbe { ok: boolean; status: number | null; bytes: number | null; contentType: string | null; server: string | null; sample: string | null; error: string | null }
 
 const dn = (o: tls.PeerCertificate["subject"] | undefined): string =>
   o ? [o.CN, o.OU, o.O].filter(Boolean).join(" / ") || JSON.stringify(o) : "?";
@@ -234,23 +239,36 @@ function tlsProbe(ca: string | null): Promise<NotamDiag["tls"]> {
   });
 }
 
-function daipProbe(icao: string, ca: string | null, rejectUnauthorized: boolean): Promise<NotamDiag["secureRequest"]> {
+function daipProbe(icao: string, ca: string | null, rejectUnauthorized: boolean, opts?: { path?: string; method?: string; body?: string }): Promise<ReqProbe> {
   return new Promise((resolve) => {
-    const body = JSON.stringify({ type: "LOCATION", designatorsForLocation: icao });
+    const method = opts?.method ?? "POST";
+    const path = opts?.path ?? DAIP_PATH;
+    const body = opts?.body ?? JSON.stringify({ type: "LOCATION", designatorsForLocation: icao });
     let done = false;
-    const finish = (r: NotamDiag["secureRequest"]) => { if (!done) { done = true; resolve(r); } };
+    const finish = (r: ReqProbe) => { if (!done) { done = true; resolve(r); } };
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (method !== "GET") { headers["Content-Type"] = "application/json"; headers["Content-Length"] = String(Buffer.byteLength(body)); }
     const req = https.request(
-      { host: DAIP_HOST, path: DAIP_PATH, method: "POST", ca: ca ?? undefined, rejectUnauthorized, timeout: 10_000,
-        headers: { "Content-Type": "application/json", Accept: "application/json", "Content-Length": Buffer.byteLength(body) } },
+      { host: DAIP_HOST, path, method, ca: ca ?? undefined, rejectUnauthorized, timeout: 10_000, headers },
       (res) => {
-        let bytes = 0;
-        res.on("data", (c) => { bytes += c.length; if (bytes > 200_000) res.destroy(); });
-        res.on("end", () => finish({ ok: !!res.statusCode && res.statusCode < 400, status: res.statusCode ?? null, bytes, error: null }));
+        let buf = "";
+        res.setEncoding("utf8");
+        res.on("data", (c: string) => { if (buf.length < 600) buf += c; });
+        res.on("end", () => finish({
+          ok: !!res.statusCode && res.statusCode < 400,
+          status: res.statusCode ?? null,
+          bytes: Buffer.byteLength(buf),
+          contentType: (res.headers["content-type"] as string) ?? null,
+          server: (res.headers["server"] as string) ?? null,
+          sample: buf.slice(0, 300).replace(/\s+/g, " ").trim() || null,
+          error: null,
+        }));
       },
     );
-    req.on("error", (e: NodeJS.ErrnoException) => finish({ ok: false, status: null, bytes: null, error: e.code ?? e.message }));
-    req.on("timeout", () => { req.destroy(new Error("ETIMEDOUT")); finish({ ok: false, status: null, bytes: null, error: "ETIMEDOUT" }); });
-    req.write(body); req.end();
+    req.on("error", (e: NodeJS.ErrnoException) => finish({ ok: false, status: null, bytes: null, contentType: null, server: null, sample: null, error: e.code ?? e.message }));
+    req.on("timeout", () => { req.destroy(new Error("ETIMEDOUT")); finish({ ok: false, status: null, bytes: null, contentType: null, server: null, sample: null, error: "ETIMEDOUT" }); });
+    if (method !== "GET") req.write(body);
+    req.end();
   });
 }
 
@@ -265,11 +283,27 @@ export async function diagnoseNotams(icao = "KADW"): Promise<NotamDiag> {
     daipProbe(icao, ca, false),
   ]);
 
+  // Try a handful of plausible DAIP/DINS contracts (best-effort guesses) so the
+  // working one — if any — surfaces in a single diagnostic run.
+  const variantDefs: { label: string; path?: string; method?: string; body?: string }[] = [
+    { label: "POST designators[]", body: JSON.stringify({ type: "LOCATION", designators: [icao] }) },
+    { label: "POST DINS-style", body: JSON.stringify({ reportType: "Raw", actionType: "notamRetrievalbyICAOs", retrieveLocId: icao }) },
+    { label: "POST locations[]", body: JSON.stringify({ type: "LOCATION", locations: [icao] }) },
+    { label: "GET query", method: "GET", path: `${DAIP_PATH}?type=LOCATION&designatorsForLocation=${icao}` },
+  ];
+  const variants = await Promise.all(variantDefs.map(async (v) => {
+    const r = await daipProbe(icao, ca, true, v);
+    return { label: v.label, status: r.status, contentType: r.contentType, sample: r.sample, error: r.error };
+  }));
+
   let verdict: string;
   if (secureR.ok) verdict = "DAIP reachable and trusted — NOTAMs should work. If still empty, the response schema differs; capture a sample.";
   else if (insecureR.ok && !secureR.ok) verdict = "TLS-TRUST issue only: the request works with verification off, so DAIP's chain doesn't validate against the bundled root. Add the intermediate CA(s) shown in tls.chain to lib/certs/dodCa.ts.";
   else if (!tlsR.connected) verdict = `Cannot even open a TLS socket (${tlsR.authorizationError ?? insecureR.error}). DAIP is likely IP-blocked from this host or requires a client certificate (mutual TLS) — not fixable from a commercial cloud. Pivot to the FAA NOTAM API (needs creds) or accept GPS-only.`;
   else verdict = `DAIP refuses the request (status ${insecureR.status ?? "—"} / ${insecureR.error ?? "—"}) even ignoring TLS — likely an app-layer block, wrong path/body, or client-cert requirement.`;
 
-  return { configured: !!ca, caSubject, tls: tlsR, secureRequest: secureR, insecureRequest: insecureR, verdict };
+  const okVariant = variants.find((v) => v.status != null && v.status < 400);
+  if (okVariant) verdict = `A variant works: "${okVariant.label}" returned ${okVariant.status}. Wire that path/body into getNotams.`;
+
+  return { configured: !!ca, caSubject, tls: tlsR, secureRequest: secureR, insecureRequest: insecureR, variants, verdict };
 }
