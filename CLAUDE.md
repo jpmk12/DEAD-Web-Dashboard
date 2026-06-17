@@ -820,9 +820,17 @@ The old **Markets** tab (TradingView ticker/overview/econ-calendar + DoD contrac
 was **retooled**, NOT retired, into a mobility-economics board: *global economic
 trends affecting **access, basing, and overflight***. The TradingView widgets +
 `ContractsPanel`/`/api/markets/contracts` were deleted. New pieces (all keyless):
-- `lib/energyPrices.ts` → `/api/markets/energy`: Brent/WTI/natgas/gold via **Stooq**
-  CSV (`stooq.com/q/l/?s=…&e=csv`, 15 min cache). Brent = the jet-fuel/sustainment-
-  cost driver. Session change only (no historical key).
+- `lib/energyPrices.ts` → `/api/markets/energy`: Brent/WTI/natgas/gold via **Yahoo
+  Finance** keyless v8 chart API (`query1.finance.yahoo.com/v8/finance/chart/CL=F`
+  etc., one call/symbol, 15 min cache). Brent (`BZ=F`) = the jet-fuel/sustainment-
+  cost driver. **Stooq was dropped** — it now 404s in the browser and 403s
+  server-side (blocks datacenter IPs / bot UAs), so the panel showed all dashes;
+  its daily CSV (`q/d/l/?i=d`) survives only as a best-effort fallback. Both are
+  fetched with a **browser User-Agent** (the old bot UA was a 403 trigger). Pure
+  parsers (`parseYahooChart`/`parseDailyClose`) are unit-tested; `?debug=1`
+  (owner-only, `OWNER_EMAIL`) returns per-symbol per-source HTTP status so a blank
+  panel shows its real cause. `EnergyQuote` carries `link` (clickable Yahoo quote
+  page) + `source`. Fail-safe: unresolved symbol → null → "—", never a fake price.
 - `lib/chokepoints.ts`: curated strategic chokepoints (Hormuz, Bab-el-Mandeb, Suez,
   Turkish Straits, Malacca, Taiwan, Panama, Russian overflight) + `scoreChokepoints`
   — a **pure** scorer over the day's news (no new feed). Safe to import client-side.
@@ -844,7 +852,8 @@ INFORM Risk (`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
 OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
 METAR + TAF; also the node flight-category rings via `/api/airfield-weather`),
-Stooq (`stooq.com`, energy/commodity quotes), Nager.Date
+Yahoo Finance (`query1.finance.yahoo.com`, energy/commodity quotes; Stooq
+`stooq.com` is a best-effort fallback only), Nager.Date
 (`date.nager.at`, public holidays), and DoD DAIP (`www.daip.jcs.mil`, NOTAMs —
 needs the bundled DoD CA). The one
 **WebSocket** is the AISStream vessel bridge (`wss://stream.aisstream.io`, over

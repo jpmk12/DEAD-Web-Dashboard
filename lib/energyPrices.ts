@@ -1,14 +1,14 @@
-// Energy & commodity prices via Stooq's keyless CSV — the fuel/sustainment and
-// macro-stress signals that bear on mobility (Brent ≈ jet-fuel cost driver;
+// Energy & commodity prices for the Strategic Economics tab — the fuel/
+// sustainment-cost signal that bears on mobility (Brent ≈ jet-fuel cost driver;
 // natgas/gold as macro stress). Keyless, HTTPS, cached. Server-only.
 //
-// Two Stooq endpoints, in order:
-//   1. the light snapshot  q/l/?s=…&f=sd2t2ohlc  — one call, all symbols, gives
-//      open+close for the session change.
-//   2. per-symbol daily CSV  q/d/l/?s=…&i=d  — fallback for any symbol the
-//      snapshot returns as "N/D" (the continuous-futures ".f" symbols often have
-//      no intraday OHLC between sessions, which is what blanked the panel). Last
-//      bar = latest close; change is vs the prior bar's close.
+// Source history: Stooq's CSV was the original source but it now 404s in the
+// browser AND 403s server-side (it blocks datacenter IPs / bot User-Agents), so
+// the panel rendered all dashes. Primary is now Yahoo Finance's keyless v8 chart
+// API (JSON, one call per symbol), with the Stooq daily CSV kept only as a
+// best-effort fallback. Both are fetched with a real browser User-Agent — the
+// previous bot UA was itself a 403 trigger. Fail-safe: any symbol that can't be
+// resolved from either source is null → the UI shows "—" (never a stale/fake price).
 
 import { fetchWithTimeout } from "./fetchTimeout";
 
@@ -16,113 +16,127 @@ export interface EnergyQuote {
   symbol: string;   // our short id
   label: string;
   price: number | null;
-  changePct: number | null; // session change (close vs open), or day-over-day from the daily fallback
-  asOf: string;     // date the quote is for
+  changePct: number | null; // session/day change vs previous close
+  asOf: string;     // date the quote is for (YYYY-MM-DD)
+  link: string;     // human quote page (clickable in the UI)
+  source: "yahoo" | "stooq" | null;
 }
 
-// Stooq symbol → our display. cl.f WTI, cb.f Brent, ng.f Henry Hub, gc.f gold.
-const SYMBOLS: { stooq: string; symbol: string; label: string }[] = [
-  { stooq: "cl.f", symbol: "wti", label: "WTI Crude" },
-  { stooq: "cb.f", symbol: "brent", label: "Brent (jet-fuel driver)" },
-  { stooq: "ng.f", symbol: "natgas", label: "Nat Gas" },
-  { stooq: "gc.f", symbol: "gold", label: "Gold" },
+interface SymbolDef { id: string; label: string; yahoo: string; stooq: string }
+const SYMBOLS: SymbolDef[] = [
+  { id: "wti", label: "WTI Crude", yahoo: "CL=F", stooq: "cl.f" },
+  { id: "brent", label: "Brent (jet-fuel driver)", yahoo: "BZ=F", stooq: "cb.f" },
+  { id: "natgas", label: "Nat Gas", yahoo: "NG=F", stooq: "ng.f" },
+  { id: "gold", label: "Gold", yahoo: "GC=F", stooq: "gc.f" },
 ];
+
+// A real browser UA — Stooq/Yahoo both 403 obvious bot strings.
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const yahooQuotePage = (sym: string) => `https://finance.yahoo.com/quote/${encodeURIComponent(sym)}`;
 
 const TTL = 15 * 60 * 1000;
 let cache: { data: EnergyQuote[]; expires: number } | null = null;
 
-const UA = "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)";
-
-// Stooq writes "N/D" (no data) into OHLC cells when a symbol has no quote for the
-// requested period — Number("N/D") is NaN, so guard with Number.isFinite.
-function num(v: string | undefined): number {
-  return Number((v ?? "").trim());
+const round1 = (n: number) => Math.round(n * 10) / 10;
+function pct(price: number, prev: number | undefined): number | null {
+  return prev != null && Number.isFinite(prev) && prev !== 0 ? round1(((price - prev) / prev) * 100) : null;
 }
 
-// PURE: parse the light snapshot CSV (q/l/ with f=sd2t2ohlc). Returns open/close
-// keyed by lowercased Stooq symbol. Exported for unit testing.
-export function parseLightQuotes(text: string): Map<string, { open: number; close: number; date: string }> {
-  const out = new Map<string, { open: number; close: number; date: string }>();
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return out;
-  const header = lines[0].toLowerCase().split(",");
-  const iSym = header.indexOf("symbol"), iDate = header.indexOf("date"),
-    iOpen = header.indexOf("open"), iClose = header.indexOf("close");
-  for (let i = 1; i < lines.length; i++) {
-    const c = lines[i].split(",");
-    const sym = (c[iSym] || "").toLowerCase().trim();
-    if (!sym) continue;
-    out.set(sym, { open: num(c[iOpen]), close: num(c[iClose]), date: (c[iDate] || "").trim() });
-  }
-  return out;
-}
-
-// PURE: parse a daily history CSV (q/d/l/?i=d) → latest close + day-over-day %.
+// PURE: parse Yahoo v8 chart JSON → latest price + change vs previous close.
 // Exported for unit testing.
+export function parseYahooChart(json: unknown): { price: number; changePct: number | null; date: string } | null {
+  const result = (json as { chart?: { result?: unknown[] } })?.chart?.result?.[0] as
+    { meta?: Record<string, unknown> } | undefined;
+  const meta = result?.meta;
+  if (!meta) return null;
+  const price = Number(meta.regularMarketPrice);
+  if (!Number.isFinite(price)) return null;
+  const prevRaw = meta.chartPreviousClose ?? meta.previousClose;
+  const prev = prevRaw != null ? Number(prevRaw) : undefined;
+  const t = Number(meta.regularMarketTime);
+  const date = Number.isFinite(t) ? new Date(t * 1000).toISOString().slice(0, 10) : "";
+  return { price, changePct: pct(price, prev), date };
+}
+
+// PURE: parse a Stooq daily history CSV (q/d/l/?i=d) → latest close + day-over-
+// day %. Kept as the fallback parser; exported for unit testing.
 export function parseDailyClose(text: string): { price: number; changePct: number | null; date: string } | null {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return null;
   const header = lines[0].toLowerCase().split(",");
   const iDate = header.indexOf("date"), iClose = header.indexOf("close");
   if (iClose < 0) return null;
-  // Collect valid (finite-close) rows in file order; Stooq returns oldest→newest.
   const rows: { close: number; date: string }[] = [];
   for (let i = 1; i < lines.length; i++) {
     const c = lines[i].split(",");
-    const close = num(c[iClose]);
+    const close = Number((c[iClose] ?? "").trim());
     if (!Number.isFinite(close)) continue;
     rows.push({ close, date: (c[iDate] || "").trim() });
   }
   if (!rows.length) return null;
   const last = rows[rows.length - 1];
   const prev = rows.length >= 2 ? rows[rows.length - 2] : null;
-  const changePct = prev && prev.close !== 0
-    ? Math.round(((last.close - prev.close) / prev.close) * 1000) / 10
-    : null;
-  return { price: last.close, changePct, date: last.date };
+  return { price: last.close, changePct: prev ? pct(last.close, prev.close) : null, date: last.date };
 }
 
-async function dailyFallback(stooq: string): Promise<{ price: number; changePct: number | null; date: string } | null> {
+async function fromYahoo(sym: string): Promise<{ price: number; changePct: number | null; date: string } | null> {
   try {
-    const res = await fetchWithTimeout(
-      `https://stooq.com/q/d/l/?s=${stooq}&i=d`,
-      { headers: { "User-Agent": UA }, cache: "no-store" }, 10_000,
-    );
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5d`;
+    const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" }, 10_000);
+    if (!res.ok) return null;
+    return parseYahooChart(await res.json());
+  } catch { return null; }
+}
+
+async function fromStooq(stooq: string): Promise<{ price: number; changePct: number | null; date: string } | null> {
+  try {
+    const res = await fetchWithTimeout(`https://stooq.com/q/d/l/?s=${stooq}&i=d`, { headers: { "User-Agent": UA }, cache: "no-store" }, 10_000);
     if (!res.ok) return null;
     return parseDailyClose(await res.text());
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 export async function getEnergyQuotes(): Promise<EnergyQuote[]> {
   if (cache && cache.expires > Date.now()) return cache.data;
 
-  let snapshot = new Map<string, { open: number; close: number; date: string }>();
-  try {
-    const ids = SYMBOLS.map((s) => s.stooq).join(",");
-    const url = `https://stooq.com/q/l/?s=${ids}&f=sd2t2ohlc&h&e=csv`;
-    const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA }, cache: "no-store" }, 10_000);
-    if (res.ok) snapshot = parseLightQuotes(await res.text());
-  } catch { /* fall through to per-symbol daily fallback below */ }
-
-  // Build from the snapshot; for any symbol with no finite close, fetch its daily
-  // history (in parallel). This is what un-blanks the panel when ".f" symbols
-  // come back "N/D" on the light endpoint.
   const out: EnergyQuote[] = await Promise.all(SYMBOLS.map(async (s) => {
-    const row = snapshot.get(s.stooq);
-    if (row && Number.isFinite(row.close)) {
-      const changePct = Number.isFinite(row.open) && row.open !== 0
-        ? Math.round(((row.close - row.open) / row.open) * 1000) / 10
-        : null;
-      return { symbol: s.symbol, label: s.label, price: row.close, changePct, asOf: row.date };
-    }
-    const daily = await dailyFallback(s.stooq);
-    if (daily) return { symbol: s.symbol, label: s.label, price: daily.price, changePct: daily.changePct, asOf: daily.date };
-    return { symbol: s.symbol, label: s.label, price: null, changePct: null, asOf: "" };
+    const base = { symbol: s.id, label: s.label, link: yahooQuotePage(s.yahoo) };
+    const y = await fromYahoo(s.yahoo);
+    if (y) return { ...base, price: y.price, changePct: y.changePct, asOf: y.date, source: "yahoo" as const };
+    const st = await fromStooq(s.stooq);
+    if (st) return { ...base, price: st.price, changePct: st.changePct, asOf: st.date, source: "stooq" as const };
+    return { ...base, price: null, changePct: null, asOf: "", source: null };
   }));
 
-  // Only cache if at least one symbol resolved (don't pin an all-empty result).
   if (out.some((q) => q.price != null)) cache = { data: out, expires: Date.now() + TTL };
   return cache?.data ?? out;
+}
+
+// Owner-only diagnostic: per-symbol, per-source HTTP status so a blank panel
+// shows its real cause (403/404/timeout) instead of just dashes. Mirrors the
+// UCDP/INFORM diag pattern. Network — only call from a gated debug route.
+export interface EnergyDiag {
+  symbol: string;
+  yahoo: { status: number; ok: boolean; price?: number; error?: string };
+  stooq: { status: number; ok: boolean; price?: number; error?: string };
+}
+
+export async function diagnoseEnergy(): Promise<EnergyDiag[]> {
+  return Promise.all(SYMBOLS.map(async (s) => {
+    const yahoo = await probe(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.yahoo)}?interval=1d&range=5d`, (t) => parseYahooChart(JSON.parse(t))?.price);
+    const stooq = await probe(`https://stooq.com/q/d/l/?s=${s.stooq}&i=d`, (t) => parseDailyClose(t)?.price);
+    return { symbol: s.id, yahoo, stooq };
+  }));
+}
+
+async function probe(url: string, extract: (text: string) => number | null | undefined): Promise<{ status: number; ok: boolean; price?: number; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "application/json,text/csv,*/*" }, cache: "no-store" }, 10_000);
+    const text = await res.text();
+    let price: number | undefined;
+    try { price = extract(text) ?? undefined; } catch { /* unparseable */ }
+    return { status: res.status, ok: res.ok, ...(price != null ? { price } : {}) };
+  } catch (e) {
+    return { status: 0, ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }

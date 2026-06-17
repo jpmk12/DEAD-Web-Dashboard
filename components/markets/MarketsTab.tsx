@@ -6,7 +6,7 @@ import EconomicAccessPanel from "./EconomicAccessPanel";
 import { scoreChokepoints } from "@/lib/chokepoints";
 import { EconomyIcon } from "@/lib/icons";
 
-interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string }
+interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string; link?: string; source?: "yahoo" | "stooq" | null }
 
 // News that bears on access/basing/overflight via the economic/coercive levers.
 const ACCESS_NEWS = /sanction|export control|embargo|tariff|overflight|airspace clos|basing|base rights|status of forces|sofa|nationali[sz]|expropriat|currency|devalu|default|imf bailout|debt crisis/i;
@@ -63,17 +63,24 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
         <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-2">Energy &amp; fuel — sustainment-cost signal</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {energy.length === 0 && <p className="text-[11px] text-slate-600 font-mono col-span-full">Loading prices…</p>}
-          {energy.map((q) => (
-            <div key={q.symbol} className="min-w-0">
-              <div className="text-[10px] text-slate-500 truncate" title={q.label}>{q.label}</div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-sm font-mono font-bold text-slate-200">{q.price != null ? `$${q.price.toLocaleString()}` : "—"}</span>
-                {q.changePct != null && <span className={`text-[10px] font-mono ${pctColor(q.changePct)}`}>{q.changePct >= 0 ? "+" : ""}{q.changePct}%</span>}
+          {energy.map((q) => {
+            const value = q.price != null ? `$${q.price.toLocaleString()}` : "—";
+            return (
+              <div key={q.symbol} className="min-w-0">
+                <div className="text-[10px] text-slate-500 truncate" title={q.label}>{q.label}</div>
+                <div className="flex items-baseline gap-1.5">
+                  {q.link ? (
+                    <a href={q.link} target="_blank" rel="noopener noreferrer" className="text-sm font-mono font-bold text-slate-200 hover:text-sky-300">{value}</a>
+                  ) : (
+                    <span className="text-sm font-mono font-bold text-slate-200">{value}</span>
+                  )}
+                  {q.changePct != null && <span className={`text-[10px] font-mono ${pctColor(q.changePct)}`}>{q.changePct >= 0 ? "+" : ""}{q.changePct}%</span>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
-        <p className="text-[9px] text-slate-700 mt-2">Session change · Stooq · for context, not trading.</p>
+        <p className="text-[9px] text-slate-700 mt-2">Session change · {energy.some((q) => q.source === "stooq") ? "Stooq" : "Yahoo Finance"} · for context, not trading.</p>
       </div>
 
       {/* AI Economic Access Read */}
