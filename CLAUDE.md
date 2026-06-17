@@ -626,6 +626,33 @@ two sources:
   stays `0`). The Demand read (`/api/crisis-read`) uses it only when no curated
   gateway is within ~600 km. Verified in prod: ~5,276 fields.
 
+### Airfield runway capability (`lib/ourAirports.ts` + `runways.csv`)
+"Can a heavy actually land here?" — `lib/ourAirports.ts` also lazily loads the
+keyless `…/ourairports-data/runways.csv` (24 h cache), keeping the **longest OPEN
+runway + surface** per ICAO and classing it **planning-grade**: `C-17` (≥7000 ft
+hard), `C-130` (≥3500 ft), else `light` (`classify()`; thresholds are advisory,
+not assault minimums). `airfieldCapabilities(idents)` + `capTag()` are the
+accessors; `nearestOurAirports` carries `cap`. Surfaced in: the **AMC demand
+read** access hints (`[13123ft asph · C-17]`), the **Crisis-map Gateways popups**
+(via `/api/airfield-capability?icao=`), reusing the same CSV splitter (esbuild
+stays `0`).
+
+### Force Protection weather is anticipatory (TAF)
+`assessWeather` scores current METAR **and** a TAF outlook: `getTafOutlook(icaos)`
+(`lib/aviationWx.ts`, reuses the Weather tab's `decodeTaf`, 30 min cache) returns
+the worst forecast flight category in the next ~18 h. When the forecast drops
+below MVFR and worse than what's observed, the weather axis adds an amber
+`TAF: IFR forecast by 14Z` signal — which flows into Ground Truth access + the
+force read. `ForceContext.aviationTaf` carries it (tests set `aviationTaf: {}`).
+
+### Crisis map reach is planning-grade + tanker filter
+`AIRFRAMES` carry **light (ferry) vs max-payload** reach per type (+ C-130J); a
+**Max/Light payload** toggle drives the reach rings, all relabeled "planning-grade
+— no wind, AR sequencing, or diplomatic routing" so they're not mistaken for
+flight planning. A **⛽ Tankers** toggle on the Mil air toolbar filters the ADS-B
+layer to refuelers (`lib/aircraftTypes.isTankerType` — KC-46/135/10/30, Il-78,
+A330 MRTT, KC-130).
+
 ### Crisis map INFORM Risk (`lib/inform.ts` → World Bank Data360, NOT JRC)
 The **INFORM Risk** layer (structural country crisis-risk index `INFORM_OVRL`,
 0-10) is sourced from the **World Bank Data360** API
@@ -703,12 +730,33 @@ A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
 - No new npm dep (existing react-leaflet + server-side rss-parser + pure fetch),
   so `grep -c esbuild package-lock.json` stays `0`.
 
+### Strategic Economics tab (the retooled "Markets" → label "Economy")
+The old **Markets** tab (TradingView ticker/overview/econ-calendar + DoD contracts)
+was **retooled**, NOT retired, into a mobility-economics board: *global economic
+trends affecting **access, basing, and overflight***. The TradingView widgets +
+`ContractsPanel`/`/api/markets/contracts` were deleted. New pieces (all keyless):
+- `lib/energyPrices.ts` → `/api/markets/energy`: Brent/WTI/natgas/gold via **Stooq**
+  CSV (`stooq.com/q/l/?s=…&e=csv`, 15 min cache). Brent = the jet-fuel/sustainment-
+  cost driver. Session change only (no historical key).
+- `lib/chokepoints.ts`: curated strategic chokepoints (Hormuz, Bab-el-Mandeb, Suez,
+  Turkish Straits, Malacca, Taiwan, Panama, Russian overflight) + `scoreChokepoints`
+  — a **pure** scorer over the day's news (no new feed). Safe to import client-side.
+- `/api/markets/brief` reframed from a generic macro brief to an **Economic Access
+  Read** (same `markets_brief` AI gate): fed real energy prices + chokepoint news
+  signals + the user's watched countries, it reads fuel cost, sanctions/export
+  controls, host-nation stress, and transit/overflight risk. Output shape changed
+  (`accessRead`/`fuelLogistics`/`chokepoints`/`basingOverflight`/`watchItems`).
+- UI (`MarketsTab` + `EconomicAccessPanel`): energy strip, the AI read, a
+  chokepoint watch, and a sanctions/overflight/basing news filter. No new dep.
+
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
 embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), ACLED
-(`acleddata.com`), OurAirports (`davidmegginson.github.io`), INFORM Risk
-(`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index +
+(`acleddata.com`), OurAirports (`davidmegginson.github.io`, airports + runways),
+INFORM Risk (`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index +
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
-and OpenSky (`opensky-network.org`). The one **WebSocket** is the AISStream vessel
-bridge (`wss://stream.aisstream.io`, over 443). The only non-HTTP connection is to
-the platform's managed MySQL, which is explicitly allowed.
+OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
+METAR + TAF), and Stooq (`stooq.com`, energy/commodity quotes). The one
+**WebSocket** is the AISStream vessel bridge (`wss://stream.aisstream.io`, over
+443). The only non-HTTP connection is to the platform's managed MySQL, which is
+explicitly allowed.
