@@ -129,7 +129,7 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "overflight" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
 interface Vessel { mmsi: number; name: string; shipType: number; lat: number; lon: number; cog: number; sog: number; heading: number | null }
@@ -145,6 +145,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   conflict: "Armed-conflict events. With a UCDP API token (UCDP_API_TOKEN): precise georeferenced events from the Uppsala Conflict Data Program — coordinates + fatalities, monthly candidate data (~1-2mo lag). Without a token, falls back to keyless ReliefWeb (UN OCHA) complex-emergency / conflict situations plotted at country level. Top events surface in the crisis list.",
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
+  overflight: "Overflight / airspace NOTAMs by FIR (DoD DAIP, FIR_ARTCC) for your watched countries — enroute closures, TFRs, danger/restricted areas, MOAs. Plotted at FIR centroids; size = NOTAM count, colour = worst alert (red=warning / amber=caution). The #1 mobility-planning gap: 'can I overfly this country'. Requires the DoD CA bundle; empty when unconfigured/unreachable (UNKNOWN, never 'clear').",
   informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
   forces: "Mobility Watch — your bases/airfields (🛡) and watched countries (🌐, at centroid), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Content sources. Click for the top driver.",
   milair: "Military aircraft currently broadcasting ADS-B (keyless community feed — airplanes.live / adsb.lol). ✈ rotated to heading; click for callsign/type/altitude. Coverage follows the volunteer receiver network (sparse mid-ocean) and many mil aircraft fly dark — 'what's broadcasting', not ground truth. Off by default; filter by AOR. Refreshes ~30 s.",
@@ -168,6 +169,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "radar", label: "Radar", dot: "#22d3ee" },
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
+    { k: "overflight", label: "Overflight", dot: "#fb923c" },
     { k: "milair", label: "Mil air", dot: "#a3e635" },
     { k: "ships", label: "Vessels", dot: "#22d3ee" },
   ] },
@@ -192,7 +194,7 @@ const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
 const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
   { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
-  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, GPS interference, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "gps", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "gps", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
   { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
 ];
@@ -235,6 +237,9 @@ export default function CrisisMap() {
   const [acled, setAcled] = useState<AcledEvent[]>([]);
   type InformPt = { country: string; score: number; lat: number; lon: number };
   const [informRisk, setInformRisk] = useState<InformPt[]>([]);
+  type FirNotam = { id: string; text: string; alert: "Warning" | "Caution" | "Default"; category: string; end?: string };
+  type FirGroup = { code: string; name: string; lat: number; lon: number; worst: "Warning" | "Caution" | "Default"; count: number; notams: FirNotam[] };
+  const [overflight, setOverflight] = useState<FirGroup[]>([]);
   // Optional precipitation/convection radar (RainViewer) — animated loop.
   type RadarFrame = { time: number; path: string; kind: "past" | "nowcast" };
   const [radarHost, setRadarHost] = useState("");
@@ -272,7 +277,7 @@ export default function CrisisMap() {
   const reach = reachOf(AF, payload);
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, overflight: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -356,6 +361,24 @@ export default function CrisisMap() {
 
   // Auto-refresh every 5 min.
   useEffect(() => { const id = setInterval(() => setRefreshKey((k) => k + 1), 5 * 60 * 1000); return () => clearInterval(id); }, []);
+
+  // FIR overflight NOTAMs — fetched for the watched countries (from the Forces
+  // feed), so it follows the Mobility Watch. Separate effect because it depends
+  // on `forces` (loaded async by the main effect). Only the FIRs we have a
+  // centroid for come back (server-resolved); empty when DAIP isn't configured.
+  useEffect(() => {
+    const countries = Array.from(new Set(forces.map((f) => f.country).filter(Boolean)));
+    if (countries.length === 0) { setOverflight([]); return; }
+    const ctrl = new AbortController();
+    fetch(`/api/osint/airspace?layer=fir&countries=${encodeURIComponent(countries.join(","))}`, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { groups?: FirGroup[]; configured?: boolean; live?: boolean } | null) => {
+        if (Array.isArray(d?.groups)) setOverflight(d!.groups);
+        if (d) markSrc("DAIP airspace", d.configured === false || d.live === false);
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [forces, refreshKey]);
 
   // Refetch when the watched countries/bases change (Preferences save) so the
   // Forces layer updates without a full reload.
@@ -595,6 +618,7 @@ export default function CrisisMap() {
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
     neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
+    overflight: (on.overflight && overflight.length) || undefined,
     forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined, ships: (on.ships && shipShown.length) || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
   };
@@ -748,6 +772,28 @@ export default function CrisisMap() {
               return (
                 <CircleMarker key={`ir-${i}`} center={[p.lat, p.lon]} radius={6 + f * 14} pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.08 + f * 0.16, weight: 0.5, opacity: 0.35 }}>
                   <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div className="text-amber-700">INFORM Risk {p.score.toFixed(1)}/10</div><div className="text-slate-500">Structural crisis-risk baseline (INFORM, via Data360)</div></div></Popup>
+                </CircleMarker>
+              );
+            })}
+            {/* FIR overflight / airspace NOTAMs (DoD DAIP) — one marker per FIR
+                at its centroid; size = NOTAM count, colour = worst alert. */}
+            {on.overflight && overflight.map((g, i) => {
+              const col = g.worst === "Warning" ? "#ef4444" : g.worst === "Caution" ? "#f59e0b" : "#fb923c";
+              const r = Math.min(7 + Math.log2(g.count + 1) * 2.4, 22);
+              return (
+                <CircleMarker key={`fir-${g.code}-${i}`} center={[g.lat, g.lon]} radius={r} pathOptions={{ color: col, fillColor: col, fillOpacity: 0.12, weight: 1, opacity: 0.55, dashArray: "3 3" }}>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[300px]">
+                    <div className="font-bold text-sm">{g.name} <span className="text-slate-400">({g.code})</span></div>
+                    <div style={{ color: col }}>{g.count} airspace NOTAM{g.count === 1 ? "" : "s"} · worst: {g.worst}</div>
+                    <div className="mt-1 space-y-1 max-h-[180px] overflow-auto">
+                      {g.notams.slice(0, 8).map((n, j) => (
+                        <div key={j} className="text-slate-700 border-t border-slate-200 pt-0.5">
+                          <span className="uppercase text-[9px] font-bold text-slate-500">{n.category}</span> {n.text}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-slate-500 mt-1">DoD DAIP (FIR_ARTCC) — overflight planning SA, verify with current FLIP</div>
+                  </div></Popup>
                 </CircleMarker>
               );
             })}

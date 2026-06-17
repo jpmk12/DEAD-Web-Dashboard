@@ -683,6 +683,42 @@ and animates by opacity** (the active frame opaque, the rest at 0) rather than
 swapping one TileLayer's `url` — swapping `url` drops the old tiles before the
 new load and **blinks**. Keyless, no new dep.
 
+### Crisis map Overflight layer + the DAIP airspace module (`lib/airspace.ts`)
+The Crisis-map **Overflight** layer (off by default) and the broader DAIP NOTAM
+classes come from `lib/airspace.ts` → `/api/osint/airspace`. **Key contract fact
+(confirmed by a live capture, corrects an earlier wrong handover):** DAIP serves
+**every** NOTAM query class through **one endpoint** — `POST /daip/mobile/query`
+with a JSON body matching its `SearchResult` model (`{type, locs, radius, sort,
+acode, lat1/lng1/lat2/lng2, …}`); only the **`type`** field differs and **all**
+responses share the identical `group→notams→list` envelope (so `parseDaipNotams`
+/ `parseAirspaceGroups` are drop-in for every type). The SPA's `nfir`/`artcc`/
+`tfa` paths are just HTML form *fragments* it `.load()`s — **`GET /daip/mobile/
+nfir` is NOT a data endpoint (404s).** Confirmed working `type` values: `LOCATION`
+(per-base, the original `lib/notams.ts`), `FIR_ARTCC` (enroute/overflight by FIR),
+`GPS_WAAS`, `FUEL_NOTAMS`, `MOA`, `ARTCC_TFRS`, `PRESIDENTIAL_TFRS`,
+`AREA_BRIEFING` (lat/long box), `EUROPEAN_RVSM`, `FDC_NOTICES`, etc. `locs` and
+`locations` are interchangeable; `rawtext` is canonical; **list items carry NO
+lat/long** (`mapIt` is just a flag), so map plotting is at the **group level**
+(FIR/ICAO → centroid), never per-NOTAM.
+
+- **Network door is shared** — `notams.ts` exports `fetchDaipQuery(payload)`
+  (DoD-CA `https`, fail-safe `{configured,raw}`); `airspace.ts` and `getNotams`
+  both use it. Production MUST keep the bundled DoD CA (`dodCaBundle()`); the
+  system-CA trick is sandbox-probe-only (and the sandbox egress gateway can't even
+  TLS-verify DAIP's DoD chain — probe from outside the proxy, see `daip-probe.ps1`).
+- **`lib/firData.ts`** is **pure** (country→FIR ICAO + centroid, `resolveFirs()`)
+  so the client component can import it without dragging `node:*` in — same rule
+  as `lib/airfields.ts`. `lib/airspace.ts` is **server-only** (imports `notams.ts`).
+- **Overflight layer** (`CrisisMap.tsx`): `/api/osint/airspace?layer=fir&countries=
+  …` fetched for the **watched countries** (from the Forces feed), one CircleMarker
+  per FIR at its centroid (size = count, colour = worst alert). `?layer=gps|fuel`
+  also work but GPS/Fuel NOTAMs are **system-level / locationless** (no Q-line
+  plotting yet) — served by the API but **not** map layers; surface them in a
+  panel/Regional if needed. `FUEL_NOTAMS` was **count 0** at capture (plumbing OK).
+- Fail-safe like `notams.ts`: `configured:false` (no CA) and `live:false` (fetch
+  fail) both mean **UNKNOWN**, never a false "clear". Tested against real captured
+  fixtures (`tests/fixtures/daip/`). Pure `fetch`/`https` — esbuild count stays 0.
+
 ### Crisis map movement layers (Mil air ADS-B + Vessels AIS)
 The Crisis map carries the live air+sea movement picture as two toggle layers,
 **both off by default** (`components/osint/CrisisMap.tsx`):
