@@ -9,7 +9,7 @@
 // will not fabricate them; populate CURATED_ELECTIONS as an operator step. The
 // framework surfaces whatever real data is present and nothing it isn't.
 
-export type CivilEventKind = "observance" | "national_day" | "election";
+export type CivilEventKind = "observance" | "national_day" | "election" | "anniversary";
 
 export interface CivilEvent {
   kind: CivilEventKind;
@@ -61,6 +61,27 @@ const NATIONAL_DAYS: { country: string; label: string; md: string }[] = [
 // we won't fabricate dates. Add entries here (or wire a feed) to light them up.
 const CURATED_ELECTIONS: { country: string; label: string; date: string }[] = [];
 
+// Security-sensitive HISTORICAL ANNIVERSARIES (recurring annually, MM-DD) — dates
+// that have historically drawn demonstrations, attacks, or symbolic targeting and
+// so warrant heightened awareness for crews in/near the country. `country: "*"`
+// applies to every watched country (globally-symbolic dates). Curated + dated to
+// the originating event; loose-matched by country like NATIONAL_DAYS.
+const ANNIVERSARIES: { country: string; label: string; md: string }[] = [
+  { country: "*",            label: "9/11 attacks anniversary",                 md: "09-11" },
+  { country: "iran",         label: "Islamic Revolution anniversary (1979)",    md: "02-11" },
+  { country: "iran",         label: "US Embassy seizure anniversary (1979)",    md: "11-04" },
+  { country: "iran",         label: "Soleimani strike anniversary (2020)",      md: "01-03" },
+  { country: "iraq",         label: "2003 invasion anniversary",                md: "03-20" },
+  { country: "lebanon",      label: "Beirut Marine barracks bombing (1983)",    md: "10-23" },
+  { country: "kenya",        label: "US Embassy bombing anniversary (1998)",    md: "08-07" },
+  { country: "tanzania",     label: "US Embassy bombing anniversary (1998)",    md: "08-07" },
+  { country: "syria",        label: "Uprising anniversary (2011)",              md: "03-15" },
+  { country: "egypt",        label: "Jan 25 Revolution anniversary (2011)",     md: "01-25" },
+  { country: "afghanistan",  label: "Kabul fall / withdrawal anniversary (2021)", md: "08-15" },
+  { country: "libya",        label: "Benghazi attack anniversary (2012)",       md: "09-11" },
+  { country: "russia",       label: "Victory Day (WWII)",                       md: "05-09" },
+];
+
 const DAY = 86_400_000;
 const dayMs = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`);
 const ymdUTC = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -102,6 +123,18 @@ export function civilCalendarEvents(country: string, nowMs: number, lookaheadDay
     for (const y of [yr, yr + 1]) {
       const date = `${y}-${nd.md}`;
       const e = mkEvent("national_day", nd.label, date, date, nowMs);
+      if (e.active || (dayMs(date) >= nowMs && dayMs(date) <= horizon)) { out.push(e); break; }
+    }
+  }
+
+  // Historical anniversaries recur annually — resolve this year's / next year's
+  // instance, same as national days. `country: "*"` applies everywhere.
+  for (const an of ANNIVERSARIES) {
+    if (an.country !== "*" && !countryMatch(country, an.country)) continue;
+    const yr = new Date(nowMs).getUTCFullYear();
+    for (const y of [yr, yr + 1]) {
+      const date = `${y}-${an.md}`;
+      const e = mkEvent("anniversary", an.label, date, date, nowMs);
       if (e.active || (dayMs(date) >= nowMs && dayMs(date) <= horizon)) { out.push(e); break; }
     }
   }

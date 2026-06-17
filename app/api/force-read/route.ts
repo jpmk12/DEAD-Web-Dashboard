@@ -26,7 +26,7 @@ export async function GET() {
 
   const countries = prefs?.countriesOfInterest ?? [];
   const bases = prefs?.forceLocations ?? [];
-  if (countries.length === 0 && bases.length === 0) return NextResponse.json({ text: "No countries or bases are being watched. Add countries of interest in Preferences → Force Protection.", empty: true });
+  if (countries.length === 0 && bases.length === 0) return NextResponse.json({ text: "Nothing is being watched yet. Add bases/airfields or countries under Mobility Watch (Preferences → Content sources).", empty: true });
   const key = [...countries.map((c) => `c:${c.id}:${c.country}`), ...bases.map((l) => `b:${l.id}:${l.lat},${l.lon}:${l.icao ?? ""}`)].join("|");
   if (cache && cache.key === key && cache.expires > Date.now()) return NextResponse.json({ text: cache.text, cached: true });
 

@@ -122,7 +122,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     return (
       <div className="border border-slate-800 rounded-xl bg-slate-900/40 px-4 py-8 text-center">
         <p className="text-sm text-slate-300 font-semibold mb-1">No locations watched yet</p>
-        <p className="text-[12px] text-slate-500">Add countries or airports to your <span className="text-slate-300">Force Protection watch</span> (Preferences → Force Protection, or the Crisis map) to see the ground situation for each.</p>
+        <p className="text-[12px] text-slate-500">Add countries or airfields to your <span className="text-slate-300">Mobility Watch</span> (Preferences → Content sources, or the Crisis map) to see the country-level picture for each.</p>
       </div>
     );
   }
@@ -130,8 +130,8 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-3">
-        <h2 className="text-sm font-bold uppercase tracking-widest text-slate-300">Ground Truth</h2>
-        <span className="text-[11px] text-slate-600">what&apos;s happening on the ground in your watched countries</span>
+        <h2 className="text-sm font-bold uppercase tracking-widest text-slate-300">Regional</h2>
+        <span className="text-[11px] text-slate-600">country-level picture for your crews — incidents, news, advisories, holidays &amp; anniversaries</span>
       </div>
       <div className="flex flex-col lg:flex-row gap-4">
         {/* Country rail */}

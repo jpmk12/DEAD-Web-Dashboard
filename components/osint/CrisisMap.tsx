@@ -146,7 +146,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
-  forces: "Force Protection Watch — your countries of interest (🌐, at centroid) and pinned bases (🛡), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Force Protection. Click for the top driver.",
+  forces: "Mobility Watch — your bases/airfields (🛡) and watched countries (🌐, at centroid), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Content sources. Click for the top driver.",
   milair: "Military aircraft currently broadcasting ADS-B (keyless community feed — airplanes.live / adsb.lol). ✈ rotated to heading; click for callsign/type/altitude. Coverage follows the volunteer receiver network (sparse mid-ocean) and many mil aircraft fly dark — 'what's broadcasting', not ground truth. Off by default; filter by AOR. Refreshes ~30 s.",
   ships: "Live maritime vessels (AIS, via AISStream) within ~300 km of your home location. ▲ rotated to heading; click for name/speed/course. Requires AISSTREAM_API_KEY — AIS has no keyless global feed, so unlike Mil air this shows vessels near home, not worldwide. Off by default; refreshes ~30 s.",
   enroute: "AMC en route / mobility hubs.",
@@ -689,7 +689,7 @@ export default function CrisisMap() {
           <span><span className="text-emerald-400">⌂</span> home / <span className="text-slate-400">◇</span> tracked</span>
           <span><span style={{ color: "#a3e635" }}>✈</span> mil aircraft</span>
           <span><span style={{ color: "#22d3ee" }}>▲</span> vessel (AIS)</span>
-          <span className="text-slate-300">Force Protection: 🌐 country · 🛡 base — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
+          <span className="text-slate-300">Mobility Watch: 🛡 base · 🌐 country — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
         </div>
       )}
 

@@ -297,8 +297,12 @@ function assessCivil(loc: ForceLocation, ctx: ForceContext): CategoryAssessment 
   }
   // Cultural / civil calendar — observances, national days, elections that raise
   // force-protection posture or sensitivity (amber; they're context, not threats).
+  // Historical anniversaries are forward-looking AWARENESS (surfaced in the
+  // Regional tab); on the board they only matter on the day itself, so an upcoming
+  // anniversary is skipped here rather than ambering every location for weeks.
   if (loc.country) {
-    for (const e of civilCalendarEvents(loc.country, ctx.nowMs).slice(0, 2)) {
+    for (const e of civilCalendarEvents(loc.country, ctx.nowMs).slice(0, 3)) {
+      if (e.kind === "anniversary" && !e.active) continue;
       signals.push(e.active ? `${e.label} — active` : `${e.label} in ${e.daysUntil}d`);
       sev = worse(sev, "amber");
     }

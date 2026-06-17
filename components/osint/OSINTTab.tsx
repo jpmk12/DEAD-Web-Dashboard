@@ -672,7 +672,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           { id: "telegram",  label: "Telegram", n: counts.telegram  },
           { id: "news",      label: "News",     n: counts.news      },
           { id: "crisis",    label: "Crisis",   n: null             },
-          { id: "ground",    label: "Ground",   n: null             },
+          { id: "ground",    label: "Regional", n: null             },
         ] as const).map((p) => (
           <button
             key={p.id}

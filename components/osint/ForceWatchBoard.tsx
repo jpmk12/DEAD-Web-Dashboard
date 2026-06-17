@@ -95,6 +95,10 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
   const [data, setData] = useState<FpResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [internalFilter, setInternalFilter] = useState<string>("ALL");
+  // View lens: bases/airfields (where jets & crews are — the default focus) vs
+  // countries (broader exposure). Both are assessed server-side; this just picks
+  // which set to list. The Crisis map still shows both.
+  const [view, setView] = useState<"base" | "country">("base");
   const cocomFilter = controlledFilter ?? internalFilter;
   // AI read
   const [aiText, setAiText] = useState<string | null>(null);
@@ -125,7 +129,16 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
       .finally(() => setAiLoading(false));
   };
 
-  const all = data?.assessments ?? [];
+  const assessments = data?.assessments ?? [];
+  const counts2 = useMemo(() => ({
+    base: assessments.filter((a) => a.kind !== "country").length,
+    country: assessments.filter((a) => a.kind === "country").length,
+  }), [assessments]);
+  // The listed set depends on the lens. Counts/COCOMs/sort all derive from this.
+  const all = useMemo(
+    () => assessments.filter((a) => (view === "country" ? a.kind === "country" : a.kind !== "country")),
+    [assessments, view],
+  );
   const cocoms = useMemo(() => Array.from(new Set(all.map((a) => a.cocom))).sort(), [all]);
   const shown = useMemo(
     () => (cocomFilter === "ALL" ? all : all.filter((a) => a.cocom === cocomFilter))
@@ -145,7 +158,20 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
   return (
     <div className="border border-slate-800 rounded-lg bg-slate-900/40 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 flex-wrap sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm">
-        <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Force Protection Watch</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Mobility Watch</span>
+        {/* View lens: bases (jets/crews) vs countries (broader exposure). */}
+        <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="View your watch by base/airfield (where jets & crews are) or by country (broader exposure). The Crisis map shows both.">
+          {(["base", "country"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${view === v ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}
+            >
+              {v === "base" ? "Bases" : "Countries"}
+              <span className="ml-1 text-slate-500 font-mono">{v === "base" ? counts2.base : counts2.country}</span>
+            </button>
+          ))}
+        </div>
         {!empty && !loading && (
           <span className="text-[10px] text-slate-500 flex items-center gap-1.5">
             {counts.red > 0 && <span className="text-red-400">{counts.red} red</span>}
@@ -168,8 +194,8 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
             </select>
           )}
           {!empty && (
-            <button onClick={runRead} disabled={aiLoading} title="AI force-protection read — where to focus to protect your forces (distinct from the map's mobility Demand read)" className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 disabled:opacity-40">
-              {aiLoading ? "Reading…" : "✦ Force read"}
+            <button onClick={runRead} disabled={aiLoading} title="AI mobility read — where to focus to protect your jets & crews across watched bases and countries (distinct from the map's Demand read)" className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 disabled:opacity-40">
+              {aiLoading ? "Reading…" : "✦ Mobility read"}
             </button>
           )}
           <button onClick={() => load(true)} title="Refresh" className="text-[10px] text-slate-500 hover:text-slate-300 px-1">↻</button>
@@ -186,8 +212,11 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
 
       {empty && (
         <p className="px-3 py-4 text-[11px] text-slate-500">
-          No countries watched yet. Add <span className="text-slate-400">Countries of Interest</span> (and optional pinned bases) in
-          Preferences → Content sources to monitor conflict, civil/diplomatic posture, health, and risk where your forces operate.
+          {view === "base" ? (
+            <>No bases or airfields watched yet. Add them under <span className="text-slate-400">Mobility Watch</span> (Preferences → Content sources, or the Crisis map) to monitor aviation weather, GPS, NOTAMs, conflict, and posture where your jets &amp; crews are.</>
+          ) : (
+            <>No countries watched yet. Add <span className="text-slate-400">Countries</span> under Mobility Watch (Preferences → Content sources) for broader exposure — conflict, civil/diplomatic posture, health, and risk. Per-country detail lives in the <span className="text-slate-400">Regional</span> tab.</>
+          )}
         </p>
       )}
 

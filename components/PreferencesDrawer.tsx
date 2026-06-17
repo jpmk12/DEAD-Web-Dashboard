@@ -356,13 +356,13 @@ function CountriesOfInterestEditor({ value, onChange }: { value: CountryWatch[];
   return (
     <div className="mb-5">
       <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Countries of Interest
+        Mobility Watch — Countries
       </label>
       <p className="text-[10px] text-slate-600 mb-3">
-        Where your forces &amp; aircraft operate. The Crisis tab&apos;s <span className="text-slate-500">Force Protection Watch</span> fuses
+        Countries for broader exposure. The Crisis tab&apos;s <span className="text-slate-500">Mobility Watch</span> (Countries view) fuses
         conflict/strikes, State advisory level, civil unrest &amp; cultural calendar, WHO health, INFORM risk, and disasters
-        for each country into a single read so you see where to focus. COCOM is auto-tagged. Up to {MAX}.
-        <span className="text-slate-500"> Airfield-specific signals (aviation weather, GPS, NOTAMs) come from pinned bases below.</span>
+        for each into a single posture. The <span className="text-slate-500">Regional</span> tab shows the per-country detail —
+        incidents, local news, advisories, holidays &amp; anniversaries. COCOM is auto-tagged. Up to {MAX}.
       </p>
 
       {value.length > 0 && (
@@ -478,13 +478,13 @@ function ForceLocationsEditor({ value, onChange }: { value: ForceLocation[]; onC
   return (
     <div className="mb-5">
       <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Pinned Bases <span className="text-slate-600 normal-case tracking-normal font-normal">(optional)</span>
+        Mobility Watch — Bases &amp; Airfields
       </label>
       <p className="text-[10px] text-slate-600 mb-3">
-        Optional — pin a specific base for <span className="text-slate-500">airfield-precise</span> signals on top of its
-        country. Add an <span className="text-slate-500">ICAO</span> to switch on per-base aviation weather, GPS
-        interference, and NOTAMs (runway/approach closures, RAIM outages) — these only apply with an airfield. Set a date
-        window for a transient deployment (drops off the board once it ends). Up to {MAX}.
+        Where your jets &amp; crews are. This is the default <span className="text-slate-500">Mobility Watch</span> view (Bases).
+        Add an <span className="text-slate-500">ICAO</span> for <span className="text-slate-500">airfield-precise</span> signals —
+        aviation weather + TAF, GPS interference, and NOTAMs (runway/approach closures, RAIM outages) — on top of conflict and
+        posture. Set a date window for a transient deployment (drops off the board once it ends). Up to {MAX}.
       </p>
 
       {value.length > 0 && (
@@ -3102,8 +3102,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                     )
                   }
                 />
-                <CountriesOfInterestEditor value={countriesOfInterest} onChange={setCountriesOfInterest} />
                 <ForceLocationsEditor value={forceLocations} onChange={setForceLocations} />
+                <CountriesOfInterestEditor value={countriesOfInterest} onChange={setCountriesOfInterest} />
                 <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
                 <NewsSourcesEditor
                   value={disabledNewsSources}
