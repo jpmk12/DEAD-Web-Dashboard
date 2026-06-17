@@ -656,10 +656,59 @@ and animates by opacity** (the active frame opaque, the rest at 0) rather than
 swapping one TileLayer's `url` — swapping `url` drops the old tiles before the
 new load and **blinks**. Keyless, no new dep.
 
+### Crisis map movement layers (Mil air ADS-B + Vessels AIS)
+The Crisis map carries the live air+sea movement picture as two toggle layers,
+**both off by default** (`components/osint/CrisisMap.tsx`):
+- **Mil air** — `/api/osint/aircraft-mil`, a **keyless global** military ADS-B
+  feed (community: airplanes.live / adsb.lol). ✈ rotated to track; a mobility-only
+  filter (C-17/C-5/C-130/KC-*/A400/An/Il…); AOR filter; and an aircraft↔watch
+  correlation that emphasizes aircraft near a watched country/base and shows
+  "✈ N within 400 km" in the Force Protection popups. ~30 s refresh.
+- **Vessels** — `/api/osint/ships` → `lib/aisStream.ts` (a long-lived server-side
+  AISStream **WebSocket** bridge). ▲ rotated to heading; click for name/speed/
+  course. **Radius-based (~300 km around home), NOT global** — AIS has no keyless
+  global feed like ADS-B, so this is local, and it needs `AISSTREAM_API_KEY`
+  (empty layer without it). ~30 s refresh.
+
+The standalone **Aircraft and Maritime OSINT panes were retired** — both are now
+layers on this map. Their `AircraftMap.tsx` / `MaritimeMap.tsx` components and the
+iframe-provider lists (adsb.fi / VesselFinder / etc.) were deleted. **Don't
+delete** `/api/osint/aircraft` (OpenSky) or `/api/osint/ships`: they still feed
+the OSINT feed-pane "AOR contacts" strip. OSINT panes are now: **All / Social /
+Telegram / News / Crisis / Ground**.
+
+### Ground Truth (OSINT "Ground" sub-pane — per-country situation room)
+A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
+`"ground"` (`components/ground/GroundTruthTab.tsx`). A country rail + detail panel
+("situation room") for the locations in the **Force Protection watch**.
+
+- **Rail** is built from the *whole* watch list: watched **countries** AND the
+  **countries of watched airports/bases** (grouped by country; 🛡 marks a country
+  with a pinned airfield). A country watch is the primary posture; otherwise the
+  worst base in that country stands in. Source is the shared `/api/force-protection`
+  (same feed as the Crisis Forces layer) — set the watch in Preferences → Force
+  Protection (or the Crisis map).
+- **Detail** composes: posture/civil/health/**access** reused from the Force
+  Protection assessment the client already holds (NOT re-fetched); plus a per-
+  country **dossier** (`/api/ground-truth?country=` → `lib/groundTruth.ts`):
+  security incidents (ACLED/UCDP, in-country or within ~500 km of centroid) + a
+  **mini-map** (`IncidentMiniMap.tsx`, Leaflet, dynamic `ssr:false`, with
+  `invalidateSize` for the hidden-mount case) + local news (GDELT via
+  `gdeltLocalNews`) merged with the user's **OSINT feeds filtered to country
+  mentions** (`lib/rss` `fetchFeed`). Dossier cached 10 min/country.
+- **AI SITREP** per country: `/api/ground-truth/sitrep` (POST `{country, composite,
+  drivers}`) synthesizes the client-passed posture + incidents + news +
+  advisory/civil/health. **Gated on the chat AI feature**; cached 15 min; shows an
+  "AI is off" message when disabled.
+- No new npm dep (existing react-leaflet + server-side rss-parser + pure fetch),
+  so `grep -c esbuild package-lock.json` stays `0`.
+
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
 embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), ACLED
 (`acleddata.com`), OurAirports (`davidmegginson.github.io`), INFORM Risk
-(`data360api.worldbank.org`), and RainViewer (`api.rainviewer.com` index +
-`tilecache.rainviewer.com` tiles). The only non-HTTP connection is to the
-platform's managed MySQL, which is explicitly allowed.
+(`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index +
+`tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
+and OpenSky (`opensky-network.org`). The one **WebSocket** is the AISStream vessel
+bridge (`wss://stream.aisstream.io`, over 443). The only non-HTTP connection is to
+the platform's managed MySQL, which is explicitly allowed.
