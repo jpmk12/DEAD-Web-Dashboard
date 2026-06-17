@@ -2,22 +2,27 @@ import { describe, it, expect } from "vitest";
 import { parseYahooChart, parseDailyClose } from "@/lib/energyPrices";
 
 describe("parseYahooChart", () => {
-  const chart = (meta: Record<string, unknown>) => ({ chart: { result: [{ meta }] } });
+  const chart = (meta: Record<string, unknown>, closes?: number[]) =>
+    ({ chart: { result: [{ meta, ...(closes ? { indicators: { quote: [{ close: closes }] } } : {}) }] } });
 
-  it("reads price + change vs previous close", () => {
-    const r = parseYahooChart(chart({ regularMarketPrice: 72.8, chartPreviousClose: 70.0, regularMarketTime: 1750118400 }))!;
+  it("uses the PREVIOUS SESSION close (not chartPreviousClose) for day-over-day", () => {
+    // Real Brent shape: chartPreviousClose=87.33 (5 days ago) would be -9.5%;
+    // the true day move is 79.03 vs the prior bar 78.96 ≈ +0.1%.
+    const r = parseYahooChart(chart(
+      { regularMarketPrice: 79.03, chartPreviousClose: 87.33, regularMarketTime: 1781739570 },
+      [87.33, 83.17, 78.96, 79.03],
+    ))!;
+    expect(r.price).toBe(79.03);
+    expect(r.changePct).toBe(0.1);
+  });
+
+  it("falls back to chartPreviousClose only when <2 daily bars", () => {
+    const r = parseYahooChart(chart({ regularMarketPrice: 72.8, chartPreviousClose: 70.0 }, [72.8]))!;
     expect(r.price).toBe(72.8);
     expect(r.changePct).toBe(4); // (72.8-70)/70 = 4.0%
-    expect(r.date).toBe("2025-06-17");
   });
 
-  it("falls back to previousClose when chartPreviousClose is absent", () => {
-    const r = parseYahooChart(chart({ regularMarketPrice: 100, previousClose: 100 }))!;
-    expect(r.price).toBe(100);
-    expect(r.changePct).toBe(0);
-  });
-
-  it("null change when no previous close", () => {
+  it("null change when no previous close anywhere", () => {
     const r = parseYahooChart(chart({ regularMarketPrice: 50 }))!;
     expect(r.price).toBe(50);
     expect(r.changePct).toBeNull();

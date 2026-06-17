@@ -42,17 +42,32 @@ function pct(price: number, prev: number | undefined): number | null {
   return prev != null && Number.isFinite(prev) && prev !== 0 ? round1(((price - prev) / prev) * 100) : null;
 }
 
-// PURE: parse Yahoo v8 chart JSON → latest price + change vs previous close.
+// PURE: parse Yahoo v8 chart JSON → latest price + day-over-day change.
 // Exported for unit testing.
 export function parseYahooChart(json: unknown): { price: number; changePct: number | null; date: string } | null {
   const result = (json as { chart?: { result?: unknown[] } })?.chart?.result?.[0] as
-    { meta?: Record<string, unknown> } | undefined;
+    { meta?: Record<string, unknown>; indicators?: { quote?: { close?: unknown[] }[] } } | undefined;
   const meta = result?.meta;
   if (!meta) return null;
-  const price = Number(meta.regularMarketPrice);
+
+  const closesRaw = result?.indicators?.quote?.[0]?.close;
+  const closes = Array.isArray(closesRaw) ? closesRaw.map(Number).filter((n) => Number.isFinite(n)) : [];
+
+  const live = Number(meta.regularMarketPrice);
+  const price = Number.isFinite(live) ? live : (closes.length ? closes[closes.length - 1] : NaN);
   if (!Number.isFinite(price)) return null;
-  const prevRaw = meta.chartPreviousClose ?? meta.previousClose;
-  const prev = prevRaw != null ? Number(prevRaw) : undefined;
+
+  // Day-over-day change = current price vs the PREVIOUS SESSION's close, i.e. the
+  // close of the bar before the last one. NOT meta.chartPreviousClose — that's
+  // the close before the whole range (a ~5-day move when range=5d), so it's only
+  // a last resort when we don't have ≥2 daily bars.
+  let prev: number | undefined;
+  if (closes.length >= 2) prev = closes[closes.length - 2];
+  else {
+    const cpc = Number(meta.chartPreviousClose ?? meta.previousClose);
+    if (Number.isFinite(cpc)) prev = cpc;
+  }
+
   const t = Number(meta.regularMarketTime);
   const date = Number.isFinite(t) ? new Date(t * 1000).toISOString().slice(0, 10) : "";
   return { price, changePct: pct(price, prev), date };
