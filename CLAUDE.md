@@ -763,6 +763,17 @@ A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
   drivers}`) synthesizes the client-passed posture + incidents + news +
   advisory/civil/health. **Gated on the chat AI feature**; cached 15 min; shows an
   "AI is off" message when disabled.
+- **Natural disasters** in the dossier: `countryDisasters()` (pure, in
+  `groundTruth.ts`) filters the shared `getDisasters()` (GDACS/USGS/ReliefWeb) to
+  in-country (name match) or within ~500 km of centroid, sorted in-country-first
+  then severity/HADR/proximity. Rendered as a "🌪 Natural disasters" card.
+- **Public holidays** via **Nager.Date** (`lib/holidays.ts` → `date.nager.at`,
+  keyless): host-nation holidays matter for crews (closed offices/customs/ports,
+  reduced ramp/ATC). Kept OUT of the pure `civilCalendar.ts` (that's
+  synchronous/widely-imported) — fetched server-side (cached 24 h, current + next
+  year), filtered by the pure `upcomingHolidays()` (≤30 days, soonest first), and
+  merged into the dossier's civil section (`CountryCivil.holidays`). Needs a
+  curated name→ISO2 map (`countryIso2`); unmapped countries just omit the section.
 - No new npm dep (existing react-leaflet + server-side rss-parser + pure fetch),
   so `grep -c esbuild package-lock.json` stays `0`.
 
@@ -792,7 +803,9 @@ embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), ACLED
 INFORM Risk (`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index +
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
 OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
-METAR + TAF), and Stooq (`stooq.com`, energy/commodity quotes). The one
+METAR + TAF), Stooq (`stooq.com`, energy/commodity quotes), Nager.Date
+(`date.nager.at`, public holidays), and DoD DAIP (`www.daip.jcs.mil`, NOTAMs —
+needs the bundled DoD CA). The one
 **WebSocket** is the AISStream vessel bridge (`wss://stream.aisstream.io`, over
 443). The only non-HTTP connection is to the platform's managed MySQL, which is
 explicitly allowed.

@@ -19,6 +19,7 @@ const COCOM_LABEL: Record<string, string> = { NORTHCOM: "USNORTHCOM", SOUTHCOM: 
 const ADV_LABEL: Record<number, string> = { 1: "Exercise Normal Precautions", 2: "Exercise Increased Caution", 3: "Reconsider Travel", 4: "Do Not Travel" };
 const ADV_COLOR: Record<number, string> = { 1: "text-emerald-400", 2: "text-amber-400", 3: "text-orange-400", 4: "text-red-400" };
 const ADV_DOT: Record<number, string> = { 1: "#10b981", 2: "#fbbf24", 3: "#fb923c", 4: "#ef4444" };
+const DISASTER_DOT: Record<string, string> = { red: "#ef4444", orange: "#fb923c", green: "#10b981", unknown: "#94a3b8" };
 
 const cat = (a: ForceAssessment | null | undefined, name: CategoryAssessment["category"]) => a?.categories.find((c) => c.category === name);
 
@@ -103,7 +104,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     if (!sel) return;
     let cancel = false;
     setDLoading(true); setDossier(null); setSitrep(null); setSLoading(true);
-    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], news: [], civil: { advisoryLevel: null, departure: null, events: [] } };
+    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], disasters: [], news: [], civil: { advisoryLevel: null, departure: null, events: [], holidays: [] } };
     fetch(`/api/ground-truth?country=${encodeURIComponent(sel.country)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!cancel) { setDossier(d ?? empty); setDLoading(false); } })
@@ -213,6 +214,21 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                 )}
               </Card>
 
+              {/* Natural disasters affecting the country */}
+              {!dLoading && dossier && dossier.disasters.length > 0 && (
+                <Card title="🌪 Natural disasters" meta="GDACS · USGS · ReliefWeb — in-country + ~500km">
+                  <ul className="space-y-1.5">
+                    {dossier.disasters.map((d, n) => (
+                      <li key={n} className="text-[12px] flex items-start gap-2">
+                        <span style={{ color: DISASTER_DOT[d.severity] ?? "#94a3b8" }} className="mt-0.5 text-[8px]">●</span>
+                        <span className="text-slate-300 flex-1 min-w-0"><span className="uppercase text-[9px] text-slate-500">{d.type}</span> {d.title}{d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] text-violet-300/80">↗</a>}</span>
+                        <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{d.km == null ? "in-country" : `~${d.km}km`}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+
               {/* Local news */}
               <Card title="📰 Local news & media" meta="GDELT + your OSINT feeds">
                 {dLoading && <p className="text-[12px] text-slate-500">Loading news…</p>}
@@ -235,7 +251,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                   {dLoading && <p className="text-[12px] text-slate-500">Loading…</p>}
                   {!dLoading && dossier && (() => {
                     const cv = dossier.civil;
-                    const hasAny = cv.advisoryLevel != null || cv.departure || cv.events.length > 0;
+                    const hasAny = cv.advisoryLevel != null || cv.departure || cv.events.length > 0 || cv.holidays.length > 0;
                     if (!hasAny) return <CatLines c={cat(sel, "civil")} />;
                     return (
                       <ul className="space-y-1.5">
@@ -248,6 +264,9 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                         {cv.departure && <li className="text-[12px] text-red-400 flex items-start gap-1.5"><span className="text-[8px] mt-0.5">◆</span><span>{cv.departure === "ordered" ? "Ordered" : "Authorized"} departure in effect</span></li>}
                         {cv.events.map((e, i) => (
                           <li key={i} className="text-[12px] text-slate-300 flex items-start gap-1.5"><span className="text-amber-400 text-[8px] mt-0.5">●</span><span>{e.label} — {e.when}</span></li>
+                        ))}
+                        {cv.holidays.map((h, i) => (
+                          <li key={`h-${i}`} className="text-[12px] text-slate-300 flex items-start gap-1.5"><span className="text-sky-400 text-[8px] mt-0.5">🏛</span><span><span className="text-slate-400">Public holiday:</span> {h.label} — {h.active ? "today" : `in ${h.daysUntil}d`}</span></li>
                         ))}
                       </ul>
                     );
