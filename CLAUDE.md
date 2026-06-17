@@ -788,6 +788,30 @@ A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
   year), filtered by the pure `upcomingHolidays()` (≤30 days, soonest first), and
   merged into the dossier's civil section (`CountryCivil.holidays`). Needs a
   curated name→ISO2 map (`countryIso2`); unmapped countries just omit the section.
+- **State Dept advisory detail** (`lib/stateAdvisoryDetail.ts`): the per-country
+  enrichment of the dossier's civil section, layered on TWO sources:
+  1. **RSS** (`lib/stateAdvisories.ts` → `travel.state.gov/_res/rss/TAsTWs.xml`,
+     already fetched) gives a level (1–4) + departure flags for ~190 countries in
+     one keyless call — the always-on **backstop**. Risk-indicator *codes* are NOT
+     in the `<category>` tags (those are Threat-Level + a State 2-letter
+     Country-Tag, e.g. SY/IZ/IR — not ISO); the danger reasons live only as bolded
+     text inside the description CDATA.
+  2. **Destination page scrape** (`stateAdvisoryDetail.ts` → slug-based
+     `…/travel-advisories/{slug}.html`, e.g. `saudi-arabia.html`) for the ONE
+     country the user is viewing in Regional, where the richer signal earns a
+     second fetch: overall level + **worst sub-area level** (the "risk bubble"),
+     the standardized **indicator pills** ("Terrorism (T)", "Crime (C)"…), the
+     one-line **guidance**, the **summary**, and the per-region **Do-Not-Travel**
+     breakdown + date issued. Pure `fetch` + regex (no DOM-parser dep → esbuild
+     stays `0`), 6 h cache, slug overrides for irregular names (Myanmar→burma,
+     South Korea→south-korea, DRC→…), and **fail-safe**: any miss returns null and
+     the dossier falls back to the RSS level — never a false "no advisory / safe".
+  Wired into `getCountryDossier` (Promise.all) → `CountryCivil` (`worstAreaLevel`/
+  `indicators`/`guidance`/`riskAreas`/`advisoryIssued`), rendered in the Regional
+  ("Ground Truth") **⚖ Civil / political** card. The detail level/link is
+  preferred; RSS supplies departure flags + the backstop level. Parser is
+  unit-tested against `tests/fixtures/state/saudi-advisory.html` (sandbox can't
+  reach travel.state.gov).
 - No new npm dep (existing react-leaflet + server-side rss-parser + pure fetch),
   so `grep -c esbuild package-lock.json` stays `0`.
 
@@ -812,7 +836,9 @@ trends affecting **access, basing, and overflight***. The TradingView widgets +
 
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
-embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), ACLED
+embeds, GDELT (DOC, local news), U.S. State Dept (`travel.state.gov` — the
+`TAsTWs.xml` advisory RSS + the per-country `destination/{slug}.html` pages),
+UCDP (`ucdpapi.pcr.uu.se`), ACLED
 (`acleddata.com`), OurAirports (`davidmegginson.github.io`, airports + runways),
 INFORM Risk (`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index +
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),

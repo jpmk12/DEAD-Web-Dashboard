@@ -13,6 +13,7 @@ import { civilCalendarEvents } from "./civilCalendar";
 import { countryCentroid } from "./countryCentroids";
 import { haversineKm, getDisasters } from "./disasters";
 import { getCountryHolidays, type UpcomingHoliday } from "./holidays";
+import { getAdvisoryDetail, type AdvisoryRiskArea } from "./stateAdvisoryDetail";
 import type { NewsItem, OsintFeed, DisasterEvent } from "./types";
 
 export interface Incident {
@@ -44,6 +45,13 @@ export interface CountryCivil {
   advisoryLink?: string;
   events: { label: string; when: string }[]; // observances / national days / elections
   holidays: UpcomingHoliday[];        // host-nation public holidays (Nager.Date)
+  // Richer per-country detail scraped from the State destination page when
+  // available (lib/stateAdvisoryDetail). Absent → only the RSS level above.
+  worstAreaLevel?: number | null;     // worst sub-area level (the "risk bubble")
+  indicators?: string[];              // risk-indicator pills ("Terrorism (T)", …)
+  guidance?: string;                  // "Reconsider travel to … due to …"
+  riskAreas?: AdvisoryRiskArea[];     // per-region Do-Not-Travel / elevated areas
+  advisoryIssued?: string;            // "March 13, 2026"
 }
 
 export interface CountryDossier {
@@ -104,7 +112,7 @@ async function osintCountryNews(country: string, feeds: OsintFeed[]): Promise<Ne
 
 export async function getCountryDossier(country: string, osintFeeds: OsintFeed[] = []): Promise<CountryDossier> {
   const cen = countryCentroid(country);
-  const [acled, conflict, gdelt, osint, advisories, disasterEvents, holidays] = await Promise.all([
+  const [acled, conflict, gdelt, osint, advisories, disasterEvents, holidays, detail] = await Promise.all([
     getAcledEvents().catch(() => []),
     getConflictPoints().catch(() => []),
     gdeltLocalNews(country).catch(() => [] as NewsItem[]),
@@ -112,18 +120,28 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     getAllStateAdvisories().catch(() => []),
     getDisasters().catch(() => [] as DisasterEvent[]),
     getCountryHolidays(country).catch(() => [] as UpcomingHoliday[]),
+    getAdvisoryDetail(country).catch(() => null),
   ]);
 
   // Civil context — the advisory level is shown at every level (1–4), not just
   // the elevated ones the force-protection threat axis flags, so the section is
-  // populated even for calm countries.
+  // populated even for calm countries. The per-country destination scrape
+  // (`detail`) is the richer source when reachable; the RSS (`adv`) is the
+  // always-on backstop — we prefer the detail level/link but fall back to RSS.
   const adv = advisories.find((a) => countryMatch(a.country, country));
   const civil: CountryCivil = {
-    advisoryLevel: adv?.level ?? null,
+    advisoryLevel: detail?.level ?? adv?.level ?? null,
     departure: adv?.orderedDeparture ? "ordered" : adv?.authorizedDeparture ? "authorized" : null,
-    ...(adv?.link ? { advisoryLink: adv.link } : {}),
+    ...((detail?.link ?? adv?.link) ? { advisoryLink: detail?.link ?? adv!.link } : {}),
     events: civilCalendarEvents(country, Date.now()).slice(0, 4).map((e) => ({ label: e.label, when: e.active ? "active" : `in ${e.daysUntil}d` })),
     holidays,
+    ...(detail ? {
+      worstAreaLevel: detail.worstAreaLevel,
+      indicators: detail.indicators,
+      ...(detail.guidance ? { guidance: detail.guidance } : {}),
+      riskAreas: detail.riskAreas,
+      ...(detail.dateIssued ? { advisoryIssued: detail.dateIssued } : {}),
+    } : {}),
   };
   const disasters = countryDisasters(disasterEvents, country, cen);
 

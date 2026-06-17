@@ -258,9 +258,20 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                         {cv.advisoryLevel != null && (
                           <li className="text-[12px] flex items-start gap-1.5">
                             <span style={{ color: ADV_DOT[cv.advisoryLevel] ?? "#94a3b8" }} className="mt-0.5 text-[8px]">●</span>
-                            <span className="text-slate-300"><b className="text-slate-200">State advisory:</b> Level {cv.advisoryLevel}{ADV_LABEL[cv.advisoryLevel] ? <> — <span className={ADV_COLOR[cv.advisoryLevel]}>{ADV_LABEL[cv.advisoryLevel]}</span></> : null}{cv.advisoryLink && <a href={cv.advisoryLink} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200">State ↗</a>}</span>
+                            <span className="text-slate-300"><b className="text-slate-200">State advisory:</b> Level {cv.advisoryLevel}{ADV_LABEL[cv.advisoryLevel] ? <> — <span className={ADV_COLOR[cv.advisoryLevel]}>{ADV_LABEL[cv.advisoryLevel]}</span></> : null}{cv.worstAreaLevel != null && cv.worstAreaLevel > cv.advisoryLevel && <span className="ml-1 text-[10px] text-red-400/90">(areas to Level {cv.worstAreaLevel})</span>}{cv.advisoryIssued && <span className="ml-1 text-[10px] text-slate-500">· {cv.advisoryIssued}</span>}{cv.advisoryLink && <a href={cv.advisoryLink} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200">State ↗</a>}</span>
                           </li>
                         )}
+                        {cv.guidance && <li className="text-[11.5px] text-slate-400 flex items-start gap-1.5"><span className="text-slate-600 text-[8px] mt-0.5">›</span><span className="leading-snug">{cv.guidance}</span></li>}
+                        {cv.indicators && cv.indicators.length > 0 && (
+                          <li className="flex flex-wrap gap-1 pl-3">
+                            {cv.indicators.map((ind, i) => (
+                              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-300 border border-slate-700/60">{ind}</span>
+                            ))}
+                          </li>
+                        )}
+                        {cv.riskAreas && cv.riskAreas.filter((a) => (a.level ?? 0) >= 4).slice(0, 4).map((a, i) => (
+                          <li key={`ra-${i}`} className="text-[11.5px] text-red-300/90 flex items-start gap-1.5"><span className="text-red-400 text-[8px] mt-0.5">⚑</span><span className="leading-snug"><b className="text-red-300">Do not travel:</b> {a.name}</span></li>
+                        ))}
                         {cv.departure && <li className="text-[12px] text-red-400 flex items-start gap-1.5"><span className="text-[8px] mt-0.5">◆</span><span>{cv.departure === "ordered" ? "Ordered" : "Authorized"} departure in effect</span></li>}
                         {cv.events.map((e, i) => (
                           <li key={i} className="text-[12px] text-slate-300 flex items-start gap-1.5"><span className="text-amber-400 text-[8px] mt-0.5">●</span><span>{e.label} — {e.when}</span></li>
