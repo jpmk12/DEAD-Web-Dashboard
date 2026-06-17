@@ -16,6 +16,8 @@
 // blobs however they arrive) and the whole thing fails safe to UNKNOWN.
 
 import https from "node:https";
+import tls from "node:tls";
+import { X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DOD_CA_PEM_BUNDLED } from "./certs/dodCa";
 
@@ -189,4 +191,85 @@ export async function getNotams(icaosRaw: string[]): Promise<{ configured: boole
     }
   }));
   return { configured: true, live: anyOk, byIcao };
+}
+
+// ── Diagnostics (owner-only endpoint) ────────────────────────────────────────
+// Separates the two failure modes when NOTAMs are "feed unavailable":
+//   • a fixable TLS-chain gap (DAIP sends intermediates that don't chain to our
+//     bundled root → add them), vs
+//   • an unfixable block (datacenter-IP filtering, client-cert / mutual-TLS
+//     requirement, or timeout) — in which case DAIP just isn't reachable from a
+//     commercial host and we pivot to the FAA API or accept GPS-only.
+
+export interface NotamDiag {
+  configured: boolean;
+  caSubject: string | null;
+  tls: { connected: boolean; authorizedAgainstBundle: boolean; authorizationError: string | null; chain: { subject: string; issuer: string }[] };
+  secureRequest: { ok: boolean; status: number | null; bytes: number | null; error: string | null };
+  insecureRequest: { ok: boolean; status: number | null; bytes: number | null; error: string | null };
+  verdict: string;
+}
+
+const dn = (o: tls.PeerCertificate["subject"] | undefined): string =>
+  o ? [o.CN, o.OU, o.O].filter(Boolean).join(" / ") || JSON.stringify(o) : "?";
+
+function tlsProbe(ca: string | null): Promise<NotamDiag["tls"]> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r: NotamDiag["tls"]) => { if (!done) { done = true; resolve(r); } };
+    const socket = tls.connect({ host: DAIP_HOST, port: 443, servername: DAIP_HOST, ca: ca ?? undefined, rejectUnauthorized: false, timeout: 10_000 }, () => {
+      const chain: { subject: string; issuer: string }[] = [];
+      const seen = new Set<string>();
+      let c: tls.DetailedPeerCertificate | undefined = socket.getPeerCertificate(true);
+      while (c && c.fingerprint && !seen.has(c.fingerprint)) {
+        seen.add(c.fingerprint);
+        chain.push({ subject: dn(c.subject), issuer: dn(c.issuer) });
+        c = c.issuerCertificate;
+      }
+      finish({ connected: true, authorizedAgainstBundle: socket.authorized, authorizationError: socket.authorizationError ? String(socket.authorizationError) : null, chain });
+      socket.end();
+    });
+    socket.on("error", (e: NodeJS.ErrnoException) => finish({ connected: false, authorizedAgainstBundle: false, authorizationError: e.code ?? e.message, chain: [] }));
+    socket.on("timeout", () => { socket.destroy(); finish({ connected: false, authorizedAgainstBundle: false, authorizationError: "ETIMEDOUT", chain: [] }); });
+  });
+}
+
+function daipProbe(icao: string, ca: string | null, rejectUnauthorized: boolean): Promise<NotamDiag["secureRequest"]> {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ type: "LOCATION", designatorsForLocation: icao });
+    let done = false;
+    const finish = (r: NotamDiag["secureRequest"]) => { if (!done) { done = true; resolve(r); } };
+    const req = https.request(
+      { host: DAIP_HOST, path: DAIP_PATH, method: "POST", ca: ca ?? undefined, rejectUnauthorized, timeout: 10_000,
+        headers: { "Content-Type": "application/json", Accept: "application/json", "Content-Length": Buffer.byteLength(body) } },
+      (res) => {
+        let bytes = 0;
+        res.on("data", (c) => { bytes += c.length; if (bytes > 200_000) res.destroy(); });
+        res.on("end", () => finish({ ok: !!res.statusCode && res.statusCode < 400, status: res.statusCode ?? null, bytes, error: null }));
+      },
+    );
+    req.on("error", (e: NodeJS.ErrnoException) => finish({ ok: false, status: null, bytes: null, error: e.code ?? e.message }));
+    req.on("timeout", () => { req.destroy(new Error("ETIMEDOUT")); finish({ ok: false, status: null, bytes: null, error: "ETIMEDOUT" }); });
+    req.write(body); req.end();
+  });
+}
+
+export async function diagnoseNotams(icao = "KADW"): Promise<NotamDiag> {
+  const ca = dodCaBundle();
+  let caSubject: string | null = null;
+  try { if (ca) caSubject = new X509Certificate(ca).subject.replace(/\n/g, " "); } catch { /* ignore */ }
+
+  const [tlsR, secureR, insecureR] = await Promise.all([
+    tlsProbe(ca),
+    daipProbe(icao, ca, true),
+    daipProbe(icao, ca, false),
+  ]);
+
+  let verdict: string;
+  if (secureR.ok) verdict = "DAIP reachable and trusted — NOTAMs should work. If still empty, the response schema differs; capture a sample.";
+  else if (insecureR.ok && !secureR.ok) verdict = "TLS-TRUST issue only: the request works with verification off, so DAIP's chain doesn't validate against the bundled root. Add the intermediate CA(s) shown in tls.chain to lib/certs/dodCa.ts.";
+  else if (!tlsR.connected) verdict = `Cannot even open a TLS socket (${tlsR.authorizationError ?? insecureR.error}). DAIP is likely IP-blocked from this host or requires a client certificate (mutual TLS) — not fixable from a commercial cloud. Pivot to the FAA NOTAM API (needs creds) or accept GPS-only.`;
+  else verdict = `DAIP refuses the request (status ${insecureR.status ?? "—"} / ${insecureR.error ?? "—"}) even ignoring TLS — likely an app-layer block, wrong path/body, or client-cert requirement.`;
+
+  return { configured: !!ca, caSubject, tls: tlsR, secureRequest: secureR, insecureRequest: insecureR, verdict };
 }
