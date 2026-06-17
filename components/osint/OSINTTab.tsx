@@ -10,22 +10,6 @@ import GroundTruthTab from "@/components/ground/GroundTruthTab";
 // Leaflet uses window/document at import time, so we have to load the map
 // component client-only. Without ssr: false the build fails with a
 // "window is not defined" error during static analysis.
-const AircraftMap = dynamic(() => import("./AircraftMap"), {
-  ssr: false,
-  loading: () => (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono h-[58vh] min-h-[360px] lg:h-[600px]">
-      Loading map…
-    </div>
-  ),
-});
-const MaritimeMap = dynamic(() => import("./MaritimeMap"), {
-  ssr: false,
-  loading: () => (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono h-[58vh] min-h-[360px] lg:h-[600px]">
-      Loading map…
-    </div>
-  ),
-});
 const CrisisMap = dynamic(() => import("./CrisisMap"), {
   ssr: false,
   loading: () => (
@@ -55,7 +39,7 @@ interface FeedSummary {
   fetchedAt?: number;
 }
 
-type Pane = "all" | "social" | "telegram" | "news" | "aircraft" | "maritime" | "crisis" | "ground";
+type Pane = "all" | "social" | "telegram" | "news" | "crisis" | "ground";
 type Priority = "High" | "Medium" | "Low";
 
 const PRIORITY_PILL: Record<Priority, string> = {
@@ -78,40 +62,6 @@ function timeAgo(s: string): string {
     return formatDistanceToNow(d, { addSuffix: true });
   } catch { return ""; }
 }
-
-// Embeddable map providers. The original implementation hardcoded ADS-B
-// Exchange and MarineTraffic, but both started enforcing X-Frame-Options /
-// referrer checks that prevent third-party embedding. The fix is a user-
-// selectable provider list — community ADS-B trackers (adsb.fi /
-// airplanes.live / adsb.lol descend from open-source tar1090 and explicitly
-// allow embedding) sit at the top of the aircraft list, with the now-
-// restricted commercial sites kept as fallbacks. Each entry's URL builder
-// takes the user's home coords; the iframe key is the provider id so
-// switching providers forces a clean remount.
-type ProviderDef = {
-  id: string;
-  label: string;
-  url: (lat: number, lon: number) => string;
-  note?: string;
-};
-
-const AIRCRAFT_PROVIDERS: ProviderDef[] = [
-  { id: "adsbfi",        label: "adsb.fi",         url: (lat, lon) => `https://globe.adsb.fi/?lat=${lat}&lon=${lon}&zoom=8&mil` },
-  { id: "airplaneslive", label: "airplanes.live",  url: (lat, lon) => `https://globe.airplanes.live/?lat=${lat}&lon=${lon}&zoom=8&mil` },
-  { id: "adsblol",       label: "adsb.lol",        url: (lat, lon) => `https://globe.adsb.lol/?lat=${lat}&lon=${lon}&zoom=8&mil` },
-  { id: "adsbex",        label: "ADS-B Exchange",  url: (lat, lon) => `https://globe.adsbexchange.com/?lat=${lat}&lon=${lon}&zoom=8&hideButtons&hideSidebar&mil`, note: "may block embed" },
-];
-
-const MARITIME_PROVIDERS: ProviderDef[] = [
-  { id: "vesselfinder",  label: "VesselFinder",    url: (lat, lon) => `https://www.vesselfinder.com/aismap?zoom=7&lat=${lat}&lon=${lon}&width=100%25&height=100%25&names=true`, note: "may block embed" },
-  { id: "marinetraffic", label: "MarineTraffic",   url: (lat, lon) => `https://www.marinetraffic.com/en/ais/embed/zoom:7/centery:${lat}/centerx:${lon}/maptype:4/shownames:false/mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:false`, note: "may block embed" },
-  { id: "openseamap",    label: "OpenSeaMap",      url: (lat, lon) => `https://map.openseamap.org/?zoom=7&lat=${lat}&lon=${lon}&mlat=${lat}&mlon=${lon}&layers=BFTFFFFFFFFFF`, note: "chart only, no live AIS" },
-];
-
-const LS_AIRCRAFT_PROVIDER = "osint-aircraft-provider";
-const LS_MARITIME_PROVIDER = "osint-maritime-provider";
-const LS_AIRCRAFT_SOURCE = "osint-aircraft-source"; // "self" | "embed"
-const LS_MARITIME_SOURCE = "osint-maritime-source"; // "self" | "embed"
 
 const PRIORITY_RANK: Record<Priority, number> = { High: 3, Medium: 2, Low: 1 };
 // A story carried by this many distinct feeds is treated as corroborated /
@@ -139,41 +89,22 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   useEffect(() => {
     const onSetPane = (e: Event) => {
       const p = (e as CustomEvent<string>).detail;
-      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "aircraft" || p === "maritime" || p === "ground") setPane(p as Pane);
+      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "ground") setPane(p as Pane);
     };
     window.addEventListener("osint:set-pane", onSetPane);
     return () => window.removeEventListener("osint:set-pane", onSetPane);
   }, []);
   const [homeLat, setHomeLat] = useState<number>(38.85);
   const [homeLon, setHomeLon] = useState<number>(-104.8);
-  const [aircraftProvider, setAircraftProvider] = useState<string>(AIRCRAFT_PROVIDERS[0].id);
-  const [maritimeProvider, setMaritimeProvider] = useState<string>(MARITIME_PROVIDERS[0].id);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [timeWindow, setTimeWindow] = useState<"all" | "4h" | "24h" | "7d">("all");
-  const [aircraftSource, setAircraftSource] = useState<"self" | "embed">("self");
-  const [maritimeSource, setMaritimeSource] = useState<"self" | "embed">("self");
 
   useEffect(() => {
-    // Restore the user's previously chosen map providers. Validate against
-    // the current id list so a stale localStorage value (deleted provider)
-    // doesn't strand us on an unknown id.
-    try {
-      const a = localStorage.getItem(LS_AIRCRAFT_PROVIDER);
-      const m = localStorage.getItem(LS_MARITIME_PROVIDER);
-      const src = localStorage.getItem(LS_AIRCRAFT_SOURCE);
-      const msrc = localStorage.getItem(LS_MARITIME_SOURCE);
-      if (a && AIRCRAFT_PROVIDERS.some((p) => p.id === a)) setAircraftProvider(a);
-      if (m && MARITIME_PROVIDERS.some((p) => p.id === m)) setMaritimeProvider(m);
-      if (src === "self" || src === "embed") setAircraftSource(src);
-      if (msrc === "self" || msrc === "embed") setMaritimeSource(msrc);
-    } catch {}
     fetch("/api/user-prefs")
       .then((r) => r.json())
       .then(({ prefs }) => {
-        // Defense in depth: even though the server validates lat/lon as
-        // numbers, the iframe `src` below interpolates them — coerce here so
-        // a future endpoint that ships non-numeric prefs can't inject into
-        // the embed URL.
+        // Coerce to numbers defensively before they're used to query the
+        // aircraft/ship feeds for AOR-contact awareness.
         const lat = Number(prefs?.localLat);
         const lon = Number(prefs?.localLon);
         if (Number.isFinite(lat)) setHomeLat(lat);
@@ -205,24 +136,10 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
     return () => { clearInterval(id); window.removeEventListener("focus", onFocus); };
   }, [loadFeed]);
 
-  const pickAircraft = (id: string) => {
-    setAircraftProvider(id);
-    try { localStorage.setItem(LS_AIRCRAFT_PROVIDER, id); } catch {}
-    patchUiState({ [UI_KEYS.osintAircraftProvider]: id });
-  };
-  const pickMaritime = (id: string) => {
-    setMaritimeProvider(id);
-    try { localStorage.setItem(LS_MARITIME_PROVIDER, id); } catch {}
-    patchUiState({ [UI_KEYS.osintMaritimeProvider]: id });
-  };
-
-  const aircraftCfg = AIRCRAFT_PROVIDERS.find((p) => p.id === aircraftProvider) ?? AIRCRAFT_PROVIDERS[0];
-  const maritimeCfg = MARITIME_PROVIDERS.find((p) => p.id === maritimeProvider) ?? MARITIME_PROVIDERS[0];
-
   const filtered = useMemo(() => {
     let base: OsintItem[];
     if (pane === "all") base = items;
-    else if (pane === "aircraft" || pane === "maritime" || pane === "crisis" || pane === "ground") base = [];
+    else if (pane === "crisis" || pane === "ground") base = [];
     else base = items.filter((i) => i.feedKind === pane);
 
     if (timeWindow === "all") return base;
@@ -318,20 +235,11 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
     });
   };
 
-  // Overlay server-synced state on top of the per-device localStorage values so
-  // the OSINT map setup + dismissed clusters follow the user across devices.
-  // Map settings are last-write-wins (server overrides); dismissed clusters are
-  // unioned (don't un-dismiss something hidden on another device).
+  // Overlay server-synced dismissed clusters on top of the per-device
+  // localStorage values so they follow the user across devices (unioned — don't
+  // un-dismiss something hidden on another device).
   useEffect(() => {
     fetchUiState().then((st) => {
-      const a = st[UI_KEYS.osintAircraftProvider];
-      const m = st[UI_KEYS.osintMaritimeProvider];
-      const src = st[UI_KEYS.osintAircraftSource];
-      const msrc = st[UI_KEYS.osintMaritimeSource];
-      if (typeof a === "string" && AIRCRAFT_PROVIDERS.some((p) => p.id === a)) setAircraftProvider(a);
-      if (typeof m === "string" && MARITIME_PROVIDERS.some((p) => p.id === m)) setMaritimeProvider(m);
-      if (src === "self" || src === "embed") setAircraftSource(src);
-      if (msrc === "self" || msrc === "embed") setMaritimeSource(msrc);
       const sd = st[UI_KEYS.osintDismissed];
       if (sd && typeof sd === "object" && !Array.isArray(sd)) {
         const cutoff = Date.now() - DISMISS_TTL_MS;
@@ -565,7 +473,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // here too (no token cost — these are the same free endpoints the maps use).
   const [contacts, setContacts] = useState<{ mil: number; vessels: number; watched: string[] }>({ mil: 0, vessels: 0, watched: [] });
   useEffect(() => {
-    if (!active || pane === "aircraft" || pane === "maritime" || pane === "crisis" || pane === "ground") return;
+    if (!active || pane === "crisis" || pane === "ground") return;
     if (!Number.isFinite(homeLat) || !Number.isFinite(homeLon)) return;
     let cancelled = false;
     const poll = async () => {
@@ -763,8 +671,6 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           { id: "social",    label: "Social",   n: counts.social    },
           { id: "telegram",  label: "Telegram", n: counts.telegram  },
           { id: "news",      label: "News",     n: counts.news      },
-          { id: "aircraft",  label: "Aircraft", n: null             },
-          { id: "maritime",  label: "Maritime", n: null             },
           { id: "crisis",    label: "Crisis",   n: null             },
           { id: "ground",    label: "Ground",   n: null             },
         ] as const).map((p) => (
@@ -787,7 +693,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
 
       {/* Time-window filter — only meaningful for the feed-list panes, hidden
           on the map panes where there are no items to filter. */}
-      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && pane !== "ground" && (
+      {pane !== "crisis" && pane !== "ground" && (
         <div className="flex items-center gap-1.5 -mt-2 text-[10px]">
           <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Window</span>
           {(["all", "4h", "24h", "7d"] as const).map((w) => (
@@ -807,212 +713,16 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
         </div>
       )}
 
-      {/* Aircraft pane — choose between self-hosted Leaflet map (OpenSky
-          proxy) or one of the embeddable iframe providers as a fallback.
-          Self-hosted is the default since it's the only path we fully
-          control; iframe stays available for when OpenSky is unreachable. */}
-      {pane === "aircraft" && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Source</span>
-            <button
-              type="button"
-              onClick={() => {
-                setAircraftSource("self");
-                try { localStorage.setItem(LS_AIRCRAFT_SOURCE, "self"); } catch {}
-                patchUiState({ [UI_KEYS.osintAircraftSource]: "self" });
-              }}
-              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
-                aircraftSource === "self"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
-              }`}
-              title="Self-hosted Leaflet map fed by OpenSky"
-            >
-              Self-hosted
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAircraftSource("embed");
-                try { localStorage.setItem(LS_AIRCRAFT_SOURCE, "embed"); } catch {}
-                patchUiState({ [UI_KEYS.osintAircraftSource]: "embed" });
-              }}
-              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
-                aircraftSource === "embed"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
-              }`}
-              title="Embeddable community ADS-B iframe (no map markers, no callsign watch)"
-            >
-              Iframe provider
-            </button>
-          </div>
-
-          {aircraftSource === "self" ? (
-            <AircraftMap
-              homeLat={homeLat}
-              homeLon={homeLon}
-              radiusKm={250}
-              notableCallsigns={watchlist}
-            />
-          ) : (
-          <>
-          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Provider</span>
-            {AIRCRAFT_PROVIDERS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => pickAircraft(p.id)}
-                title={p.note}
-                className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
-                  aircraftProvider === p.id
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                    : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-            <span className="flex-1" />
-            <a
-              href={aircraftCfg.url(homeLat, homeLon)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-0.5 rounded font-bold uppercase tracking-wider border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40 transition-all"
-            >
-              Open ↗
-            </a>
-          </div>
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden h-[58vh] min-h-[360px] lg:h-[600px]">
-            <iframe
-              key={aircraftCfg.id}
-              src={aircraftCfg.url(homeLat, homeLon)}
-              width="100%"
-              height="100%"
-              frameBorder="0"
-              referrerPolicy="no-referrer"
-              title={`Live aircraft — ${aircraftCfg.label}`}
-              className="block"
-            />
-          </div>
-          <p className="text-[10px] text-slate-700 leading-relaxed">
-            Filter: military aircraft only. If the map is blank, the provider is refusing the embed —
-            try another provider above, or use <span className="text-slate-500">Open ↗</span>. Community
-            providers (adsb.fi / airplanes.live / adsb.lol) are the most reliable for embedding.
-          </p>
-          </>
-          )}
-        </div>
-      )}
-
-      {/* Maritime pane — self-hosted Leaflet (AISStream WebSocket) or
-          fallback iframe providers. Same Source toggle pattern as
-          aircraft; AISStream requires AISSTREAM_API_KEY in the env to
-          show live ships. */}
-      {pane === "maritime" && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Source</span>
-            <button
-              type="button"
-              onClick={() => {
-                setMaritimeSource("self");
-                try { localStorage.setItem(LS_MARITIME_SOURCE, "self"); } catch {}
-                patchUiState({ [UI_KEYS.osintMaritimeSource]: "self" });
-              }}
-              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
-                maritimeSource === "self"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
-              }`}
-              title="Self-hosted Leaflet map fed by AISStream WebSocket (requires API key)"
-            >
-              Self-hosted
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMaritimeSource("embed");
-                try { localStorage.setItem(LS_MARITIME_SOURCE, "embed"); } catch {}
-                patchUiState({ [UI_KEYS.osintMaritimeSource]: "embed" });
-              }}
-              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
-                maritimeSource === "embed"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
-              }`}
-              title="Embeddable AIS iframe (no markers, no watch list)"
-            >
-              Iframe provider
-            </button>
-          </div>
-
-          {maritimeSource === "self" ? (
-            <MaritimeMap
-              homeLat={homeLat}
-              homeLon={homeLon}
-              radiusKm={200}
-              notableNames={watchlist}
-            />
-          ) : (
-          <>
-          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-            <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Provider</span>
-            {MARITIME_PROVIDERS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => pickMaritime(p.id)}
-                title={p.note}
-                className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
-                  maritimeProvider === p.id
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                    : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-            <span className="flex-1" />
-            <a
-              href={maritimeCfg.url(homeLat, homeLon)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-0.5 rounded font-bold uppercase tracking-wider border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40 transition-all"
-            >
-              Open ↗
-            </a>
-          </div>
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden h-[58vh] min-h-[360px] lg:h-[600px]">
-            <iframe
-              key={maritimeCfg.id}
-              src={maritimeCfg.url(homeLat, homeLon)}
-              width="100%"
-              height="100%"
-              frameBorder="0"
-              referrerPolicy="no-referrer"
-              title={`Live maritime — ${maritimeCfg.label}`}
-              className="block"
-            />
-          </div>
-          <p className="text-[10px] text-slate-700 leading-relaxed">
-            Most commercial AIS sites block iframe embedding without a paid embed key. If the map is blank,
-            try a different provider, or use <span className="text-slate-500">Open ↗</span>. OpenSeaMap
-            always renders but shows only the base nautical chart (no live AIS).
-          </p>
-          </>
-          )}
-        </div>
-      )}
-
-      {/* Crisis / situation map — disasters + hub weather + tropical + AMC hubs */}
+      {/* Crisis / situation map — disasters + hub weather + tropical + AMC hubs.
+          Live military aircraft (ADS-B) and maritime vessels (AIS) are layers on
+          this map now — the standalone Aircraft/Maritime panes were retired. */}
       {pane === "crisis" && <CrisisMap />}
 
       {/* Ground Truth — per-country situation room for the Force Protection watch */}
       {pane === "ground" && <GroundTruthTab active={active} />}
 
       {/* Feed list pane */}
-      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && pane !== "ground" && (
+      {pane !== "crisis" && pane !== "ground" && (
         <>
           {loading && (
             <div className="space-y-2">
@@ -1107,7 +817,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               <span className="flex-1" />
               <button
                 type="button"
-                onClick={() => setPane("aircraft")}
+                onClick={() => setPane("crisis")}
                 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-emerald-400 transition-colors"
               >
                 View map ↗
