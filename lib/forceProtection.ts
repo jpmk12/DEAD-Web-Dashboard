@@ -20,7 +20,7 @@ import { getConflictPoints } from "./conflictEvents";
 import { getAcledEvents } from "./acled";
 import { getInformPoints } from "./inform";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
-import { getFlightCategories, type AviationWx } from "./aviationWx";
+import { getFlightCategories, getTafOutlook, CAT_RANK, type AviationWx, type TafOutlook } from "./aviationWx";
 import { getNotams, startsInLabel, type Notam } from "./notams";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { civilCalendarEvents } from "./civilCalendar";
@@ -75,6 +75,7 @@ export interface ForceContext {
   inform: InformPoint[];
   gps: GpsHex[];
   aviation: Record<string, AviationWx>; // decoded METAR flight category, keyed by ICAO
+  aviationTaf: Record<string, TafOutlook>; // worst forecast flight cat next ~18h, by ICAO
   notams: Record<string, Notam[]>;      // NOTAMs keyed by ICAO (DAIP)
   notamsConfigured: boolean;            // DoD CA bundle present → airspace category enabled
   health: HealthEvent[];                // WHO Disease Outbreak News
@@ -185,6 +186,16 @@ function assessWeather(loc: ForceLocation, ctx: ForceContext): CategoryAssessmen
       ].filter(Boolean);
       signals.push(`${wx.flightCategory}${bits.length ? ` (${bits.join(", ")})` : ""}`);
       sev = worse(sev, FLIGHT_CAT_SEV[wx.flightCategory] ?? "amber");
+    }
+
+    // Anticipatory TAF: forecast deterioration (IFR/LIFR) in the next ~18h that's
+    // worse than what's observed now — amber (it's a forecast, not an ob).
+    const taf = ctx.aviationTaf[loc.icao.toUpperCase()];
+    const nowRank = wx ? CAT_RANK[wx.flightCategory] : -1;
+    if (taf && CAT_RANK[taf.worst] > Math.max(nowRank, CAT_RANK.MVFR)) {
+      const when = taf.fromISO ? new Date(taf.fromISO).toUTCString().slice(17, 22) + "Z" : "soon";
+      signals.push(`TAF: ${taf.worst} forecast by ${when}`);
+      sev = worse(sev, "amber");
     }
   }
 
@@ -383,7 +394,7 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
   const points: NamedPoint[] = active.filter((l) => l.icao).map((l) => ({ label: l.label, lat: l.lat, lon: l.lon }));
   const icaos = active.map((l) => l.icao).filter((x): x is string => !!x);
 
-  const [weather, advisories, conflict, acled, inform, gps, aviation, notams, health] = await Promise.all([
+  const [weather, advisories, conflict, acled, inform, gps, aviation, notams, health, taf] = await Promise.all([
     points.length ? getWeatherThreats(points).catch(() => null) : Promise.resolve(null),
     getAllStateAdvisories().catch(() => []),
     getConflictPoints().catch(() => [] as ConflictPoint[]),
@@ -393,6 +404,7 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
     getFlightCategories(icaos).catch(() => ({ live: false, byIcao: {} as Record<string, AviationWx> })),
     getNotams(icaos).catch(() => ({ configured: false, live: false, byIcao: {} as Record<string, Notam[]> })),
     getHealthEvents().catch(() => ({ live: false, events: [] as HealthEvent[] })),
+    getTafOutlook(icaos).catch(() => ({} as Record<string, TafOutlook>)),
   ]);
 
   // getWeatherThreats already pulls disasters; only fetch separately if it failed.
@@ -409,6 +421,7 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
     inform,
     gps: gps.hexes,
     aviation: aviation.byIcao,
+    aviationTaf: taf,
     notams: notams.byIcao,
     notamsConfigured: notams.configured,
     health: health.events,

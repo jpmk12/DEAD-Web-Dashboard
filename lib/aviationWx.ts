@@ -6,9 +6,11 @@
 // Liveness is reported honestly: a failed/empty AWC pull returns live:false so
 // the caller can score the base UNKNOWN rather than a false "VFR/clear".
 
-import { decodeMetar } from "./metar";
+import { decodeMetar, decodeTaf } from "./metar";
 import { fetchWithTimeout } from "./fetchTimeout";
 import type { FlightCategory } from "./types";
+
+export const CAT_RANK: Record<FlightCategory, number> = { VFR: 0, MVFR: 1, IFR: 2, LIFR: 3, UNKNOWN: -1 };
 
 const AWC = "https://aviationweather.gov/api/data";
 const HEADERS = { "User-Agent": "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" };
@@ -64,5 +66,51 @@ export async function getFlightCategories(icaosRaw: string[]): Promise<{ live: b
     // marks affected bases UNKNOWN instead of falsely clear.
     if (cache && cache.key === key) return { live: cache.live, byIcao: cache.data };
     return { live: false, byIcao: {} };
+  }
+}
+
+// Anticipatory TAF outlook: the worst forecast flight category in the next
+// `horizonH` hours per ICAO, and when it first reaches that category. Lets the
+// Force Protection weather axis flag "VFR now, IFR by 14Z" — the planning read
+// METAR-alone can't give. Reuses the Weather tab's TAF decoder.
+export interface TafOutlook { worst: FlightCategory; fromISO: string }
+
+const tafTtl = 30 * 60 * 1000;
+let tafCache: { key: string; data: Record<string, TafOutlook>; expires: number } | null = null;
+
+export async function getTafOutlook(icaosRaw: string[], horizonH = 18): Promise<Record<string, TafOutlook>> {
+  const icaos = Array.from(new Set(icaosRaw.map((s) => s.trim().toUpperCase()).filter(isIcao))).slice(0, 12);
+  if (icaos.length === 0) return {};
+  const key = icaos.slice().sort().join(",") + `|${horizonH}`;
+  if (tafCache && tafCache.key === key && tafCache.expires > Date.now()) return tafCache.data;
+
+  try {
+    const res = await fetchWithTimeout(`${AWC}/taf?ids=${icaos.join(",")}&format=json`, { headers: HEADERS, cache: "no-store" }, 10_000);
+    if (!res.ok) throw new Error(`taf ${res.status}`);
+    const rows = await res.json();
+    const list: unknown[] = Array.isArray(rows) ? rows : [];
+    const now = Date.now();
+    const horizon = now + horizonH * 3600_000;
+    const out: Record<string, TafOutlook> = {};
+    for (const row of list) {
+      const t = decodeTaf(row as Parameters<typeof decodeTaf>[0]);
+      const id = t.icao.toUpperCase();
+      if (!id || out[id]) continue;
+      let worst: FlightCategory = "VFR";
+      let fromISO = "";
+      for (const p of t.periods) {
+        const pf = p.from ? Date.parse(p.from) : NaN;
+        const pt = p.to ? Date.parse(p.to) : NaN;
+        // Period overlaps [now, now+horizon]?
+        if (!(Number.isFinite(pf) && pf < horizon && (!Number.isFinite(pt) || pt > now))) continue;
+        if (CAT_RANK[p.flightCategory] > CAT_RANK[worst]) { worst = p.flightCategory; fromISO = p.from; }
+      }
+      if (CAT_RANK[worst] >= CAT_RANK.IFR) out[id] = { worst, fromISO };
+    }
+    tafCache = { key, data: out, expires: Date.now() + tafTtl };
+    return out;
+  } catch {
+    if (tafCache && tafCache.key === key) return tafCache.data;
+    return {};
   }
 }

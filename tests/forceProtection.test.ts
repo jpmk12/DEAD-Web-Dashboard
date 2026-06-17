@@ -13,7 +13,7 @@ const base = (over: Partial<ForceLocation> = {}): ForceLocation => ({
 
 const emptyCtx: ForceContext = {
   disasters: [], threats: [], tropical: [], hazards: [],
-  advisories: [], conflict: [], acled: [], inform: [], gps: [], aviation: {},
+  advisories: [], conflict: [], acled: [], inform: [], gps: [], aviation: {}, aviationTaf: {},
   notams: {}, notamsConfigured: false, health: [], nowMs: Date.UTC(2026, 5, 16),
   live: { weather: true, gps: true, notams: false },
 };
