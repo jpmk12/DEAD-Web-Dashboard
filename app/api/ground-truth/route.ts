@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getCountryDossier } from "@/lib/groundTruth";
+import { getUserPrefs } from "@/lib/userPrefs";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,8 @@ export async function GET(req: Request) {
   if (hit && hit.expires > Date.now()) return NextResponse.json(hit.body);
 
   try {
-    const dossier = await getCountryDossier(country);
+    const prefs = await getUserPrefs().catch(() => null);
+    const dossier = await getCountryDossier(country, prefs?.osintFeeds ?? []);
     cache.set(key, { body: dossier, expires: Date.now() + TTL });
     return NextResponse.json(dossier);
   } catch {

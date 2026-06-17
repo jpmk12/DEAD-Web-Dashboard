@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { ForceAssessment, CategoryAssessment } from "@/lib/forceProtection";
-import type { Incident } from "@/lib/groundTruth";
-import type { NewsItem } from "@/lib/types";
+import type { CountryDossier } from "@/lib/groundTruth";
+
+const IncidentMiniMap = dynamic(() => import("./IncidentMiniMap"), { ssr: false });
 
 // Type-only imports above keep the server scoring/dossier modules out of this
 // client bundle; runtime data comes from the APIs.
@@ -49,7 +51,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
   const [assessments, setAssessments] = useState<ForceAssessment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
-  const [dossier, setDossier] = useState<{ incidents: Incident[]; news: NewsItem[] } | null>(null);
+  const [dossier, setDossier] = useState<CountryDossier | null>(null);
   const [dLoading, setDLoading] = useState(false);
   const [sitrep, setSitrep] = useState<string | null>(null);
   const [sLoading, setSLoading] = useState(false);
@@ -78,10 +80,11 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     if (!sel) return;
     let cancel = false;
     setDLoading(true); setDossier(null); setSitrep(null); setSLoading(true);
+    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], news: [] };
     fetch(`/api/ground-truth?country=${encodeURIComponent(sel.country)}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancel) { setDossier(d ?? { incidents: [], news: [] }); setDLoading(false); } })
-      .catch(() => { if (!cancel) { setDossier({ incidents: [], news: [] }); setDLoading(false); } });
+      .then((d) => { if (!cancel) { setDossier(d ?? empty); setDLoading(false); } })
+      .catch(() => { if (!cancel) { setDossier(empty); setDLoading(false); } });
 
     const drivers = sel.categories.filter((c) => c.severity !== "green").flatMap((c) => c.signals).slice(0, 8);
     fetch("/api/ground-truth/sitrep", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country: sel.country, composite: sel.composite, cocom: sel.cocom, drivers }) })
@@ -152,25 +155,41 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                 {!sLoading && sitrep && <pre className="text-[12.5px] text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{sitrep}</pre>}
               </Card>
 
-              {/* Security incidents */}
+              {/* Security incidents — list + mini-map */}
               <Card title="◆ Security incidents" meta="ACLED · UCDP · in-country + ~500km">
                 {dLoading && <p className="text-[12px] text-slate-500">Loading incidents…</p>}
-                {!dLoading && dossier && dossier.incidents.length === 0 && <p className="text-[11px] text-slate-600">No recent in-country or nearby incidents in window.</p>}
-                {!dLoading && dossier && dossier.incidents.length > 0 && (
-                  <ul className="space-y-1.5">
-                    {dossier.incidents.map((i, n) => (
-                      <li key={n} className="text-[12px] flex items-start gap-2">
-                        <span className={i.km == null ? "text-red-400" : "text-amber-400"}>◆</span>
-                        <span className="text-slate-300 flex-1 min-w-0">{i.type} <span className="text-slate-500">@ {i.location}</span>{i.fatalities > 0 && <span className="text-red-400/90"> · {i.fatalities} killed</span>}{i.url && <a href={i.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] text-violet-300/80">↗</a>}</span>
-                        <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{i.km == null ? "in-country" : `~${i.km}km`} · {i.src.toUpperCase()}</span>
-                      </li>
-                    ))}
-                  </ul>
+                {!dLoading && dossier && (
+                  <div className="flex flex-col md:flex-row gap-3">
+                    {(dossier.center || dossier.incidents.length > 0) && (
+                      <div className="md:w-[44%] flex-shrink-0">
+                        <IncidentMiniMap
+                          center={dossier.center}
+                          base={baseForSel ? { lat: baseForSel.lat, lon: baseForSel.lon, label: baseForSel.label } : null}
+                          incidents={dossier.incidents}
+                        />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      {dossier.incidents.length === 0 ? (
+                        <p className="text-[11px] text-slate-600">No recent in-country or nearby incidents in window.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {dossier.incidents.map((i, n) => (
+                            <li key={n} className="text-[12px] flex items-start gap-2">
+                              <span className={i.km == null ? "text-red-400" : "text-amber-400"}>◆</span>
+                              <span className="text-slate-300 flex-1 min-w-0">{i.type} <span className="text-slate-500">@ {i.location}</span>{i.fatalities > 0 && <span className="text-red-400/90"> · {i.fatalities} killed</span>}{i.url && <a href={i.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] text-violet-300/80">↗</a>}</span>
+                              <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{i.km == null ? "in-country" : `~${i.km}km`} · {i.src.toUpperCase()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
                 )}
               </Card>
 
               {/* Local news */}
-              <Card title="📰 Local news & media" meta="GDELT">
+              <Card title="📰 Local news & media" meta="GDELT + your OSINT feeds">
                 {dLoading && <p className="text-[12px] text-slate-500">Loading news…</p>}
                 {!dLoading && dossier && dossier.news.length === 0 && <p className="text-[11px] text-slate-600">No recent headlines found.</p>}
                 {!dLoading && dossier && dossier.news.length > 0 && (

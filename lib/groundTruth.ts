@@ -7,9 +7,10 @@
 import { getAcledEvents } from "./acled";
 import { getConflictPoints } from "./conflictEvents";
 import { gdeltLocalNews } from "./localNews";
+import { fetchFeed } from "./rss";
 import { countryCentroid } from "./countryCentroids";
 import { haversineKm } from "./disasters";
-import type { NewsItem } from "./types";
+import type { NewsItem, OsintFeed } from "./types";
 
 export interface Incident {
   src: "acled" | "ucdp";
@@ -17,12 +18,15 @@ export interface Incident {
   location: string;
   date: string;
   fatalities: number;
+  lat: number;
+  lon: number;
   km: number | null; // distance from country centroid; null = in-country name match
   url?: string;
 }
 
 export interface CountryDossier {
   country: string;
+  center: [number, number] | null; // country centroid (for the mini-map)
   incidents: Incident[];
   news: NewsItem[];
 }
@@ -38,12 +42,25 @@ function countryMatch(a: string, b: string): boolean {
   return x === y || x.includes(y) || y.includes(x);
 }
 
-export async function getCountryDossier(country: string): Promise<CountryDossier> {
+const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Pull the user's OSINT feeds, keep items that mention the country.
+async function osintCountryNews(country: string, feeds: OsintFeed[]): Promise<NewsItem[]> {
+  if (feeds.length === 0) return [];
+  const rx = new RegExp(`\\b${escapeRx(country)}\\b`, "i");
+  const results = await Promise.all(
+    feeds.slice(0, 8).map((f) => fetchFeed(f.url, f.label, "osint").then((r) => r.items).catch(() => [] as NewsItem[])),
+  );
+  return results.flat().filter((it) => rx.test(it.title) || rx.test(it.summary ?? "")).slice(0, 8);
+}
+
+export async function getCountryDossier(country: string, osintFeeds: OsintFeed[] = []): Promise<CountryDossier> {
   const cen = countryCentroid(country);
-  const [acled, conflict, news] = await Promise.all([
+  const [acled, conflict, gdelt, osint] = await Promise.all([
     getAcledEvents().catch(() => []),
     getConflictPoints().catch(() => []),
     gdeltLocalNews(country).catch(() => [] as NewsItem[]),
+    osintCountryNews(country, osintFeeds).catch(() => [] as NewsItem[]),
   ]);
 
   const incidents: Incident[] = [];
@@ -54,7 +71,7 @@ export async function getCountryDossier(country: string): Promise<CountryDossier
     incidents.push({
       src: "acled", type: e.subType || e.type,
       location: [e.location, e.admin1, e.country].filter(Boolean)[0] ?? e.country,
-      date: e.date, fatalities: e.fatalities, km: inCountry ? null : km,
+      date: e.date, fatalities: e.fatalities, lat: e.lat, lon: e.lon, km: inCountry ? null : km,
     });
   }
   for (const c of conflict) {
@@ -63,15 +80,21 @@ export async function getCountryDossier(country: string): Promise<CountryDossier
     if (!inCountry && !(km != null && km <= NEAR_KM)) continue;
     incidents.push({
       src: "ucdp", type: c.title || "Organized violence", location: c.name,
-      date: "", fatalities: c.count, km: inCountry ? null : km, ...(c.url ? { url: c.url } : {}),
+      date: "", fatalities: c.count, lat: c.lat, lon: c.lon, km: inCountry ? null : km, ...(c.url ? { url: c.url } : {}),
     });
   }
-  // In-country first, then deadliest, then nearest.
   incidents.sort((a, b) =>
     (a.km == null ? 0 : 1) - (b.km == null ? 0 : 1) ||
     b.fatalities - a.fatalities ||
     (a.km ?? 0) - (b.km ?? 0),
   );
 
-  return { country, incidents: incidents.slice(0, 12), news: news.slice(0, 10) };
+  // Merge GDELT + OSINT news: dedupe by link, newest first.
+  const seen = new Set<string>();
+  const news = [...gdelt, ...osint]
+    .filter((n) => n.link && !seen.has(n.link) && seen.add(n.link))
+    .sort((a, b) => Date.parse(b.pubDate || "0") - Date.parse(a.pubDate || "0"))
+    .slice(0, 12);
+
+  return { country, center: cen, incidents: incidents.slice(0, 12), news };
 }
