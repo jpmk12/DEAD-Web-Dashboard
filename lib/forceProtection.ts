@@ -243,7 +243,7 @@ function assessGps(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   return { category: "gps", severity: sev, signals };
 }
 
-const NOTAM_SEV: Partial<Record<Notam["category"], Severity>> = { runway: "red", approach: "amber", airspace: "amber", obstacle: "amber" };
+const AIRSPACE_CATS = new Set<Notam["category"]>(["runway", "approach", "airspace", "obstacle"]);
 
 function assessAirspace(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   // Only present when NOTAMs are configured (else omitted, not a blind spot).
@@ -251,10 +251,12 @@ function assessAirspace(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
   const list = loc.icao ? (ctx.notams[loc.icao.toUpperCase()] ?? []) : [];
   const signals: string[] = [];
   let sev: Severity = "green";
-  for (const n of list.filter((x) => x.category in NOTAM_SEV).slice(0, 3)) {
-    const s = NOTAM_SEV[n.category] ?? "amber";
-    sev = worse(sev, s);
-    if (n.category === "runway" && n.runwaysClosed?.length) signals.push(`RWY ${n.runwaysClosed.join(", ")} CLSD`);
+  for (const n of list.filter((x) => AIRSPACE_CATS.has(x.category)).slice(0, 3)) {
+    // Red only for an actual runway CLOSURE; other runway/approach/airspace/
+    // obstacle items (markers, lights, windcones, U/S aids) are amber.
+    const closure = n.category === "runway" && !!n.runwaysClosed?.length;
+    sev = worse(sev, closure ? "red" : "amber");
+    if (closure) signals.push(`RWY ${n.runwaysClosed!.join(", ")} CLSD`);
     else signals.push(n.text.replace(/\s+/g, " ").slice(0, 90));
   }
   return { category: "airspace", severity: sev, signals };

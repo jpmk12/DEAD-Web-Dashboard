@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { categorizeNotam, parseRunwayClosure, parseRaimWindows, parseNotamEnd, buildNotam } from "@/lib/notams";
+import { categorizeNotam, parseRunwayClosure, parseRaimWindows, parseNotamEnd, buildNotam, parseDaipNotams } from "@/lib/notams";
 
 describe("categorizeNotam", () => {
   it("runway closure outranks everything (rank 0)", () => {
@@ -46,6 +46,41 @@ describe("parseNotamEnd", () => {
   });
   it("no C) field → undefined", () => {
     expect(parseNotamEnd("RWY 09 CLSD PERM")).toBeUndefined();
+  });
+});
+
+describe("parseDaipNotams", () => {
+  // Trimmed from a real DAIP response for KADW (group[].notams[].list[]).
+  const sample = JSON.stringify({
+    count: 2, type: "LOCATION",
+    group: [{ name: "KADW", notams: [{ code: "KADW", name: "KADW JOINT BASE ANDREWS", list: [
+      { idshow: "M1235/26", text: "AERODROME AERODROME RWY 1R/19L CLOSED. 17 JUN 11:00 2026 UNTIL 17 JUN 20:00 2026.",
+        rawtext: "M1235/26 NOTAMN \r\nQ) ZDC/QXXXX/IV/NBO/A/000/999 \r\nA) KADW \r\nB) 2606171100 \r\nC) 2606172000 \r\nE) AERODROME AERODROME RWY 1R/19L CLOSED.", alertType: "Warning" },
+      { idshow: "M1216/26", text: "AERODROME WINDCONE LOCATED 465FT FROM RWY 19L APPROACH OTS.",
+        rawtext: "M1216/26 NOTAMN \r\nA) KADW \r\nC) 2609102359 \r\nE) AERODROME WINDCONE LOCATED 465FT FROM RWY 19L APPROACH OTS", alertType: "Caution" },
+    ] }] }],
+  });
+
+  it("descends group[].notams[].list[] and structures each NOTAM", () => {
+    const out = parseDaipNotams("kadw", sample)!;
+    expect(out).toHaveLength(2);
+    const closure = out.find((n) => n.runwaysClosed?.length);
+    expect(closure).toBeTruthy();
+    expect(closure!.icao).toBe("KADW");
+    expect(closure!.category).toBe("runway");
+    expect(closure!.runwaysClosed).toEqual(["1R/19L"]);
+    expect(closure!.end).toBe("2026-06-17T20:00:00.000Z"); // from the C) field
+    expect(closure!.text).toContain("M1235/26"); // NOTAM number prefixed
+  });
+
+  it("does NOT extract the airfield name as a NOTAM (the old bug)", () => {
+    const out = parseDaipNotams("KADW", sample)!;
+    expect(out.some((n) => n.text.includes("JOINT BASE ANDREWS"))).toBe(false);
+  });
+
+  it("returns null for a non-DAIP shape", () => {
+    expect(parseDaipNotams("KADW", JSON.stringify({ foo: 1 }))).toBeNull();
+    expect(parseDaipNotams("KADW", "not json")).toBeNull();
   });
 });
 

@@ -151,46 +151,57 @@ function daipPost(body: string, ca: string): Promise<string> {
   });
 }
 
-// Pull NOTAM texts out of whatever DAIP returns (JSON array/objects or a text
-// blob) defensively — the precise schema is confirmed on deploy.
-// DAIP's response shape: { group: [ { name: "KADW", notams: [ {code, ...text...} ] } ] }.
-// Each NOTAM object carries the text under one of several possible fields; take
-// the longest plausible string so we don't depend on the exact field name.
-const NOTAM_TEXT_FIELDS = ["text", "icaoMessage", "traditionalMessage", "traditional", "message", "notamText", "body", "rawText", "icao", "e"];
-
-function notamObjectText(n: Record<string, unknown>): string {
-  let best = "";
-  for (const f of NOTAM_TEXT_FIELDS) {
-    const v = n[f];
-    if (typeof v === "string" && v.trim().length > best.length) best = v.trim();
-  }
-  if (!best) {
-    for (const v of Object.values(n)) if (typeof v === "string" && v.trim().length > best.length) best = v.trim();
-  }
-  return best;
-}
-
-function extractFromDaip(parsed: unknown): string[] | null {
-  const groups = (parsed as { group?: unknown[] })?.group;
+// DAIP response shape (confirmed live):
+//   { group: [ { name, notams: [ { code, name, list: [ {idshow, text, rawtext,
+//     alertType, ...} ] } ] } ] }
+// The individual NOTAMs live in notams[].list[]. Parse each from its `rawtext`
+// (full ICAO format → carries the C) end-date and E) body) and keep the clean
+// `text` for display.
+export function parseDaipNotams(icao: string, raw: string): Notam[] | null {
+  let json: unknown;
+  try { json = JSON.parse(raw); } catch { return null; }
+  const groups = (json as { group?: unknown[] })?.group;
   if (!Array.isArray(groups)) return null;
-  const out: string[] = [];
+  const ic = icao.toUpperCase();
+  const out: Notam[] = [];
+  const pushItem = (item: Record<string, unknown>) => {
+    const display = String(item.text ?? "").replace(/\s+/g, " ").trim();
+    const rawtext = String(item.rawtext ?? "").trim();
+    const basis = rawtext || display; // categorize/parse on the fullest text available
+    if (!basis) return;
+    const { category, rank } = categorizeNotam(basis);
+    const num = String(item.idshow ?? item.id ?? "").trim();
+    const end = parseNotamEnd(rawtext) ?? parseNotamEnd(display);
+    const runwaysClosed = category === "runway" ? parseRunwayClosure(basis) : [];
+    const raimWindows = category === "gps_raim" ? parseRaimWindows(basis) : [];
+    out.push({
+      icao: ic, category, rank,
+      text: ((num ? `${num} ` : "") + (display || basis)).slice(0, 480),
+      ...(end ? { end } : {}),
+      ...(runwaysClosed.length ? { runwaysClosed } : {}),
+      ...(raimWindows.length ? { raimWindows } : {}),
+    });
+  };
   for (const g of groups) {
-    const notams = (g as { notams?: unknown[] })?.notams;
-    if (!Array.isArray(notams)) continue;
-    for (const n of notams) {
-      if (!n || typeof n !== "object") continue;
-      const t = notamObjectText(n as Record<string, unknown>);
-      if (t.length > 8) out.push(t);
+    const wrappers = (g as { notams?: unknown[] })?.notams;
+    if (!Array.isArray(wrappers)) continue;
+    for (const w of wrappers) {
+      if (!w || typeof w !== "object") continue;
+      const list = (w as { list?: unknown[] }).list;
+      if (Array.isArray(list)) {
+        for (const item of list) if (item && typeof item === "object") pushItem(item as Record<string, unknown>);
+      } else {
+        pushItem(w as Record<string, unknown>); // tolerate a flatter shape
+      }
     }
   }
   return out.length ? out : null;
 }
 
+// Generic fallback when the response isn't DAIP's group/notams/list shape.
 function extractNotamTexts(raw: string): string[] {
   try {
     const json = JSON.parse(raw);
-    const daip = extractFromDaip(json);
-    if (daip) return daip;
     const out: string[] = [];
     const walk = (v: unknown) => {
       if (typeof v === "string") { if (/\b(RWY|TWY|ILS|GPS|RAIM|NAV|OBST|AIRSPACE|NOTAM)\b/i.test(v)) out.push(v); return; }
@@ -224,8 +235,8 @@ export async function getNotams(icaosRaw: string[]): Promise<{ configured: boole
   await Promise.all(icaos.map(async (icao) => {
     try {
       const raw = await daipPost(daipPayload(icao), ca);
-      const texts = extractNotamTexts(raw);
-      byIcao[icao] = texts.map((t) => buildNotam(icao, t)).sort((a, b) => a.rank - b.rank).slice(0, 40);
+      const parsed = parseDaipNotams(icao, raw) ?? extractNotamTexts(raw).map((t) => buildNotam(icao, t));
+      byIcao[icao] = parsed.sort((a, b) => a.rank - b.rank).slice(0, 40);
       anyOk = true;
     } catch {
       /* this station failed — leave it out; overall live reflects anyOk */
