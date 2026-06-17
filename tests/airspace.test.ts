@@ -76,6 +76,43 @@ describe("parseAirspaceGroups — LOCATION fixture", () => {
   });
 });
 
+describe("parseAirspaceGroups — FIR_ARTCC fixture (Damascus OSTT, real capture)", () => {
+  const groups = parseAirspaceGroups(fx("fir_ostt.json"), NOW);
+
+  it("returns the FIR-level enroute group plus the airports inside the FIR", () => {
+    const ostt = groups.find((g) => g.code === "OSTT");
+    expect(ostt).toBeDefined();
+    // OSTT's own enroute NOTAMs (airway closures, temp restricted areas, FIR status)
+    expect(ostt!.notams.length).toBeGreaterThan(10);
+    // airport ICAOs inside the Damascus FIR also come back as their own groups
+    expect(groups.some((g) => g.code.startsWith("OS") && g.code !== "OSTT")).toBe(true);
+  });
+
+  it("the FIR group's NOTAMs carry raw ICAO text and a group tag", () => {
+    const ostt = groups.find((g) => g.code === "OSTT")!;
+    expect(ostt.notams.every((n) => n.group === "OSTT")).toBe(true);
+    expect(ostt.notams.some((n) => /^[A-Z]\d{4}\/\d{2}/.test(n.rawtext))).toBe(true);
+  });
+
+  it("getFirNotams keeps only the FIR-level group (the centroid-resolvable one)", () => {
+    // Mirror getFirNotams' selection: of all groups, only the queried FIR code
+    // resolves to a centroid, so only it would be plotted.
+    const plotted = groups.filter((g) => firByCode(g.code));
+    expect(plotted.map((g) => g.code)).toEqual(["OSTT"]);
+  });
+});
+
+describe("parseAirspaceGroups — empty / placeholder FIR", () => {
+  it("drops a FIR whose only NOTAM is the 'no active NOTAMs' placeholder", () => {
+    // DAIP returns an empty-text placeholder item for a FIR with no NOTAMs.
+    const placeholder = JSON.stringify({
+      type: "FIR_ARTCC", count: 0,
+      group: [{ name: "ORBB", notams: [{ code: "ORBB", name: "ORBB BAGHDAD FIR (Either this location has no active NOTAMs ...)", list: [{ text: "", rawtext: "" }] }] }],
+    });
+    expect(parseAirspaceGroups(placeholder, NOW)).toEqual([]);
+  });
+});
+
 describe("parseAirspaceGroups — robustness", () => {
   it("returns [] on malformed / non-DAIP JSON", () => {
     expect(parseAirspaceGroups("not json", NOW)).toEqual([]);

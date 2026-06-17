@@ -136,17 +136,40 @@ async function query(type: string, params: Record<string, unknown>): Promise<Air
 }
 
 // Enroute/overflight NOTAMs for the given FIR codes, with centroids attached.
+//
+// DAIP's FIR_ARTCC query fully expands only the FIRST FIR in `locs` (any others
+// come back as bare "no NOTAMs" headers — confirmed against the live portal), so
+// we query ONE FIR per call and keep that FIR's own enroute group. The response
+// also carries the airport ICAOs inside the FIR as extra groups; we deliberately
+// drop those (airfield NOTAMs are the per-base LOCATION layer) and plot just the
+// FIR-level group (airway closures, temp restricted/danger areas, FIR status) at
+// the FIR centroid. Empty FIRs yield no group (placeholder items are skipped).
 export async function getFirNotams(firCodes: string[]): Promise<AirspaceResult> {
-  const codes = Array.from(new Set(firCodes.map((c) => c.trim().toUpperCase()).filter(Boolean))).slice(0, 30);
+  const codes = Array.from(new Set(firCodes.map((c) => c.trim().toUpperCase()).filter(Boolean)))
+    .filter((c) => firByCode(c)) // only FIRs we can place on the map
+    .slice(0, 16);
   if (!codes.length) return { configured: true, live: true, type: "FIR_ARTCC", groups: [] };
-  const res = await query("FIR_ARTCC", { locs: codes.join(" "), radius: "10" });
-  for (const grp of res.groups) {
-    const fir = firByCode(grp.code);
-    if (fir) { grp.lat = fir.lat; grp.lon = fir.lon; if (grp.name === grp.code) grp.name = fir.name; }
+
+  const settled = await Promise.all(codes.map(async (code) => {
+    const { configured, raw } = await fetchDaipQuery({ type: "FIR_ARTCC", locs: code, radius: "10" });
+    return { code, configured, raw };
+  }));
+
+  if (!settled.some((s) => s.configured)) return { configured: false, live: false, type: "FIR_ARTCC", groups: [] };
+
+  let anyLive = false;
+  const groups: AirspaceGroup[] = [];
+  for (const s of settled) {
+    if (s.raw == null) continue;
+    anyLive = true;
+    const own = parseAirspaceGroups(s.raw).find((g) => g.code === s.code);
+    if (!own) continue; // FIR has no active enroute NOTAMs
+    const fir = firByCode(s.code)!;
+    own.lat = fir.lat; own.lon = fir.lon; own.name = fir.name;
+    groups.push(own);
   }
-  // Only keep groups we can place on the map (have a known FIR centroid).
-  res.groups = res.groups.filter((g) => g.lat != null);
-  return res;
+  groups.sort((a, b) => ALERT_RANK[a.worst] - ALERT_RANK[b.worst] || b.count - a.count);
+  return { configured: true, live: anyLive, type: "FIR_ARTCC", groups };
 }
 
 // Official GPS/WAAS outage NOTAMs (system-level; complements GPSJam).
