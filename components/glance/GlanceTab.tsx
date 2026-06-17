@@ -390,20 +390,27 @@ export default function GlanceTab({
     });
   }
 
-  // Force Protection Watch — RED outranks (forces at risk), AMBER below.
+  // Force Protection Watch — RED outranks (forces at risk), AMBER below. A
+  // location that JUST escalated (worse than yesterday) is bumped to the top and
+  // flagged, so a newly-deteriorating spot grabs attention.
   const COCOM_SHORT: Record<string, string> = { NORTHCOM: "NORTHCOM", SOUTHCOM: "SOUTHCOM", EUCOM: "EUCOM", CENTCOM: "CENTCOM", AFRICOM: "AFRICOM", INDOPACOM: "INDOPACOM", UNKNOWN: "" };
+  const SEV_IDX: Record<string, number> = { red: 3, amber: 2, unknown: 1, green: 0 };
+  const escalated = (f: ForceWatchItem) => !!f.previousComposite && SEV_IDX[f.composite] > SEV_IDX[f.previousComposite];
+  const forceTo = () => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "crisis" })); };
   for (const f of forceWatch.filter((x) => x.composite === "red").slice(0, 3)) {
+    const e = escalated(f);
     urgent.push({
-      id: `force-${f.id}`, rank: -2, tone: "red", icon: "🛡",
-      label: f.label, sub: f.topDriver, meta: COCOM_SHORT[f.cocom] || "Force",
-      onClick: () => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "crisis" })); },
+      id: `force-${f.id}`, rank: e ? -3 : -2, tone: "red", icon: "🛡",
+      label: f.label, sub: (e ? `↑ escalated from ${f.previousComposite!.toUpperCase()} — ` : "") + f.topDriver, meta: COCOM_SHORT[f.cocom] || "Force",
+      onClick: forceTo,
     });
   }
   for (const f of forceWatch.filter((x) => x.composite === "amber").slice(0, 2)) {
+    const e = escalated(f);
     urgent.push({
-      id: `force-${f.id}`, rank: 1, tone: "amber", icon: "🛡",
-      label: f.label, sub: f.topDriver, meta: COCOM_SHORT[f.cocom] || "Force",
-      onClick: () => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "crisis" })); },
+      id: `force-${f.id}`, rank: e ? -1 : 1, tone: "amber", icon: "🛡",
+      label: f.label, sub: (e ? `↑ from ${f.previousComposite!.toUpperCase()} — ` : "") + f.topDriver, meta: COCOM_SHORT[f.cocom] || "Force",
+      onClick: forceTo,
     });
   }
 

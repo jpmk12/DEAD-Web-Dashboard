@@ -7,6 +7,7 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { getWeatherThreats, type NamedPoint } from "@/lib/severeWeather";
+import { getForceProtection } from "@/lib/forceProtection";
 import { getTrendMovers, formatMoversForPrompt } from "@/lib/trends";
 import { geocodePlace } from "@/lib/geocode";
 import { getDayForecasts, forecastLine, type DayForecast } from "@/lib/forecast";
@@ -246,9 +247,24 @@ export async function POST(request: Request) {
     }
   } catch { /* travel weather is best-effort in the brief */ }
 
+  // Force Protection posture for the watched countries/bases — surface RED and
+  // newly-escalated spots in the brief. Best-effort and bounded.
+  let forceLine = "";
+  try {
+    const fp = await getForceProtection(prefs.countriesOfInterest ?? [], prefs.forceLocations ?? []);
+    const notable = fp.assessments.filter((a) => a.composite === "red" || a.composite === "amber" || a.previousComposite);
+    if (notable.length) {
+      forceLine = notable.slice(0, 8).map((a) => {
+        const chg = a.previousComposite ? ` (was ${a.previousComposite.toUpperCase()} yesterday)` : "";
+        return `[${a.composite.toUpperCase()}] ${a.kind === "country" ? "" : "base "}${a.label} (${a.cocom}) — ${a.topDriver}${chg}`;
+      }).join("\n");
+    }
+  } catch { /* force protection is best-effort in the brief */ }
+
   const userContent = [
     tripLine && `CURRENT LOCATION: ${tripLine} Lead the weather with where you are now, and you may note the trip in the headline if relevant.`,
     weatherLine && `SEVERE WEATHER & DISASTERS (prioritise life-threatening or near the user's locations; note HADR relevance):\n${weatherLine}`,
+    forceLine && `FORCE PROTECTION (watched countries/bases — fused threat posture. Call out RED and newly-escalated locations prominently, e.g. in the headline or topStories; tie to where the user's forces operate):\n${forceLine}`,
     dayWeatherBlock && `DAY WEATHER (today's forecast — first line is your current base location, the rest are destinations from your calendar; use for the "weather" field):\n${dayWeatherBlock}`,
     trendLines && `WEEK-OVER-WEEK SIGNAL (deterministic counts from the user's monitored feeds — use for the "trends" field):\n${trendLines}`,
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
