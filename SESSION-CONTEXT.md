@@ -54,6 +54,20 @@ no half-shipped work.
 These are conversations the user surfaced but didn't pick up — pick from
 the list if the user comes back hungry for more.
 
+### ⏳ Waiting on external — TRACKED
+
+- **UCDP API token** (Crisis map "Conflict" layer + Force Protection conflict
+  axis). UCDP now requires a token (`x-ucdp-access-token`); without it the
+  Conflict layer falls back to coarse keyless ReliefWeb. **Status (2026-06-17):
+  user emailed `mertcan.yilmaz@pcr.uu.se` ("UCDP API Access Request") and is
+  awaiting the token.** When it arrives: set `UCDP_API_TOKEN` in the Node.js
+  Hosting env (no code change — `ucdpHeaders()` in `lib/conflictEvents.ts`
+  already reads it and `resolveVersion()` will start returning precise events).
+  Verify via `/api/osint/crisis-diag` (UCDP section) — should flip from
+  401/ReliefWeb to a working version + newest event date. Note: ACLED's free
+  tier still embargoes data <12 months, so the keyless **conflict-news** signal
+  (`lib/conflictNews.ts`, shipped) remains the timeliest read regardless.
+
 ### Offered but not chosen
 - **Per-domain spec split** — I offered to break `FEATURES.md` into
   `DOCS-SPEC.md` / `OSINT-SPEC.md` / etc. so different teams own different
