@@ -23,6 +23,21 @@ const MOBILITY_EXACT = new Set([
   "C2", "KA6",
 ]);
 
+// Aerial-refueling tankers specifically — for the Crisis map's "Tankers only"
+// filter, so a planner can see AR coverage for a reach problem. Subset of the
+// mobility set; KC-130 counts (it tankers), C-130 airlift variants do not.
+const TANKER_EXACT = new Set(["KC135", "K35R", "K35E", "KC10", "KC46", "K46", "KC30", "A332", "A330", "IL78", "KC130"]);
+
+export function isTankerType(type: string): boolean {
+  const t = (type ?? "").trim().toUpperCase();
+  if (!t) return false;
+  if (TANKER_EXACT.has(t)) return true;
+  if (/^KC/.test(t)) return true;   // KC135 / KC46 / KC10 / KC30 / KC130…
+  if (/^K(35|46)/.test(t)) return true; // K35R / K46…
+  if (/^IL78/.test(t)) return true; // Il-78
+  return false;
+}
+
 export function isMobilityType(type: string): boolean {
   const t = (type ?? "").trim().toUpperCase();
   if (!t) return false; // unknown type → not a confident mobility match

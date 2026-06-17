@@ -10,7 +10,7 @@ import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
 import ForceWatchBoard from "./ForceWatchBoard";
 import { aorFromCoords, type Aor } from "@/lib/aor";
-import { isMobilityType } from "@/lib/aircraftTypes";
+import { isMobilityType, isTankerType } from "@/lib/aircraftTypes";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { AcledEvent } from "@/lib/acled";
 import type { ForceAssessment } from "@/lib/forceProtection";
@@ -73,14 +73,19 @@ function gcLine(lat1: number, lon1: number, lat2: number, lon2: number, n = 24):
   return out;
 }
 
-// Illustrative airframe profiles — nominal one-way reach radius + cruise speed.
-// Coarse SA, not performance data (no payload/wind/AR/clearance modeling).
+// Planning-grade airframe profiles — one-way unrefueled reach at LIGHT load
+// (ferry/low payload) vs MAX payload, + cruise speed. Published-ballpark, still
+// coarse SA: no wind, no specific cargo/fuel, no AR sequencing, no diplomatic
+// routing. The payload toggle picks which radius the rings draw.
 const AIRFRAMES = {
-  "C-17": { cruiseKt: 440, reachNm: 2400 },
-  "C-5M": { cruiseKt: 450, reachNm: 5000 },
-  "KC-46": { cruiseKt: 450, reachNm: 6000 },
+  "C-17":   { cruiseKt: 440, reachLightNm: 4700, reachMaxNm: 2400 },
+  "C-5M":   { cruiseKt: 450, reachLightNm: 5500, reachMaxNm: 2150 },
+  "C-130J": { cruiseKt: 320, reachLightNm: 3000, reachMaxNm: 1800 },
+  "KC-46":  { cruiseKt: 450, reachLightNm: 6500, reachMaxNm: 3200 },
 } as const;
 type AirframeKey = keyof typeof AIRFRAMES;
+type PayloadKey = "light" | "max";
+const reachOf = (af: (typeof AIRFRAMES)[AirframeKey], pl: PayloadKey) => (pl === "max" ? af.reachMaxNm : af.reachLightNm);
 const AR_EXTENSION_NM = 3000; // nominal single-air-refueling extension (illustrative)
 
 // Major AMC en route "air bridges" (ICAO sequences) — the mobility highways.
@@ -149,7 +154,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   airfields: "Mobility gateway airfields — major C-17/C-130-capable international fields near crisis-prone regions (AFRICOM/CENTCOM/EUCOM/INDOPACOM/SOUTHCOM), the candidate fields to open/reopen for HADR or evacuation when no US hub is close.",
   tracked: "Your home + tracked locations (from Preferences).",
   lines: "Reach line from each significant crisis to its nearest CRF (great-circle distance + nominal flight time).",
-  rings: "Reach rings — the selected airframe's nominal one-way radius around CRF nodes.",
+  rings: "Reach rings — the selected airframe + payload's one-way unrefueled radius around CRF nodes. Planning-grade SA only: no wind, specific cargo/fuel, AR sequencing, or diplomatic-overflight routing. Toggle Max/Light payload in the toolbar.",
   ar: "Air-refueling-extended reach ring around CRF nodes (illustrative single AR).",
   bridges: "Major AMC en route air-bridge corridors (great-circle).",
   labels: "Show/hide map labels — CRF + crisis callouts always; hub/tracked labels appear when zoomed in.",
@@ -261,7 +266,10 @@ export default function CrisisMap() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [airframe, setAirframe] = useState<AirframeKey>("C-17");
+  const [payload, setPayload] = useState<PayloadKey>("max");
+  const [tankerOnly, setTankerOnly] = useState(false);
   const AF = AIRFRAMES[airframe];
+  const reach = reachOf(AF, payload);
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
     const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
@@ -507,8 +515,9 @@ export default function CrisisMap() {
   const crisisPoints = useMemo(() => items.map((i) => [i.lat, i.lon] as [number, number]), [items]);
   // Mil aircraft after the AOR + mobility-only filters (shared by markers + count).
   const milShown = useMemo(
-    () => milair.filter((m) => (aorFilter === "ALL" || aorFromCoords(m.lat, m.lon) === aorFilter) && (!milMobility || isMobilityType(m.type))),
-    [milair, aorFilter, milMobility],
+    () => milair.filter((m) => (aorFilter === "ALL" || aorFromCoords(m.lat, m.lon) === aorFilter)
+      && (tankerOnly ? isTankerType(m.type) : (!milMobility || isMobilityType(m.type)))),
+    [milair, aorFilter, milMobility, tankerOnly],
   );
   // Aircraft↔watch correlation: which shown aircraft are within ~400 km of a
   // watched country/base, and how many sit near each watched entry.
@@ -609,7 +618,10 @@ export default function CrisisMap() {
         <button onClick={() => setLayersOpen((v) => !v)} title="Show/hide individual layer toggles" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Layers {layersOpen ? "▴" : "▾"} <span className="text-slate-500">({activeCount})</span></button>
         <button onClick={() => setLegendOpen((v) => !v)} title="Show/hide the marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend {legendOpen ? "▴" : "▾"}</button>
         {on.milair && (
-          <button onClick={() => setMilMobility((v) => !v)} title="Mil air: show only mobility/tanker airframes (C-17/C-5/C-130/KC-*/A400/An/Il…) vs all military aircraft" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${milMobility ? "bg-lime-500/20 text-lime-300 border-lime-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
+          <button onClick={() => setMilMobility((v) => !v)} disabled={tankerOnly} title="Mil air: show only mobility/tanker airframes (C-17/C-5/C-130/KC-*/A400/An/Il…) vs all military aircraft" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all disabled:opacity-40 ${milMobility ? "bg-lime-500/20 text-lime-300 border-lime-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
+        )}
+        {on.milair && (
+          <button onClick={() => setTankerOnly((v) => !v)} title="Mil air: show only aerial-refueling tankers (KC-46/KC-135/KC-10/KC-30/Il-78…) — where's the gas for a reach problem" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${tankerOnly ? "bg-sky-500/20 text-sky-300 border-sky-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⛽ Tankers</button>
         )}
         {on.milair && !milMobility && zoom < 4 && (
           <span className="text-[9px] text-slate-500 font-mono" title="The full military feed is hidden at this zoom to avoid a swarm — zoom into a theater, or switch to Mobility only.">zoom in for all-mil</span>
@@ -619,6 +631,12 @@ export default function CrisisMap() {
         <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe — drives reach-ring radius + flight-time callouts">
           {(Object.keys(AIRFRAMES) as AirframeKey[]).map((k) => (
             <button key={k} onClick={() => setAirframe(k)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${airframe === k ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{k}</button>
+          ))}
+        </div>
+        {/* Payload — picks which reach radius (light/ferry vs max payload) the rings draw. */}
+        <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Payload — reach ring at max payload vs light/ferry load. Planning-grade only (no wind, AR sequencing, or diplomatic routing).">
+          {(["max", "light"] as PayloadKey[]).map((p) => (
+            <button key={p} onClick={() => setPayload(p)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${payload === p ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{p === "max" ? "Max" : "Light"}</button>
           ))}
         </div>
         <select value={aorFilter} onChange={(e) => setAorFilter(e.target.value as Aor | "ALL")} title="Filter the map + list to one combatant-command AOR" className="bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 outline-none">
@@ -762,9 +780,9 @@ export default function CrisisMap() {
             }))}
 
             {/* Reach rings — selected airframe's nominal one-way radius around CRF nodes. */}
-            {on.rings && CRF.map((h) => <Polyline key={`ring-${h.icao}`} positions={geodesicRing(h.lat, h.lon, AF.reachNm)} pathOptions={{ color: "#5eead4", weight: 1, opacity: 0.3, dashArray: "3 6" }} />)}
+            {on.rings && CRF.map((h) => <Polyline key={`ring-${h.icao}`} positions={geodesicRing(h.lat, h.lon, reach)} pathOptions={{ color: "#5eead4", weight: 1, opacity: 0.3, dashArray: "3 6" }} />)}
             {/* AR-extended reach (illustrative single refueling). */}
-            {on.ar && CRF.map((h) => <Polyline key={`ar-${h.icao}`} positions={geodesicRing(h.lat, h.lon, AF.reachNm + AR_EXTENSION_NM)} pathOptions={{ color: "#38bdf8", weight: 1, opacity: 0.22, dashArray: "1 7" }} />)}
+            {on.ar && CRF.map((h) => <Polyline key={`ar-${h.icao}`} positions={geodesicRing(h.lat, h.lon, reach + AR_EXTENSION_NM)} pathOptions={{ color: "#38bdf8", weight: 1, opacity: 0.22, dashArray: "1 7" }} />)}
 
             {on.lines && CRF.length > 0 && significant.map((d) => {
               const near = nearest(CRF, d.lat as number, d.lon as number);
@@ -912,7 +930,7 @@ export default function CrisisMap() {
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
               <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#f87171" }}>◆</span> ACLED strike · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span style={{ color: "#34d399", fontWeight: 900 }}>⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
-              <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {AF.reachNm.toLocaleString()} nm · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge</div>
+              <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {reach.toLocaleString()} nm ({payload === "max" ? "max payload" : "light"}) · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge · <span className="italic">planning-grade, no wind/clearance</span></div>
             </div>
           ) : (
             <button onClick={() => setLegend(true)} className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2 py-1 text-[9px] text-slate-400 font-mono hover:text-slate-200">legend</button>
