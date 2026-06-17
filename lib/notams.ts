@@ -124,19 +124,10 @@ function dodCaBundle(): string | null {
 const DAIP_HOST = "www.daip.jcs.mil";
 const DAIP_PATH = "/daip/mobile/query";
 
-// DAIP's mobile/query expects the FULL form payload (captured from the live
-// client): the location goes in `locs`, plus radius/sort and a long list of
-// fields that must be present (empty string) or the server 500s. type=LOCATION
-// retrieves NOTAMs for the airfield(s) in `locs`.
+// Working DAIP mobile/query contract (confirmed 200 via the diagnostic): the
+// ICAO(s) go in a `locations` array. Returns { group: [{ name, notams: [...] }] }.
 function daipPayload(icao: string): string {
-  return JSON.stringify({
-    type: "LOCATION", locs: icao.toLowerCase(), radius: "10", sort: "Criticality",
-    poa: "", pod: "", alternates: "", route: "", runwayLength: "", runwayWidth: "",
-    acode: "", active: "", airportType: "", artcc: "", briefing: "", includeRegulatoryNotices: "",
-    lat1: "", lat2: "", latdir: "", lng1: "", lng2: "", longdir: "", notamId: "", orgLoc: "",
-    scheduleDate: "", sendTime: "", tfrsOnly: "",
-    monday: "", tuesday: "", wednesday: "", thursday: "", friday: "", saturday: "", sunday: "",
-  });
+  return JSON.stringify({ type: "LOCATION", locations: [icao.toUpperCase()] });
 }
 
 // Raw POST to DAIP with the DoD CA trusted *for this request only*.
@@ -162,9 +153,44 @@ function daipPost(body: string, ca: string): Promise<string> {
 
 // Pull NOTAM texts out of whatever DAIP returns (JSON array/objects or a text
 // blob) defensively — the precise schema is confirmed on deploy.
+// DAIP's response shape: { group: [ { name: "KADW", notams: [ {code, ...text...} ] } ] }.
+// Each NOTAM object carries the text under one of several possible fields; take
+// the longest plausible string so we don't depend on the exact field name.
+const NOTAM_TEXT_FIELDS = ["text", "icaoMessage", "traditionalMessage", "traditional", "message", "notamText", "body", "rawText", "icao", "e"];
+
+function notamObjectText(n: Record<string, unknown>): string {
+  let best = "";
+  for (const f of NOTAM_TEXT_FIELDS) {
+    const v = n[f];
+    if (typeof v === "string" && v.trim().length > best.length) best = v.trim();
+  }
+  if (!best) {
+    for (const v of Object.values(n)) if (typeof v === "string" && v.trim().length > best.length) best = v.trim();
+  }
+  return best;
+}
+
+function extractFromDaip(parsed: unknown): string[] | null {
+  const groups = (parsed as { group?: unknown[] })?.group;
+  if (!Array.isArray(groups)) return null;
+  const out: string[] = [];
+  for (const g of groups) {
+    const notams = (g as { notams?: unknown[] })?.notams;
+    if (!Array.isArray(notams)) continue;
+    for (const n of notams) {
+      if (!n || typeof n !== "object") continue;
+      const t = notamObjectText(n as Record<string, unknown>);
+      if (t.length > 8) out.push(t);
+    }
+  }
+  return out.length ? out : null;
+}
+
 function extractNotamTexts(raw: string): string[] {
   try {
     const json = JSON.parse(raw);
+    const daip = extractFromDaip(json);
+    if (daip) return daip;
     const out: string[] = [];
     const walk = (v: unknown) => {
       if (typeof v === "string") { if (/\b(RWY|TWY|ILS|GPS|RAIM|NAV|OBST|AIRSPACE|NOTAM)\b/i.test(v)) out.push(v); return; }
@@ -268,14 +294,14 @@ function daipProbe(icao: string, ca: string | null, rejectUnauthorized: boolean,
       (res) => {
         let buf = "";
         res.setEncoding("utf8");
-        res.on("data", (c: string) => { if (buf.length < 600) buf += c; });
+        res.on("data", (c: string) => { if (buf.length < 4000) buf += c; });
         res.on("end", () => finish({
           ok: !!res.statusCode && res.statusCode < 400,
           status: res.statusCode ?? null,
           bytes: Buffer.byteLength(buf),
           contentType: (res.headers["content-type"] as string) ?? null,
           server: (res.headers["server"] as string) ?? null,
-          sample: buf.slice(0, 300).replace(/\s+/g, " ").trim() || null,
+          sample: buf.slice(0, 2500).replace(/\s+/g, " ").trim() || null,
           error: null,
         }));
       },
