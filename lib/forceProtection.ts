@@ -25,6 +25,7 @@ import { getNotams, startsInLabel, type Notam } from "./notams";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { civilCalendarEvents } from "./civilCalendar";
 import { getHealthEvents, type HealthEvent } from "./health";
+import { getConflictNewsByCountry, type ConflictNewsSignal } from "./conflictNews";
 import { getPreviousComposites, recordPosture, postureKey } from "./forcePostureHistory";
 
 export type Severity = "green" | "amber" | "red" | "unknown";
@@ -79,6 +80,7 @@ export interface ForceContext {
   notams: Record<string, Notam[]>;      // NOTAMs keyed by ICAO (DAIP)
   notamsConfigured: boolean;            // DoD CA bundle present → airspace category enabled
   health: HealthEvent[];                // WHO Disease Outbreak News
+  conflictNews: Record<string, ConflictNewsSignal>; // active-conflict news signal, keyed by lowercased country
   nowMs: number;                        // evaluation time (civil calendar lookahead)
   // Per-source liveness: distinguishes "checked, clean" from "couldn't check".
   // A category whose source(s) weren't live scores UNKNOWN, never green — so a
@@ -120,10 +122,32 @@ export function isForceLocationActive(loc: ForceLocation, nowMs: number): boolea
   return !Number.isFinite(end) || end >= nowMs;
 }
 
+// Active-conflict news signal for this location's country (timeliest source —
+// catches a war the structured datasets are still blind to). Looked up by name.
+function conflictNewsFor(loc: ForceLocation, ctx: ForceContext): ConflictNewsSignal | undefined {
+  const key = loc.country.trim().toLowerCase();
+  if (ctx.conflictNews[key]) return ctx.conflictNews[key];
+  for (const [k, v] of Object.entries(ctx.conflictNews)) if (countryMatch(k, loc.country)) return v;
+  return undefined;
+}
+
 function assessConflict(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
   const signals: string[] = [];
   let sev: Severity = "green";
   const byCountry = (loc.kind ?? "base") === "country";
+  const links: { label: string; url: string }[] = [];
+
+  // News-driven active-conflict signal FIRST — it's the freshest read and the
+  // only one that catches a sudden war (ACLED <12mo embargo, UCDP lag, INFORM
+  // structural). Escalation phrasing → red; lower-intensity conflict news → amber.
+  const news = conflictNewsFor(loc, ctx);
+  if (news && news.count > 0) {
+    const head = news.latest ? `"${news.latest.title.slice(0, 90)}"` : `${news.count} report${news.count > 1 ? "s" : ""}`;
+    signals.push(`Active conflict reporting: ${head} [news]`);
+    if (news.escalation) sev = worse(sev, "red");
+    else if (news.count >= 2) sev = worse(sev, "amber");
+    if (news.latest) links.push({ label: news.latest.source.replace(" · local", "") || "news", url: news.latest.link });
+  }
 
   // Structured strikes (ACLED) — precise, highest fidelity when available.
   // Country watch: every in-country event; base: only those within ~400 km.
@@ -159,7 +183,6 @@ function assessConflict(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
     else if (inform.score >= 4.5) sev = worse(sev, "amber");
   }
 
-  const links: { label: string; url: string }[] = [];
   if (topStrikes.length) links.push({ label: "ACLED", url: "https://acleddata.com/dashboard/" });
   const ucdpLink = (strikes.length === 0 ? ctx.conflict.find((c) => c.url && (byCountry ? countryMatch(c.name, loc.country) : true)) : undefined)?.url;
   if (ucdpLink) links.push({ label: "UCDP", url: ucdpLink });
@@ -287,11 +310,15 @@ function assessCivil(loc: ForceLocation, ctx: ForceContext): CategoryAssessment 
   let sev: Severity = "green";
   // State advisory level for the base country (all levels available now).
   const links: { label: string; url: string }[] = [];
+  // A permanent Level-4 baseline (e.g. Iran) is amber on its own, but when active
+  // hostilities are being reported it escalates to red — the State level can't
+  // distinguish "always dangerous" from "war started today", so the news does.
+  const hostilities = !!conflictNewsFor(loc, ctx)?.escalation;
   const adv = ctx.advisories.find((a) => countryMatch(a.country, loc.country));
   if (adv) {
     if (adv.orderedDeparture) { signals.push(`State: ordered departure (${adv.country})`); sev = worse(sev, "red"); }
     else if (adv.authorizedDeparture) { signals.push(`State: authorized departure (${adv.country})`); sev = worse(sev, "red"); }
-    else if (adv.level === 4) { signals.push("State: Level 4 — Do Not Travel"); sev = worse(sev, "amber"); }
+    else if (adv.level === 4) { signals.push(`State: Level 4 — Do Not Travel${hostilities ? " · active hostilities reported" : ""}`); sev = worse(sev, hostilities ? "red" : "amber"); }
     else if (adv.level === 3) { signals.push("State: Level 3 — Reconsider Travel"); sev = worse(sev, "amber"); }
     if (adv.link) links.push({ label: "State advisory", url: adv.link });
   }
@@ -398,7 +425,9 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
   const points: NamedPoint[] = active.filter((l) => l.icao).map((l) => ({ label: l.label, lat: l.lat, lon: l.lon }));
   const icaos = active.map((l) => l.icao).filter((x): x is string => !!x);
 
-  const [weather, advisories, conflict, acled, inform, gps, aviation, notams, health, taf] = await Promise.all([
+  const watchedCountries = Array.from(new Set(active.map((l) => l.country).filter(Boolean)));
+
+  const [weather, advisories, conflict, acled, inform, gps, aviation, notams, health, taf, conflictNews] = await Promise.all([
     points.length ? getWeatherThreats(points).catch(() => null) : Promise.resolve(null),
     getAllStateAdvisories().catch(() => []),
     getConflictPoints().catch(() => [] as ConflictPoint[]),
@@ -409,6 +438,7 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
     getNotams(icaos).catch(() => ({ configured: false, live: false, byIcao: {} as Record<string, Notam[]> })),
     getHealthEvents().catch(() => ({ live: false, events: [] as HealthEvent[] })),
     getTafOutlook(icaos).catch(() => ({} as Record<string, TafOutlook>)),
+    getConflictNewsByCountry(watchedCountries).catch(() => ({} as Record<string, ConflictNewsSignal>)),
   ]);
 
   // getWeatherThreats already pulls disasters; only fetch separately if it failed.
@@ -429,6 +459,7 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
     notams: notams.byIcao,
     notamsConfigured: notams.configured,
     health: health.events,
+    conflictNews,
     nowMs: Date.now(),
     // weather is "live" if EITHER source returned: the Open-Meteo aggregate
     // (model hazards/alerts) OR the AWC METAR pull. Both down → UNKNOWN, never a

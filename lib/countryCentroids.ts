@@ -74,15 +74,33 @@ const CENTROIDS: Record<string, [number, number]> = {
   // Caribbean / Central & South America
   "the bahamas": [25.0, -77.4], bahamas: [25.0, -77.4], barbados: [13.2, -59.5], grenada: [12.1, -61.7],
   "saint lucia": [13.9, -61.0], dominica: [15.4, -61.4], uruguay: [-32.5, -55.8],
+
+  // World Bank / Data360 name forms (INFORM Risk is sourced via Data360, which
+  // uses these). Without them a fuzzy match either misses or, worse, collides
+  // (e.g. "Korea, Dem. People's Rep." → bare "korea" = South Korea).
+  "iran, islamic rep.": [32.4, 53.7], "egypt, arab rep.": [26.8, 30.8], "yemen, rep.": [15.6, 48.0],
+  "syrian arab republic": [35.0, 38.0], "russian federation": [61.5, 105.3], "venezuela, rb": [6.4, -66.6],
+  "korea, dem. people's rep.": [40.3, 127.5], "korea, rep.": [36.5, 127.8], "congo, dem. rep.": [-2.9, 23.6],
+  "congo, rep.": [-0.7, 15.8], "lao pdr": [19.9, 102.5], "kyrgyz republic": [41.2, 74.8],
+  "slovak republic": [48.7, 19.7], "gambia, the": [13.4, -15.4], "bahamas, the": [25.0, -77.4],
+  "turkiye": [39.0, 35.2], "west bank and gaza": [31.9, 35.2], "myanmar (burma)": [21.9, 95.9],
 };
 
 // Look up a centroid by free-text country name (case/whitespace-insensitive).
+// Handles the formatted names data feeds emit (e.g. INFORM's "Iran, Islamic
+// Rep.", "Korea, Dem. People's Rep.").
 export function countryCentroid(name: string): [number, number] | null {
   const key = name.trim().toLowerCase();
   if (CENTROIDS[key]) return CENTROIDS[key];
-  // Loose contains-match for compound names ("Republic of …", "… (the)").
+  // Loose contains-match for compound names ("Republic of …", "… (the)",
+  // "<country>, <qualifier>"). Prefer the LONGEST matching key so a substring
+  // collision can't win — e.g. "nigeria" must not resolve to "niger", and
+  // "korea, dem. people's rep." should match "north korea" before bare "korea".
+  let best: { centroid: [number, number]; len: number } | null = null;
   for (const k of Object.keys(CENTROIDS)) {
-    if (key.includes(k) || k.includes(key)) return CENTROIDS[k];
+    if (key.includes(k) || k.includes(key)) {
+      if (!best || k.length > best.len) best = { centroid: CENTROIDS[k], len: k.length };
+    }
   }
-  return null;
+  return best?.centroid ?? null;
 }

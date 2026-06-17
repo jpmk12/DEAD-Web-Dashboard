@@ -14,7 +14,7 @@ const base = (over: Partial<ForceLocation> = {}): ForceLocation => ({
 const emptyCtx: ForceContext = {
   disasters: [], threats: [], tropical: [], hazards: [],
   advisories: [], conflict: [], acled: [], inform: [], gps: [], aviation: {}, aviationTaf: {},
-  notams: {}, notamsConfigured: false, health: [], nowMs: Date.UTC(2026, 5, 16),
+  notams: {}, notamsConfigured: false, health: [], conflictNews: {}, nowMs: Date.UTC(2026, 5, 16),
   live: { weather: true, gps: true, notams: false },
 };
 
@@ -54,6 +54,27 @@ describe("assessLocation", () => {
   it("Level 3 advisory → civil AMBER", () => {
     const ctx = { ...emptyCtx, advisories: [{ country: "Qatar", level: 3, aor: "CENTCOM", orderedDeparture: false, authorizedDeparture: false, title: "", link: "", pubDate: "" }] };
     expect(assessLocation(base(), ctx).categories.find((c) => c.category === "civil")!.severity).toBe("amber");
+  });
+
+  it("active-hostilities news → conflict RED even with no structured data", () => {
+    const ctx = { ...emptyCtx, conflictNews: { qatar: { count: 3, escalation: true, latest: { title: "Airstrikes hit Doha", link: "https://ex/1", source: "Reuters", pubDate: "2026-06-16T00:00:00Z" } } } };
+    const conflict = assessLocation(base(), ctx).categories.find((c) => c.category === "conflict")!;
+    expect(conflict.severity).toBe("red");
+    expect(conflict.signals[0]).toMatch(/Active conflict reporting/);
+  });
+
+  it("low-intensity conflict news (no escalation) → conflict AMBER", () => {
+    const ctx = { ...emptyCtx, conflictNews: { qatar: { count: 2, escalation: false } } };
+    expect(assessLocation(base(), ctx).categories.find((c) => c.category === "conflict")!.severity).toBe("amber");
+  });
+
+  it("Level-4 advisory ALONE → civil AMBER; Level-4 + active hostilities → civil RED", () => {
+    const adv = [{ country: "Iran", level: 4, aor: "CENTCOM", orderedDeparture: false, authorizedDeparture: false, title: "", link: "", pubDate: "" }];
+    const loc = base({ country: "Iran", kind: "country" });
+    const calm = { ...emptyCtx, advisories: adv };
+    expect(assessLocation(loc, calm).categories.find((c) => c.category === "civil")!.severity).toBe("amber");
+    const atWar = { ...emptyCtx, advisories: adv, conflictNews: { iran: { count: 4, escalation: true } } };
+    expect(assessLocation(loc, atWar).categories.find((c) => c.category === "civil")!.severity).toBe("red");
   });
 
   it("WHO outbreak in the base country → hazard AMBER", () => {
