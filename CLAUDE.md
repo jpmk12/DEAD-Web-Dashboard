@@ -718,6 +718,20 @@ lat/long** (`mapIt` is just a flag), so map plotting is at the **group level**
 - Fail-safe like `notams.ts`: `configured:false` (no CA) and `live:false` (fetch
   fail) both mean **UNKNOWN**, never a false "clear". Tested against real captured
   fixtures (`tests/fixtures/daip/`). Pure `fetch`/`https` — esbuild count stays 0.
+- **In-process cache** (`cachedDaipQuery`, 10 min, keyed by type+locs e.g.
+  `fir:OSTT`): the Overflight layer fans out one call PER FIR every 5-min refresh
+  × user, so this is load-bearing for DAIP politeness. Only successful+configured
+  results are cached (transient failures retry). `resetAirspaceCache()` clears it.
+
+### Crisis map node flight-category rings (`/api/airfield-weather`)
+CRF / hub / gateway markers carry a coloured ring = live **flight category**
+(VFR green / MVFR blue / IFR red / LIFR magenta; no ring = UNKNOWN — never imply
+a category we lack). This is the third leg of "is this field usable now"
+alongside runway capability (OurAirports) and NOTAMs. `/api/airfield-weather?icao=`
+batches METAR via `lib/aviationWx.ts getFlightCategories` (NWS AWC, keyless),
+chunked to its 12-ICAO cap; `CrisisMap.tsx` fetches the union of CRF+hubs+gateways
+when any node layer is on, refreshed on the 5-min cycle, and adds a `Wx:` line to
+each node popup. `live:false` (AWC down) → no ring, marked in the source-down strip.
 
 ### Crisis map movement layers (Mil air ADS-B + Vessels AIS)
 The Crisis map carries the live air+sea movement picture as two toggle layers,
@@ -803,7 +817,8 @@ embeds, GDELT (DOC, local news), UCDP (`ucdpapi.pcr.uu.se`), ACLED
 INFORM Risk (`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index +
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
 OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
-METAR + TAF), Stooq (`stooq.com`, energy/commodity quotes), Nager.Date
+METAR + TAF; also the node flight-category rings via `/api/airfield-weather`),
+Stooq (`stooq.com`, energy/commodity quotes), Nager.Date
 (`date.nager.at`, public holidays), and DoD DAIP (`www.daip.jcs.mil`, NOTAMs —
 needs the bundled DoD CA). The one
 **WebSocket** is the AISStream vessel bridge (`wss://stream.aisstream.io`, over

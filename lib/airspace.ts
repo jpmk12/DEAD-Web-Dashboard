@@ -128,8 +128,27 @@ export function parseAirspaceGroups(raw: string, nowMs: number = Date.now()): Ai
   return out.slice(0, MAX_GROUPS);
 }
 
-async function query(type: string, params: Record<string, unknown>): Promise<AirspaceResult> {
-  const { configured, raw } = await fetchDaipQuery({ type, sort: "Criticality", ...params });
+// In-process cache for DAIP query results — the Overflight layer fans out one
+// call PER FIR on every 5-min map refresh × user, so without this it hammers
+// DAIP. Keyed by the query (type+locs); only successful, configured results are
+// cached (so transient failures retry on the next call). ~10 min TTL — NOTAMs
+// don't churn faster than that, and the per-axis fail-safe still applies.
+const CACHE_TTL = 10 * 60 * 1000;
+const daipCache = new Map<string, { expires: number; value: { configured: boolean; raw: string | null } }>();
+
+async function cachedDaipQuery(key: string, payload: Record<string, unknown>): Promise<{ configured: boolean; raw: string | null }> {
+  const hit = daipCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  const value = await fetchDaipQuery(payload);
+  if (value.configured && value.raw != null) daipCache.set(key, { expires: Date.now() + CACHE_TTL, value });
+  return value;
+}
+
+// Test/diagnostic hook — drop the cache (e.g. after credentials change).
+export function resetAirspaceCache(): void { daipCache.clear(); }
+
+async function query(type: string, key: string, params: Record<string, unknown>): Promise<AirspaceResult> {
+  const { configured, raw } = await cachedDaipQuery(key, { type, sort: "Criticality", ...params });
   if (!configured) return { configured: false, live: false, type, groups: [] };
   if (raw == null) return { configured: true, live: false, type, groups: [] };
   return { configured: true, live: true, type, groups: parseAirspaceGroups(raw) };
@@ -151,7 +170,7 @@ export async function getFirNotams(firCodes: string[]): Promise<AirspaceResult> 
   if (!codes.length) return { configured: true, live: true, type: "FIR_ARTCC", groups: [] };
 
   const settled = await Promise.all(codes.map(async (code) => {
-    const { configured, raw } = await fetchDaipQuery({ type: "FIR_ARTCC", locs: code, radius: "10" });
+    const { configured, raw } = await cachedDaipQuery(`fir:${code}`, { type: "FIR_ARTCC", locs: code, radius: "10", sort: "Criticality" });
     return { code, configured, raw };
   }));
 
@@ -174,10 +193,10 @@ export async function getFirNotams(firCodes: string[]): Promise<AirspaceResult> 
 
 // Official GPS/WAAS outage NOTAMs (system-level; complements GPSJam).
 export async function getGpsNotams(): Promise<AirspaceResult> {
-  return query("GPS_WAAS", {});
+  return query("GPS_WAAS", "gps", {});
 }
 
 // Fuel availability NOTAMs ("can I refuel here").
 export async function getFuelNotams(): Promise<AirspaceResult> {
-  return query("FUEL_NOTAMS", {});
+  return query("FUEL_NOTAMS", "fuel", {});
 }
