@@ -5,6 +5,7 @@ import { formatDistanceToNow, parseISO } from "date-fns";
 import dynamic from "next/dynamic";
 import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
+import GroundTruthTab from "@/components/ground/GroundTruthTab";
 
 // Leaflet uses window/document at import time, so we have to load the map
 // component client-only. Without ssr: false the build fails with a
@@ -54,7 +55,7 @@ interface FeedSummary {
   fetchedAt?: number;
 }
 
-type Pane = "all" | "social" | "telegram" | "news" | "aircraft" | "maritime" | "crisis";
+type Pane = "all" | "social" | "telegram" | "news" | "aircraft" | "maritime" | "crisis" | "ground";
 type Priority = "High" | "Medium" | "Low";
 
 const PRIORITY_PILL: Record<Priority, string> = {
@@ -138,7 +139,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   useEffect(() => {
     const onSetPane = (e: Event) => {
       const p = (e as CustomEvent<string>).detail;
-      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "aircraft" || p === "maritime") setPane(p as Pane);
+      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "aircraft" || p === "maritime" || p === "ground") setPane(p as Pane);
     };
     window.addEventListener("osint:set-pane", onSetPane);
     return () => window.removeEventListener("osint:set-pane", onSetPane);
@@ -221,7 +222,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const filtered = useMemo(() => {
     let base: OsintItem[];
     if (pane === "all") base = items;
-    else if (pane === "aircraft" || pane === "maritime" || pane === "crisis") base = [];
+    else if (pane === "aircraft" || pane === "maritime" || pane === "crisis" || pane === "ground") base = [];
     else base = items.filter((i) => i.feedKind === pane);
 
     if (timeWindow === "all") return base;
@@ -564,7 +565,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // here too (no token cost — these are the same free endpoints the maps use).
   const [contacts, setContacts] = useState<{ mil: number; vessels: number; watched: string[] }>({ mil: 0, vessels: 0, watched: [] });
   useEffect(() => {
-    if (!active || pane === "aircraft" || pane === "maritime" || pane === "crisis") return;
+    if (!active || pane === "aircraft" || pane === "maritime" || pane === "crisis" || pane === "ground") return;
     if (!Number.isFinite(homeLat) || !Number.isFinite(homeLon)) return;
     let cancelled = false;
     const poll = async () => {
@@ -765,6 +766,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           { id: "aircraft",  label: "Aircraft", n: null             },
           { id: "maritime",  label: "Maritime", n: null             },
           { id: "crisis",    label: "Crisis",   n: null             },
+          { id: "ground",    label: "Ground",   n: null             },
         ] as const).map((p) => (
           <button
             key={p.id}
@@ -785,7 +787,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
 
       {/* Time-window filter — only meaningful for the feed-list panes, hidden
           on the map panes where there are no items to filter. */}
-      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && (
+      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && pane !== "ground" && (
         <div className="flex items-center gap-1.5 -mt-2 text-[10px]">
           <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Window</span>
           {(["all", "4h", "24h", "7d"] as const).map((w) => (
@@ -1006,8 +1008,11 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       {/* Crisis / situation map — disasters + hub weather + tropical + AMC hubs */}
       {pane === "crisis" && <CrisisMap />}
 
+      {/* Ground Truth — per-country situation room for the Force Protection watch */}
+      {pane === "ground" && <GroundTruthTab active={active} />}
+
       {/* Feed list pane */}
-      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && (
+      {pane !== "aircraft" && pane !== "maritime" && pane !== "crisis" && pane !== "ground" && (
         <>
           {loading && (
             <div className="space-y-2">

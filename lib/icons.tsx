@@ -39,7 +39,6 @@ export const TAB_ICONS: Record<Tab, LucideIcon> = {
   calendar: Calendar,
   email: Mail,
   osint: Crosshair,
-  ground: Globe,
   weather: CloudSun,
   docs: FileText,
   markets: CandlestickChart,

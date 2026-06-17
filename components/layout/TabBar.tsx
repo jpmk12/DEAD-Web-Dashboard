@@ -1,6 +1,6 @@
 import { TAB_ICONS } from "@/lib/icons";
 
-export type Tab = "glance" | "news" | "calendar" | "email" | "docs" | "osint" | "ground" | "markets" | "weather";
+export type Tab = "glance" | "news" | "calendar" | "email" | "docs" | "osint" | "markets" | "weather";
 
 interface TabBarProps {
   activeTab: Tab;
@@ -16,7 +16,6 @@ export const TABS: { id: Tab; label: string }[] = [
   { id: "calendar", label: "Calendar" },
   { id: "email",    label: "Email" },
   { id: "osint",    label: "OSINT" },
-  { id: "ground",   label: "Ground" },
   { id: "weather",  label: "Weather" },
   { id: "docs",     label: "Docs" },
   { id: "markets",  label: "Markets" },

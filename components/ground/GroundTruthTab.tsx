@@ -66,14 +66,34 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     return () => { cancel = true; window.removeEventListener("force-locations:changed", onChange); };
   }, [active]);
 
-  const countries = useMemo(
-    () => assessments.filter((a) => a.kind === "country").slice().sort((a, b) => SEV_RANK[a.composite as Sev] - SEV_RANK[b.composite as Sev] || b.score - a.score),
-    [assessments],
-  );
-  useEffect(() => { if (countries.length && (!selected || !countries.some((c) => c.country === selected))) setSelected(countries[0].country); }, [countries, selected]);
+  // One row per country, drawn from BOTH watched countries AND the countries of
+  // watched airports (bases) in the Force Protection watch list. So entering just
+  // an airport still surfaces its country here. A country watch (if present) is
+  // the primary posture; otherwise the worst base in that country stands in.
+  const rows = useMemo(() => {
+    const groups = new Map<string, ForceAssessment[]>();
+    for (const a of assessments) {
+      if (a.kind !== "country" && a.kind !== "base") continue;
+      const key = a.country.trim().toLowerCase();
+      if (!key) continue;
+      let arr = groups.get(key);
+      if (!arr) { arr = []; groups.set(key, arr); }
+      arr.push(a);
+    }
+    const bySeverity = (a: ForceAssessment, b: ForceAssessment) => SEV_RANK[a.composite as Sev] - SEV_RANK[b.composite as Sev] || b.score - a.score;
+    const out = Array.from(groups.values()).map((list) => {
+      const primary = list.find((a) => a.kind === "country") ?? list.slice().sort(bySeverity)[0];
+      const base = list.filter((a) => a.kind === "base").sort((a, b) => (b.icao ? 1 : 0) - (a.icao ? 1 : 0) || bySeverity(a, b))[0] ?? null;
+      return { country: primary.country, primary, base };
+    });
+    return out.sort((a, b) => bySeverity(a.primary, b.primary));
+  }, [assessments]);
 
-  const sel = countries.find((c) => c.country === selected) ?? null;
-  const baseForSel = useMemo(() => (sel ? assessments.find((a) => a.kind === "base" && a.country.toLowerCase() === sel.country.toLowerCase()) : null), [assessments, sel]);
+  useEffect(() => { if (rows.length && (!selected || !rows.some((r) => r.country === selected))) setSelected(rows[0].country); }, [rows, selected]);
+
+  const row = rows.find((r) => r.country === selected) ?? null;
+  const sel = row?.primary ?? null;
+  const baseForSel = row?.base ?? null;
 
   // Load dossier + SITREP when the selected country changes.
   useEffect(() => {
@@ -95,11 +115,11 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     return () => { cancel = true; };
   }, [sel?.country]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!loading && countries.length === 0) {
+  if (!loading && rows.length === 0) {
     return (
       <div className="border border-slate-800 rounded-xl bg-slate-900/40 px-4 py-8 text-center">
-        <p className="text-sm text-slate-300 font-semibold mb-1">No countries watched yet</p>
-        <p className="text-[12px] text-slate-500">Add <span className="text-slate-300">Countries of Interest</span> in Preferences → Content sources to see the ground situation for each.</p>
+        <p className="text-sm text-slate-300 font-semibold mb-1">No locations watched yet</p>
+        <p className="text-[12px] text-slate-500">Add countries or airports to your <span className="text-slate-300">Force Protection watch</span> (Preferences → Force Protection, or the Crisis map) to see the ground situation for each.</p>
       </div>
     );
   }
@@ -113,15 +133,17 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
       <div className="flex flex-col lg:flex-row gap-4">
         {/* Country rail */}
         <div className="lg:w-56 flex-shrink-0 border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden self-start w-full">
-          <div className="px-3 py-2 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-500">Countries · {countries.length}</div>
+          <div className="px-3 py-2 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-500">Watched · {rows.length}</div>
           <ul className="lg:block flex overflow-x-auto lg:overflow-visible">
-            {countries.map((c) => {
-              const isSel = c.country === selected;
+            {rows.map((r) => {
+              const c = r.primary;
+              const isSel = r.country === selected;
               return (
-                <li key={c.id}>
-                  <button onClick={() => setSelected(c.country)} className={`w-full text-left flex items-center gap-2 px-3 py-2.5 border-l-2 transition-colors whitespace-nowrap ${isSel ? "bg-slate-800/70 border-l-amber-400" : "border-l-transparent hover:bg-slate-800/40"}`}>
+                <li key={r.country}>
+                  <button onClick={() => setSelected(r.country)} className={`w-full text-left flex items-center gap-2 px-3 py-2.5 border-l-2 transition-colors whitespace-nowrap ${isSel ? "bg-slate-800/70 border-l-amber-400" : "border-l-transparent hover:bg-slate-800/40"}`}>
                     <span style={{ color: SEV_DOT[c.composite as Sev] }} className="text-[11px]">●</span>
-                    <span className="text-[13px] font-medium text-slate-200 flex-1 min-w-0 truncate">{c.country}</span>
+                    <span className="text-[13px] font-medium text-slate-200 flex-1 min-w-0 truncate">{r.country}</span>
+                    {r.base && <span className="text-[9px]" title={`pinned airfield: ${r.base.label}${r.base.icao ? ` (${r.base.icao})` : ""}`}>🛡</span>}
                     {c.previousComposite && c.previousComposite !== c.composite && (
                       <span className={`text-[8px] font-bold ${SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "text-red-400" : "text-emerald-400"}`}>{SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "▲" : "▼"}</span>
                     )}
