@@ -36,8 +36,9 @@ export interface Notam {
 
 export type NotamTimeState = "active" | "upcoming" | "expired";
 
-// Active now / starts later / already ended, given the parsed B)/C) times.
-export function notamTimeState(n: Notam, nowMs: number): NotamTimeState {
+// Active now / starts later / already ended, given the parsed B)/C) times. Takes
+// only the time fields so it works for any NOTAM-like shape (e.g. AirspaceNotam).
+export function notamTimeState(n: { start?: string; end?: string }, nowMs: number): NotamTimeState {
   if (n.end) { const e = Date.parse(n.end); if (Number.isFinite(e) && e < nowMs) return "expired"; }
   if (n.start) { const s = Date.parse(n.start); if (Number.isFinite(s) && s > nowMs) return "upcoming"; }
   return "active";
@@ -178,6 +179,21 @@ function daipPost(body: string, ca: string): Promise<string> {
     req.write(body);
     req.end();
   });
+}
+
+// Shared low-level DAIP `/mobile/query` POST. ALL DAIP query classes go through
+// this one endpoint (confirmed via the contract capture) — only the `type` field
+// differs (LOCATION, FIR_ARTCC, GPS_WAAS, FUEL_NOTAMS, MOA, …) and every type
+// returns the same group→notams→list envelope. So this is the single network
+// door shared by getNotams (per-base) and lib/airspace.ts (enroute/system).
+// Returns the raw JSON string, with `configured:false` when the DoD CA bundle
+// isn't available (≠ feed down) and `raw:null` on any request failure — callers
+// fail safe to UNKNOWN, never a false "clear".
+export async function fetchDaipQuery(payload: Record<string, unknown>): Promise<{ configured: boolean; raw: string | null }> {
+  const ca = dodCaBundle();
+  if (!ca) return { configured: false, raw: null };
+  try { return { configured: true, raw: await daipPost(JSON.stringify(payload), ca) }; }
+  catch { return { configured: true, raw: null }; }
 }
 
 // DAIP response shape (confirmed live):
