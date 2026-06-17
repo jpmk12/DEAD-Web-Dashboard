@@ -124,6 +124,21 @@ function dodCaBundle(): string | null {
 const DAIP_HOST = "www.daip.jcs.mil";
 const DAIP_PATH = "/daip/mobile/query";
 
+// DAIP's mobile/query expects the FULL form payload (captured from the live
+// client): the location goes in `locs`, plus radius/sort and a long list of
+// fields that must be present (empty string) or the server 500s. type=LOCATION
+// retrieves NOTAMs for the airfield(s) in `locs`.
+function daipPayload(icao: string): string {
+  return JSON.stringify({
+    type: "LOCATION", locs: icao.toLowerCase(), radius: "10", sort: "Criticality",
+    poa: "", pod: "", alternates: "", route: "", runwayLength: "", runwayWidth: "",
+    acode: "", active: "", airportType: "", artcc: "", briefing: "", includeRegulatoryNotices: "",
+    lat1: "", lat2: "", latdir: "", lng1: "", lng2: "", longdir: "", notamId: "", orgLoc: "",
+    scheduleDate: "", sendTime: "", tfrsOnly: "",
+    monday: "", tuesday: "", wednesday: "", thursday: "", friday: "", saturday: "", sunday: "",
+  });
+}
+
 // Raw POST to DAIP with the DoD CA trusted *for this request only*.
 function daipPost(body: string, ca: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -182,7 +197,7 @@ export async function getNotams(icaosRaw: string[]): Promise<{ configured: boole
   let anyOk = false;
   await Promise.all(icaos.map(async (icao) => {
     try {
-      const raw = await daipPost(JSON.stringify({ type: "LOCATION", designatorsForLocation: icao }), ca);
+      const raw = await daipPost(daipPayload(icao), ca);
       const texts = extractNotamTexts(raw);
       byIcao[icao] = texts.map((t) => buildNotam(icao, t)).sort((a, b) => a.rank - b.rank).slice(0, 40);
       anyOk = true;
@@ -243,7 +258,7 @@ function daipProbe(icao: string, ca: string | null, rejectUnauthorized: boolean,
   return new Promise((resolve) => {
     const method = opts?.method ?? "POST";
     const path = opts?.path ?? DAIP_PATH;
-    const body = opts?.body ?? JSON.stringify({ type: "LOCATION", designatorsForLocation: icao });
+    const body = opts?.body ?? daipPayload(icao);
     let done = false;
     const finish = (r: ReqProbe) => { if (!done) { done = true; resolve(r); } };
     const headers: Record<string, string> = { Accept: "application/json" };
