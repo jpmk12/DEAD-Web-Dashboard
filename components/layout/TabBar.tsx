@@ -18,7 +18,7 @@ export const TABS: { id: Tab; label: string }[] = [
   { id: "osint",    label: "OSINT" },
   { id: "weather",  label: "Weather" },
   { id: "docs",     label: "Docs" },
-  { id: "markets",  label: "Markets" },
+  { id: "markets",  label: "Economy" },
 ];
 
 export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) {

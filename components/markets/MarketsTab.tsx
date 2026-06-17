@@ -1,199 +1,44 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { TickerEntry, NewsItem } from "@/lib/types";
-import ContractsPanel from "./ContractsPanel";
-import MacroBriefPanel from "./MacroBriefPanel";
-import { CandlestickChart } from "@/lib/icons";
-import { useIsMobile } from "@/lib/useIsMobile";
+import { useEffect, useMemo, useState } from "react";
+import { NewsItem } from "@/lib/types";
+import EconomicAccessPanel from "./EconomicAccessPanel";
+import { scoreChokepoints } from "@/lib/chokepoints";
+import { EconomyIcon } from "@/lib/icons";
 
-const INDICES: TickerEntry[] = [
-  { symbol: "FOREXCOM:SPXUSD", label: "S&P 500" },
-  { symbol: "DJ:DJI",          label: "DJIA" },
-  { symbol: "NASDAQ:NDX",      label: "NASDAQ 100" },
-  { symbol: "CBOE:VIX",        label: "VIX" },
-];
+interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string }
 
-const ENERGY: TickerEntry[] = [
-  { symbol: "NYMEX:CL1!", label: "WTI Crude" },
-  { symbol: "NYMEX:BZ1!", label: "Brent Crude" },
-  { symbol: "COMEX:GC1!", label: "Gold" },
-  { symbol: "COMEX:SI1!", label: "Silver" },
-];
+// News that bears on access/basing/overflight via the economic/coercive levers.
+const ACCESS_NEWS = /sanction|export control|embargo|tariff|overflight|airspace clos|basing|base rights|status of forces|sofa|nationali[sz]|expropriat|currency|devalu|default|imf bailout|debt crisis/i;
 
-// Major ex-US equity indices — the global picture (Tokyo / HK / China / London / EU).
-const GLOBAL: TickerEntry[] = [
-  { symbol: "TVC:NI225",  label: "Nikkei 225 (Tokyo)" },
-  { symbol: "TVC:HSI",    label: "Hang Seng (HK)" },
-  { symbol: "TVC:SHCOMP", label: "Shanghai Composite" },
-  { symbol: "TVC:UKX",    label: "FTSE 100 (London)" },
-  { symbol: "TVC:DAX",    label: "DAX (Frankfurt)" },
-  { symbol: "TVC:SX5E",   label: "Euro Stoxx 50" },
-];
-
-// Rates, FX, and a growth proxy (copper) — where macro trends actually show up.
-const RATES_FX: TickerEntry[] = [
-  { symbol: "TVC:DXY",    label: "US Dollar Index" },
-  { symbol: "TVC:US10Y",  label: "US 10Y Yield" },
-  { symbol: "TVC:US02Y",  label: "US 2Y Yield" },
-  { symbol: "FX:USDJPY",  label: "USD/JPY" },
-  { symbol: "FX:USDCNH",  label: "USD/CNH" },
-  { symbol: "FX:EURUSD",  label: "EUR/USD" },
-  { symbol: "FX:GBPUSD",  label: "GBP/USD" },
-  { symbol: "COMEX:HG1!", label: "Copper" },
-];
-
-const TICKER_TAPE_DEFAULT = [
-  { proName: "FOREXCOM:SPXUSD", title: "S&P 500" },
-  { proName: "DJ:DJI",          title: "DOW" },
-  { proName: "NASDAQ:NDX",      title: "NASDAQ" },
-  { proName: "TVC:NI225",       title: "Nikkei" },
-  { proName: "TVC:HSI",         title: "Hang Seng" },
-  { proName: "TVC:UKX",         title: "FTSE" },
-  { proName: "TVC:DXY",         title: "DXY" },
-  { proName: "TVC:US10Y",       title: "US 10Y" },
-  { proName: "NYMEX:CL1!",      title: "WTI Oil" },
-  { proName: "COMEX:GC1!",      title: "Gold" },
-  { proName: "CBOE:VIX",        title: "VIX" },
-];
-
-function buildTickerCfg(extraTickers: TickerEntry[]): string {
-  return JSON.stringify({
-    symbols: [
-      ...TICKER_TAPE_DEFAULT,
-      ...extraTickers.slice(0, 6).map((t) => ({ proName: t.symbol, title: t.label })),
-    ],
-    showSymbolLogo: false,
-    colorTheme: "dark",
-    isTransparent: true,
-    displayMode: "adaptive",
-    locale: "en",
-  });
+function pctColor(p: number | null): string {
+  if (p == null) return "text-slate-500";
+  return p > 0 ? "text-emerald-400" : p < 0 ? "text-red-400" : "text-slate-400";
 }
-
-function buildOverviewCfg(watchlist: TickerEntry[]): string {
-  return JSON.stringify({
-    colorTheme: "dark",
-    dateRange: "1D",
-    showChart: true,
-    locale: "en",
-    width: "100%",
-    height: 520,
-    isTransparent: true,
-    showSymbolLogo: false,
-    showFloatingTooltip: false,
-    plotLineColorGrowing: "rgb(16, 185, 129)",
-    plotLineColorFalling: "rgb(239, 68, 68)",
-    gridLineColor: "rgba(51, 65, 85, 0.5)",
-    scaleFontColor: "rgba(148, 163, 184, 1)",
-    belowLineFillColorGrowing: "rgba(16, 185, 129, 0.12)",
-    belowLineFillColorFalling: "rgba(239, 68, 68, 0.12)",
-    symbolActiveColor: "rgba(16, 185, 129, 0.12)",
-    tabs: [
-      {
-        title: "Watchlist",
-        symbols: watchlist.map((t) => ({ s: t.symbol, d: t.label })),
-        originalTitle: "Watchlist",
-      },
-      {
-        title: "Indices",
-        symbols: INDICES.map((t) => ({ s: t.symbol, d: t.label })),
-        originalTitle: "Indices",
-      },
-      {
-        title: "Global",
-        symbols: GLOBAL.map((t) => ({ s: t.symbol, d: t.label })),
-        originalTitle: "Global",
-      },
-      {
-        title: "Rates & FX",
-        symbols: RATES_FX.map((t) => ({ s: t.symbol, d: t.label })),
-        originalTitle: "Rates & FX",
-      },
-      {
-        title: "Energy & Metals",
-        symbols: ENERGY.map((t) => ({ s: t.symbol, d: t.label })),
-        originalTitle: "Energy",
-      },
-    ],
-  });
-}
-
-// Economic calendar (CPI, rate decisions, jobs, GDP) across the major economies.
-function buildEventsCfg(): string {
-  return JSON.stringify({
-    colorTheme: "dark",
-    isTransparent: true,
-    width: "100%",
-    height: 460,
-    locale: "en",
-    importanceFilter: "0,1",            // medium + high importance only
-    countryFilter: "us,eu,jp,cn,gb,de,fr,kr,in",
-  });
-}
-
-// TradingView widget mount. Inner div is required for the TV script to inject
-// its iframe; the script reads its config from the textContent of the script
-// element via document.currentScript.
-function TVWidget({ widgetType, configJson, height, keyVer }: {
-  widgetType: string; configJson: string; height?: number; keyVer: number;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const container = ref.current;
-    if (!container) return;
-    container.className = "tradingview-widget-container";
-    if (height) container.style.height = `${height}px`;
-    const inner = document.createElement("div");
-    inner.className = "tradingview-widget-container__widget";
-    inner.style.height = "100%";
-    inner.style.width = "100%";
-    container.appendChild(inner);
-    const script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = `https://s3.tradingview.com/external-embedding/embed-widget-${widgetType}.js`;
-    script.async = true;
-    script.appendChild(document.createTextNode(configJson));
-    container.appendChild(script);
-    return () => {
-      container.innerHTML = "";
-      container.removeAttribute("style");
-      container.className = "";
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyVer, configJson]);
-
-  return <div ref={ref} />;
-}
-
-function formatUpdated(d: Date): string {
-  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (secs < 60) return "just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function ago(iso: string): string {
+  const d = Date.parse(iso);
+  if (!Number.isFinite(d)) return "";
+  const h = Math.round((Date.now() - d) / 3.6e6);
+  return h < 1 ? "now" : h < 24 ? `${h}h` : `${Math.round(h / 24)}d`;
 }
 
 export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] }) {
-  const [watchlist, setWatchlist] = useState<TickerEntry[]>([]);
-  const [widgetKey, setWidgetKey] = useState(0);
-  const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
-
-  // Shorter widget heights on phones so the page isn't an endless scroll.
-  const isMobile = useIsMobile();
-  const overviewH = isMobile ? 440 : 540;
-  const eventsH = isMobile ? 380 : 460;
+  const [energy, setEnergy] = useState<EnergyQuote[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    fetch("/api/user-prefs")
-      .then((r) => r.json())
-      .then(({ prefs }) => setWatchlist(prefs?.marketsWatchlist ?? []))
+    fetch("/api/markets/energy")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (Array.isArray(d?.quotes)) setEnergy(d.quotes); })
       .catch(() => {});
-  }, []);
+  }, [refreshKey]);
 
-  const tickerCfg = useMemo(() => buildTickerCfg(watchlist), [watchlist]);
-  const overviewCfg = useMemo(() => buildOverviewCfg(watchlist), [watchlist]);
-  const eventsCfg = useMemo(() => buildEventsCfg(), []);
+  const chokepoints = useMemo(() => scoreChokepoints(articles), [articles]);
+  const activeChokes = chokepoints.filter((c) => c.count > 0);
+  const accessNews = useMemo(
+    () => articles.filter((a) => ACCESS_NEWS.test(`${a.title} ${a.summary ?? ""}`)).slice(0, 6),
+    [articles],
+  );
 
   return (
     <div className="space-y-4">
@@ -201,70 +46,83 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-md bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
-            <CandlestickChart size={15} strokeWidth={2.25} className="text-emerald-400" />
+            <EconomyIcon size={15} strokeWidth={2.25} className="text-emerald-400" />
           </div>
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Markets</h2>
-            <p className="text-[10px] text-slate-600 font-mono">
-              {watchlist.length} watchlist · global indices · rates &amp; FX · econ calendar · DOD contracts
-            </p>
+            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Strategic Economics</h2>
+            <p className="text-[10px] text-slate-600 font-mono">economic trends affecting access · basing · overflight</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] text-slate-700 font-mono">{formatUpdated(lastUpdated)}</span>
-          <button
-            onClick={() => { setWidgetKey((k) => k + 1); setLastUpdated(new Date()); }}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 font-mono transition-colors"
-          >
-            <span className="text-base leading-none">↻</span>
-            Refresh
-          </button>
+        <button onClick={() => setRefreshKey((k) => k + 1)} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 font-mono transition-colors">
+          <span className="text-base leading-none">↻</span> Refresh
+        </button>
+      </div>
+
+      {/* Energy / fuel strip — Brent drives jet-fuel/sustainment cost */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-2">Energy &amp; fuel — sustainment-cost signal</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {energy.length === 0 && <p className="text-[11px] text-slate-600 font-mono col-span-full">Loading prices…</p>}
+          {energy.map((q) => (
+            <div key={q.symbol} className="min-w-0">
+              <div className="text-[10px] text-slate-500 truncate" title={q.label}>{q.label}</div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-sm font-mono font-bold text-slate-200">{q.price != null ? `$${q.price.toLocaleString()}` : "—"}</span>
+                {q.changePct != null && <span className={`text-[10px] font-mono ${pctColor(q.changePct)}`}>{q.changePct >= 0 ? "+" : ""}{q.changePct}%</span>}
+              </div>
+            </div>
+          ))}
         </div>
+        <p className="text-[9px] text-slate-700 mt-2">Session change · Stooq · for context, not trading.</p>
       </div>
 
-      {/* Ticker tape */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden min-h-[56px]">
-        <TVWidget widgetType="ticker-tape" configJson={tickerCfg} keyVer={widgetKey} />
+      {/* AI Economic Access Read */}
+      <EconomicAccessPanel articles={articles} />
+
+      {/* Chokepoint watch */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-2">Strategic chokepoints — transit &amp; overflight</p>
+        {activeChokes.length === 0 ? (
+          <p className="text-[11px] text-slate-600">No chokepoint activity in today&apos;s news. {chokepoints.length} points monitored (Hormuz, Bab-el-Mandeb, Suez, Turkish Straits, Malacca, Taiwan, Panama, Russian overflight).</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {activeChokes.map((c) => (
+              <li key={c.id} className="flex items-start gap-2 text-[12px]">
+                <span className="text-amber-400 mt-0.5 flex-shrink-0">◆</span>
+                <div className="min-w-0">
+                  <span className="text-slate-200 font-semibold">{c.name}</span>
+                  <span className="text-slate-600 text-[10px]"> · {c.count} item{c.count === 1 ? "" : "s"} · {c.why}</span>
+                  {c.latest && (
+                    <div className="text-[11px] text-slate-400 truncate">
+                      <a href={c.latest.link} target="_blank" rel="noopener noreferrer" className="hover:text-sky-300">{c.latest.title}</a>
+                      <span className="text-slate-600"> · {c.latest.source}{ago(c.latest.pubDate) ? ` · ${ago(c.latest.pubDate)}` : ""}</span>
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* AI macro brief (news-driven) */}
-      <MacroBriefPanel articles={articles} />
-
-      {/* Market overview (with user's watchlist as first tab) */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: overviewH }}>
-        <TVWidget widgetType="market-overview" configJson={overviewCfg} height={overviewH} keyVer={widgetKey} />
+      {/* Sanctions / overflight / basing news */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-2">Sanctions · overflight · basing — in the news</p>
+        {accessNews.length === 0 ? (
+          <p className="text-[11px] text-slate-600">Nothing matching sanctions / export-controls / overflight / basing in today&apos;s feed.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {accessNews.map((a) => (
+              <li key={a.id} className="flex items-start gap-2.5">
+                <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-[12px] text-sky-200/90 hover:text-sky-100 leading-snug flex-1 min-w-0">{a.title}</a>
+                <span className="text-[9px] font-mono text-slate-600 flex-shrink-0 mt-0.5">{a.source}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* Economic calendar — CPI, central-bank decisions, jobs, GDP across major economies */}
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5 px-1">
-          Economic calendar
-        </p>
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden" style={{ height: eventsH }}>
-          <TVWidget widgetType="events" configJson={eventsCfg} height={eventsH} keyVer={widgetKey} />
-        </div>
-      </div>
-
-      {/* DOD contract awards feed */}
-      <ContractsPanel />
-
-      {/* Empty-state hint when watchlist is the defaults-only state */}
-      {watchlist.length === 0 && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-          <p className="text-[10px] text-slate-500 font-mono">
-            Add tickers to your watchlist in <span className="text-emerald-400">Preferences → Markets Watchlist</span>.
-          </p>
-        </div>
-      )}
-
-      <p className="text-[10px] text-slate-700 text-right">
-        Market data by{" "}
-        <a href="https://www.tradingview.com" target="_blank" rel="noopener noreferrer"
-          className="text-slate-600 hover:text-slate-400 underline">TradingView</a>
-        {" · contracts via "}
-        <a href="https://www.defense.gov/News/Contracts/" target="_blank" rel="noopener noreferrer"
-          className="text-slate-600 hover:text-slate-400 underline">defense.gov</a>
-      </p>
+      <p className="text-[9px] text-slate-700 text-right">Energy via Stooq · chokepoint/news signals from your feeds · economic SA, not market advice.</p>
     </div>
   );
 }

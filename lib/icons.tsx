@@ -27,6 +27,7 @@ import {
   History,
   Menu,
   Globe,
+  Coins,
   type LucideIcon,
 } from "lucide-react";
 
@@ -41,8 +42,11 @@ export const TAB_ICONS: Record<Tab, LucideIcon> = {
   osint: Crosshair,
   weather: CloudSun,
   docs: FileText,
-  markets: CandlestickChart,
+  markets: Coins,
 };
+
+// Strategic Economics tab header.
+export const EconomyIcon = Coins;
 
 // Primary actions / feature identities.
 export const BriefIcon = Sparkles; // Morning Brief + Macro Brief + News Analyst
