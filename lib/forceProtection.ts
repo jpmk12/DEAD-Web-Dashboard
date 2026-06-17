@@ -43,6 +43,7 @@ export interface CategoryAssessment {
   category: ForceCategory;
   severity: Severity;
   signals: string[]; // human-readable drivers, worst first
+  links?: { label: string; url: string }[]; // source links for verification
 }
 
 export interface ForceAssessment {
@@ -157,7 +158,11 @@ function assessConflict(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
     else if (inform.score >= 4.5) sev = worse(sev, "amber");
   }
 
-  return { category: "conflict", severity: sev, signals };
+  const links: { label: string; url: string }[] = [];
+  if (topStrikes.length) links.push({ label: "ACLED", url: "https://acleddata.com/dashboard/" });
+  const ucdpLink = (strikes.length === 0 ? ctx.conflict.find((c) => c.url && (byCountry ? countryMatch(c.name, loc.country) : true)) : undefined)?.url;
+  if (ucdpLink) links.push({ label: "UCDP", url: ucdpLink });
+  return { category: "conflict", severity: sev, signals, ...(links.length ? { links } : {}) };
 }
 
 const FLIGHT_CAT_SEV: Record<string, Severity> = { LIFR: "red", IFR: "amber", MVFR: "amber", VFR: "green", UNKNOWN: "green" };
@@ -270,12 +275,14 @@ function assessCivil(loc: ForceLocation, ctx: ForceContext): CategoryAssessment 
   const signals: string[] = [];
   let sev: Severity = "green";
   // State advisory level for the base country (all levels available now).
+  const links: { label: string; url: string }[] = [];
   const adv = ctx.advisories.find((a) => countryMatch(a.country, loc.country));
   if (adv) {
     if (adv.orderedDeparture) { signals.push(`State: ordered departure (${adv.country})`); sev = worse(sev, "red"); }
     else if (adv.authorizedDeparture) { signals.push(`State: authorized departure (${adv.country})`); sev = worse(sev, "red"); }
     else if (adv.level === 4) { signals.push("State: Level 4 — Do Not Travel"); sev = worse(sev, "amber"); }
     else if (adv.level === 3) { signals.push("State: Level 3 — Reconsider Travel"); sev = worse(sev, "amber"); }
+    if (adv.link) links.push({ label: "State advisory", url: adv.link });
   }
   // Cultural / civil calendar — observances, national days, elections that raise
   // force-protection posture or sensitivity (amber; they're context, not threats).
@@ -285,7 +292,7 @@ function assessCivil(loc: ForceLocation, ctx: ForceContext): CategoryAssessment 
       sev = worse(sev, "amber");
     }
   }
-  return { category: "civil", severity: sev, signals };
+  return { category: "civil", severity: sev, signals, ...(links.length ? { links } : {}) };
 }
 
 function assessHazard(loc: ForceLocation, ctx: ForceContext): CategoryAssessment {
@@ -298,17 +305,20 @@ function assessHazard(loc: ForceLocation, ctx: ForceContext): CategoryAssessment
     : ctx.disasters.filter((d) => d.lat != null && d.lon != null)
         .map((d) => ({ d, km: Math.round(haversineKm(loc.lat, loc.lon, d.lat as number, d.lon as number)) as number | null }))
         .filter((x) => (x.km as number) <= 500).sort((a, b) => (a.km as number) - (b.km as number));
+  const links: { label: string; url: string }[] = [];
   for (const { d, km } of near.slice(0, 2)) {
     signals.push(`${d.type} (${d.severity})${km != null ? ` ~${km}km` : ""}`);
     if (d.severity === "red" && (km == null || km <= 300)) sev = worse(sev, "red");
     else sev = worse(sev, "amber");
+    if (d.link) links.push({ label: d.type, url: d.link });
   }
   // WHO Disease Outbreak News in the base country — force-health posture (amber).
   for (const h of ctx.health.filter((e) => countryMatch(e.country, loc.country)).slice(0, 2)) {
     signals.push(`WHO: ${h.disease} outbreak (${h.country})`);
     sev = worse(sev, "amber");
+    if (h.link) links.push({ label: "WHO", url: h.link });
   }
-  return { category: "hazard", severity: sev, signals };
+  return { category: "hazard", severity: sev, signals, ...(links.length ? { links } : {}) };
 }
 
 // Rank score within a severity tier: weighted count of category severities so a

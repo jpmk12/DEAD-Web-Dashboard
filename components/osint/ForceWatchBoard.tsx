@@ -69,6 +69,9 @@ function Card({ a }: { a: ForceAssessment }) {
               <span style={{ color: SEV_DOT[c.severity] }} className="mr-1">●</span>
               <span className="text-slate-300 font-semibold">{CAT_LABEL[c.category]}</span>
               <span className="text-slate-500"> — {c.signals.join("; ") || c.severity}</span>
+              {c.links?.map((l) => (
+                <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200 whitespace-nowrap" title={`Open ${l.label}`}>{l.label} ↗</a>
+              ))}
             </div>
           ))}
         </div>
@@ -80,6 +83,14 @@ function Card({ a }: { a: ForceAssessment }) {
 // `cocomFilter` (optional) lets a parent — the Crisis map's AOR dropdown — drive
 // the filter so the two surfaces share one control; when omitted the board shows
 // its own COCOM selector (standalone use).
+// Source-health dot: green=live, red=unavailable (UNKNOWN, never "clear"),
+// grey=not configured / no data.
+function SrcDot({ label, state }: { label: string; state: "live" | "down" | "off" }) {
+  const color = state === "live" ? "#10b981" : state === "down" ? "#ef4444" : "#64748b";
+  const title = state === "live" ? "live" : state === "down" ? "unavailable — status UNKNOWN, not 'all clear'" : "not configured / no data";
+  return <span className="flex items-center gap-0.5 text-slate-500" title={`${label}: ${title}`}><span style={{ color }}>●</span>{label}</span>;
+}
+
 export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { cocomFilter?: string } = {}) {
   const [data, setData] = useState<FpResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -187,11 +198,16 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
       )}
 
       {data?.sources && all.length > 0 && (
-        <p className="px-3 py-1.5 text-[9px] text-slate-600 border-t border-slate-800">
-          Conflict: {data.sources.conflict === "none" ? "—" : data.sources.conflict.toUpperCase()}
-          {data.sources.acled && " + ACLED"} · GPS: {data.sources.gps ? "GPSJam" : "unavailable"} · weather: {data.sources.aviationWx ? "AWC METAR + " : ""}NWS/Open-Meteo/NHC · NOTAMs: {data.sources.notams === "live" ? "DAIP" : data.sources.notams === "down" ? "feed down" : "not configured"} · risk: INFORM · advisories: US State (all levels) + civil calendar · health: WHO.
-          Coarse open-source SA — not authoritative tasking.
-        </p>
+        <div className="px-3 py-1.5 text-[9px] border-t border-slate-800 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="uppercase tracking-wider text-slate-500 font-bold">Feeds</span>
+          <SrcDot label={`Conflict${data.sources.conflict !== "none" ? ` (${data.sources.conflict.toUpperCase()})` : ""}`} state={data.sources.conflict === "none" ? "off" : "live"} />
+          <SrcDot label="ACLED" state={data.sources.acled ? "live" : "off"} />
+          <SrcDot label="Aviation Wx" state={data.sources.aviationWx ? "live" : "off"} />
+          <SrcDot label="GPS (GPSJam)" state={data.sources.gps ? "live" : "down"} />
+          <SrcDot label="NOTAMs (DAIP)" state={data.sources.notams === "live" ? "live" : data.sources.notams === "down" ? "down" : "off"} />
+          <span className="text-slate-600">+ keyless: INFORM · State advisories · civil calendar · WHO health · weather</span>
+          <span className="text-slate-600 w-full">Coarse open-source SA — not authoritative tasking.</span>
+        </div>
       )}
     </div>
   );
