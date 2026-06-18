@@ -52,6 +52,33 @@ function fmtWindow(eff: string, exp: string): string {
   return `${a || "now"} → ${b || "?"}`;
 }
 
+// Hover + tap tooltip for the compact metric chips (the labels are cryptic:
+// 💧 / ↑↓ / sun glyphs). `title` covers desktop hover; the tap-toggled popover
+// covers touch where `title` never fires. stopPropagation so tapping a metric
+// doesn't also select the card.
+function Tip({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        onBlur={() => setOpen(false)}
+        className="inline-flex items-center gap-1 cursor-help"
+      >
+        {children}
+      </button>
+      {open && (
+        <span className="absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-1 whitespace-nowrap rounded bg-slate-800 border border-slate-700 px-1.5 py-0.5 text-[9px] text-slate-200 shadow-lg pointer-events-none">
+          {label}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // Compact location card. Current temp + condition glyph, feels-like / humidity /
 // gusts, today's high/low + precip, sunrise/sunset, the next 4 periods (with
 // mini-icons), a 7-day trend, and an expandable alert. NWS drives the named
@@ -172,18 +199,18 @@ export default function LocationCard({ location, active, onSelect, tag }: Locati
           {/* Metrics: precip · feels-like · humidity · high/low */}
           {(precipPct != null || current?.feelsLikeF != null || current?.humidityPct != null || current?.highF != null) && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 text-[10px] text-slate-400">
-              {precipPct != null && <span>💧 <b className="text-slate-300 font-semibold">{precipPct}%</b></span>}
-              {current?.feelsLikeF != null && <span>feels <b className="text-slate-300 font-semibold">{current.feelsLikeF}°</b></span>}
-              {current?.humidityPct != null && <span>hum <b className="text-slate-300 font-semibold">{current.humidityPct}%</b></span>}
-              {current?.highF != null && current?.lowF != null && <span>↑<b className="text-slate-300 font-semibold">{current.highF}°</b> ↓<b className="text-slate-300 font-semibold">{current.lowF}°</b></span>}
+              {precipPct != null && <Tip label="Chance of precipitation today"><span>💧 <b className="text-slate-300 font-semibold">{precipPct}%</b></span></Tip>}
+              {current?.feelsLikeF != null && <Tip label="Feels-like (apparent) temperature"><span>feels <b className="text-slate-300 font-semibold">{current.feelsLikeF}°</b></span></Tip>}
+              {current?.humidityPct != null && <Tip label="Relative humidity"><span>hum <b className="text-slate-300 font-semibold">{current.humidityPct}%</b></span></Tip>}
+              {current?.highF != null && current?.lowF != null && <Tip label="Today's forecast high / low"><span>↑<b className="text-slate-300 font-semibold">{current.highF}°</b> ↓<b className="text-slate-300 font-semibold">{current.lowF}°</b></span></Tip>}
             </div>
           )}
 
           {/* Sunrise / sunset */}
           {(current?.sunrise || current?.sunset) && (
             <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400">
-              {current?.sunrise && <span className="inline-flex items-center gap-1"><SunriseIcon size={13} className="text-amber-400" /> {fmtLocalTime(current.sunrise)}</span>}
-              {current?.sunset && <span className="inline-flex items-center gap-1"><SunsetIcon size={13} className="text-orange-400" /> {fmtLocalTime(current.sunset)}</span>}
+              {current?.sunrise && <Tip label="Sunrise (local)"><SunriseIcon size={13} className="text-amber-400" /> {fmtLocalTime(current.sunrise)}</Tip>}
+              {current?.sunset && <Tip label="Sunset (local)"><SunsetIcon size={13} className="text-orange-400" /> {fmtLocalTime(current.sunset)}</Tip>}
             </div>
           )}
 
