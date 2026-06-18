@@ -499,6 +499,19 @@ expands in-place to event/headline/window/area. `parseCurrent` is pure + unit-
 tested; the fetch is best-effort/fail-safe (null → omit enrichment, never a fake
 value). Pure `fetch`, no new dep (esbuild `0`).
 
+### Glance "Global Reach Watch" (de-crowded)
+The Glance card fuses three sources — **NEO/evacuation** (State Dept ordered/
+authorized departure + recent Level-4), **disasters** (red/near-base/HADR≥50), and
+**base weather hazards** (Open-Meteo at tracked points/AMC hubs) — into one ranked
+list. NEO scores (ordered 120 / authorized 85) outrank disasters (~≤115) and
+weather (≤75), so a wave of evacuations used to evict everything else. Fix
+(`GlanceTab.tsx`): each row carries a `cat` (`neo|disaster|weather`); **category
+filter chips** (All/NEO/Disasters/Weather, live counts) slice the card, and in the
+"All" view any category with **≥3** items collapses to one expandable summary row
+(e.g. "5 ordered departures · CENTCOM ×3 · EUCOM · AFRICOM" via `aorBreakdown`),
+so disasters & weather always keep slots. Same sources/scoring — presentation
+only. Capped to 7 entries in "All", 10 when a chip is selected.
+
 ### Crisis watch "All disasters (N)" expander
 The Crisis-map side **⚠ Watch** list is curated to mobility-significance
 (`isSignificant` = red severity OR near a watched base OR `hadrScore ≥ 55`, top

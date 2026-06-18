@@ -226,6 +226,25 @@ function useCacheTick(active: boolean): void {
 
 // ───────────────────────── component ─────────────────────────
 
+// Global Reach Watch category metadata + small formatting helpers.
+type ReachCat = "neo" | "disaster" | "weather";
+const REACH_CAT_META: Record<ReachCat, { label: string; icon: string }> = {
+  neo: { label: "NEO", icon: "🛫" },
+  disaster: { label: "Disasters", icon: "🌪" },
+  weather: { label: "Weather", icon: "〜" },
+};
+function pluralize(noun: string, n: number): string {
+  if (n === 1) return noun;
+  if (/y$/.test(noun)) return noun.replace(/y$/, "ies");
+  return `${noun}s`;
+}
+// "CENTCOM ×3 · EUCOM · AFRICOM" from a group's rows.
+function aorBreakdown(items: { tag: string }[]): string {
+  const m = new Map<string, number>();
+  for (const it of items) m.set(it.tag, (m.get(it.tag) ?? 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => (n > 1 ? `${t} ×${n}` : t)).join(" · ");
+}
+
 export default function GlanceTab({
   active,
   articles,
@@ -246,6 +265,8 @@ export default function GlanceTab({
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
   const [threats, setThreats] = useState<WeatherThreats | null>(null);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
+  const [reachFilter, setReachFilter] = useState<"all" | ReachCat>("all");
+  const [reachGroupsOpen, setReachGroupsOpen] = useState<Set<ReachCat>>(new Set());
   // Force Protection Watch — RED/AMBER locations surface in needs-you-now.
   const [forceWatch, setForceWatch] = useState<ForceWatchItem[]>([]);
 
@@ -462,7 +483,7 @@ export default function GlanceTab({
   //    impede airlift) + the AOR disaster watch (could pull HADR/NEO airlift),
   //    ranked into one "look here first" list. Proximity to a base outranks
   //    raw severity, then severity. ──
-  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string }[] = [];
+  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string; cat: "neo" | "disaster" | "weather"; glabel: string }[] = [];
   for (const d of threats?.disasters ?? []) {
     const near = d.nearLocations.length > 0;
     const hadr = d.hadrScore ?? (d.severity === "red" ? 60 : d.severity === "orange" ? 35 : 12);
@@ -478,6 +499,7 @@ export default function GlanceTab({
       sub: near ? `Near ${d.nearLocations.join(", ")}` : [d.country || d.type, hadr >= 55 ? "HADR-relevant" : null].filter(Boolean).join(" · "),
       tag: d.aor !== "UNKNOWN" ? d.aor : "DISASTER",
       score: hadr + (near ? 55 : 0),
+      cat: "disaster", glabel: "disaster",
     });
   }
   for (const h of threats?.hazards ?? []) {
@@ -490,6 +512,7 @@ export default function GlanceTab({
       sub: h.flags.join(" · "),
       tag: "WX",
       score: h.severity === "severe" ? 75 : 45,
+      cat: "weather", glabel: "weather hazard",
     });
   }
   // NEO / evacuation watch: embassy ordered/authorized departures are active
@@ -515,11 +538,53 @@ export default function GlanceTab({
       tag: a.aor !== "UNKNOWN" ? a.aor : "NEO",
       score: a.orderedDeparture ? 120 : a.authorizedDeparture ? 85 : 50,
       href: a.link,
+      cat: "neo", glabel: a.orderedDeparture ? "ordered departure" : a.authorizedDeparture ? "authorized departure" : "Level-4 update",
     });
   }
 
   reach.sort((a, b) => b.score - a.score);
-  const reachTop = reach.slice(0, 6);
+
+  // De-crowd: when a category floods (≥ GROUP_AT) collapse it to one summary
+  // row so disasters & weather aren't evicted by a wave of evacuations. Filter
+  // chips slice to a single category (flat). Counts stay visible regardless.
+  type ReachItem = (typeof reach)[number];
+  type ReachEntry =
+    | { kind: "item"; item: ReachItem; score: number }
+    | { kind: "group"; cat: ReachCat; items: ReachItem[]; score: number; tone: "red" | "amber" };
+  const GROUP_AT = 3;
+  const reachCounts: Record<ReachCat, number> = { neo: 0, disaster: 0, weather: 0 };
+  for (const r of reach) reachCounts[r.cat]++;
+  const reachEntries: ReachEntry[] = (() => {
+    if (reachFilter !== "all") {
+      return reach.filter((r) => r.cat === reachFilter).slice(0, 10).map((item) => ({ kind: "item" as const, item, score: item.score }));
+    }
+    const byCat: Record<ReachCat, ReachItem[]> = { neo: [], disaster: [], weather: [] };
+    for (const r of reach) byCat[r.cat].push(r);
+    const out: ReachEntry[] = [];
+    (Object.keys(byCat) as ReachCat[]).forEach((cat) => {
+      const items = byCat[cat];
+      if (items.length === 0) return;
+      if (items.length >= GROUP_AT) out.push({ kind: "group", cat, items, score: items[0].score, tone: items.some((i) => i.tone === "red") ? "red" : "amber" });
+      else for (const it of items) out.push({ kind: "item", item: it, score: it.score });
+    });
+    return out.sort((a, b) => b.score - a.score).slice(0, 7);
+  })();
+  const reachRow = (r: ReachItem) => {
+    const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${r.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"} hover:bg-slate-800/40 transition-colors rounded-r`;
+    const inner = (
+      <>
+        <span className={`mt-0.5 flex-shrink-0 ${r.tone === "red" ? "text-red-400" : "text-amber-400"}`}>{r.icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm text-slate-200 truncate group-hover:text-emerald-400 transition-colors">{r.title}</span>
+          {r.sub && <span className="block text-[11px] text-slate-500 truncate">{r.sub}</span>}
+        </span>
+        <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">{r.tag}</span>
+      </>
+    );
+    return r.href
+      ? <a href={r.href} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
+      : <button onClick={() => onNavigate("weather")} className={`${cls} w-full`}>{inner}</button>;
+  };
 
   // ── Derived: today's schedule ──
   const todayEvents = calendarEvents
@@ -708,8 +773,8 @@ export default function GlanceTab({
         </div>
       </section>
 
-      {/* ── Global Reach Watch: base weather hazards + AOR disaster watch ── */}
-      {reachTop.length > 0 && (
+      {/* ── Global Reach Watch: NEO / disasters / weather, de-crowded ── */}
+      {reach.length > 0 && (
         <section className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-4 card-hover">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2 text-amber-400 text-[11px] font-bold uppercase tracking-widest">
@@ -722,27 +787,43 @@ export default function GlanceTab({
               crises &amp; weather affecting reach
             </span>
           </div>
+          {/* Category filter chips — counts always visible even when collapsed */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {([["all", "All", reach.length], ["neo", "🛫 NEO", reachCounts.neo], ["disaster", "🌪 Disasters", reachCounts.disaster], ["weather", "〜 Weather", reachCounts.weather]] as [("all" | ReachCat), string, number][])
+              .filter(([key, , n]) => key === "all" || n > 0)
+              .map(([key, label, n]) => (
+                <button
+                  key={key}
+                  onClick={() => setReachFilter(key)}
+                  className={`text-[10px] font-mono rounded px-2 py-0.5 border transition-colors inline-flex items-center gap-1 ${reachFilter === key ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+                >
+                  {label} <span className="opacity-60">{n}</span>
+                </button>
+              ))}
+          </div>
           <ul className="space-y-1.5">
-            {reachTop.map((r) => {
-              const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${
-                r.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"
-              } hover:bg-slate-800/40 transition-colors rounded-r`;
-              const inner = (
-                <>
-                  <span className={`mt-0.5 flex-shrink-0 ${r.tone === "red" ? "text-red-400" : "text-amber-400"}`}>{r.icon}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-slate-200 truncate group-hover:text-emerald-400 transition-colors">{r.title}</span>
-                    {r.sub && <span className="block text-[11px] text-slate-500 truncate">{r.sub}</span>}
-                  </span>
-                  <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">{r.tag}</span>
-                </>
-              );
+            {reachEntries.map((e) => {
+              if (e.kind === "item") return <li key={e.item.id}>{reachRow(e.item)}</li>;
+              const open = reachGroupsOpen.has(e.cat);
+              const nouns = new Set(e.items.map((i) => i.glabel));
+              const noun = nouns.size === 1 ? [...nouns][0] : (e.cat === "neo" ? "evacuation/NEO advisory" : e.cat === "disaster" ? "disaster" : "weather hazard");
+              const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${e.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"} hover:bg-slate-800/40 transition-colors rounded-r`;
               return (
-                <li key={r.id}>
-                  {r.href ? (
-                    <a href={r.href} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
-                  ) : (
-                    <button onClick={() => onNavigate("weather")} className={`${cls} w-full`}>{inner}</button>
+                <li key={`grp-${e.cat}`}>
+                  <button
+                    onClick={() => setReachGroupsOpen((prev) => { const n = new Set(prev); n.has(e.cat) ? n.delete(e.cat) : n.add(e.cat); return n; })}
+                    className={`${cls} w-full`}
+                  >
+                    <span className={`mt-0.5 flex-shrink-0 ${e.tone === "red" ? "text-red-400" : "text-amber-400"}`}>{REACH_CAT_META[e.cat].icon}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm text-slate-200 group-hover:text-emerald-400 transition-colors"><span className="text-slate-500 text-[10px] mr-1">{open ? "▾" : "▸"}</span>{e.items.length} {pluralize(noun, e.items.length)}</span>
+                      <span className="block text-[11px] text-slate-500 truncate">{aorBreakdown(e.items)}</span>
+                    </span>
+                  </button>
+                  {open && (
+                    <ul className="space-y-1 mt-1 pl-6">
+                      {e.items.map((it) => <li key={it.id}>{reachRow(it)}</li>)}
+                    </ul>
                   )}
                 </li>
               );
