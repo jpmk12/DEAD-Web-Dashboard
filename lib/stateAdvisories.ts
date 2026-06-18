@@ -45,7 +45,15 @@ export async function parseAdvisories(xml: string): Promise<TravelAdvisory[]> {
   for (const item of feed.items ?? []) {
     const title = (item.title ?? "").trim();
     if (!title) continue;
-    const cats = Array.isArray(item.categories) ? (item.categories as string[]) : [];
+    // The State feed carries the threat level in an ATTRIBUTED category
+    // (<category domain="Threat-Level">Level 4: Do Not Travel</category>).
+    // rss-parser returns attributed elements as objects ({ _: text, $: attrs }),
+    // sometimes with a null prototype — coercing those in a template literal
+    // throws "Cannot convert object to primitive value", which previously killed
+    // the whole parse and blanked every advisory. Normalize categories to strings.
+    const cats = (Array.isArray(item.categories) ? item.categories : [])
+      .map((c) => (typeof c === "string" ? c : c && typeof c === "object" && "_" in (c as object) ? String((c as { _: unknown })._ ?? "") : ""))
+      .filter(Boolean);
     const body = item.contentSnippet ?? item.content ?? (item as { summary?: string }).summary ?? "";
     const text = `${title} ${cats.join(" ")} ${body}`;
     const level = levelFrom([title, ...cats, body]);
@@ -74,6 +82,34 @@ export async function parseAdvisories(xml: string): Promise<TravelAdvisory[]> {
   const rank = (a: TravelAdvisory) => (a.orderedDeparture ? 0 : a.authorizedDeparture ? 1 : 2);
   out.sort((a, b) => rank(a) - rank(b) || Date.parse(b.pubDate || "0") - Date.parse(a.pubDate || "0"));
   return out;
+}
+
+// Owner-only diagnostic: did the fetch reach travel.state.gov, and did the parse
+// yield rows? Distinguishes a 403/unreachable feed (datacenter blocking, like
+// Stooq/Yahoo) from a parse failure. Network — gate behind owner auth.
+export async function diagnoseStateAdvisories(): Promise<{
+  status: number; ok: boolean; bytes: number; parsed: number; withLevel: number; sample?: string; error?: string;
+}> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    let res: Response, xml: string;
+    try {
+      res = await fetch(FEED_URL, { signal: controller.signal, headers: { "User-Agent": UA, Accept: "application/rss+xml, application/xml, text/xml, */*" }, cache: "no-store" });
+      xml = await res.text();
+    } finally { clearTimeout(timer); }
+    let parsed = 0, withLevel = 0, sample: string | undefined;
+    if (res.ok) {
+      const advs = await parseAdvisories(xml).catch(() => [] as TravelAdvisory[]);
+      parsed = advs.length;
+      withLevel = advs.filter((a) => a.level != null).length;
+      const f = advs[0];
+      if (f) sample = `${f.country} · L${f.level ?? "?"}${f.orderedDeparture ? " · ordered-dep" : ""}`;
+    }
+    return { status: res.status, ok: res.ok, bytes: xml.length, parsed, withLevel, ...(sample ? { sample } : {}) };
+  } catch (e) {
+    return { status: 0, ok: false, bytes: 0, parsed: 0, withLevel: 0, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 // Hot-spots only (Level 4 / embassy departure) — the NEO/evacuation watch used
