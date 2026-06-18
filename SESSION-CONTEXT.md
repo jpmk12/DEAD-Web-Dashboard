@@ -11,6 +11,45 @@ commit (a later session developed there, then synced back); develop on
 
 ---
 
+## ✅ Post-deploy checklist (verify after the deploy that includes commit `48934bb`)
+
+The sandbox can't reach most external data hosts, so these need a live glance.
+Owner-only debug routes require logging in as `OWNER_EMAIL`.
+
+1. **UCDP conflict** (token now installed) — open `/api/osint/crisis-diag`: the
+   UCDP section should show a working version + recent newest-event date (not
+   401/ReliefWeb). On the Crisis map's Conflict layer, expect **multiple
+   countries** (not just the active war) and **a date on each** event popup /
+   watch-list row. If still 401 with the token set → token wrong/expired/space.
+2. **Energy panel** — `/api/markets/energy?debug=1` → Yahoo `ok:true` per symbol.
+   Economy tab shows WTI/Brent/NatGas/Gold with correct **day %** (not a 5-day
+   move) and clickable values. If Yahoo 403s from the host, ping me for an
+   EIA/key-based source.
+3. **State advisories** — `/api/state-advisories?debug=1` → `parsed > 0`,
+   `withLevel > 0`. Regional → a watched country's **⚖ Civil / political** card
+   shows the State level (e.g. Iran Level 4) + indicator pills. `status:403/0` =
+   travel.state.gov blocked from the host → needs a fallback.
+4. **Morning brief Schedule** — open Brief: today's **agenda** appears under
+   Schedule. If a brief was cached empty earlier today, hit ↻ once (sends current
+   events + `?refresh=1`); correct automatically from tomorrow.
+5. **Weather cards** — condition **vector icons** + per-period mini-icons; the
+   feels-like / humidity / gusts / sunrise-sunset row (needs `/api/weather/current`
+   live); an OCONUS card shows current conditions instead of going blank.
+6. **Crisis "All disasters (N)"** expander — under the ⚠ Watch list; expands to
+   the full AOR feed (matches the Weather tab's Global Disaster Watch).
+7. **WHO Host-nation health card** (Regional) — `✚ Host-nation health` shows the
+   GHO indicator strip (UHC, water, sanitation, malaria, DTP3, measles) with data
+   years, under any active WHO outbreaks. If a country is blank, GHO is reachable
+   but an indicator **code** is likely off — tell me the country and I'll confirm
+   the code against the live API (ghoapi.azureedge.net).
+8. **Active conflict reporting banner** (Regional) — for an active-conflict
+   country the dossier **leads** with a red/amber banner (freshest headline +
+   count). Hidden when quiet.
+9. **Conflict caching** — DevTools → `/api/osint/conflict` response carries
+   `Cache-Control: private, max-age=300`; repeat map opens paint instantly.
+
+---
+
 ## Ramp up in 5 minutes
 
 1. **`FEATURES.md`** at the repo root — comprehensive parity spec. Every
