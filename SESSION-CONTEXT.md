@@ -4,8 +4,10 @@ A short orientation doc so the next session can pick up without losing
 context. Tracks the most recent push, known open threads, and what to read
 to ramp up.
 
-**Branch:** `claude/dead-web-dashboard-refactor-16sA7`
-**As of:** commit `972a6e6`
+**Default branch (source of truth):** `claude/dead-web-dashboard-refactor-16sA7`
+— kept fully updated. `claude/kind-cray-bbas25` is a mirror kept at the same
+commit (a later session developed there, then synced back); develop on
+`refactor-16sA7` going forward and keep the two pointing at the same SHA.
 
 ---
 

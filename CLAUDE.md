@@ -499,6 +499,18 @@ expands in-place to event/headline/window/area. `parseCurrent` is pure + unit-
 tested; the fetch is best-effort/fail-safe (null → omit enrichment, never a fake
 value). Pure `fetch`, no new dep (esbuild `0`).
 
+### Crisis watch "All disasters (N)" expander
+The Crisis-map side **⚠ Watch** list is curated to mobility-significance
+(`isSignificant` = red severity OR near a watched base OR `hadrScore ≥ 55`, top
+events by HADR), so orange/green far-from-base events are intentionally omitted.
+Because that confused "why is this on the Weather tab but not the crisis watch",
+a collapsible **"All disasters (N)"** row under the Watch list reveals the FULL
+AOR-filtered disaster feed — the same `getDisasters()` events the Weather tab's
+Global Disaster Watch shows — each clickable to fly the map to it (`DISASTER_GLYPH`
+/ `DISASTER_SEV_TEXT`). Both surfaces share one feed; only the Watch list filters.
+The map dots already render every disaster with coords — it's the *list* that was
+curated. Collapsed by default (`showAllDisasters`).
+
 ### Map dep (`h3-js`)
 `h3-js` is a **runtime `dependency`** used by the Crisis map (OSINT tab) to draw
 GPSJam GPS-interference cells as H3 hexagons (`cellToBoundary`). It is pure JS

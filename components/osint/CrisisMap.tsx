@@ -210,6 +210,16 @@ const EMPTY: WeatherThreats = {
 };
 const isSignificant = (d: DisasterEvent) => d.severity === "red" || d.nearLocations.length > 0 || (d.hadrScore ?? 0) >= 55;
 
+// Type glyph + severity colour for the "All disasters" full-feed expander
+// (mirrors the Weather tab's Global Disaster Watch vocabulary).
+const DISASTER_GLYPH: Record<DisasterEvent["type"], string> = {
+  earthquake: "⊕", cyclone: "🌀", flood: "≈", volcano: "⛰", drought: "☼",
+  tsunami: "≋", epidemic: "✚", wildfire: "🔥", other: "•",
+};
+const DISASTER_SEV_TEXT: Record<DisasterEvent["severity"], string> = {
+  red: "text-red-400", orange: "text-orange-400", green: "text-emerald-500", unknown: "text-slate-400",
+};
+
 function ZoomWatcher({ onZoom }: { onZoom: (z: number) => void }) {
   useMapEvents({ zoomend: (e) => onZoom(e.target.getZoom()) });
   return null;
@@ -266,6 +276,7 @@ export default function CrisisMap() {
   const [flyTo, setFlyTo] = useState<{ lat: number; lon: number; zoom: number; key: number } | null>(null);
   const [fitKey, setFitKey] = useState(0);
   const [aorFilter, setAorFilter] = useState<Aor | "ALL">("ALL");
+  const [showAllDisasters, setShowAllDisasters] = useState(false);
   const [search, setSearch] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(true);
@@ -1059,6 +1070,45 @@ export default function CrisisMap() {
             );
           })}
         </ul>
+        {/* Full disaster feed — the curated Watch above is significant-only
+            (red / near a watched base / HADR≥55); this reveals every disaster in
+            the current AOR view (same events as the Weather tab's Global Disaster
+            Watch), each clickable to fly the map to it. Collapsed by default. */}
+        {disasters.length > 0 && (
+          <div className="border-t border-slate-800">
+            <button
+              onClick={() => setShowAllDisasters((v) => !v)}
+              className="w-full text-left px-3 py-2 flex items-center gap-2 text-[10px] font-mono text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-colors"
+            >
+              <span className="text-slate-600">{showAllDisasters ? "▾" : "▸"}</span>
+              All disasters ({disasters.length})
+              {!showAllDisasters && <span className="text-slate-600">— incl. orange/green not in the watch above</span>}
+            </button>
+            {showAllDisasters && (
+              <div className="px-3 pb-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5 text-[8px] text-slate-500">
+                  <span><span className="text-red-400">●</span> Red <span className="text-orange-400 ml-1">●</span> Orange <span className="text-emerald-500 ml-1">●</span> Green</span>
+                  {[...new Set(disasters.map((d) => d.type))].map((t) => (
+                    <span key={t} className="flex items-center gap-1">{DISASTER_GLYPH[t]} {t}</span>
+                  ))}
+                </div>
+                <ul className="space-y-1 max-h-[28vh] overflow-y-auto">
+                  {disasters.map((d) => (
+                    <li key={`all-${d.id}`} id={`row-d-${d.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === `d-${d.id}` ? "bg-slate-800/70" : ""}`}>
+                      <span className={DISASTER_SEV_TEXT[d.severity]} title={`${d.type} · ${d.severity}`}>{DISASTER_GLYPH[d.type] ?? "●"}</span>
+                      <button onClick={() => pick(`d-${d.id}`, d.lat as number, d.lon as number, 5)} className="text-slate-200 hover:text-emerald-400 font-medium text-left">{d.title}</button>
+                      {d.country && <span className="text-slate-500">{d.country}</span>}
+                      {d.aor !== "UNKNOWN" && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{d.aor}</span>}
+                      {(d.hadrScore ?? 0) >= 55 && <span className="text-[8px] font-mono uppercase tracking-wider text-orange-300 border border-orange-500/40 rounded px-1">HADR</span>}
+                      {d.nearLocations.length > 0 && <span className="text-[9px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1">near {d.nearLocations.join(", ")}</span>}
+                      {d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono">↗</a>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
           {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
