@@ -278,6 +278,8 @@ export default function CrisisMap() {
   const [fitKey, setFitKey] = useState(0);
   const [aorFilter, setAorFilter] = useState<Aor | "ALL">("ALL");
   const [showAllDisasters, setShowAllDisasters] = useState(false);
+  const [disType, setDisType] = useState<Set<DisasterEvent["type"]>>(new Set());
+  const [disAor, setDisAor] = useState<Aor | "ALL">("ALL");
   const [search, setSearch] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(true);
@@ -1078,29 +1080,67 @@ export default function CrisisMap() {
           })}
         </ul>
         {/* Full disaster feed — the curated Watch above is significant-only
-            (red / near a watched base / HADR≥55); this reveals every disaster in
-            the current AOR view (same events as the Weather tab's Global Disaster
-            Watch), each clickable to fly the map to it. Collapsed by default. */}
-        {disasters.length > 0 && (
+            (red / near a watched base / HADR≥55); this reveals EVERY disaster
+            (same events as the Weather tab's Global Disaster Watch), each
+            clickable to fly the map to it. Collapsed by default; when the feed
+            is long it gets its own type + AOR filter (independent of the map's
+            AOR filter — this is the "browse everything" surface). */}
+        {allDisasters.length > 0 && (() => {
+          const shown = allDisasters.filter((d) => (disType.size === 0 || disType.has(d.type)) && (disAor === "ALL" || d.aor === disAor));
+          const typesPresent = Array.from(new Set(allDisasters.map((d) => d.type)));
+          const aorsHere = AORS.filter((a) => allDisasters.some((d) => d.aor === a));
+          const typeCount = (t: DisasterEvent["type"]) => allDisasters.filter((d) => d.type === t && (disAor === "ALL" || d.aor === disAor)).length;
+          const aorCount = (a: Aor) => allDisasters.filter((d) => d.aor === a && (disType.size === 0 || disType.has(d.type))).length;
+          const showFilters = allDisasters.length > 8;
+          const filtered = disType.size > 0 || disAor !== "ALL";
+          const toggleType = (t: DisasterEvent["type"]) => setDisType((prev) => { const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n; });
+          return (
           <div className="border-t border-slate-800">
             <button
               onClick={() => setShowAllDisasters((v) => !v)}
               className="w-full text-left px-3 py-2 flex items-center gap-2 text-[10px] font-mono text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-colors"
             >
               <span className="text-slate-600">{showAllDisasters ? "▾" : "▸"}</span>
-              All disasters ({disasters.length})
+              All disasters ({allDisasters.length})
               {!showAllDisasters && <span className="text-slate-600">— incl. orange/green not in the watch above</span>}
             </button>
             {showAllDisasters && (
               <div className="px-3 pb-2">
+                {showFilters && (
+                  <div className="flex flex-col gap-1.5 mb-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[8px] uppercase tracking-widest text-slate-600 w-8 flex-shrink-0">Type</span>
+                      {typesPresent.map((t) => (
+                        <button key={t} onClick={() => toggleType(t)} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors inline-flex items-center gap-1 ${disType.has(t) ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+                          {DISASTER_GLYPH[t]} {t} <span className="text-slate-600">{typeCount(t)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {aorsHere.length > 1 && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-[8px] uppercase tracking-widest text-slate-600 w-8 flex-shrink-0">AOR</span>
+                        <button onClick={() => setDisAor("ALL")} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors ${disAor === "ALL" ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>All</button>
+                        {aorsHere.map((a) => (
+                          <button key={a} onClick={() => setDisAor(a)} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors inline-flex items-center gap-1 ${disAor === a ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+                            {a} <span className="text-slate-600">{aorCount(a)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {filtered && (
+                      <div className="flex items-center gap-2 text-[8px] text-slate-600">
+                        <span>Showing {shown.length} of {allDisasters.length}</span>
+                        <button onClick={() => { setDisType(new Set()); setDisAor("ALL"); }} className="underline hover:text-slate-400">reset</button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5 text-[8px] text-slate-500">
                   <span><span className="text-red-400">●</span> Red <span className="text-orange-400 ml-1">●</span> Orange <span className="text-emerald-500 ml-1">●</span> Green</span>
-                  {[...new Set(disasters.map((d) => d.type))].map((t) => (
-                    <span key={t} className="flex items-center gap-1">{DISASTER_GLYPH[t]} {t}</span>
-                  ))}
                 </div>
                 <ul className="space-y-1 max-h-[28vh] overflow-y-auto">
-                  {disasters.map((d) => (
+                  {shown.length === 0 && <li className="text-[10px] text-slate-600 font-mono">No disasters match this filter.</li>}
+                  {shown.map((d) => (
                     <li key={`all-${d.id}`} id={`row-d-${d.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === `d-${d.id}` ? "bg-slate-800/70" : ""}`}>
                       <span className={DISASTER_SEV_TEXT[d.severity]} title={`${d.type} · ${d.severity}`}>{DISASTER_GLYPH[d.type] ?? "●"}</span>
                       <button onClick={() => pick(`d-${d.id}`, d.lat as number, d.lon as number, 5)} className="text-slate-200 hover:text-emerald-400 font-medium text-left">{d.title}</button>
@@ -1115,7 +1155,8 @@ export default function CrisisMap() {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
           {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.

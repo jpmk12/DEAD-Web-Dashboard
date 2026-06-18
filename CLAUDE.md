@@ -509,7 +509,11 @@ AOR-filtered disaster feed — the same `getDisasters()` events the Weather tab'
 Global Disaster Watch shows — each clickable to fly the map to it (`DISASTER_GLYPH`
 / `DISASTER_SEV_TEXT`). Both surfaces share one feed; only the Watch list filters.
 The map dots already render every disaster with coords — it's the *list* that was
-curated. Collapsed by default (`showAllDisasters`).
+curated. Collapsed by default (`showAllDisasters`). When the feed is long (>8) the
+expander gets its own **type + AOR filter chips** (multi-select type, single AOR,
+cross-filtered live counts, "showing N of M" + reset) over the FULL coords feed —
+independent of the map's global AOR filter, since this is the "browse everything"
+surface.
 
 ### Map dep (`h3-js`)
 `h3-js` is a **runtime `dependency`** used by the Crisis map (OSINT tab) to draw
