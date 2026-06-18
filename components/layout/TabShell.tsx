@@ -27,6 +27,16 @@ const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "docs", "osint
 export default function TabShell() {
   const [activeTab, setActiveTab] = useState<Tab>("glance");
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  // Whether the calendar has reported at least once (even with []). The morning
+  // brief must wait for this before generating, or it races the calendar fetch
+  // and bakes an empty agenda into the day's cached brief (the "schedule
+  // disappeared" bug). A timeout flips it true so a slow/failed calendar never
+  // blocks the brief outright.
+  const [calendarReady, setCalendarReady] = useState(false);
+  const handleEventsLoaded = useCallback((evts: CalendarEvent[]) => {
+    setCalendarEvents(evts);
+    setCalendarReady(true);
+  }, []);
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
   const [tasksRefreshKey, setTasksRefreshKey] = useState(0);
   const [articles, setArticles] = useState<NewsItem[]>([]);
@@ -134,11 +144,20 @@ export default function TabShell() {
     };
   }, []);
 
-  // Start brief generation in background once both articles and newsletters are loaded.
-  // prefetchBriefing guards against duplicates internally (isFresh + inflight checks).
-  // Also re-fires on the cache-cleared event so a prefs save re-primes the brief.
+  // Don't let a slow/failed calendar block the brief forever — after a grace
+  // period, proceed without it (better an agenda-less brief than none).
   useEffect(() => {
-    if (articles.length === 0 || newsletters.length === 0) return;
+    const t = setTimeout(() => setCalendarReady(true), 12_000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Start brief generation in background once articles, newsletters, AND the
+  // calendar have loaded. Gating on calendarReady (not just article/newsletter
+  // counts) is what stops the brief from racing the calendar fetch and caching
+  // an empty "schedule" for the whole day. prefetchBriefing guards against
+  // duplicates internally (isFresh + inflight). Re-fires on cache-cleared.
+  useEffect(() => {
+    if (articles.length === 0 || newsletters.length === 0 || !calendarReady) return;
     prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
     const reprime = () => {
       if (articles.length > 0 && newsletters.length > 0) {
@@ -152,7 +171,7 @@ export default function TabShell() {
       window.removeEventListener("dashboard-cache-cleared", reprime);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [articles.length, newsletters.length]);
+  }, [articles.length, newsletters.length, calendarReady]);
 
   const openBriefing = () => { setBriefingMode("briefing"); setBriefingOpen(true); };
   const openDigest = () => { setBriefingMode("digest"); setBriefingOpen(true); };
@@ -282,7 +301,7 @@ export default function TabShell() {
         <div className={activeTab !== "calendar" ? "hidden" : ""}>
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1 min-w-0">
-              <CalendarPanel onEventsLoaded={setCalendarEvents} />
+              <CalendarPanel onEventsLoaded={handleEventsLoaded} />
             </div>
             <CalendarRail
               tasksRefreshKey={tasksRefreshKey}
