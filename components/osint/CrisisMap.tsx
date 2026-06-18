@@ -247,7 +247,7 @@ export default function CrisisMap() {
   const [airfieldCaps, setAirfieldCaps] = useState<Record<string, { lengthFt: number; surface: string; lighted: boolean; cls: string }>>({});
   type Wx = { flightCategory: FlightCategory; windKt: number | null; gustKt: number | null; visMi: number | null; ceilingFt: number | null; observedAt: string };
   const [flightCat, setFlightCat] = useState<Record<string, Wx>>({});
-  const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]>([]);
+  const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
   type InformPt = { country: string; score: number; lat: number; lon: number };
@@ -547,7 +547,7 @@ export default function CrisisMap() {
           id: kineticId(c),
           kind: "kinetic",
           title: c.title || c.name || "Kinetic activity",
-          sub: c.title ? c.name : `${c.count} report${c.count === 1 ? "" : "s"} · last 2 days`,
+          sub: [c.title ? c.name : (c.count > 1 ? `${c.count} fatalities` : "armed-conflict event"), c.date].filter(Boolean).join(" · "),
           tone: "red",
           aor: aorFromCoords(c.lat, c.lon),
           lat: c.lat, lon: c.lon,
@@ -841,7 +841,7 @@ export default function CrisisMap() {
             {/* Conflict events (UCDP GED, most recent available) — drawn first, under the crisis markers. */}
             {on.conflict && conflict.map((c, i) => (
               <CircleMarker key={`cf-${i}`} center={[c.lat, c.lon]} radius={Math.min(4 + Math.log2(c.count + 1) * 1.6, 16)} pathOptions={{ color: "#f43f5e", fillColor: "#f43f5e", fillOpacity: 0.18, weight: 0.5, opacity: 0.45 }}>
-                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}{c.src === "reliefweb" ? (<><div className="text-rose-600">Active complex emergency / conflict</div>{c.url ? <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">ReliefWeb ↗</a> : <div className="text-slate-500">ReliefWeb (UN OCHA) — country-level</div>}</>) : (<><div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div><div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></>)}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}{c.src === "reliefweb" ? (<><div className="text-rose-600">Active complex emergency / conflict</div>{c.url ? <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">ReliefWeb ↗</a> : <div className="text-slate-500">ReliefWeb (UN OCHA) — country-level</div>}</>) : (<><div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div>{c.date && <div className="text-slate-600">{c.date}</div>}<div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></>)}</div></Popup>
               </CircleMarker>
             ))}
 

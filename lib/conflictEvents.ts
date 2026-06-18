@@ -23,15 +23,19 @@
 import { aorFromCoords } from "./aor";
 import { recordDailySignals, utcDate } from "./trends";
 
-export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }
+export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string }
 
 const UCDP_BASE = "https://ucdpapi.pcr.uu.se/api/gedevents/";
 const PAGE_SIZE = 1000;
-const MAX_PAGES = 3;                  // sample up to 3k recent events, then rank
+const MAX_PAGES = 5;                  // sample up to 5k recent events, then rank
 // Generous window: the candidate holds the current year; the yearly fallback
 // lags. 365d captures whatever recent data the resolved version holds.
 const RECENT_DAYS = 365;
 const MAX_POINTS = 250;
+// Cap events per country so one major war (e.g. a top-fatality conflict) doesn't
+// fill the entire top-MAX_POINTS slice and hide every other country. Applied
+// after the fatality sort, so each country still keeps its deadliest events.
+const PER_COUNTRY_CAP = 20;
 
 const TTL = 30 * 60 * 1000;
 const STALE_TTL = 6 * 60 * 60 * 1000;    // serve last-good points up to 6h on failure
@@ -67,7 +71,7 @@ export function ucdpVersionCandidates(now = new Date()): string[] {
 }
 
 interface UcdpEvent {
-  latitude?: unknown; longitude?: unknown; date_start?: unknown; best?: unknown;
+  latitude?: unknown; longitude?: unknown; date_start?: unknown; date_end?: unknown; best?: unknown;
   side_a?: unknown; side_b?: unknown; country?: unknown; where_coordinates?: unknown;
   conflict_name?: unknown;
 }
@@ -86,7 +90,14 @@ function toPoint(e: UcdpEvent): ConflictPoint | null {
   const title = a && b ? `${a} vs ${b}` : (String(e.conflict_name ?? "").trim() || a || b || undefined);
   const name = String(e.where_coordinates ?? e.country ?? "").slice(0, 120);
   const deaths = Number(e.best);
-  return { lat, lon, name, count: Number.isFinite(deaths) && deaths > 0 ? deaths : 1, title, src: "ucdp" };
+  // UCDP events carry a date range; date_end is the most recent activity. Keep
+  // the YYYY-MM-DD for display ("when did this happen").
+  const date = (String(e.date_end ?? "").slice(0, 10) || String(e.date_start ?? "").slice(0, 10)) || undefined;
+  const country = String(e.country ?? "").trim() || undefined;
+  return {
+    lat, lon, name, count: Number.isFinite(deaths) && deaths > 0 ? deaths : 1, title, src: "ucdp",
+    ...(date ? { date } : {}), ...(country ? { country } : {}),
+  };
 }
 
 // Keyless fallback for the Conflict layer when UCDP has no token: ReliefWeb's
@@ -162,6 +173,25 @@ async function fetchRecent(version: string, since: string, signal: AbortSignal):
   return anyOk ? all : null;
 }
 
+// Cap events per country (after the fatality sort) so a single high-fatality war
+// can't fill the whole top-`max` slice and hide every other country, then
+// backfill any spare slots with the highest-fatality leftovers. Each country
+// keeps its deadliest events while geographic spread is guaranteed.
+function spreadByCountry(sorted: ConflictPoint[], max: number): ConflictPoint[] {
+  const perCountry = new Map<string, number>();
+  const picked: ConflictPoint[] = [];
+  const overflow: ConflictPoint[] = [];
+  for (const p of sorted) {
+    const key = (p.country || p.name || "?").toLowerCase();
+    const n = perCountry.get(key) ?? 0;
+    if (n < PER_COUNTRY_CAP) { perCountry.set(key, n + 1); picked.push(p); }
+    else overflow.push(p);
+    if (picked.length >= max) return picked;
+  }
+  for (const p of overflow) { if (picked.length >= max) break; picked.push(p); } // backfill
+  return picked;
+}
+
 export async function getConflictPoints(): Promise<ConflictPoint[]> {
   if (cache && cache.expires > Date.now()) { lastFetch = { ok: true, at: lastFetch.at || Date.now() }; return cache.points; }
   const since = ymd(new Date(Date.now() - RECENT_DAYS * 86_400_000));
@@ -175,7 +205,7 @@ export async function getConflictPoints(): Promise<ConflictPoint[]> {
       if (got === null) versionCache = null; // version went bad — re-resolve next time
       else if (got.length > 0) {
         got.sort((a, b) => b.count - a.count); // highest-fatality first
-        const top = got.slice(0, MAX_POINTS);
+        const top = spreadByCountry(got, MAX_POINTS); // diversify so one war can't crowd out the rest
         cache = { points: top, expires: Date.now() + TTL };
         staleCache = { points: top, at: Date.now() };
         lastFetch = { ok: true, at: Date.now(), source: "ucdp" };
