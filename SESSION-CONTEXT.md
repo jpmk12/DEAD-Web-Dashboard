@@ -59,16 +59,23 @@ the list if the user comes back hungry for more.
 ### ⏳ Waiting on external — TRACKED
 
 - **UCDP API token** (Crisis map "Conflict" layer + Force Protection conflict
-  axis). UCDP now requires a token (`x-ucdp-access-token`); without it the
-  Conflict layer falls back to coarse keyless ReliefWeb. **Status (2026-06-17):
-  user emailed `mertcan.yilmaz@pcr.uu.se` ("UCDP API Access Request") and is
-  awaiting the token.** When it arrives: set `UCDP_API_TOKEN` in the Node.js
-  Hosting env (no code change — `ucdpHeaders()` in `lib/conflictEvents.ts`
-  already reads it and `resolveVersion()` will start returning precise events).
-  Verify via `/api/osint/crisis-diag` (UCDP section) — should flip from
-  401/ReliefWeb to a working version + newest event date. Note: ACLED's free
-  tier still embargoes data <12 months, so the keyless **conflict-news** signal
-  (`lib/conflictNews.ts`, shipped) remains the timeliest read regardless.
+  axis). UCDP requires a token (`x-ucdp-access-token`); without it the Conflict
+  layer falls back to coarse keyless ReliefWeb. **Status (2026-06-18): token
+  RECEIVED from UCDP — install pending.** To install: set `UCDP_API_TOKEN=<token>`
+  in the Node.js Hosting env (Settings → environment variables), redeploy/restart
+  so it's picked up. No code change — `ucdpHeaders()` in `lib/conflictEvents.ts`
+  reads it and `resolveVersion()` then returns precise events. Verify via
+  `/api/osint/crisis-diag` (UCDP section): should flip from 401/ReliefWeb to a
+  working version + newest event date. Note: ACLED's free tier still embargoes
+  data <12 months, so the keyless **conflict-news** signal (`lib/conflictNews.ts`)
+  remains the timeliest read regardless.
+- **Host-nation health card** (WHO GHO) — APPROVED, mockup built
+  (`host-health-mockup.html`), pending implementation. Add a "✚ Host-nation
+  health" block to the Regional dossier: live WHO DON outbreaks (already wired) +
+  a GHO OData structural indicator strip (physicians/beds per 10k, UHC index,
+  basic water/sanitation %, malaria, DTP3/measles, life expectancy), keyless,
+  same OData pattern as INFORM. Confirm GHO indicator codes against the live API
+  at build time. Optionally feed the Force-Protection health axis.
 
 ### Offered but not chosen
 - **Per-domain spec split** — I offered to break `FEATURES.md` into
