@@ -20,6 +20,14 @@ const ADV_LABEL: Record<number, string> = { 1: "Exercise Normal Precautions", 2:
 const ADV_COLOR: Record<number, string> = { 1: "text-emerald-400", 2: "text-amber-400", 3: "text-orange-400", 4: "text-red-400" };
 const ADV_DOT: Record<number, string> = { 1: "#10b981", 2: "#fbbf24", 3: "#fb923c", 4: "#ef4444" };
 const DISASTER_DOT: Record<string, string> = { red: "#ef4444", orange: "#fb923c", green: "#10b981", unknown: "#94a3b8" };
+const POSTURE_DOT: Record<string, string> = { red: "#ef4444", amber: "#fbbf24", green: "#10b981", unknown: "#64748b" };
+const POSTURE_TEXT: Record<string, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400", unknown: "text-slate-500" };
+
+// WHO DON pubDate (ISO) → "Mon YYYY" for the outbreak rows.
+function fmtMonthYear(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString([], { month: "short", year: "numeric" });
+}
 
 const cat = (a: ForceAssessment | null | undefined, name: CategoryAssessment["category"]) => a?.categories.find((c) => c.category === name);
 
@@ -104,7 +112,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     if (!sel) return;
     let cancel = false;
     setDLoading(true); setDossier(null); setSitrep(null); setSLoading(true);
-    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], disasters: [], news: [], civil: { advisoryLevel: null, departure: null, events: [], holidays: [] } };
+    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], disasters: [], news: [], civil: { advisoryLevel: null, departure: null, events: [], holidays: [] }, health: { outbreaks: [], indicators: [] } };
     fetch(`/api/ground-truth?country=${encodeURIComponent(sel.country)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!cancel) { setDossier(d ?? empty); setDLoading(false); } })
@@ -299,6 +307,42 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                   </div>
                 </Card>
               </div>
+
+              {/* Host-nation health — live WHO outbreaks (DON) + structural WHO GHO indicators */}
+              {!dLoading && dossier && (dossier.health.outbreaks.length > 0 || dossier.health.indicators.length > 0) && (
+                <Card title="✚ Host-nation health" meta="WHO GHO · DON">
+                  {dossier.health.outbreaks.length > 0 ? (
+                    <ul className="space-y-1 mb-2">
+                      {dossier.health.outbreaks.map((o, i) => (
+                        <li key={i} className="text-[12px] flex items-baseline gap-1.5">
+                          <span className="text-orange-400 text-[8px] mt-0.5">●</span>
+                          <a href={o.link} target="_blank" rel="noopener noreferrer" className="text-orange-300/90 hover:text-orange-200">{o.disease}</a>
+                          {o.date && <span className="text-slate-600 text-[9px] font-mono">{fmtMonthYear(o.date)}</span>}
+                          <span className="text-slate-600 text-[9px] font-mono">DON ↗</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[11px] text-slate-600 mb-2">No active WHO outbreaks reported.</p>
+                  )}
+                  {dossier.health.indicators.length > 0 && (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-2 border-t border-slate-800/60">
+                      {dossier.health.indicators.map((ind) => (
+                        <div key={ind.key}>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                            <span style={{ color: POSTURE_DOT[ind.posture] }} className="text-[7px]">●</span>{ind.label}
+                          </div>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className={`text-[13px] font-bold font-mono ${POSTURE_TEXT[ind.posture]}`}>{ind.display}</span>
+                            {ind.year && <span className="text-[8px] text-slate-700 font-mono">{ind.year}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[8px] text-slate-700 mt-2">WHO Global Health Observatory (latest year) + Disease Outbreak News — planning baseline, not medical guidance.</p>
+                </Card>
+              )}
 
               <p className="text-[9px] text-slate-600 px-1">Coarse open-source SA — not authoritative tasking.</p>
             </>

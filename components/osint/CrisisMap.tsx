@@ -16,6 +16,7 @@ import type { AcledEvent } from "@/lib/acled";
 import type { ForceAssessment } from "@/lib/forceProtection";
 import type { WeatherThreats, DisasterEvent, TravelAdvisory, FlightCategory } from "@/lib/types";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
+import { clientCache } from "@/lib/clientCache";
 
 // Crisis / situation map + synced list — the spatial twin of the Global Reach
 // Watch. What's happening (disasters, hub weather, tropical, NEO) over the AMC
@@ -341,10 +342,16 @@ export default function CrisisMap() {
     getForceProtectionData()
       .then((d) => { if (Array.isArray(d.assessments)) setForces(d.assessments); })
       .catch(() => {});
+    type ConflictPt = { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string };
+    // Stale-while-revalidate: paint last-known conflict points instantly, then
+    // refresh. Pairs with the route's 5-min Cache-Control so a remount/poll is
+    // cheap.
+    const cachedConflict = clientCache.peek<ConflictPt[]>("osint:conflict");
+    if (cachedConflict) setConflict(cachedConflict);
     fetch("/api/osint/conflict", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { points?: { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" }[]; ok?: boolean; source?: string | null } | null) => {
-        if (Array.isArray(d?.points)) setConflict(d!.points);
+      .then((d: { points?: ConflictPt[]; ok?: boolean; source?: string | null } | null) => {
+        if (Array.isArray(d?.points)) { setConflict(d!.points); clientCache.set("osint:conflict", d!.points, 5 * 60 * 1000); }
         if (d) markSrc(d.source === "reliefweb" ? "ReliefWeb" : "UCDP", d.ok === false);
       })
       .catch(() => {});

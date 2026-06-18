@@ -16,5 +16,11 @@ export async function GET() {
   // points after a failed refresh (a transient blip, not down). The map shows a
   // source badge from these.
   const h = getConflictHealth();
-  return NextResponse.json({ points, ok: h.ok, stale: h.stale ?? false, source: h.source ?? null });
+  // The lib caches points in-memory for 30 min; let the browser reuse the
+  // response for 5 min too (private — it's behind auth) so repeat map opens /
+  // the 5-min client poll don't round-trip to the server every time.
+  return NextResponse.json(
+    { points, ok: h.ok, stale: h.stale ?? false, source: h.source ?? null },
+    { headers: { "Cache-Control": "private, max-age=300" } },
+  );
 }

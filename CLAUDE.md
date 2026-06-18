@@ -844,6 +844,19 @@ A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
   preferred; RSS supplies departure flags + the backstop level. Parser is
   unit-tested against `tests/fixtures/state/saudi-advisory.html` (sandbox can't
   reach travel.state.gov).
+- **Host-nation health** (`lib/whoHealth.ts` → dossier `health` block, rendered as
+  the Regional "✚ Host-nation health" card): live WHO **Disease Outbreak News**
+  (from `lib/health`, matched in-country) over a structural **WHO GHO** indicator
+  strip — UHC service coverage, basic drinking water %, basic sanitation %,
+  malaria incidence/endemicity, DTP3 + measles (MCV2) immunization. GHO is the
+  keyless **OData** API (`ghoapi.azureedge.net`, same family as INFORM Data360):
+  each indicator is fetched ONCE globally and cached 24h (so after the first
+  dossier load other countries are cache hits), name→ISO3 via the GHO COUNTRY
+  dimension (cached 24h). Pure parsers (`parseIndicatorRows` keeps latest year +
+  most-aggregate disaggregation per ISO3; `matchCountryToCode`) are unit-tested;
+  posture bands (green/amber/red) are coarse planning thresholds. Malaria absence
+  = non-endemic ("none"/green), not unknown. Fail-safe: unresolved → null → the
+  card shows just outbreaks (or hides). Server-only; no new dep (esbuild `0`).
 - No new npm dep (existing react-leaflet + server-side rss-parser + pure fetch),
   so `grep -c esbuild package-lock.json` stays `0`.
 
@@ -880,7 +893,8 @@ embeds, GDELT (DOC, local news), U.S. State Dept (`travel.state.gov` — the
 `TAsTWs.xml` advisory RSS + the per-country `destination/{slug}.html` pages),
 UCDP (`ucdpapi.pcr.uu.se`), ACLED
 (`acleddata.com`), OurAirports (`davidmegginson.github.io`, airports + runways),
-INFORM Risk (`data360api.worldbank.org`), RainViewer (`api.rainviewer.com` index +
+INFORM Risk (`data360api.worldbank.org`), WHO (`who.int` Disease Outbreak News +
+`ghoapi.azureedge.net` Global Health Observatory), RainViewer (`api.rainviewer.com` index +
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
 OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
 METAR + TAF; also the node flight-category rings via `/api/airfield-weather`),

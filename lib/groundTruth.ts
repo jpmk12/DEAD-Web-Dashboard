@@ -14,6 +14,8 @@ import { countryCentroid } from "./countryCentroids";
 import { haversineKm, getDisasters } from "./disasters";
 import { getCountryHolidays, type UpcomingHoliday } from "./holidays";
 import { getAdvisoryDetail, type AdvisoryRiskArea } from "./stateAdvisoryDetail";
+import { getHealthEvents } from "./health";
+import { getHostNationHealth, type HealthIndicator } from "./whoHealth";
 import type { NewsItem, OsintFeed, DisasterEvent } from "./types";
 
 export interface Incident {
@@ -54,6 +56,12 @@ export interface CountryCivil {
   advisoryIssued?: string;            // "March 13, 2026"
 }
 
+// Host-nation health: live WHO outbreaks (DON) + structural WHO GHO indicators.
+export interface HostHealth {
+  outbreaks: { disease: string; link: string; date: string }[];
+  indicators: HealthIndicator[];
+}
+
 export interface CountryDossier {
   country: string;
   center: [number, number] | null; // country centroid (for the mini-map)
@@ -61,6 +69,7 @@ export interface CountryDossier {
   disasters: DisasterRow[];
   news: NewsItem[];
   civil: CountryCivil;
+  health: HostHealth;
 }
 
 const NEAR_KM = 500;
@@ -112,7 +121,7 @@ async function osintCountryNews(country: string, feeds: OsintFeed[]): Promise<Ne
 
 export async function getCountryDossier(country: string, osintFeeds: OsintFeed[] = []): Promise<CountryDossier> {
   const cen = countryCentroid(country);
-  const [acled, conflict, gdelt, osint, advisories, disasterEvents, holidays, detail] = await Promise.all([
+  const [acled, conflict, gdelt, osint, advisories, disasterEvents, holidays, detail, healthEvents, hostHealth] = await Promise.all([
     getAcledEvents().catch(() => []),
     getConflictPoints().catch(() => []),
     gdeltLocalNews(country).catch(() => [] as NewsItem[]),
@@ -121,7 +130,19 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     getDisasters().catch(() => [] as DisasterEvent[]),
     getCountryHolidays(country).catch(() => [] as UpcomingHoliday[]),
     getAdvisoryDetail(country).catch(() => null),
+    getHealthEvents().catch(() => ({ live: false, events: [] as { disease: string; country: string; link: string; pubDate: string }[] })),
+    getHostNationHealth(country).catch(() => null),
   ]);
+
+  // Host-nation health: live WHO outbreaks in-country (DON) + structural GHO
+  // indicators. Outbreaks matched by loose country name; deduped by disease.
+  const seenDisease = new Set<string>();
+  const outbreaks = healthEvents.events
+    .filter((e) => countryMatch(e.country, country))
+    .filter((e) => !seenDisease.has(e.disease.toLowerCase()) && seenDisease.add(e.disease.toLowerCase()))
+    .slice(0, 4)
+    .map((e) => ({ disease: e.disease, link: e.link, date: e.pubDate }));
+  const health: HostHealth = { outbreaks, indicators: hostHealth?.indicators ?? [] };
 
   // Civil context — the advisory level is shown at every level (1–4), not just
   // the elevated ones the force-protection threat axis flags, so the section is
@@ -178,5 +199,5 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     .sort((a, b) => Date.parse(b.pubDate || "0") - Date.parse(a.pubDate || "0"))
     .slice(0, 12);
 
-  return { country, center: cen, incidents: incidents.slice(0, 12), disasters, news, civil };
+  return { country, center: cen, incidents: incidents.slice(0, 12), disasters, news, civil, health };
 }
