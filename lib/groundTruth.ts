@@ -183,12 +183,15 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     });
   }
   for (const c of conflict) {
-    const inCountry = countryMatch(c.name, country) || (!!c.title && countryMatch(c.title, country));
+    // Prefer the authoritative country field (UCDP gives e.g. "Nigeria",
+    // "DR Congo (Zaire)") — c.name is only a town/place, so matching on it alone
+    // missed most monitored countries. Fall back to name/title, then proximity.
+    const inCountry = (!!c.country && countryMatch(c.country, country)) || countryMatch(c.name, country) || (!!c.title && countryMatch(c.title, country));
     const km = cen ? Math.round(haversineKm(cen[0], cen[1], c.lat, c.lon)) : null;
     if (!inCountry && !(km != null && km <= NEAR_KM)) continue;
     incidents.push({
       src: "ucdp", type: c.title || "Organized violence", location: c.name,
-      date: "", fatalities: c.count, lat: c.lat, lon: c.lon, km: inCountry ? null : km, ...(c.url ? { url: c.url } : {}),
+      date: c.date ?? "", fatalities: c.count, lat: c.lat, lon: c.lon, km: inCountry ? null : km, ...(c.url ? { url: c.url } : {}),
     });
   }
   incidents.sort((a, b) =>

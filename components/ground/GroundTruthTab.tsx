@@ -249,7 +249,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                             <li key={n} className="text-[12px] flex items-start gap-2">
                               <span className={i.km == null ? "text-red-400" : "text-amber-400"}>◆</span>
                               <span className="text-slate-300 flex-1 min-w-0">{i.type} <span className="text-slate-500">@ {i.location}</span>{i.fatalities > 0 && <span className="text-red-400/90"> · {i.fatalities} killed</span>}{i.url && <a href={i.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] text-violet-300/80">↗</a>}</span>
-                              <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{i.km == null ? "in-country" : `~${i.km}km`} · {i.src.toUpperCase()}</span>
+                              <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{i.date ? `${i.date} · ` : ""}{i.km == null ? "in-country" : `~${i.km}km`} · {i.src.toUpperCase()}</span>
                             </li>
                           ))}
                         </ul>

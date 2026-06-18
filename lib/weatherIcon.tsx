@@ -77,12 +77,15 @@ export function wmoIconId(code: number, isDay = true): WeatherIconId {
 // Render convenience: pick the glyph from an icon id (or derive it from
 // shortForecast text). Colour follows the vocabulary unless overridden.
 export function WeatherIcon({
-  id, text, isDay = true, size = 28, strokeWidth = 1.9, color, className,
+  id, text, isDay = true, size = 28, strokeWidth = 1.9, color, className, title,
 }: {
   id?: WeatherIconId; text?: string; isDay?: boolean; size?: number;
-  strokeWidth?: number; color?: string; className?: string;
+  strokeWidth?: number; color?: string; className?: string; title?: string;
 }) {
   const iconId = id ?? conditionIconId(text ?? "", isDay);
   const Icon = WEATHER_ICONS[iconId];
-  return <Icon size={size} strokeWidth={strokeWidth} color={color ?? WEATHER_ICON_COLOR[iconId]} className={className} aria-hidden />;
+  const glyph = <Icon size={size} strokeWidth={strokeWidth} color={color ?? WEATHER_ICON_COLOR[iconId]} className={className} aria-hidden />;
+  // Wrap in a titled span so hovering the icon shows the condition (the SVG's
+  // own <title> isn't reliably surfaced as a tooltip across browsers).
+  return title ? <span title={title} className="inline-flex" aria-label={title}>{glyph}</span> : glyph;
 }

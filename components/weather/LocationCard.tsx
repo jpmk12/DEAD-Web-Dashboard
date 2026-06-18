@@ -163,7 +163,7 @@ export default function LocationCard({ location, active, onSelect, tag }: Locati
       {!loading && !unavailable && (
         <>
           <div className="flex items-center gap-2.5 mb-1">
-            <WeatherIcon id={iconId} isDay={isDay} size={30} />
+            <WeatherIcon id={iconId} isDay={isDay} size={30} title={conditionText || undefined} />
             <span className="text-2xl font-bold text-slate-100 leading-none">{tempF != null ? `${tempF}°` : "—"}</span>
             {windText && <span className="text-[10px] text-slate-500 font-mono uppercase leading-tight">{windText}{current?.gustMph != null ? <> · <span className="text-red-400">G{current.gustMph}</span></> : null}</span>}
           </div>
@@ -207,7 +207,7 @@ export default function LocationCard({ location, active, onSelect, tag }: Locati
                     {p.name.replace(/^(This|Tonight|Today)/, "").trim() || p.name.slice(0, 4)}
                   </p>
                   <div className="flex justify-center my-0.5">
-                    <WeatherIcon id={conditionIconId(p.shortForecast, p.isDaytime)} isDay={p.isDaytime} size={16} strokeWidth={2} />
+                    <WeatherIcon id={conditionIconId(p.shortForecast, p.isDaytime)} isDay={p.isDaytime} size={16} strokeWidth={2} title={p.shortForecast || undefined} />
                   </div>
                   <p className="text-[11px] font-bold text-slate-300">{p.tempF}°</p>
                   {p.precipPercent != null && p.precipPercent > 0 && <p className="text-[8px] font-mono text-sky-400">{p.precipPercent}%</p>}
