@@ -479,6 +479,26 @@ so it does **not** add esbuild — keep `grep -c esbuild package-lock.json` at `
 Dense inline markers (disaster types, weather overlays, severity dots, trend
 arrows, voting, affordances) deliberately stay Unicode glyphs.
 
+**Weather condition glyphs** are the one deliberate exception that lives in its
+own module: `lib/weatherIcon.tsx` maps an NWS `shortForecast` string (or an
+Open-Meteo WMO code) → one lucide glyph + colour, day/night aware. PURE mappers
+(`conditionIconId` / `wmoIconId`, unit-tested) + a `<WeatherIcon>` render helper;
+used on the Weather-tab `LocationCard` for the current condition + the next-4
+period mini-icons. Same vocabulary discipline (one condition → one glyph), same
+lucide dep (esbuild stays `0`).
+
+### Weather tab cards (`LocationCard` + Open-Meteo enrichment)
+The per-location cards fuse two keyless sources: **NWS** (`/api/weather/forecast`,
+`/api/weather/alerts`) for the nicely-worded named periods + alerts (US-only), and
+**Open-Meteo** (`lib/currentConditions.ts` → `/api/weather/current`, global) for
+feels-like / humidity / wind gusts / today's high-low+precip / sunrise-sunset and
+a current-conditions fallback. Because Open-Meteo is worldwide, a card shows
+current conditions even OCONUS where NWS returns nothing (the card no longer goes
+blank — it only shows "unavailable" when BOTH sources are empty). The alert badge
+expands in-place to event/headline/window/area. `parseCurrent` is pure + unit-
+tested; the fetch is best-effort/fail-safe (null → omit enrichment, never a fake
+value). Pure `fetch`, no new dep (esbuild `0`).
+
 ### Map dep (`h3-js`)
 `h3-js` is a **runtime `dependency`** used by the Crisis map (OSINT tab) to draw
 GPSJam GPS-interference cells as H3 hexagons (`cellToBoundary`). It is pure JS
