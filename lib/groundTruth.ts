@@ -16,6 +16,7 @@ import { getCountryHolidays, type UpcomingHoliday } from "./holidays";
 import { getAdvisoryDetail, type AdvisoryRiskArea } from "./stateAdvisoryDetail";
 import { getHealthEvents } from "./health";
 import { getHostNationHealth, type HealthIndicator } from "./whoHealth";
+import { scoreConflictNews, type ConflictNewsSignal } from "./conflictNews";
 import type { NewsItem, OsintFeed, DisasterEvent } from "./types";
 
 export interface Incident {
@@ -68,6 +69,10 @@ export interface CountryDossier {
   incidents: Incident[];
   disasters: DisasterRow[];
   news: NewsItem[];
+  // Timeliest kinetic read — the country's recent news scored for active
+  // hostilities (the same signal that drives the Force-Protection dot). Surfaced
+  // as the dossier's lead "active conflict reporting" banner.
+  conflictNews: ConflictNewsSignal;
   civil: CountryCivil;
   health: HostHealth;
 }
@@ -194,10 +199,12 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
 
   // Merge GDELT + OSINT news: dedupe by link, newest first.
   const seen = new Set<string>();
-  const news = [...gdelt, ...osint]
+  const merged = [...gdelt, ...osint]
     .filter((n) => n.link && !seen.has(n.link) && seen.add(n.link))
-    .sort((a, b) => Date.parse(b.pubDate || "0") - Date.parse(a.pubDate || "0"))
-    .slice(0, 12);
+    .sort((a, b) => Date.parse(b.pubDate || "0") - Date.parse(a.pubDate || "0"));
+  // Score the full merged pool for active-conflict signal before slicing for display.
+  const conflictNews = scoreConflictNews(merged);
+  const news = merged.slice(0, 12);
 
-  return { country, center: cen, incidents: incidents.slice(0, 12), disasters, news, civil, health };
+  return { country, center: cen, incidents: incidents.slice(0, 12), disasters, news, conflictNews, civil, health };
 }

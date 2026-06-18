@@ -805,6 +805,13 @@ A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
   `invalidateSize` for the hidden-mount case) + local news (GDELT via
   `gdeltLocalNews`) merged with the user's **OSINT feeds filtered to country
   mentions** (`lib/rss` `fetchFeed`). Dossier cached 10 min/country.
+- **Active conflict reporting banner**: the dossier's lead line (top, above the
+  AI SITREP) — the country's recent news scored by `scoreConflictNews()`
+  (`lib/conflictNews.ts`, the SAME signal that sets the Force-Protection dot), so
+  the dossier explains *why* the posture is red. Red when an escalation phrase is
+  present (airstrike/missile/invasion…), amber for lower-intensity conflict news,
+  hidden when count 0. Reuses the dossier's already-merged GDELT+OSINT news (no
+  new fetch); shows the freshest headline + corroboration count + click-through.
 - **AI SITREP** per country: `/api/ground-truth/sitrep` (POST `{country, composite,
   drivers}`) synthesizes the client-passed posture + incidents + news +
   advisory/civil/health. **Gated on the chat AI feature**; cached 15 min; shows an

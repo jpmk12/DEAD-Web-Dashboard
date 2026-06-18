@@ -29,6 +29,17 @@ function fmtMonthYear(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString([], { month: "short", year: "numeric" });
 }
 
+// Compact relative time for the conflict-news banner ("2h ago", "3d ago").
+function fmtAgo(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
 const cat = (a: ForceAssessment | null | undefined, name: CategoryAssessment["category"]) => a?.categories.find((c) => c.category === name);
 
 function Card({ title, meta, children }: { title: string; meta?: string; children: React.ReactNode }) {
@@ -112,7 +123,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     if (!sel) return;
     let cancel = false;
     setDLoading(true); setDossier(null); setSitrep(null); setSLoading(true);
-    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], disasters: [], news: [], civil: { advisoryLevel: null, departure: null, events: [], holidays: [] }, health: { outbreaks: [], indicators: [] } };
+    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], disasters: [], news: [], conflictNews: { count: 0, escalation: false }, civil: { advisoryLevel: null, departure: null, events: [], holidays: [] }, health: { outbreaks: [], indicators: [] } };
     fetch(`/api/ground-truth?country=${encodeURIComponent(sel.country)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!cancel) { setDossier(d ?? empty); setDLoading(false); } })
@@ -182,6 +193,32 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                 {sel.previousComposite && sel.previousComposite !== sel.composite && <span className="text-[9px] text-slate-500">(was {sel.previousComposite.toUpperCase()})</span>}
                 {baseForSel && <span className="text-[10px] font-mono text-slate-500 ml-auto">pinned base: {baseForSel.label}{baseForSel.icao ? ` (${baseForSel.icao})` : ""}</span>}
               </div>
+
+              {/* Active conflict reporting — the timeliest kinetic read (same
+                  signal that sets the posture dot). Leads the dossier; hidden
+                  when there's no conflict signal. */}
+              {!dLoading && dossier && dossier.conflictNews.count > 0 && (() => {
+                const cn = dossier.conflictNews;
+                const esc = cn.escalation;
+                return (
+                  <div className={`rounded-xl border px-3 py-2.5 flex items-start gap-2.5 ${esc ? "border-red-500/40 bg-red-500/[0.09]" : "border-amber-500/35 bg-amber-500/[0.08]"}`}>
+                    <span className={`text-[13px] leading-tight flex-shrink-0 ${esc ? "text-red-400" : "text-amber-400"}`}>⚠</span>
+                    <div className="min-w-0">
+                      <p className={`text-[9px] font-bold uppercase tracking-[0.1em] ${esc ? "text-red-300" : "text-amber-300"}`}>Active conflict reporting ({cn.count})</p>
+                      {cn.latest ? (
+                        <a href={cn.latest.link} target="_blank" rel="noopener noreferrer" className="text-[12.5px] text-slate-200 hover:text-sky-200 leading-snug block mt-0.5">{cn.latest.title}</a>
+                      ) : (
+                        <p className="text-[12.5px] text-slate-300 mt-0.5">{cn.count} conflict-related report{cn.count === 1 ? "" : "s"} in recent news</p>
+                      )}
+                      {cn.latest && (
+                        <p className="text-[9px] font-mono text-slate-500 mt-1">
+                          {cn.latest.source.replace(" · local", "")}{cn.latest.pubDate ? ` · ${fmtAgo(cn.latest.pubDate)}` : ""}{cn.count > 1 ? ` · ${cn.count} corroborating reports` : ""}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* AI SITREP */}
               <Card title="✦ AI SITREP" meta={sLoading ? "reading…" : undefined}>
