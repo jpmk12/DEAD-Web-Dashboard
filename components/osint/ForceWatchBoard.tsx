@@ -99,6 +99,7 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
   // countries (broader exposure). Both are assessed server-side; this just picks
   // which set to list. The Crisis map still shows both.
   const [view, setView] = useState<"base" | "country">("base");
+  const [collapsedCc, setCollapsedCc] = useState<Set<string>>(new Set()); // collapsed COCOM groups
   const cocomFilter = controlledFilter ?? internalFilter;
   // AI read
   const [aiText, setAiText] = useState<string | null>(null);
@@ -145,6 +146,18 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
       .slice().sort((a, b) => SEV_RANK[a.composite] - SEV_RANK[b.composite] || b.score - a.score),
     [all, cocomFilter],
   );
+  // Group the shown set by COCOM for the "All" view (collapsible headers, worst
+  // command first). When a specific command is selected, `shown` is already that
+  // command → render flat (groups = null).
+  const groups = useMemo(() => {
+    if (cocomFilter !== "ALL") return null;
+    const m = new Map<string, ForceAssessment[]>();
+    for (const a of shown) (m.get(a.cocom) ?? m.set(a.cocom, []).get(a.cocom)!).push(a);
+    return [...m.entries()]
+      .map(([cc, list]) => ({ cc, list, worst: list.reduce((w, a) => Math.min(w, SEV_RANK[a.composite]), 99) }))
+      .sort((a, b) => a.worst - b.worst || b.list.length - a.list.length || a.cc.localeCompare(b.cc));
+  }, [shown, cocomFilter]);
+
   const counts = useMemo(() => ({
     red: all.filter((a) => a.composite === "red").length,
     amber: all.filter((a) => a.composite === "amber").length,
@@ -221,9 +234,32 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
       )}
 
       {!loading && shown.length > 0 && (
-        <ul className="divide-y divide-slate-800/60">
-          {shown.map((a) => <Card key={a.id} a={a} />)}
-        </ul>
+        groups ? (
+          <div>
+            {groups.map((g) => {
+              const collapsed = collapsedCc.has(g.cc);
+              const worstSev = (["red", "amber", "unknown", "green"][g.worst] ?? "unknown") as Severity;
+              return (
+                <div key={g.cc}>
+                  <button
+                    onClick={() => setCollapsedCc((prev) => { const n = new Set(prev); n.has(g.cc) ? n.delete(g.cc) : n.add(g.cc); return n; })}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 bg-slate-950/40 hover:bg-slate-800/40 border-b border-slate-800/60"
+                  >
+                    <span style={{ color: SEV_DOT[worstSev] }} className="text-[10px]">●</span>
+                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left">{COCOM_LABEL[g.cc] ?? g.cc}</span>
+                    <span className="text-[8px] font-mono text-slate-600">{g.list.length}</span>
+                    <span className="text-[9px] text-slate-600">{collapsed ? "▸" : "▾"}</span>
+                  </button>
+                  {!collapsed && <ul className="divide-y divide-slate-800/60">{g.list.map((a) => <Card key={a.id} a={a} />)}</ul>}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <ul className="divide-y divide-slate-800/60">
+            {shown.map((a) => <Card key={a.id} a={a} />)}
+          </ul>
+        )
       )}
 
       {data?.sources && all.length > 0 && (

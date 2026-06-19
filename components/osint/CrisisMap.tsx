@@ -277,6 +277,7 @@ export default function CrisisMap() {
   const [flyTo, setFlyTo] = useState<{ lat: number; lon: number; zoom: number; key: number } | null>(null);
   const [fitKey, setFitKey] = useState(0);
   const [aorFilter, setAorFilter] = useState<Aor | "ALL">("ALL");
+  const [watchGroupsOpen, setWatchGroupsOpen] = useState<Set<string>>(new Set()); // collapsed = present in set
   const [showAllDisasters, setShowAllDisasters] = useState(false);
   const [disType, setDisType] = useState<Set<DisasterEvent["type"]>>(new Set());
   const [disAor, setDisAor] = useState<Aor | "ALL">("ALL");
@@ -635,7 +636,13 @@ export default function CrisisMap() {
       .finally(() => setAiLoading(false));
   };
 
-  const aorsPresent = useMemo(() => AORS.filter((a) => disasters.some((d) => d.aor === a) || neoPins.some((x) => x.a.aor === a)), [disasters, neoPins]);
+  // AORs to offer as filter chips — drawn from ALL data (not the aor-filtered
+  // sets) so the chip row stays stable when a command is selected, and includes
+  // the watched Mobility Watch commands.
+  const aorsPresent = useMemo(
+    () => AORS.filter((a) => forces.some((f) => f.cocom === a) || allDisasters.some((d) => d.aor === a) || neoAll.some((x) => x.a.aor === a)),
+    [forces, allDisasters, neoAll],
+  );
   const toggle = (k: LayerKey) => setOn((p) => ({ ...p, [k]: !p[k] }));
   const showNodeLabels = on.labels && zoom >= 4;
   const pick = (id: string, lat: number, lon: number, z = 4) => { setSelected(id); setFlyTo({ lat, lon, zoom: z, key: Date.now() }); };
@@ -656,6 +663,14 @@ export default function CrisisMap() {
   // Force Protection into the side panel loses nothing — every event is still
   // enumerated here, scrollable, with map-selection sync.
   const watchList = items;
+  // Watch list grouped by AOR for the "All" view (items are already aor-filtered
+  // when a command is selected, so grouping only matters at ALL). Group order
+  // follows the top item's score (items are score-sorted); null AOR → "—".
+  const watchGroups = useMemo(() => {
+    const m = new Map<string, typeof items>();
+    for (const it of watchList) { const k = it.aor ?? "—"; (m.get(k) ?? m.set(k, []).get(k)!).push(it); }
+    return [...m.entries()].map(([aor, list]) => ({ aor, list })).sort((a, b) => (b.list[0]?.score ?? 0) - (a.list[0]?.score ?? 0));
+  }, [watchList]);
 
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
@@ -713,10 +728,15 @@ export default function CrisisMap() {
             <button key={p} onClick={() => setPayload(p)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${payload === p ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{p === "max" ? "Max" : "Light"}</button>
           ))}
         </div>
-        <select value={aorFilter} onChange={(e) => setAorFilter(e.target.value as Aor | "ALL")} title="Filter the map + list to one combatant-command AOR" className="bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 outline-none">
-          <option value="ALL">All AORs</option>
-          {aorsPresent.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+        {/* AOR filter chips — one control for the whole tab: map dots, Mobility
+            Watch, and the ⚠ Watch list all follow this. */}
+        <div className="flex items-center gap-1 flex-wrap" title="Filter the whole tab (map + Mobility Watch + Watch list) to one combatant command">
+          <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600">AOR</span>
+          <button onClick={() => setAorFilter("ALL")} className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${aorFilter === "ALL" ? "border-sky-500/55 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>All</button>
+          {aorsPresent.map((a) => (
+            <button key={a} onClick={() => setAorFilter(a)} className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${aorFilter === a ? "border-sky-500/55 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{a}</button>
+          ))}
+        </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doSearch(); }} placeholder="ICAO / base…" title="Fly to an AMC base by ICAO or name (Enter)" className="w-24 bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 placeholder-slate-600 outline-none focus:border-slate-500" />
         <button onClick={() => setFitKey((k) => k + 1)} title="Fit the map to the active crises" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">Fit</button>
         <button onClick={() => setRefreshKey((k) => k + 1)} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200" title="Refresh all feeds now">↻</button>
@@ -1065,19 +1085,39 @@ export default function CrisisMap() {
         </div>
         <ul className="px-3 py-2 space-y-1 max-h-[42vh] overflow-y-auto">
           {watchList.length === 0 && <li className="text-[11px] text-slate-600 font-mono">No crisis events{loading ? " (loading…)" : ""} — quiet across tracked AORs and the hub network.</li>}
-          {watchList.map((it) => {
-            const reach = it.kind !== "hazard" && CRF.length ? (() => { const n = nearest(CRF, it.lat, it.lon); return n ? legText(n.node, n.distKm, AF.cruiseKt) : ""; })() : "";
-            return (
-              <li key={it.id} id={`row-${it.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === it.id ? "bg-slate-800/70" : ""}`}>
-                <span className={toneText(it.tone)}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "strike" ? "◆" : it.kind === "kinetic" ? "✸" : "●"}</span>
-                <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="text-slate-200 hover:text-emerald-400 font-medium text-left">{it.title}</button>
-                {it.sub && <span className="text-slate-500">{it.sub}</span>}
-                {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{it.aor}</span>}
-                {reach && <span className="text-[10px] text-emerald-500/80 font-mono">{reach}</span>}
-                {it.href && <a href={it.href} target="_blank" rel="noopener noreferrer" className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono">↗</a>}
-              </li>
-            );
-          })}
+          {(() => {
+            const row = (it: typeof items[number]) => {
+              const reach = it.kind !== "hazard" && CRF.length ? (() => { const n = nearest(CRF, it.lat, it.lon); return n ? legText(n.node, n.distKm, AF.cruiseKt) : ""; })() : "";
+              return (
+                <li key={it.id} id={`row-${it.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === it.id ? "bg-slate-800/70" : ""}`}>
+                  <span className={toneText(it.tone)}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "strike" ? "◆" : it.kind === "kinetic" ? "✸" : "●"}</span>
+                  <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="text-slate-200 hover:text-emerald-400 font-medium text-left">{it.title}</button>
+                  {it.sub && <span className="text-slate-500">{it.sub}</span>}
+                  {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{it.aor}</span>}
+                  {reach && <span className="text-[10px] text-emerald-500/80 font-mono">{reach}</span>}
+                  {it.href && <a href={it.href} target="_blank" rel="noopener noreferrer" className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono">↗</a>}
+                </li>
+              );
+            };
+            // A specific command is selected → items are already that AOR → flat.
+            // "All" → group by AOR under collapsible headers (worst-first).
+            if (aorFilter !== "ALL" || watchGroups.length <= 1) return watchList.map(row);
+            return watchGroups.map((g) => {
+              const collapsed = watchGroupsOpen.has(g.aor);
+              const worst = g.list.some((i) => i.tone === "red") ? "red" : g.list.some((i) => i.tone === "amber") ? "amber" : "sky";
+              return (
+                <li key={`wg-${g.aor}`} className="-mx-1">
+                  <button onClick={() => setWatchGroupsOpen((prev) => { const n = new Set(prev); n.has(g.aor) ? n.delete(g.aor) : n.add(g.aor); return n; })} className="w-full flex items-center gap-2 px-1 py-1 hover:bg-slate-800/40 rounded">
+                    <span className={toneText(worst as Item["tone"])}>●</span>
+                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left">{g.aor === "—" ? "Other" : g.aor}</span>
+                    <span className="text-[8px] font-mono text-slate-600">{g.list.length}</span>
+                    <span className="text-[9px] text-slate-600">{collapsed ? "▸" : "▾"}</span>
+                  </button>
+                  {!collapsed && <ul className="space-y-1 pl-3">{g.list.map(row)}</ul>}
+                </li>
+              );
+            });
+          })()}
         </ul>
         {/* Full disaster feed — the curated Watch above is significant-only
             (red / near a watched base / HADR≥55); this reveals EVERY disaster

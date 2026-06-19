@@ -512,6 +512,17 @@ filter chips** (All/NEO/Disasters/Weather, live counts) slice the card, and in t
 so disasters & weather always keep slots. Same sources/scoring — presentation
 only. Capped to 7 entries in "All", 10 when a chip is selected.
 
+### Crisis tab — one AOR control + COCOM grouping
+The map toolbar's AOR control is **chips** (All + the AORs present across
+forces/disasters/NEO, from the un-filtered sets so the row is stable), and that
+single `aorFilter` drives the **map dots, the Mobility Watch board, AND the ⚠
+Watch list** together. With **All** selected, both lists organize under
+**collapsible COCOM group headers** (worst-severity dot + count, worst-command
+first); selecting one command narrows the whole tab to it (lists go flat).
+`ForceWatchBoard` groups its `shown` by `cocom` (keeps the Bases/Countries lens);
+the Watch list groups `items` by `it.aor` ("—"/Other for null). AOR chips carry
+no counts (they span heterogeneous surfaces — counts live on each group header).
+
 ### Crisis watch "All disasters (N)" expander
 The Crisis-map side **⚠ Watch** list is curated to mobility-significance
 (`isSignificant` = red severity OR near a watched base OR `hadrScore ≥ 55`, top

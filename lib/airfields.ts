@@ -51,6 +51,7 @@ export const GATEWAYS: MobilityAirfield[] = [
   // EUCOM periphery
   { icao: "LCLK", name: "Larnaca, CY", lat: 34.88, lon: 33.63, country: "Cyprus", kind: "gateway" },
   { icao: "LROP", name: "Bucharest (Otopeni), RO", lat: 44.57, lon: 26.09, country: "Romania", kind: "gateway" },
+  { icao: "LBSF", name: "Sofia, BG", lat: 42.70, lon: 23.41, country: "Bulgaria", kind: "gateway" },
   { icao: "LGAV", name: "Athens, GR", lat: 37.94, lon: 23.95, country: "Greece", kind: "gateway" },
   // INDOPACOM
   { icao: "RPLL", name: "Manila (Ninoy Aquino), PH", lat: 14.51, lon: 121.02, country: "Philippines", kind: "gateway" },
