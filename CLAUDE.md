@@ -517,6 +517,18 @@ filter chips** (All/NEO/Disasters/Weather, live counts) slice the card, and in t
 so disasters & weather always keep slots. Same sources/scoring — presentation
 only. Capped to 7 entries in "All", 10 when a chip is selected.
 
+### Crisis map toolbar (decluttered)
+The toolbar is a slim single row: **View** (preset dropdown → `viewName`), AOR
+chips, **⚙ Layers (N)**, **Legend ▾**, search, Fit/↻/Full, Demand read. View,
+Layers, and Legend are **floating popovers** anchored to their buttons
+(`relative` wrappers + `top-full`, the toolbar row is `relative z-[20]` so they
+overlay the map); an outside-`mousedown` effect closes them (wrappers
+`stopPropagation`). The Layers popover holds the grouped toggles; **Mil air** and
+**Rings** each get a contextual **⚙** that expands their options inline — Mil air
+→ Mobility-only / Tankers (filters the ADS-B feed); Rings → airframe selector +
+Max/Light payload (drives the reach-ring radius). Those four used to sit on the
+bar full-time. Zero-count layer chips dim (count shown only when >0).
+
 ### Crisis tab — one AOR control + COCOM grouping
 The map toolbar's AOR control is **chips** (All + the AORs present across
 forces/disasters/NEO, from the un-filtered sets so the row is stable), and that

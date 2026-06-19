@@ -296,6 +296,10 @@ export default function CrisisMap() {
   const [legend, setLegend] = useState(true);
   const [layersOpen, setLayersOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [viewName, setViewName] = useState("View");
+  const [milGearOpen, setMilGearOpen] = useState(false);
+  const [ringsGearOpen, setRingsGearOpen] = useState(false);
   const [milMobility, setMilMobility] = useState(true);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -668,6 +672,15 @@ export default function CrisisMap() {
     if (v) setFlyTo({ lat: v.lat, lon: v.lon, zoom: v.zoom, key: Date.now() });
   }, [aorFilter]);
 
+  // Close the toolbar popovers (View / Layers / Legend) on any outside click.
+  // The popover wrappers stopPropagation so inside clicks don't bubble here.
+  useEffect(() => {
+    if (!layersOpen && !legendOpen && !viewMenuOpen) return;
+    const close = () => { setLayersOpen(false); setLegendOpen(false); setViewMenuOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [layersOpen, legendOpen, viewMenuOpen]);
+
   const doSearch = () => {
     const q = search.trim().toUpperCase();
     if (!q) return;
@@ -702,11 +715,14 @@ export default function CrisisMap() {
   };
   const activeCount = Object.values(on).filter(Boolean).length;
 
-  const chip = (k: LayerKey, label: string, n?: number, dot?: string) => (
-    <button onClick={() => toggle(k)} title={LAYER_DESC[k]} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300"}`}>
-      {dot && <span style={{ color: dot }}>●</span>}{label}{typeof n === "number" ? ` ${n}` : ""}
-    </button>
-  );
+  const chip = (k: LayerKey, label: string, n?: number, dot?: string) => {
+    const zero = typeof n === "number" && n === 0; // dim layers with nothing to show
+    return (
+      <button onClick={() => toggle(k)} title={LAYER_DESC[k]} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : `bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300${zero ? " opacity-45" : ""}`}`}>
+        {dot && <span style={{ color: dot }}>●</span>}{label}{typeof n === "number" && n > 0 ? ` ${n}` : ""}
+      </button>
+    );
+  };
   const toneText = (t: Item["tone"]) => (t === "red" ? "text-red-400" : t === "sky" ? "text-sky-400" : "text-amber-400");
 
   // Flight-category line for a node popup (null when unknown/missing).
@@ -720,34 +736,97 @@ export default function CrisisMap() {
   return (
     <div className={fullscreen ? "fixed inset-0 z-[60] bg-slate-950 p-3 flex flex-col gap-2 overflow-auto" : "space-y-2"}>
       {/* Toolbar: view presets + controls (layer toggles collapse into Layers) */}
-      <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+      <div className="flex flex-wrap items-center gap-1.5 text-[10px] relative z-[20]">
         <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">View</span>
-        {PRESETS.map((pz) => (
-          <button key={pz.name} onClick={() => setOn(pz.on)} title={pz.desc} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 transition-all">{pz.name}</button>
-        ))}
-        <button onClick={() => setLayersOpen((v) => !v)} title="Show/hide individual layer toggles" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Layers {layersOpen ? "▴" : "▾"} <span className="text-slate-500">({activeCount})</span></button>
-        <button onClick={() => setLegendOpen((v) => !v)} title="Show/hide the marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend {legendOpen ? "▴" : "▾"}</button>
-        {on.milair && (
-          <button onClick={() => setMilMobility((v) => !v)} disabled={tankerOnly} title="Mil air: show only mobility/tanker airframes (C-17/C-5/C-130/KC-*/A400/An/Il…) vs all military aircraft" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all disabled:opacity-40 ${milMobility ? "bg-lime-500/20 text-lime-300 border-lime-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
-        )}
-        {on.milair && (
-          <button onClick={() => setTankerOnly((v) => !v)} title="Mil air: show only aerial-refueling tankers (KC-46/KC-135/KC-10/KC-30/Il-78…) — where's the gas for a reach problem" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${tankerOnly ? "bg-sky-500/20 text-sky-300 border-sky-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⛽ Tankers</button>
-        )}
-        {on.milair && !milMobility && zoom < 4 && (
-          <span className="text-[9px] text-slate-500 font-mono" title="The full military feed is hidden at this zoom to avoid a swarm — zoom into a theater, or switch to Mobility only.">zoom in for all-mil</span>
-        )}
-        <span className="mx-1 h-3 w-px bg-slate-700" />
-        {/* Airframe selector — drives reach rings + flight-time callouts. */}
-        <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Airframe — drives reach-ring radius + flight-time callouts">
-          {(Object.keys(AIRFRAMES) as AirframeKey[]).map((k) => (
-            <button key={k} onClick={() => setAirframe(k)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${airframe === k ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{k}</button>
-          ))}
+        {/* View preset dropdown */}
+        <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
+          <button onClick={() => { setViewMenuOpen((v) => !v); setLayersOpen(false); setLegendOpen(false); }} title="Apply a curated layer preset" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 transition-all">{viewName} ▾</button>
+          {viewMenuOpen && (
+            <div className="absolute left-0 top-full mt-1 z-[55] w-48 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-1 shadow-2xl">
+              {PRESETS.map((pz) => (
+                <button key={pz.name} onClick={() => { setOn(pz.on); setViewName(pz.name); setViewMenuOpen(false); }} title={pz.desc} className="block w-full text-left px-2.5 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:bg-violet-500/15 hover:text-violet-100">
+                  {pz.name}<span className="block text-[9px] text-slate-500 normal-case font-normal tracking-normal">{pz.desc.split("—")[0].trim()}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        {/* Payload — picks which reach radius (light/ferry vs max payload) the rings draw. */}
-        <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Payload — reach ring at max payload vs light/ferry load. Planning-grade only (no wind, AR sequencing, or diplomatic routing).">
-          {(["max", "light"] as PayloadKey[]).map((p) => (
-            <button key={p} onClick={() => setPayload(p)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${payload === p ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{p === "max" ? "Max" : "Light"}</button>
-          ))}
+        {/* Layers popover (overlays the map; contextual ⚙ for Mil air + Rings) */}
+        <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
+          <button onClick={() => { setLayersOpen((v) => !v); setLegendOpen(false); setViewMenuOpen(false); }} title="Map layers" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⚙ Layers <span className="text-slate-500">({activeCount})</span></button>
+          {layersOpen && (
+            <div className="absolute left-0 top-full mt-1 z-[55] w-[min(580px,calc(100vw-2.5rem))] max-h-[62vh] overflow-auto bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-3 shadow-2xl">
+              <div className="flex items-center mb-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Layers</span>
+                <span className="text-[9px] text-slate-500 ml-2 font-mono">{activeCount} on</span>
+                <button onClick={() => setLayersOpen(false)} className="ml-auto text-slate-500 hover:text-slate-200 text-xs">✕</button>
+              </div>
+              {LAYER_GROUPS.map((g) => (
+                <div key={g.label} className="mb-2.5">
+                  <div className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">{g.label}</div>
+                  <div className="flex flex-wrap gap-1 items-center">
+                    {g.keys.map((it) => (
+                      <Fragment key={it.k}>
+                        {chip(it.k, it.label, layerCount[it.k], it.dot)}
+                        {it.k === "milair" && on.milair && (
+                          <button onClick={() => setMilGearOpen((v) => !v)} title="Mil-air filters (mobility / tankers)" className={`px-1.5 py-1 rounded-md text-[10px] border transition-all ${milGearOpen ? "border-violet-500/50 text-violet-200 bg-violet-500/10" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>⚙</button>
+                        )}
+                        {it.k === "rings" && on.rings && (
+                          <button onClick={() => setRingsGearOpen((v) => !v)} title="Reach-ring airframe & payload" className={`px-1.5 py-1 rounded-md text-[10px] border transition-all ${ringsGearOpen ? "border-violet-500/50 text-violet-200 bg-violet-500/10" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>⚙</button>
+                        )}
+                      </Fragment>
+                    ))}
+                  </div>
+                  {/* Contextual Mil-air filters (only when Mil air is on) */}
+                  {g.label === "Threats" && on.milair && milGearOpen && (
+                    <div className="mt-1.5 ml-2 pl-2.5 border-l-2 border-slate-700/70 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[8px] uppercase tracking-wider text-slate-500">Mil air</span>
+                      <button onClick={() => setMilMobility((v) => !v)} disabled={tankerOnly} title="Show only mobility/tanker airframes vs all military aircraft" className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all disabled:opacity-40 ${milMobility ? "bg-lime-500/20 text-lime-300 border-lime-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
+                      <button onClick={() => setTankerOnly((v) => !v)} title="Show only aerial-refueling tankers — where's the gas for a reach problem" className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all ${tankerOnly ? "bg-sky-500/20 text-sky-300 border-sky-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⛽ Tankers</button>
+                      {!milMobility && zoom < 4 && <span className="text-[9px] text-slate-500 font-mono">zoom in for all-mil</span>}
+                    </div>
+                  )}
+                  {/* Contextual reach-ring airframe + payload (only when Rings is on) */}
+                  {g.label === "Reach" && on.rings && ringsGearOpen && (
+                    <div className="mt-1.5 ml-2 pl-2.5 border-l-2 border-slate-700/70 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[8px] uppercase tracking-wider text-slate-500">Airframe</span>
+                      <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5">
+                        {(Object.keys(AIRFRAMES) as AirframeKey[]).map((k) => (
+                          <button key={k} onClick={() => setAirframe(k)} title={`${k} reach ring`} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${airframe === k ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{k}</button>
+                        ))}
+                      </div>
+                      <span className="text-[8px] uppercase tracking-wider text-slate-500">Payload</span>
+                      <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Reach ring at max payload vs light/ferry load">
+                        {(["max", "light"] as PayloadKey[]).map((p) => (
+                          <button key={p} onClick={() => setPayload(p)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${payload === p ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{p === "max" ? "Max" : "Light"}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Legend popover */}
+        <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
+          <button onClick={() => { setLegendOpen((v) => !v); setLayersOpen(false); setViewMenuOpen(false); }} title="Marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend ▾</button>
+          {legendOpen && (
+            <div className="absolute left-0 top-full mt-1 z-[55] w-[min(520px,calc(100vw-2.5rem))] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg px-3 py-2.5 shadow-2xl flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-400">
+              <span><span className="text-red-400">●</span> disaster (size=HADR)</span>
+              <span><span style={{ color: "#ef4444" }}>◯</span> hub wx</span>
+              <span>🌀 tropical</span>
+              <span><span className="text-rose-300">🛫</span> NEO / <span className="text-rose-300">⛔</span> L4</span>
+              <span><span className="text-red-400">◆</span> ACLED strike</span>
+              <span><span className="text-purple-400">▰</span> GPS interference</span>
+              <span><span className="text-emerald-400">✈</span> hub / <span className="text-sky-400">✈</span> gateway</span>
+              <span><span className="text-teal-300">★</span> CRF</span>
+              <span><span className="text-emerald-400">⌂</span> home / <span className="text-slate-400">◇</span> tracked</span>
+              <span><span style={{ color: "#a3e635" }}>✈</span> mil aircraft</span>
+              <span><span style={{ color: "#22d3ee" }}>▲</span> vessel (AIS)</span>
+              <span className="text-slate-300 w-full">Mobility Watch: 🛡 base · 🌐 country — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
+            </div>
+          )}
         </div>
         {/* AOR filter chips — one control for the whole tab: map dots, Mobility
             Watch, and the ⚠ Watch list all follow this. */}
@@ -774,39 +853,6 @@ export default function CrisisMap() {
         )}
         <span className="text-slate-700 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
       </div>
-
-      {/* Collapsible grouped layer toggles */}
-      {layersOpen && (
-        <div className="flex flex-wrap items-start gap-x-5 gap-y-2 bg-slate-900/40 border border-slate-800 rounded-md px-3 py-2">
-          {LAYER_GROUPS.map((g) => (
-            <div key={g.label} className="flex flex-col gap-1">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">{g.label}</span>
-              <div className="flex flex-wrap gap-1">
-                {g.keys.map((it) => chip(it.k, it.label, layerCount[it.k], it.dot))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Collapsible marker glyph legend (the layer chips show colours; this
-          decodes the map symbols). */}
-      {legendOpen && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-slate-900/40 border border-slate-800 rounded-md px-3 py-2 text-[10px] text-slate-400">
-          <span><span className="text-red-400">●</span> disaster (size=HADR)</span>
-          <span><span style={{ color: "#ef4444" }}>◯</span> hub wx</span>
-          <span>🌀 tropical</span>
-          <span><span className="text-rose-300">🛫</span> NEO / <span className="text-rose-300">⛔</span> L4</span>
-          <span><span className="text-red-400">◆</span> ACLED strike</span>
-          <span><span className="text-purple-400">▰</span> GPS interference</span>
-          <span><span className="text-emerald-400">✈</span> hub / <span className="text-sky-400">✈</span> gateway</span>
-          <span><span className="text-teal-300">★</span> CRF</span>
-          <span><span className="text-emerald-400">⌂</span> home / <span className="text-slate-400">◇</span> tracked</span>
-          <span><span style={{ color: "#a3e635" }}>✈</span> mil aircraft</span>
-          <span><span style={{ color: "#22d3ee" }}>▲</span> vessel (AIS)</span>
-          <span className="text-slate-300">Mobility Watch: 🛡 base · 🌐 country — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
-        </div>
-      )}
 
       {/* Convergence strip — AORs where ≥2 signal kinds stack up. */}
       {convergence.length > 0 && (
