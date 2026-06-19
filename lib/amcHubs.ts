@@ -54,6 +54,7 @@ export const AMC_HUBS: { region: string; hubs: AmcHub[] }[] = [
     hubs: [
       { icao: "OTBH", name: "Al Udeid AB, QA", lat: 25.1173, lon: 51.315 },
       { icao: "OKAS", name: "Ali Al Salem AB, KW", lat: 29.3467, lon: 47.5208 },
+      { icao: "OEPS", name: "Prince Sultan AB, SA", lat: 24.0627, lon: 47.5805 },
       { icao: "LTAG", name: "Incirlik AB, TR", lat: 37.0021, lon: 35.4259 },
     ],
   },
