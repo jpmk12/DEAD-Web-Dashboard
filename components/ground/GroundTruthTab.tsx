@@ -74,6 +74,8 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
   const [assessments, setAssessments] = useState<ForceAssessment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
+  const [cocomFilter, setCocomFilter] = useState<string>("ALL");
+  const [collapsedCocoms, setCollapsedCocoms] = useState<Set<string>>(new Set());
   const [dossier, setDossier] = useState<CountryDossier | null>(null);
   const [dLoading, setDLoading] = useState(false);
   const [sitrep, setSitrep] = useState<string | null>(null);
@@ -113,6 +115,22 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
   }, [assessments]);
 
   useEffect(() => { if (rows.length && (!selected || !rows.some((r) => r.country === selected))) setSelected(rows[0].country); }, [rows, selected]);
+
+  // Group the rail by Combatant Command: each group carries its worst severity
+  // (so a command with a red country floats up) + count; countries within a
+  // group keep their severity order (rows is already severity-sorted).
+  const cocomGroups = useMemo(() => {
+    const m = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const cc = r.primary.cocom || "UNKNOWN";
+      (m.get(cc) ?? m.set(cc, []).get(cc)!).push(r);
+    }
+    return [...m.entries()]
+      .map(([cc, rs]) => ({ cc, rows: rs, worst: rs.reduce((w, r) => Math.min(w, SEV_RANK[r.primary.composite as Sev]), 99) }))
+      .sort((a, b) => a.worst - b.worst || b.rows.length - a.rows.length || a.cc.localeCompare(b.cc));
+  }, [rows]);
+  const shownGroups = cocomFilter === "ALL" ? cocomGroups : cocomGroups.filter((g) => g.cc === cocomFilter);
+  const shownCount = shownGroups.reduce((n, g) => n + g.rows.length, 0);
 
   const row = rows.find((r) => r.country === selected) ?? null;
   const sel = row?.primary ?? null;
@@ -154,28 +172,58 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
         <span className="text-[11px] text-slate-600">country-level picture for your crews — incidents, news, advisories, holidays &amp; anniversaries</span>
       </div>
       <div className="flex flex-col lg:flex-row gap-4">
-        {/* Country rail */}
+        {/* Country rail — grouped & filterable by Combatant Command */}
         <div className="lg:w-56 flex-shrink-0 border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden self-start w-full">
-          <div className="px-3 py-2 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-500">Watched · {rows.length}</div>
-          <ul className="lg:block flex overflow-x-auto lg:overflow-visible">
-            {rows.map((r) => {
-              const c = r.primary;
-              const isSel = r.country === selected;
+          <div className="px-3 py-2 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            Watched · {cocomFilter === "ALL" ? rows.length : `${shownCount} of ${rows.length} · ${(COCOM_LABEL[cocomFilter] ?? cocomFilter)}`}
+          </div>
+          {/* COCOM filter chips */}
+          <div className="flex flex-wrap gap-1 px-2 py-2 border-b border-slate-800">
+            <button onClick={() => setCocomFilter("ALL")} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors ${cocomFilter === "ALL" ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>All <span className="opacity-60">{rows.length}</span></button>
+            {cocomGroups.map((g) => (
+              <button key={g.cc} onClick={() => setCocomFilter(g.cc)} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors inline-flex items-center gap-1 ${cocomFilter === g.cc ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+                {(COCOM_LABEL[g.cc] ?? g.cc).replace("US", "")} <span className="opacity-60">{g.rows.length}</span>
+              </button>
+            ))}
+          </div>
+          <div className="max-h-[55vh] overflow-y-auto">
+            {shownGroups.map((g) => {
+              const collapsed = collapsedCocoms.has(g.cc);
               return (
-                <li key={r.country}>
-                  <button onClick={() => setSelected(r.country)} className={`w-full text-left flex items-center gap-2 px-3 py-2.5 border-l-2 transition-colors whitespace-nowrap ${isSel ? "bg-slate-800/70 border-l-amber-400" : "border-l-transparent hover:bg-slate-800/40"}`}>
-                    <span style={{ color: SEV_DOT[c.composite as Sev] }} className="text-[11px]">●</span>
-                    <span className="text-[13px] font-medium text-slate-200 flex-1 min-w-0 truncate">{r.country}</span>
-                    {r.base && <span className="text-[9px]" title={`pinned airfield: ${r.base.label}${r.base.icao ? ` (${r.base.icao})` : ""}`}>🛡</span>}
-                    {c.previousComposite && c.previousComposite !== c.composite && (
-                      <span className={`text-[8px] font-bold ${SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "text-red-400" : "text-emerald-400"}`}>{SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "▲" : "▼"}</span>
-                    )}
-                    <span className="text-[8px] font-bold tracking-wider text-slate-500">{(COCOM_LABEL[c.cocom] ?? c.cocom).replace("US", "")}</span>
+                <div key={g.cc}>
+                  <button
+                    onClick={() => setCollapsedCocoms((prev) => { const n = new Set(prev); n.has(g.cc) ? n.delete(g.cc) : n.add(g.cc); return n; })}
+                    className="w-full flex items-center gap-2 px-3 pt-2 pb-1 bg-slate-950/40 hover:bg-slate-800/40 transition-colors"
+                  >
+                    <span style={{ color: SEV_DOT[(["red", "amber", "unknown", "green"][g.worst] ?? "unknown") as Sev] }} className="text-[10px]">●</span>
+                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left">{COCOM_LABEL[g.cc] ?? g.cc}</span>
+                    <span className="text-[8px] font-mono text-slate-600">{g.rows.length}</span>
+                    <span className="text-[9px] text-slate-600">{collapsed ? "▸" : "▾"}</span>
                   </button>
-                </li>
+                  {!collapsed && (
+                    <ul>
+                      {g.rows.map((r) => {
+                        const c = r.primary;
+                        const isSel = r.country === selected;
+                        return (
+                          <li key={r.country}>
+                            <button onClick={() => setSelected(r.country)} className={`w-full text-left flex items-center gap-2 px-3 py-2 border-l-2 transition-colors ${isSel ? "bg-slate-800/70 border-l-amber-400" : "border-l-transparent hover:bg-slate-800/40"}`}>
+                              <span style={{ color: SEV_DOT[c.composite as Sev] }} className="text-[11px]">●</span>
+                              <span className="text-[13px] font-medium text-slate-200 flex-1 min-w-0 truncate">{r.country}</span>
+                              {r.base && <span className="text-[9px]" title={`pinned airfield: ${r.base.label}${r.base.icao ? ` (${r.base.icao})` : ""}`}>🛡</span>}
+                              {c.previousComposite && c.previousComposite !== c.composite && (
+                                <span className={`text-[8px] font-bold ${SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "text-red-400" : "text-emerald-400"}`}>{SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "▲" : "▼"}</span>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               );
             })}
-          </ul>
+          </div>
         </div>
 
         {/* Detail */}

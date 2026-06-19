@@ -811,7 +811,11 @@ A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
 - **Rail** is built from the *whole* watch list: watched **countries** AND the
   **countries of watched airports/bases** (grouped by country; 🛡 marks a country
   with a pinned airfield). A country watch is the primary posture; otherwise the
-  worst base in that country stands in. Source is the shared `/api/force-protection`
+  worst base in that country stands in. The rail is **grouped by Combatant
+  Command** (`cocomGroups`): collapsible USCENTCOM/USEUCOM/… headers carry the
+  command's worst-severity dot + count, groups ordered worst-severity-first,
+  countries within by severity; **COCOM filter chips** (All + per-command counts)
+  narrow it. Source is the shared `/api/force-protection`
   (same feed as the Crisis Forces layer) — set the watch in Preferences → Force
   Protection (or the Crisis map).
 - **Detail** composes: posture/civil/health/**access** reused from the Force
