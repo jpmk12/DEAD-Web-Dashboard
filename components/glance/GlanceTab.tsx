@@ -227,12 +227,25 @@ function useCacheTick(active: boolean): void {
 // ───────────────────────── component ─────────────────────────
 
 // Global Reach Watch category metadata + small formatting helpers.
-type ReachCat = "neo" | "disaster" | "weather";
+type ReachCat = "neo" | "disaster" | "weather" | "conflict" | "gps" | "airspace";
 const REACH_CAT_META: Record<ReachCat, { label: string; icon: string }> = {
   neo: { label: "NEO", icon: "🛫" },
   disaster: { label: "Disasters", icon: "🌪" },
   weather: { label: "Weather", icon: "〜" },
+  conflict: { label: "Conflict", icon: "✸" },
+  gps: { label: "GPS", icon: "🛰" },
+  airspace: { label: "Airspace", icon: "✈" },
 };
+// Chip / group order — the original three first, then the access degraders.
+const REACH_CAT_ORDER: ReachCat[] = ["neo", "disaster", "weather", "conflict", "gps", "airspace"];
+// Force-Protection axes surfaced as reach categories (the "can I get in / through"
+// degraders), with their glyph + group noun + per-severity score. Read from the
+// already-cached /api/force-protection feed — no new fetch.
+const FP_AXES: { axis: "conflict" | "gps" | "airspace"; cat: ReachCat; noun: string; red: number; amber: number }[] = [
+  { axis: "conflict", cat: "conflict", noun: "conflict alert", red: 110, amber: 65 },
+  { axis: "airspace", cat: "airspace", noun: "airspace NOTAM", red: 95, amber: 55 },
+  { axis: "gps", cat: "gps", noun: "GPS/EW alert", red: 85, amber: 50 },
+];
 function pluralize(noun: string, n: number): string {
   if (n === 1) return noun;
   if (/y$/.test(noun)) return noun.replace(/y$/, "ies");
@@ -483,7 +496,7 @@ export default function GlanceTab({
   //    impede airlift) + the AOR disaster watch (could pull HADR/NEO airlift),
   //    ranked into one "look here first" list. Proximity to a base outranks
   //    raw severity, then severity. ──
-  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string; cat: "neo" | "disaster" | "weather"; glabel: string }[] = [];
+  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string; cat: ReachCat; glabel: string }[] = [];
   for (const d of threats?.disasters ?? []) {
     const near = d.nearLocations.length > 0;
     const hadr = d.hadrScore ?? (d.severity === "red" ? 60 : d.severity === "orange" ? 35 : 12);
@@ -541,6 +554,25 @@ export default function GlanceTab({
       cat: "neo", glabel: a.orderedDeparture ? "ordered departure" : a.authorizedDeparture ? "authorized departure" : "Level-4 update",
     });
   }
+  // Access degraders from the Force-Protection feed (cached): per watched base/
+  // country, surface each elevated conflict / airspace / GPS axis as its own row.
+  for (const a of forceWatch) {
+    for (const { axis, cat, noun, red, amber } of FP_AXES) {
+      const c = a.categories.find((x) => x.category === axis);
+      if (!c || (c.severity !== "red" && c.severity !== "amber")) continue;
+      reach.push({
+        id: `reach-fp-${axis}-${a.id}`,
+        tone: c.severity === "red" ? "red" : "amber",
+        icon: REACH_CAT_META[cat].icon,
+        title: a.label,
+        sub: c.signals[0] ?? noun,
+        tag: a.cocom && a.cocom !== "UNKNOWN" ? a.cocom : REACH_CAT_META[cat].label.toUpperCase(),
+        score: c.severity === "red" ? red : amber,
+        cat, glabel: noun,
+        ...(c.links?.[0]?.url ? { href: c.links[0].url } : {}),
+      });
+    }
+  }
 
   reach.sort((a, b) => b.score - a.score);
 
@@ -552,22 +584,22 @@ export default function GlanceTab({
     | { kind: "item"; item: ReachItem; score: number }
     | { kind: "group"; cat: ReachCat; items: ReachItem[]; score: number; tone: "red" | "amber" };
   const GROUP_AT = 3;
-  const reachCounts: Record<ReachCat, number> = { neo: 0, disaster: 0, weather: 0 };
+  const reachCounts: Record<ReachCat, number> = { neo: 0, disaster: 0, weather: 0, conflict: 0, gps: 0, airspace: 0 };
   for (const r of reach) reachCounts[r.cat]++;
   const reachEntries: ReachEntry[] = (() => {
     if (reachFilter !== "all") {
       return reach.filter((r) => r.cat === reachFilter).slice(0, 10).map((item) => ({ kind: "item" as const, item, score: item.score }));
     }
-    const byCat: Record<ReachCat, ReachItem[]> = { neo: [], disaster: [], weather: [] };
+    const byCat: Record<ReachCat, ReachItem[]> = { neo: [], disaster: [], weather: [], conflict: [], gps: [], airspace: [] };
     for (const r of reach) byCat[r.cat].push(r);
     const out: ReachEntry[] = [];
-    (Object.keys(byCat) as ReachCat[]).forEach((cat) => {
+    REACH_CAT_ORDER.forEach((cat) => {
       const items = byCat[cat];
       if (items.length === 0) return;
       if (items.length >= GROUP_AT) out.push({ kind: "group", cat, items, score: items[0].score, tone: items.some((i) => i.tone === "red") ? "red" : "amber" });
       else for (const it of items) out.push({ kind: "item", item: it, score: it.score });
     });
-    return out.sort((a, b) => b.score - a.score).slice(0, 7);
+    return out.sort((a, b) => b.score - a.score).slice(0, 9);
   })();
   const reachRow = (r: ReachItem) => {
     const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${r.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"} hover:bg-slate-800/40 transition-colors rounded-r`;
@@ -789,7 +821,7 @@ export default function GlanceTab({
           </div>
           {/* Category filter chips — counts always visible even when collapsed */}
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {([["all", "All", reach.length], ["neo", "🛫 NEO", reachCounts.neo], ["disaster", "🌪 Disasters", reachCounts.disaster], ["weather", "〜 Weather", reachCounts.weather]] as [("all" | ReachCat), string, number][])
+            {([["all", "All", reach.length], ...REACH_CAT_ORDER.map((c) => [c, `${REACH_CAT_META[c].icon} ${REACH_CAT_META[c].label}`, reachCounts[c]] as [ReachCat, string, number])] as [("all" | ReachCat), string, number][])
               .filter(([key, , n]) => key === "all" || n > 0)
               .map(([key, label, n]) => (
                 <button
@@ -806,7 +838,8 @@ export default function GlanceTab({
               if (e.kind === "item") return <li key={e.item.id}>{reachRow(e.item)}</li>;
               const open = reachGroupsOpen.has(e.cat);
               const nouns = new Set(e.items.map((i) => i.glabel));
-              const noun = nouns.size === 1 ? [...nouns][0] : (e.cat === "neo" ? "evacuation/NEO advisory" : e.cat === "disaster" ? "disaster" : "weather hazard");
+              const FALLBACK_NOUN: Record<ReachCat, string> = { neo: "evacuation/NEO advisory", disaster: "disaster", weather: "weather hazard", conflict: "conflict alert", gps: "GPS/EW alert", airspace: "airspace NOTAM" };
+              const noun = nouns.size === 1 ? [...nouns][0] : FALLBACK_NOUN[e.cat];
               const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${e.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"} hover:bg-slate-800/40 transition-colors rounded-r`;
               return (
                 <li key={`grp-${e.cat}`}>

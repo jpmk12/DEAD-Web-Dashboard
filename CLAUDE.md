@@ -500,10 +500,15 @@ tested; the fetch is best-effort/fail-safe (null → omit enrichment, never a fa
 value). Pure `fetch`, no new dep (esbuild `0`).
 
 ### Glance "Global Reach Watch" (de-crowded)
-The Glance card fuses three sources — **NEO/evacuation** (State Dept ordered/
-authorized departure + recent Level-4), **disasters** (red/near-base/HADR≥50), and
-**base weather hazards** (Open-Meteo at tracked points/AMC hubs) — into one ranked
-list. NEO scores (ordered 120 / authorized 85) outrank disasters (~≤115) and
+The Glance card fuses six categories — **NEO/evacuation** (State Dept ordered/
+authorized departure + recent Level-4), **disasters** (red/near-base/HADR≥50),
+**base weather hazards** (Open-Meteo at tracked points/AMC hubs), and the three
+"access" degraders read from the cached `/api/force-protection` feed (no new
+fetch): **conflict** near a watched base, **GPS/EW** interference, and
+**airspace/NOTAM** (runway closures + FIR overflight) — into one ranked list.
+The access rows come from `FP_AXES` (one row per elevated conflict/airspace/gps
+axis on a `forceWatch` entry); `REACH_CAT_ORDER`/`REACH_CAT_META` drive the chips
++ grouping. NEO scores (ordered 120 / authorized 85) outrank disasters (~≤115) and
 weather (≤75), so a wave of evacuations used to evict everything else. Fix
 (`GlanceTab.tsx`): each row carries a `cat` (`neo|disaster|weather`); **category
 filter chips** (All/NEO/Disasters/Weather, live counts) slice the card, and in the
