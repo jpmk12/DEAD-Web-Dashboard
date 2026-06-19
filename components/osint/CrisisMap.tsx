@@ -29,6 +29,16 @@ const ENROUTE = HUBS.filter((h) => !h.crf);
 const CRF = HUBS.filter((h) => h.crf);
 const EARTH_NM = 3440.065;
 const AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM", "INDOPACOM"];
+// Approximate map view per combatant command — used to recenter the map when an
+// AOR chip is selected. Coarse framing of each region, not a precise boundary.
+const AOR_VIEW: Partial<Record<Aor, { lat: number; lon: number; zoom: number }>> = {
+  NORTHCOM: { lat: 40, lon: -100, zoom: 3 },
+  SOUTHCOM: { lat: -15, lon: -65, zoom: 3 },
+  EUCOM: { lat: 50, lon: 18, zoom: 4 },
+  CENTCOM: { lat: 30, lon: 50, zoom: 4 },
+  AFRICOM: { lat: 3, lon: 20, zoom: 3 },
+  INDOPACOM: { lat: 12, lon: 130, zoom: 3 },
+};
 const TOGGLE_KEY = "crisisMap:layers";
 
 function km(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -646,6 +656,17 @@ export default function CrisisMap() {
   const toggle = (k: LayerKey) => setOn((p) => ({ ...p, [k]: !p[k] }));
   const showNodeLabels = on.labels && zoom >= 4;
   const pick = (id: string, lat: number, lon: number, z = 4) => { setSelected(id); setFlyTo({ lat, lon, zoom: z, key: Date.now() }); };
+
+  // Recenter the map when an AOR chip is picked: fly to that command's region;
+  // back to "All" re-fits to the active crises. Skips the initial mount so it
+  // doesn't fight the first-data auto-fit.
+  const aorDidMount = useRef(false);
+  useEffect(() => {
+    if (!aorDidMount.current) { aorDidMount.current = true; return; }
+    if (aorFilter === "ALL") { setFitKey((k) => k + 1); return; }
+    const v = AOR_VIEW[aorFilter];
+    if (v) setFlyTo({ lat: v.lat, lon: v.lon, zoom: v.zoom, key: Date.now() });
+  }, [aorFilter]);
 
   const doSearch = () => {
     const q = search.trim().toUpperCase();
