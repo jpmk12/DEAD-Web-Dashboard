@@ -137,7 +137,12 @@ export default function BriefingModal({
       const res = await fetch("/api/briefing?refresh=1", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ articles, newsletters, events: calendarEvents }),
+        body: JSON.stringify({
+          articles,
+          newsletters,
+          events: calendarEvents,
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -184,7 +189,12 @@ export default function BriefingModal({
       fetch("/api/briefing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ articles, newsletters, events: calendarEvents }),
+        body: JSON.stringify({
+          articles,
+          newsletters,
+          events: calendarEvents,
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
         signal: controller.signal,
       })
         .then((r) => r.json())

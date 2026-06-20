@@ -18,10 +18,14 @@ export function prefetchBriefing(
   if (clientCache.isFresh(CACHE_KEY)) return;
   if (inflight) return;
 
+  // Device IANA zone so the brief's "today"/schedule/weather match the device
+  // the user is reading on; the server resolves request → saved pref → default.
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   inflight = fetch("/api/briefing", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ articles, newsletters, events, osint }),
+    body: JSON.stringify({ articles, newsletters, events, osint, tz }),
   })
     .then((r) => r.json())
     .then((data) => {

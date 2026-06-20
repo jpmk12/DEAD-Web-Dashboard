@@ -20,6 +20,18 @@ export const dynamic = "force-dynamic";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Guard the client-supplied IANA zone before trusting it for date math. A bogus
+// value (spoofed body, old client) would throw inside Intl.DateTimeFormat and
+// blank the schedule/weather, so an invalid tz falls through to the saved pref.
+function isValidTz(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Event's calendar date (YYYY-MM-DD) for day comparisons. All-day events carry a
 // floating date-only start and must be taken AS-IS — running them through
 // new Date()/Intl treats them as UTC midnight, which in behind-UTC zones (e.g.
@@ -94,16 +106,25 @@ export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
-  const { articles = [], newsletters = [], events = [], osint = [] } = body as {
+  const { articles = [], newsletters = [], events = [], osint = [], tz: bodyTz } = body as {
     articles?: NewsItem[];
     newsletters?: NewsletterSummary[];
     events?: CalendarEvent[];
     osint?: { title?: string; priority?: string; reason?: string; sources?: number }[];
+    tz?: string;
   };
 
   const prefs = await getUserPrefs();
   const userContext = buildUserContext(prefs);
-  const tz = prefs.timezone || "America/Chicago";
+  // Timezone resolves request → saved pref → default. The client sends its
+  // device IANA zone (Intl.resolvedOptions().timeZone) so the brief's "today",
+  // schedule labels, and weather match the device the user is reading on,
+  // even before they pin a timezone in Preferences. A saved pref still wins
+  // over a missing/blank request value; the default is the last resort.
+  const tz =
+    (typeof bodyTz === "string" && isValidTz(bodyTz) && bodyTz) ||
+    prefs.timezone ||
+    "America/Chicago";
   // Include the tz in the key so changing timezone mid-day doesn't collide
   // a "Mar-14 in CT" cache with a "Mar-14 in JST" one. VARCHAR(10) is too
   // tight for that — but `date` column already varies cheaply via slice(0, 10).
