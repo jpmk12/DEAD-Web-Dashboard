@@ -15,10 +15,22 @@ interface CalendarPanelProps {
   onEventsLoaded: (events: CalendarEvent[]) => void;
 }
 
+// Local YYYY-MM-DD for an event start. All-day events carry a floating date-only
+// value ("2026-06-21") and must be taken AS-IS. Timed events are real instants
+// whose ISO can come back in UTC ("…Z") — slicing the string prefix would bucket
+// a Sunday-evening event under Monday in behind-UTC zones, so resolve it through
+// the local calendar date instead. Matches Glance's instant-based day math.
+function eventLocalYmd(e: CalendarEvent): string {
+  if (e.isAllDay || !e.start.includes("T")) return e.start.slice(0, 10);
+  const d = new Date(e.start);
+  if (isNaN(d.getTime())) return e.start.slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function groupByDate(events: CalendarEvent[]): [string, CalendarEvent[]][] {
   const map = new Map<string, CalendarEvent[]>();
   for (const e of events) {
-    const key = e.start.substring(0, 10);
+    const key = eventLocalYmd(e);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(e);
   }
