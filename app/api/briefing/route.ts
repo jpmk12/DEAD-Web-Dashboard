@@ -116,15 +116,19 @@ export async function POST(request: Request) {
 
   const prefs = await getUserPrefs();
   const userContext = buildUserContext(prefs);
-  // Timezone resolves request → saved pref → default. The client sends its
-  // device IANA zone (Intl.resolvedOptions().timeZone) so the brief's "today",
-  // schedule labels, and weather match the device the user is reading on,
-  // even before they pin a timezone in Preferences. A saved pref still wins
-  // over a missing/blank request value; the default is the last resort.
+  // Timezone resolution honours the user's Preferences choice:
+  //  • "pinned" → the saved pref zone overrides the device, so a traveler reads
+  //    every brief in one fixed reference zone regardless of the device's clock.
+  //  • "auto" (default) → the device IANA zone the client sends
+  //    (Intl.resolvedOptions().timeZone) wins, so the brief's "today", schedule
+  //    labels, and weather follow whatever device opens it — no setup needed.
+  // The request zone is validity-guarded; an invalid/blank one falls back to the
+  // saved pref, and the default is the last resort.
+  const requestTz = typeof bodyTz === "string" && isValidTz(bodyTz) ? bodyTz : "";
   const tz =
-    (typeof bodyTz === "string" && isValidTz(bodyTz) && bodyTz) ||
-    prefs.timezone ||
-    "America/Chicago";
+    prefs.timezoneMode === "pinned"
+      ? prefs.timezone || requestTz || "America/Chicago"
+      : requestTz || prefs.timezone || "America/Chicago";
   // Include the tz in the key so changing timezone mid-day doesn't collide
   // a "Mar-14 in CT" cache with a "Mar-14 in JST" one. VARCHAR(10) is too
   // tight for that — but `date` column already varies cheaply via slice(0, 10).

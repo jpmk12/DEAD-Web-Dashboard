@@ -230,6 +230,7 @@ export async function POST(request: Request) {
     localLon: raw.localLon != null && isFinite(rawLon) ? rawLon : null,
     theme: VALID_THEMES.has(raw.theme as AppTheme) ? (raw.theme as AppTheme) : "nightwatch",
     timezone: typeof raw.timezone === "string" && /^[A-Za-z_/]+$/.test(raw.timezone) ? raw.timezone.slice(0, 50) : "America/Chicago",
+    timezoneMode: raw.timezoneMode === "pinned" ? "pinned" : "auto",
   };
 
   await saveUserPrefs(prefs);

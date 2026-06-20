@@ -49,6 +49,7 @@ const SCHEMA_STATEMENTS = [
     local_lon            DOUBLE      NULL,
     theme                VARCHAR(32) NOT NULL DEFAULT 'nightwatch',
     timezone             VARCHAR(64) NOT NULL DEFAULT 'America/Chicago',
+    timezone_mode        VARCHAR(16) NOT NULL DEFAULT 'auto',
     last_updated         DATETIME(3) NOT NULL
   ) ENGINE=InnoDB`,
 
@@ -310,6 +311,7 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "documents",   column: "archived",                  ddl: "ALTER TABLE documents ADD COLUMN archived TINYINT(1) NOT NULL DEFAULT 0" },
   { table: "user_prefs",  column: "acled_email",               ddl: "ALTER TABLE user_prefs ADD COLUMN acled_email    VARCHAR(255) NULL" },
   { table: "user_prefs",  column: "acled_password",            ddl: "ALTER TABLE user_prefs ADD COLUMN acled_password TEXT NULL" },
+  { table: "user_prefs",  column: "timezone_mode",             ddl: "ALTER TABLE user_prefs ADD COLUMN timezone_mode VARCHAR(16) NOT NULL DEFAULT 'auto'" },
   // P7 instrumentation: wall-time of the model call and (where measurable) the
   // upstream assembly phase, so latency claims cite measured baselines.
   { table: "anthropic_usage", column: "duration_ms",           ddl: "ALTER TABLE anthropic_usage ADD COLUMN duration_ms INT NULL" },

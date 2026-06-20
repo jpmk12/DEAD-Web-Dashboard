@@ -567,6 +567,27 @@ confirmed from the build sandbox; `app/api/osint/gpsjam/route.ts` parses
 defensively — if the GPS layer is empty in production while gpsjam.org has data,
 match the real keys there.
 
+### Morning brief timezone (Auto-by-device, with optional pin)
+The brief computes "today", schedule day-labels, and travel weather server-side
+against one IANA zone. The client (`lib/briefingPrefetch.ts` +
+`components/BriefingModal.tsx` — prefetch, cache-miss, and manual-refresh paths)
+sends its **device** zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) as
+`tz` on every `/api/briefing` POST. The route resolves the effective zone from
+`prefs.timezoneMode`:
+- **`"auto"` (default)** → device `tz` wins (`requestTz → prefs.timezone →
+  "America/Chicago"`), so a brief opened on a phone in another zone shows that
+  zone's "today" with no setup.
+- **`"pinned"`** → `prefs.timezone` overrides the device (`prefs.timezone →
+  requestTz → default`), a fixed reference zone for travelers.
+The request zone is validity-guarded (`isValidTz`); a bogus value falls through
+to the pref. The brief cache key already varies by tz, so flipping zones
+regenerates rather than serving a stale day. The mode is set in Preferences →
+Profile → Timezone (segmented Auto/Pin toggle; Auto shows the live device zone).
+**Event timezones are always honoured**: Google returns timed events as RFC3339
+with the offset baked in, so the instant is preserved and merely *formatted* in
+the effective zone; all-day events are floating dates taken as-is (no tz drift).
+Stored in `user_prefs.timezone_mode` (`VARCHAR(16)`, default `'auto'`).
+
 ### Database
 - Uses the managed MySQL via `mysql2` (`lib/db.ts`), reading
   `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` from `process.env`.

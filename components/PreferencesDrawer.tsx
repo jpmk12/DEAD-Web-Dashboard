@@ -2503,6 +2503,13 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [localCity, setLocalCity] = useState("");
   const [theme, setTheme] = useState<AppTheme>("nightwatch");
   const [timezone, setTimezone] = useState("America/Chicago");
+  const [timezoneMode, setTimezoneMode] = useState<"auto" | "pinned">("auto");
+  // The device's current IANA zone — shown as the live "Auto" value. Computed
+  // once on mount (it can't change without a reload).
+  const [deviceTz] = useState(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+    catch { return "UTC"; }
+  });
   const [secondaryConnected, setSecondaryConnected] = useState(false);
   const [secondaryEmail, setSecondaryEmail] = useState<string | null>(null);
   const [secondaryRevoking, setSecondaryRevoking] = useState(false);
@@ -2665,6 +2672,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setLocalCity(prefs.localCity ?? "");
         setTheme(prefs.theme ?? "nightwatch");
         setTimezone(prefs.timezone ?? "America/Chicago");
+        setTimezoneMode(prefs.timezoneMode === "pinned" ? "pinned" : "auto");
         setLoaded(true);
       })
       .catch(() => {});
@@ -2743,7 +2751,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           localFeedKey,
           localZipcode: "", localCity,
           localLat, localLon,
-          theme, timezone,
+          theme, timezone, timezoneMode,
         }),
       });
       // Wipe the client-side data caches so derived views (email priorities
@@ -2916,17 +2924,71 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                     Timezone
                   </label>
                   <p className="text-[10px] text-slate-600 mb-2">
-                    Used by the AI assistant when adding calendar events
+                    Sets &ldquo;today&rdquo;, schedule labels, and travel weather in your morning brief
                   </p>
-                  <select
-                    value={timezone}
-                    onChange={(e) => setTimezone(e.target.value)}
-                    className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-500 transition-colors"
-                  >
-                    {TIMEZONE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label} — {opt.value}</option>
-                    ))}
-                  </select>
+
+                  {/* Mode toggle: Auto (follow this device) vs Pin a fixed zone */}
+                  <div className="flex gap-1.5 bg-slate-900/70 border border-slate-700/70 rounded-lg p-1 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setTimezoneMode("auto")}
+                      className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold px-2.5 py-2 rounded-md transition-colors ${
+                        timezoneMode === "auto"
+                          ? "bg-slate-700 text-slate-100 shadow"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          timezoneMode === "auto" ? "bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400" : "bg-slate-600"
+                        }`}
+                      />
+                      Auto (this device)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTimezoneMode("pinned")}
+                      className={`flex-1 text-xs font-semibold px-2.5 py-2 rounded-md transition-colors ${
+                        timezoneMode === "pinned"
+                          ? "bg-slate-700 text-slate-100 shadow"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Pin a timezone
+                    </button>
+                  </div>
+
+                  {timezoneMode === "auto" ? (
+                    <>
+                      <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-slate-100 truncate">{deviceTz}</div>
+                          <div className="text-[10px] text-emerald-300">detected from this device</div>
+                        </div>
+                        <span className="ml-auto text-[9px] uppercase tracking-widest text-emerald-300 border border-emerald-400/40 rounded-full px-2 py-0.5">
+                          Live
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 mt-2">
+                        Open the dashboard on a device in another zone and the brief follows it automatically.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <select
+                        value={timezone}
+                        onChange={(e) => setTimezone(e.target.value)}
+                        className="w-full bg-slate-800/70 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-500 transition-colors"
+                      >
+                        {TIMEZONE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label} — {opt.value}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-600 mt-2">
+                        Every device shows this zone&rsquo;s &ldquo;today,&rdquo; even if its clock is set elsewhere.
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 <TagInput

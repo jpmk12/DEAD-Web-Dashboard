@@ -62,6 +62,7 @@ const DEFAULT_PREFS: UserPrefs = {
   localLon: null,
   theme: "nightwatch",
   timezone: "America/Chicago",
+  timezoneMode: "auto",
   lastUpdated: new Date(0).toISOString(),
 };
 
@@ -90,6 +91,7 @@ interface PrefsRow extends RowDataPacket {
   local_lon: number | null;
   theme: string;
   timezone: string;
+  timezone_mode: string | null;
   last_updated: Date;
 }
 
@@ -216,7 +218,7 @@ function asMetarStations(v: unknown): MetarStation[] {
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, timezone_mode, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -256,6 +258,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
       ? (r.theme as UserPrefs["theme"])
       : "nightwatch",
     timezone: r.timezone || "America/Chicago",
+    timezoneMode: r.timezone_mode === "pinned" ? "pinned" : "auto",
     lastUpdated: r.last_updated.toISOString(),
   };
 }
@@ -270,12 +273,12 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
         tracked_locations, force_locations, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
         ai_enabled, ai_feature_toggles,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
-        theme, timezone, last_updated)
+        theme, timezone, timezone_mode, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, CAST(? AS JSON),
-             ?, ?, ?, ?, ?, ?, ?, ?)
+             ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        role                       = VALUES(role),
        priority_topics            = VALUES(priority_topics),
@@ -301,6 +304,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        local_lon                  = VALUES(local_lon),
        theme                      = VALUES(theme),
        timezone                   = VALUES(timezone),
+       timezone_mode              = VALUES(timezone_mode),
        last_updated               = VALUES(last_updated)`,
     [
       prefs.role,
@@ -327,6 +331,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       prefs.localLon,
       prefs.theme,
       prefs.timezone,
+      prefs.timezoneMode === "pinned" ? "pinned" : "auto",
       now,
     ]
   );
