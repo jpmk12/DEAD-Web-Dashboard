@@ -1278,22 +1278,22 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
       </p>
       <details className="text-[10px] text-slate-600 mb-3 leading-relaxed bg-slate-900/40 border border-slate-800 rounded-md px-2.5 py-1.5">
         <summary className="cursor-pointer text-slate-400 hover:text-slate-200 select-none">
-          Bridges that usually work (and the ones that don&apos;t)
+          Social feeds that work (X is a dead end — use native RSS)
         </summary>
         <div className="pt-2 space-y-1.5">
           <p>
-            <span className="text-amber-400 font-bold">⚠ Twitter / X via rsshub.app is broken most days</span> —
-            X actively blocks scrapers and the public <code>rsshub.app</code> instance is heavily rate-limited.
-            If your feed returns 0 items, try a different instance:
+            <span className="text-amber-400 font-bold">⚠ X / Twitter has no working feed.</span> X killed
+            free API access and blocks scrapers + datacenter IPs, so RSSHub / Nitter bridges to it are dead.
+            Use the platforms that expose <span className="text-slate-300 font-semibold">native RSS</span> instead — keyless and not rate-limited:
           </p>
           <ul className="ml-3 space-y-0.5 font-mono">
-            <li>· <code className="text-emerald-400">https://rsshub.feeded.xyz/twitter/user/USERNAME</code></li>
-            <li>· <code className="text-emerald-400">https://rsshub.rssforever.com/twitter/user/USERNAME</code></li>
-            <li>· <code className="text-emerald-400">https://nitter.privacydev.net/USERNAME/rss</code></li>
+            <li>· Bluesky: <code className="text-emerald-400">https://bsky.app/profile/HANDLE/rss</code></li>
+            <li>· Mastodon: <code className="text-emerald-400">https://INSTANCE/@USER.rss</code></li>
+            <li>· Reddit: <code className="text-emerald-400">https://www.reddit.com/r/SUB/.rss</code></li>
           </ul>
           <p>
-            Telegram channels (more reliable):
-            <code className="text-emerald-400 ml-1">https://rsshub.app/telegram/channel/NAME</code>
+            Telegram channels (also reliable — read from the channel&apos;s own preview page):
+            <code className="text-emerald-400 ml-1">https://t.me/s/CHANNEL</code>
           </p>
           <p>
             News sites usually expose their own RSS — look for an <code>/rss</code> or <code>/feed</code> path
@@ -1304,8 +1304,8 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
 
       {/* Curated suggestions — collapsed by default so the editor stays
           compact for returning users. One click per feed; URL is pre-baked
-          to a known pattern (mostly rsshub.app Telegram bridges since
-          Telegram doesn't aggressively block scrapers). */}
+          to a known pattern (native RSS for Bluesky/Mastodon/Reddit + t.me/s
+          preview pages for Telegram — no scraper bridges). */}
       <details className="text-[10px] mb-3 bg-slate-900/40 border border-slate-800 rounded-md px-2.5 py-1.5">
         <summary className="cursor-pointer text-slate-400 hover:text-slate-200 select-none flex items-center gap-1.5">
           <span className="text-emerald-400">💡</span>
@@ -1433,14 +1433,14 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
           onChange={(e) => setKind(e.target.value as OsintFeed["kind"])}
           className="bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-500"
         >
-          <option value="social">Social (X/Twitter)</option>
+          <option value="social">Social (Bluesky / Mastodon / Reddit)</option>
           <option value="telegram">Telegram</option>
           <option value="news">News</option>
           <option value="other">Other</option>
         </select>
         <input
           value={url} onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://rsshub.app/twitter/user/USERNAME"
+          placeholder="https://bsky.app/profile/HANDLE/rss"
           className="col-span-2 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
         />
         <button

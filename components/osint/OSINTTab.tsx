@@ -740,8 +740,9 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
                 Suggested starting points:
               </p>
               <ul className="text-[11px] text-slate-500 font-mono mt-2 space-y-0.5">
-                <li>X account: <code className="text-emerald-400">https://rsshub.app/twitter/user/USERNAME</code></li>
-                <li>Telegram channel: <code className="text-emerald-400">https://rsshub.app/telegram/channel/NAME</code></li>
+                <li>Bluesky: <code className="text-emerald-400">https://bsky.app/profile/HANDLE/rss</code></li>
+                <li>Reddit: <code className="text-emerald-400">https://www.reddit.com/r/SUB/.rss</code></li>
+                <li>Telegram channel: <code className="text-emerald-400">https://t.me/s/CHANNEL</code></li>
               </ul>
             </div>
           )}
@@ -769,21 +770,21 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
                     {failing.slice(0, 6).map((f) => <li key={f.id}>✗ {f.label}</li>)}
                   </ul>
                 )}
-                {isBridgeKind && (
+                {pane === "social" && (
                   <p className="text-slate-500">
-                    X/Twitter and Telegram have no native RSS, so these depend on public bridges
-                    (RSSHub / Nitter) that are frequently rate-limited or blocked upstream — usually why this pane is empty.
+                    X / Twitter has no working feed (X blocks scrapers + datacenter IPs and killed free API access).
+                    Use platforms with native RSS instead — they don&apos;t depend on a bridge and don&apos;t rate-limit:
+                    Bluesky (<span className="font-mono text-slate-400">bsky.app/profile/&lt;handle&gt;/rss</span>),
+                    Mastodon (<span className="font-mono text-slate-400">&lt;instance&gt;/@user.rss</span>),
+                    Reddit (<span className="font-mono text-slate-400">reddit.com/r/&lt;sub&gt;/.rss</span>).
                   </p>
                 )}
                 <div className="text-slate-500">
                   <span className="text-slate-400 font-semibold">Make them reliable:</span>
                   <ul className="list-disc list-inside mt-1 space-y-0.5">
-                    <li>Hit the <span className="text-emerald-400">Test</span> button on each feed in <span className="text-emerald-400">Preferences → OSINT Feeds</span> to see the exact failure and try an alternate instance.</li>
+                    <li>Hit the <span className="text-emerald-400">Test</span> button on each feed in <span className="text-emerald-400">Preferences → OSINT Feeds</span> to see the exact failure and try an alternate.</li>
                     {isBridgeKind && (
-                      <li>Prefer native RSS where it exists — Bluesky (<span className="font-mono text-slate-400">bsky.app/profile/&lt;handle&gt;/rss</span>) and Mastodon (<span className="font-mono text-slate-400">…/@user.rss</span>) need no bridge and don&apos;t rate-limit.</li>
-                    )}
-                    {isBridgeKind && (
-                      <li>Self-hosting RSSHub avoids the public-instance limits that break <span className="font-mono text-slate-400">rsshub.app</span> Twitter/Telegram feeds.</li>
+                      <li>Open <span className="text-emerald-400">Preferences → OSINT Feeds → 💡 Suggested feeds</span> for one-click Bluesky / Mastodon / Reddit / Telegram sources that work from this host.</li>
                     )}
                   </ul>
                 </div>

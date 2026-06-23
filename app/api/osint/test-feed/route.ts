@@ -119,9 +119,17 @@ function rsshubAlternatives(url: string): string[] {
 function diagnose(opts: { url: string; status?: number; xml?: string; error?: string }): { hint?: string; alternatives?: string[] } {
   const { url, status, xml, error } = opts;
   const lowerUrl = url.toLowerCase();
-  const isRsshub = /(^|\.)rsshub\.|rsshub\.app/.test(new URL(url).hostname.toLowerCase());
+  const host = new URL(url).hostname.toLowerCase();
+  const isRsshub = /(^|\.)rsshub\.|rsshub\.app/.test(host);
   const isTwitterPath = /\b(twitter|x\.com|user\/|status\/)\b/.test(lowerUrl) && isRsshub;
+  // Any attempt to read X — a direct x.com/twitter.com URL, a Nitter instance,
+  // or an rsshub twitter route — is a dead end; steer to native-RSS platforms.
+  const isXAttempt =
+    /(^|\.)(x\.com|twitter\.com|nitter\.)/.test(host) || isTwitterPath;
+  const isReddit = /(^|\.)reddit\.com$/.test(host);
   const isTelegramPath = /\/telegram\//.test(lowerUrl) && isRsshub;
+  const X_DEAD_HINT =
+    "X / Twitter has no working feed — X blocks scrapers and datacenter IPs and killed free API access. Use native RSS instead: Bluesky (bsky.app/profile/HANDLE/rss), Mastodon (INSTANCE/@USER.rss), or Reddit (reddit.com/r/SUB/.rss). See Suggested feeds.";
   const alternatives = rsshubAlternatives(url);
 
   if (error?.includes("aborted") || error?.includes("timeout") || error?.includes("Timed out")) {
@@ -134,15 +142,17 @@ function diagnose(opts: { url: string; status?: number; xml?: string; error?: st
     return { hint: "Upstream did not respond in 8 s." };
   }
   if (status === 429 || status === 403) {
-    if (isTelegramPath) {
+    if (isXAttempt) {
+      return { hint: X_DEAD_HINT };
+    }
+    if (isReddit) {
       return {
-        hint: "This rsshub instance is blocking your network (Telegram itself doesn't block scrapers — the bridge does). Try a different instance below, or self-host.",
-        alternatives,
+        hint: "Reddit rate-limited this request (429) — common from datacenter IPs. The feed usually recovers on the next refresh cycle; if it never returns items, the subreddit name may be wrong or private.",
       };
     }
-    if (isTwitterPath) {
+    if (isTelegramPath) {
       return {
-        hint: "Upstream (Twitter/X) blocked the bridge. Twitter actively bans scrapers — try a different rsshub instance, but Twitter bridges are unreliable across the board.",
+        hint: "This rsshub instance is blocking your network (Telegram itself doesn't block scrapers — the bridge does). Switch to the native t.me/s/CHANNEL pattern, or try a different instance below.",
         alternatives,
       };
     }
@@ -176,11 +186,8 @@ function diagnose(opts: { url: string; status?: number; xml?: string; error?: st
     const itemCount = (xml.match(/<item\b/gi) || []).length;
     const entryCount = (xml.match(/<entry\b/gi) || []).length;
     if (itemCount === 0 && entryCount === 0) {
-      if (isTwitterPath) {
-        return {
-          hint: "Empty feed. X/Twitter actively blocks scrapers; even when rsshub returns 200 the items vanish. Twitter bridges are unreliable across the board.",
-          alternatives,
-        };
+      if (isXAttempt) {
+        return { hint: X_DEAD_HINT };
       }
       if (isTelegramPath) {
         return {

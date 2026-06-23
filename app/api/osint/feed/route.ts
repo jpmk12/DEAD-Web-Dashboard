@@ -154,8 +154,14 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), 8_000);
   try {
+    // Reddit's RSS returns 429 to the generic UA from datacenter IPs; a
+    // browser-ish UA (same trick as the Telegram path) gets the feed through.
+    const isReddit = /(^|\.)reddit\.com$/i.test((() => { try { return new URL(url).hostname; } catch { return ""; } })());
+    const ua = isReddit
+      ? "Mozilla/5.0 (compatible; DEAD-Dashboard/1.0; +https://github.com/jpmk12/dead-web-dashboard)"
+      : "DEAD-Dashboard/1.0";
     const res = await fetch(url, {
-      headers: { "User-Agent": "DEAD-Dashboard/1.0", Accept: "application/rss+xml, application/atom+xml, application/xml" },
+      headers: { "User-Agent": ua, Accept: "application/rss+xml, application/atom+xml, application/xml" },
       cache: "no-store",
       signal: ctrl.signal,
     });

@@ -8,16 +8,24 @@ import type { OsintFeed } from "./types";
 // chronically rate-limited / IP-blocked from datacenter hosts. (The route
 // still transparently handles any legacy rsshub URLs already saved in prefs.)
 //
+// Social: X/Twitter is intentionally absent. X killed free API access and
+// blocks scrapers/datacenter IPs, so RSSHub/Nitter bridges to it are dead. The
+// OSINT community largely moved to Bluesky + Mastodon (both expose NATIVE RSS:
+// bsky.app/profile/<handle>/rss and <instance>/@user.rss) and Reddit
+// (reddit.com/r/<sub>/.rss) — all keyless, HTTPS, and not bridge-dependent, so
+// they work from this host. These carry kind "social" so they populate the
+// repurposed Social pane.
+//
 // Curation principles:
 // - Diverse perspective on purpose: news wires, OSINT analysts, adversary-
 //   POV milbloggers, regional sources, official defence accounts. An analyst
 //   wants the full picture including hostile narrative sources.
 // - Bias is labelled, not hidden. The `bias` field renders inline so the
 //   user sees the slant when they add the feed.
-// - Slugs are best-effort — I can't reach Telegram from the build env to
-//   verify, so the editor's Test button is the user's verification path.
-//   If a slug is wrong, Test returns 0 items and the user can search t.me
-//   for the right one.
+// - Slugs/handles are best-effort — I can't reach these hosts from the build
+//   env to verify, so the editor's Test button is the user's verification path.
+//   A handle that returns 0 items is renamed/wrong; the URL patterns above make
+//   it easy to swap in the correct one.
 
 export interface OsintFeedSuggestion {
   label: string;
@@ -42,6 +50,36 @@ export const OSINT_FEED_SUGGESTIONS: OsintFeedSuggestionGroup[] = [
       { label: "BBC World",      url: "https://t.me/s/bbcworld",           kind: "news" },
       { label: "AFP",            url: "https://t.me/s/afpnewsagency",      kind: "news" },
       { label: "Al Jazeera EN",  url: "https://t.me/s/aljazeeraenglish",   kind: "news" },
+    ],
+  },
+  {
+    name: "Bluesky (native RSS — no bridge)",
+    description: "Where much of the OSINT / journalist community moved after X. Native RSS at bsky.app/profile/<handle>/rss — keyless and not rate-limited. Handles are best-effort (many orgs use a custom-domain handle); verify with Test and swap if 0 items.",
+    feeds: [
+      { label: "Bellingcat",       url: "https://bsky.app/profile/bellingcat.com/rss",    kind: "social", note: "Custom-domain handle bellingcat.com" },
+      { label: "AP News",          url: "https://bsky.app/profile/apnews.com/rss",        kind: "social" },
+      { label: "NPR",              url: "https://bsky.app/profile/npr.org/rss",           kind: "social" },
+      { label: "The Guardian",     url: "https://bsky.app/profile/theguardian.com/rss",   kind: "social" },
+    ],
+  },
+  {
+    name: "Reddit (native RSS — no bridge)",
+    description: "Subreddit feeds at reddit.com/r/<sub>/.rss. Durable sub names, keyless. (Reddit rate-limits datacenter IPs — if a feed is empty, Test reveals a 429 and it usually recovers on the next cycle.)",
+    feeds: [
+      { label: "r/geopolitics",        url: "https://www.reddit.com/r/geopolitics/.rss",          kind: "social" },
+      { label: "r/CredibleDefense",    url: "https://www.reddit.com/r/CredibleDefense/.rss",      kind: "social" },
+      { label: "r/LessCredibleDefence",url: "https://www.reddit.com/r/LessCredibleDefence/.rss",  kind: "social" },
+      { label: "r/CombatFootage",      url: "https://www.reddit.com/r/CombatFootage/.rss",        kind: "social", note: "Graphic — primary-source video" },
+      { label: "r/UkraineWarVideoRpt", url: "https://www.reddit.com/r/UkraineWarVideoReport/.rss",kind: "social", bias: "Pro-Ukraine" },
+      { label: "r/OSINT",              url: "https://www.reddit.com/r/OSINT/.rss",                kind: "social" },
+      { label: "r/syriancivilwar",     url: "https://www.reddit.com/r/syriancivilwar/.rss",       kind: "social" },
+    ],
+  },
+  {
+    name: "Mastodon (native RSS — no bridge)",
+    description: "Any Mastodon account exposes RSS by appending .rss to its profile URL: https://<instance>/@<user>.rss. Federated, so the instance host matters. Best-effort handles below — find others on your home instance and add via that pattern.",
+    feeds: [
+      { label: "Bellingcat",  url: "https://mastodon.social/@bellingcat.rss",  kind: "social", note: "If empty, search their current instance" },
     ],
   },
   {
