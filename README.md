@@ -5,6 +5,8 @@ news, email, calendar, open-source intelligence, and a live crisis map into one
 operational picture. Built with **Next.js 15 (App Router)** and deployed on
 **GoDaddy Node.js Hosting** (managed Node.js PaaS + managed MySQL).
 
+![DEAD's Dashboard — the OSINT Crisis map fusing disasters, conflict, weather, force protection, and planning-grade reach, alongside the AI Morning Brief and ranked Global Reach Watch](docs/hero.png)
+
 > The dashboard is organized around one question: **where will mobility forces get
 > tasked next** — and what does it take to get there. News, weather, force
 > protection, conflict, and airfield data all feed that read.
