@@ -8,9 +8,10 @@ import SpaceWeatherCard from "./SpaceWeatherCard";
 import MetarPanel from "./MetarPanel";
 import { CloudSun } from "@/lib/icons";
 
-type Overlay = "wind" | "rain" | "temp" | "clouds" | "pressure";
+type Overlay = "radar" | "wind" | "rain" | "temp" | "clouds" | "pressure";
 
 const OVERLAYS: { id: Overlay; label: string; icon: string }[] = [
+  { id: "radar",    label: "Radar",    icon: "⊚" },
   { id: "wind",     label: "Wind",     icon: "〜" },
   { id: "rain",     label: "Rain",     icon: "◦" },
   { id: "temp",     label: "Temp",     icon: "◎" },
@@ -44,7 +45,7 @@ const FEED_LABELS: Record<string, string> = {
 };
 
 export default function WeatherTab() {
-  const [overlay, setOverlay] = useState<Overlay>("wind");
+  const [overlay, setOverlay] = useState<Overlay>("radar");
   const [home, setHome] = useState<TrackedLocation | null>(null);
   const [trip, setTrip] = useState<TrackedLocation | null>(null);
   const [extras, setExtras] = useState<TrackedLocation[]>([]);
