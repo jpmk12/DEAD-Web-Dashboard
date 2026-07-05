@@ -7,6 +7,7 @@ import DocChatPanel from "./DocChatPanel";
 import DocToolbar from "./DocToolbar";
 import DocTOC from "./DocTOC";
 import DocHistoryModal from "./DocHistoryModal";
+import DocSplitModal from "./DocSplitModal";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 interface DocFull {
@@ -62,6 +63,9 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { id: "link",  label: "External link",   insert: "[](url)",  cursorOffset: 1 },
   { id: "today", label: "Today's date",    insert: () => new Date().toISOString().slice(0, 10) },
   { id: "now",   label: "Today + time",    insert: () => new Date().toISOString().slice(0, 16).replace("T", " ") },
+  // Special-cased in applySlashCommand: opens the template picker instead of
+  // inserting a literal (templates are docs tagged "template", fetched live).
+  { id: "template", label: "Insert template…", insert: "" },
 ];
 
 // Look backward from `cursorPos` to find a slash-prefixed token at the start
@@ -93,6 +97,11 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const isMobile = useIsMobile();
   const [mobilePane, setMobilePane] = useState<"editor" | "preview" | "toc" | "chat">("editor");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
+  // /template picker: insertion position captured when the slash command was
+  // chosen; the list is docs tagged "template", fetched when the picker opens.
+  const [tplPicker, setTplPicker] = useState<{ pos: number } | null>(null);
+  const [templates, setTemplates] = useState<{ id: string; title: string }[] | null>(null);
   const [slashState, setSlashState] = useState<{ open: boolean; query: string; pos: number; selectedIdx: number }>({
     open: false, query: "", pos: -1, selectedIdx: 0,
   });
@@ -323,6 +332,22 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const applySlashCommand = (cmd: SlashCommand) => {
     const ta = textareaRef.current;
     if (!ta || !slashState.open) return;
+    // "/template" opens the picker instead of inserting text: strip the slash
+    // token, remember where it sat, and fetch the template list.
+    if (cmd.id === "template") {
+      const before = ta.value.substring(0, slashState.pos);
+      const tail = ta.value.substring(slashState.pos + 1 + slashState.query.length);
+      updateContent(before + tail);
+      setTplPicker({ pos: slashState.pos });
+      setSlashState({ open: false, query: "", pos: -1, selectedIdx: 0 });
+      if (templates === null) {
+        fetch("/api/documents?tag=template")
+          .then((r) => r.json())
+          .then((d) => setTemplates(Array.isArray(d.docs) ? d.docs.map((x: { id: string; title: string }) => ({ id: x.id, title: x.title })) : []))
+          .catch(() => setTemplates([]));
+      }
+      return;
+    }
     const insertText = typeof cmd.insert === "function" ? cmd.insert() : cmd.insert;
     const cursorOffset = cmd.cursorOffset ?? insertText.length;
     const before = ta.value.substring(0, slashState.pos);
@@ -331,6 +356,23 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     updateContent(newValue);
     moveCursorTo(slashState.pos + cursorOffset);
     setSlashState({ open: false, query: "", pos: -1, selectedIdx: 0 });
+  };
+
+  // Insert the chosen template's body at the position captured by /template.
+  const insertTemplate = async (tplId: string) => {
+    const at = tplPicker?.pos ?? textareaRef.current?.selectionStart ?? 0;
+    setTplPicker(null);
+    try {
+      const res = await fetch(`/api/documents/${tplId}`);
+      const data = await res.json();
+      const body: string = data.doc?.content ?? "";
+      if (!body) return;
+      const ta = textareaRef.current;
+      const cur = ta ? ta.value : (doc?.content ?? "");
+      const pos = Math.min(at, cur.length);
+      updateContent(cur.substring(0, pos) + body + cur.substring(pos));
+      moveCursorTo(pos + body.length);
+    } catch { /* ignore */ }
   };
 
   // Filter commands by the current query (matches id prefix or label substring).
@@ -615,6 +657,13 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             >
               📜 History
             </button>
+            <button
+              onClick={() => setSplitOpen(true)}
+              title="Split at headings — break this doc into linked section docs (undoable via History)"
+              className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
+            >
+              ✂ Split
+            </button>
             <a
               href={`/api/documents/${docId}/export`}
               download
@@ -815,6 +864,34 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
               ))}
             </div>
           )}
+          {/* /template picker — lists docs tagged "template"; picking one
+              inserts its body at the captured position. */}
+          {tplPicker && (
+            <div className="absolute bottom-3 left-3 right-3 max-h-56 overflow-y-auto bg-slate-900 border border-violet-500/40 rounded-lg shadow-2xl z-20">
+              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest text-violet-300 border-b border-slate-800 font-mono flex items-center justify-between">
+                <span>Insert template</span>
+                <button onMouseDown={(e) => { e.preventDefault(); setTplPicker(null); }} className="text-slate-500 hover:text-slate-300">×</button>
+              </div>
+              {templates === null && (
+                <p className="px-3 py-2 text-xs text-slate-500">Loading…</p>
+              )}
+              {templates !== null && templates.length === 0 && (
+                <p className="px-3 py-2 text-[11px] text-slate-500 leading-relaxed">
+                  No templates yet — tag any doc <span className="text-violet-300 font-mono">template</span> to
+                  list it here, or use the New ▾ menu&apos;s starter set.
+                </p>
+              )}
+              {(templates ?? []).map((t) => (
+                <button
+                  key={t.id}
+                  onMouseDown={(e) => { e.preventDefault(); insertTemplate(t.id); }}
+                  className="w-full text-left px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-violet-300"
+                >
+                  {t.title}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {(isMobile ? mobilePane === "preview" : splitView) && (
           <div className="h-full overflow-y-auto p-5 bg-slate-900/40">
@@ -883,6 +960,25 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
           onChanged?.();
         }}
       />
+
+      {splitOpen && doc && (
+        <DocSplitModal
+          docId={docId}
+          title={doc.title}
+          content={doc.content}
+          tags={doc.tags}
+          onClose={() => setSplitOpen(false)}
+          onDone={(newMaster) => {
+            // The modal already PATCHed the master server-side; sync the
+            // editor's local state so a pending autosave can't clobber it.
+            setSplitOpen(false);
+            setDoc((d) => (d ? { ...d, content: newMaster } : d));
+            latestRef.current.content = newMaster;
+            setSaveState("clean");
+            onChanged?.();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import TagManagerModal from "./TagManagerModal";
+import { STARTER_TEMPLATES, TEMPLATE_TAG } from "@/lib/docTemplates";
 
 interface DocSummary {
   id: string;
@@ -22,6 +23,8 @@ interface DocListProps {
   // Bump-the-refresh callback so the tag manager can force a list re-fetch
   // after rename/merge/delete (every doc's tags + updated_at changed).
   onRefresh: () => void;
+  // Opens the Compose modal (owned by DocumentsTab) over the checked docs.
+  onCompose?: (ids: string[]) => void;
 }
 
 // View = a pre-built filter over the full doc list. View state persists in
@@ -91,7 +94,7 @@ function timeAgo(s: string): string {
   catch { return ""; }
 }
 
-export default function DocList({ selectedId, onSelect, onCreate, refreshKey, onRefresh }: DocListProps) {
+export default function DocList({ selectedId, onSelect, onCreate, refreshKey, onRefresh, onCompose }: DocListProps) {
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -206,6 +209,92 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
   };
 
 
+  // ─── New-from-template menu ──────────────────────────────────────────────
+  // Templates are ordinary docs tagged "template"; the ▾ menu lists them and
+  // creates a new doc from the chosen one's body. When none exist, one click
+  // seeds the starter set from lib/docTemplates.
+  const [tplMenuOpen, setTplMenuOpen] = useState(false);
+  const [tplList, setTplList] = useState<{ id: string; title: string }[] | null>(null);
+  const [tplBusy, setTplBusy] = useState(false);
+  const tplMenuRef = useRef<HTMLDivElement>(null);
+
+  const loadTemplates = () => {
+    fetch(`/api/documents?tag=${TEMPLATE_TAG}`)
+      .then((r) => r.json())
+      .then((d) => setTplList(Array.isArray(d.docs) ? d.docs.map((x: DocSummary) => ({ id: x.id, title: x.title })) : []))
+      .catch(() => setTplList([]));
+  };
+  const openTplMenu = () => {
+    setTplMenuOpen((v) => !v);
+    if (tplList === null) loadTemplates();
+  };
+  useEffect(() => {
+    if (!tplMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (tplMenuRef.current && !tplMenuRef.current.contains(e.target as Node)) setTplMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [tplMenuOpen]);
+
+  const createFromTemplate = async (tplId: string) => {
+    if (tplBusy) return;
+    setTplBusy(true);
+    try {
+      const full = await fetch(`/api/documents/${tplId}`).then((r) => r.json());
+      const content: string = full.doc?.content ?? "";
+      const tags: string[] = (full.doc?.tags ?? []).filter((t: string) => t !== TEMPLATE_TAG);
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Untitled", content, tags }),
+      });
+      const data = await res.json();
+      if (data.doc?.id) { onSelect(data.doc.id); onRefresh(); }
+      setTplMenuOpen(false);
+    } catch { /* ignore */ }
+    finally { setTplBusy(false); }
+  };
+
+  const saveOpenDocAsTemplate = async () => {
+    if (tplBusy || !selectedId) return;
+    setTplBusy(true);
+    try {
+      const full = await fetch(`/api/documents/${selectedId}`).then((r) => r.json());
+      if (full.doc) {
+        await fetch("/api/documents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: `Template: ${full.doc.title}`,
+            content: full.doc.content ?? "",
+            tags: [...new Set([...(full.doc.tags ?? []), TEMPLATE_TAG])],
+          }),
+        });
+        loadTemplates();
+        onRefresh();
+      }
+    } catch { /* ignore */ }
+    finally { setTplBusy(false); }
+  };
+
+  const createStarterTemplates = async () => {
+    if (tplBusy) return;
+    setTplBusy(true);
+    try {
+      for (const t of STARTER_TEMPLATES) {
+        await fetch("/api/documents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: t.title, content: t.content, tags: t.tags }),
+        });
+      }
+      loadTemplates();
+      onRefresh();
+    } catch { /* ignore */ }
+    finally { setTplBusy(false); }
+  };
+
   // Debounce search input so we don't fire on every keystroke.
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 200);
@@ -280,13 +369,68 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
     <div className="w-full lg:w-72 lg:flex-shrink-0 flex flex-col bg-slate-950 border-r border-slate-800 min-h-0">
       {/* Top controls */}
       <div className="p-3 border-b border-slate-800 space-y-2">
-        <button
-          onClick={onCreate}
-          className="w-full flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-md transition-all glow-green"
-        >
-          <span className="text-base leading-none">＋</span>
-          New document
-        </button>
+        <div className="relative" ref={tplMenuRef}>
+          <div className="flex">
+            <button
+              onClick={onCreate}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-l-md transition-all glow-green"
+            >
+              <span className="text-base leading-none">＋</span>
+              New document
+            </button>
+            <button
+              onClick={openTplMenu}
+              title="New from template"
+              className={`flex items-center justify-center px-2 rounded-r-md border-l text-slate-950 text-[10px] font-bold transition-all ${
+                tplMenuOpen ? "bg-emerald-400 border-emerald-600" : "bg-emerald-500 hover:bg-emerald-400 border-emerald-600/50"
+              }`}
+            >
+              ▾
+            </button>
+          </div>
+          {tplMenuOpen && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-30 overflow-hidden">
+              <div className="px-3 py-1.5 text-[9px] uppercase tracking-widest text-violet-300 border-b border-slate-800 font-bold">
+                New from template
+              </div>
+              {tplList === null && <p className="px-3 py-2 text-[11px] text-slate-500">Loading…</p>}
+              {tplList !== null && tplList.length === 0 && (
+                <div className="px-3 py-2 space-y-1.5">
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    No templates yet. Templates are docs tagged <span className="text-violet-300 font-mono">template</span>.
+                  </p>
+                  <button
+                    onClick={createStarterTemplates}
+                    disabled={tplBusy}
+                    className="w-full text-[10px] font-bold uppercase tracking-wider border border-violet-500/40 text-violet-300 hover:text-violet-200 hover:border-violet-400/60 px-2 py-1.5 rounded transition-all disabled:opacity-40"
+                  >
+                    {tplBusy ? "Creating…" : "＋ Create 6 starter templates"}
+                  </button>
+                </div>
+              )}
+              {(tplList ?? []).map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => createFromTemplate(t.id)}
+                  disabled={tplBusy}
+                  className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-violet-300 disabled:opacity-40 truncate"
+                >
+                  {t.title.replace(/^Template:\s*/i, "")}
+                </button>
+              ))}
+              {selectedId && (
+                <button
+                  onClick={saveOpenDocAsTemplate}
+                  disabled={tplBusy}
+                  title="Duplicate the open doc and tag it as a template"
+                  className="w-full text-left px-3 py-1.5 text-[10px] text-slate-500 hover:text-violet-300 hover:bg-slate-800 border-t border-slate-800 disabled:opacity-40"
+                >
+                  ⤴ Save open doc as template
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -348,6 +492,16 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
               </span>
               {view !== "archived" ? (
                 <>
+                  {onCompose && (
+                    <button
+                      onClick={() => onCompose(Array.from(selected))}
+                      disabled={bulkBusy}
+                      title="Compose — assemble the selected docs into one deliverable (.md / HTML / new doc)"
+                      className="font-bold uppercase tracking-wider border border-violet-500/40 text-violet-300 hover:text-violet-200 hover:border-violet-400/60 px-1.5 py-0.5 rounded transition-all disabled:opacity-40"
+                    >
+                      ⧉ Compose
+                    </button>
+                  )}
                   <button onClick={() => runBulk("pin")}    disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Pin</button>
                   <button onClick={() => runBulk("unpin")}  disabled={bulkBusy} className="font-bold uppercase tracking-wider border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded transition-all disabled:opacity-40">Unpin</button>
                   <button onClick={() => { setBulkMode("tag");   setBulkTagInput(""); }} disabled={bulkBusy} className={`font-bold uppercase tracking-wider border px-1.5 py-0.5 rounded transition-all disabled:opacity-40 ${bulkMode === "tag" ? "bg-violet-500/15 text-violet-300 border-violet-500/40" : "border-slate-700 hover:border-violet-500/40 text-slate-400 hover:text-violet-400"}`}>+ Tag</button>

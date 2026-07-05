@@ -567,6 +567,35 @@ confirmed from the build sandbox; `app/api/osint/gpsjam/route.ts` parses
 defensively — if the GPS layer is empty in production while gpsjam.org has data,
 match the real keys there.
 
+### Docs: Compose · Split-at-headings · Templates (`lib/composeDocs.ts`)
+Three synthesis-workflow features on the Docs tab, all built on **pure string
+math in `lib/composeDocs.ts`** (client-imported — keep it dependency-free and
+side-effect-free, same rule as `lib/airfields.ts`; unit-tested in
+`tests/composeDocs.test.ts`):
+- **Compose** (`ComposeModal.tsx`, opened from the sidebar bulk bar's
+  "⧉ Compose"): assemble checked docs into one deliverable — reorder, toggle
+  title page / ToC / link-rewrite / metadata / footnotes, preview, then
+  **Save as doc** (tagged `synthesis`), **Export .md**, or **Export HTML
+  notebook** (`renderNotebookHtml` — a fully self-contained dark-themed page;
+  markdown→HTML via the hand-rolled `miniMarkdownToHtml`, which HTML-escapes
+  BEFORE transforming, so doc content can't inject markup). `[[links]]`
+  between included docs become `#sec-N` anchors; links out become numbered
+  footnotes. Anchors are explicit `<a id="sec-N">` tags, not heading slugs.
+- **Split at headings** (`DocSplitModal.tsx`, "✂ Split" in the editor header):
+  cut one long doc into per-section docs at H1/H2/H3 (`splitAtHeadings`
+  ignores headings inside code fences). The master keeps its preamble and
+  becomes a `[[wiki-link]]` index (`buildMasterAfterSplit`; unchecked sections
+  stay inline); children open with `← part of [[Master]]` so backlinks wire
+  themselves. Before rewriting, the client POSTs
+  `/api/documents/[id]/versions` → `forceSnapshotVersion` (bypasses the 5-min
+  autosave throttle) so the split is always undoable via 📜 History.
+- **Templates**: ordinary docs tagged `template` — no schema change. Reachable
+  from the sidebar's New ▾ split-button (lists templates, "Save open doc as
+  template", one-click seed of `lib/docTemplates.ts` starters) and the editor's
+  `/template` slash command (picker inserts the chosen template's body at the
+  cursor).
+No new npm dep anywhere (esbuild stays `0`).
+
 ### Morning brief timezone (Auto-by-device, with optional pin)
 The brief computes "today", schedule day-labels, and travel weather server-side
 against one IANA zone. The client (`lib/briefingPrefetch.ts` +

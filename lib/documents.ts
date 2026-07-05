@@ -596,6 +596,32 @@ async function maybeSnapshotVersion(existing: DocumentFull): Promise<void> {
   }
 }
 
+// Force a snapshot of the doc's CURRENT state, bypassing the 5-minute
+// throttle. Used by destructive-ish operations (Split at headings) so the
+// pre-operation state is always one restore away, even when an autosave
+// snapshotted moments earlier.
+export async function forceSnapshotVersion(docId: string): Promise<boolean> {
+  const existing = await getDocument(docId);
+  if (!existing) return false;
+  const pool = await getDb();
+  await pool.execute(
+    `INSERT INTO document_versions (id, doc_id, title, content, tags, saved_at)
+     VALUES (?, ?, ?, ?, CAST(? AS JSON), ?)`,
+    [crypto.randomUUID(), existing.id, existing.title, existing.content, JSON.stringify(existing.tags), new Date()]
+  );
+  const [allRows] = await pool.query<VersionRow[]>(
+    "SELECT id FROM document_versions WHERE doc_id = ? ORDER BY saved_at DESC",
+    [existing.id]
+  );
+  if (allRows.length > MAX_VERSIONS_PER_DOC) {
+    const toDelete = allRows.slice(MAX_VERSIONS_PER_DOC).map((r) => r.id);
+    if (toDelete.length > 0) {
+      await pool.query("DELETE FROM document_versions WHERE id IN (?)", [toDelete]);
+    }
+  }
+  return true;
+}
+
 export async function listDocumentVersions(docId: string): Promise<DocumentVersion[]> {
   const pool = await getDb();
   const [rows] = await pool.query<VersionRow[]>(

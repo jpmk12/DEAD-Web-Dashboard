@@ -5,6 +5,7 @@ import DocList from "./DocList";
 import DocEditor from "./DocEditor";
 import FilesPanel from "./FilesPanel";
 import FileViewer from "./FileViewer";
+import ComposeModal from "./ComposeModal";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 const LAST_SELECTED_KEY = "docs-last-selected";
@@ -35,6 +36,9 @@ export default function DocumentsTab() {
   const [listRefreshKey, setListRefreshKey] = useState(0);
   const [filesRefreshKey, setFilesRefreshKey] = useState(0);
   const [recentDocs, setRecentDocs] = useState<DocSummary[]>([]);
+  // Compose modal — non-null while open; the ids come from the sidebar's
+  // bulk selection (selection order; reorder happens inside the modal).
+  const [composeIds, setComposeIds] = useState<string[] | null>(null);
 
   // Restore last-selected pane + ids on mount.
   useEffect(() => {
@@ -155,6 +159,7 @@ export default function DocumentsTab() {
                 onCreate={createNew}
                 refreshKey={listRefreshKey}
                 onRefresh={() => setListRefreshKey((k) => k + 1)}
+                onCompose={(ids) => setComposeIds(ids)}
               />
             )}
             {selectedId ? (
@@ -252,6 +257,18 @@ export default function DocumentsTab() {
           </>
         )}
       </div>
+
+      {composeIds && (
+        <ComposeModal
+          docIds={composeIds}
+          onClose={() => setComposeIds(null)}
+          onSaved={(newId) => {
+            setComposeIds(null);
+            select(newId);
+            setListRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

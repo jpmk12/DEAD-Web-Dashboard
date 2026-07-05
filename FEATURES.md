@@ -123,6 +123,16 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - TOC sidebar: ≣ button toggles; auto-extracted from `#…` headings, click to jump cursor + scroll
 - Per-doc chat: 💬 Ask button opens a streaming panel scoped to just this doc; new feature toggle `doc_chat`
 - Word count / read time strip at the bottom
+- **✂ Split at headings**: break one long doc into per-section docs at H1/H2/H3 (fence-aware). Master keeps its preamble and becomes a `[[wiki-link]]` index; unchecked sections stay inline; children open with `← part of [[Master]]`. Pre-split state force-snapshotted to version history (`POST /api/documents/:id/versions`).
+- **/template slash command**: inline picker of docs tagged `template`; inserts the chosen template's body at the cursor.
+
+#### Compose (multi-doc → one deliverable)
+- Sidebar bulk bar gains **⧉ Compose** over the checked docs: reorder (↑/↓/remove), toggle title page / generated ToC / `[[link]]`→anchor rewriting / per-section metadata / footnote-links-out, live preview.
+- Outputs: **Save as doc** (new doc tagged `synthesis`), **Export .md** (single file), **Export HTML notebook** (self-contained dark-themed page, no external assets — shareable offline).
+- Engine: pure `lib/composeDocs.ts` (`compileDocs` / `splitAtHeadings` / `buildMasterAfterSplit` / `miniMarkdownToHtml` / `renderNotebookHtml`), unit-tested; no new dependency.
+
+#### Templates
+- Templates are ordinary docs tagged `template` (zero schema). New ▾ split-button on "New document": lists templates, **Save open doc as template**, and a one-click **starter set** (`lib/docTemplates.ts`: theorist card, debate, thread, comps answer, trip report, decision log).
 
 #### Sidebar
 - Search (FULLTEXT for ≥3 chars, LIKE for shorter)
