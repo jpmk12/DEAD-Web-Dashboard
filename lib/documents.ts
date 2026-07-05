@@ -668,6 +668,147 @@ export async function bulkSetCollection(ids: string[], collection: string | null
   return { affected: res.affectedRows };
 }
 
+// ─── Local graph (doc ± N hops over doc-edges) ──────────────────────────────
+
+export interface DocGraphPayload {
+  nodes: { id: string; title: string; docType: string; depth: 0 | 1 | 2 }[];
+  edges: { from: string; to: string; relation: string | null; note: string | null }[];
+}
+
+const GRAPH_NODE_CAP = 60;
+
+// Walk document_links doc-edges out from `centerId` (both directions count as
+// neighbourhood), 1 or 2 hops, capped so a hub doc can't explode the render.
+export async function getDocGraph(centerId: string, depth: 1 | 2): Promise<DocGraphPayload | null> {
+  const centre = await getDocument(centerId);
+  if (!centre) return null;
+  const pool = await getDb();
+
+  const depthOf = new Map<string, 0 | 1 | 2>([[centerId, 0]]);
+  const edges: DocGraphPayload["edges"] = [];
+  const seenEdge = new Set<string>();
+
+  let frontier = [centerId];
+  for (let hop = 1 as 1 | 2; hop <= depth; hop = (hop + 1) as 1 | 2) {
+    if (frontier.length === 0) break;
+    const [rows] = await pool.query<LinkRow[]>(
+      `SELECT doc_id, target_id, relation, note FROM document_links
+       WHERE target_type = 'doc' AND (doc_id IN (?) OR target_id IN (?))`,
+      [frontier, frontier]
+    );
+    const next: string[] = [];
+    for (const r of rows) {
+      const key = `${r.doc_id}→${r.target_id}`;
+      if (!seenEdge.has(key)) {
+        seenEdge.add(key);
+        edges.push({ from: r.doc_id, to: r.target_id, relation: r.relation ?? null, note: r.note ?? null });
+      }
+      for (const id of [r.doc_id, r.target_id]) {
+        if (!depthOf.has(id) && depthOf.size < GRAPH_NODE_CAP) {
+          depthOf.set(id, hop);
+          next.push(id);
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  const ids = [...depthOf.keys()];
+  const [docRows] = await pool.query<DocRow[]>(
+    `SELECT id, title, doc_type, created_at, updated_at, pinned FROM documents WHERE id IN (?)`,
+    [ids]
+  );
+  const known = new Set(docRows.map((r) => r.id));
+  return {
+    nodes: docRows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      docType: r.doc_type || "note",
+      depth: depthOf.get(r.id) ?? 2,
+    })),
+    // Drop edges whose endpoint fell past the node cap or was deleted.
+    edges: edges.filter((e) => known.has(e.from) && known.has(e.to)),
+  };
+}
+
+// ─── Lexicon (≔ term docs as a glossary) ─────────────────────────────────────
+
+export interface LexiconEntry {
+  id: string;
+  title: string;
+  definition: string;
+  props: Record<string, string>;
+  linkCount: number;
+  owner: { id: string; title: string } | null;
+}
+
+// Every term doc with its first-paragraph definition, link count, and owner.
+// Owner resolution: explicit props.owner (matched by title, case-insensitive)
+// wins; otherwise the theorist doc most connected to the term.
+export async function getLexicon(termDefinitionFn: (content: string) => string): Promise<LexiconEntry[]> {
+  const pool = await getDb();
+  const [terms] = await pool.query<DocRow[]>(
+    `SELECT id, title, content, tags, aliases, collection, doc_type, props, pinned, archived, created_at, updated_at
+     FROM documents WHERE doc_type = 'term' AND archived = 0 ORDER BY title`
+  );
+  if (terms.length === 0) return [];
+  const termIds = terms.map((t) => t.id);
+
+  const [linkRows] = await pool.query<LinkRow[]>(
+    `SELECT doc_id, target_id, relation FROM document_links
+     WHERE target_type = 'doc' AND (doc_id IN (?) OR target_id IN (?))`,
+    [termIds, termIds]
+  );
+  // Neighbour tallies per term.
+  const neighbours = new Map<string, Map<string, number>>();
+  const linkCount = new Map<string, number>();
+  for (const r of linkRows) {
+    for (const [self, other] of [[r.doc_id, r.target_id], [r.target_id, r.doc_id]] as const) {
+      if (!termIds.includes(self)) continue;
+      linkCount.set(self, (linkCount.get(self) ?? 0) + 1);
+      const m = neighbours.get(self) ?? new Map<string, number>();
+      m.set(other, (m.get(other) ?? 0) + 1);
+      neighbours.set(self, m);
+    }
+  }
+  const neighbourIds = [...new Set(linkRows.flatMap((r) => [r.doc_id, r.target_id]))];
+  const neighbourDocs = new Map<string, { title: string; docType: string }>();
+  if (neighbourIds.length > 0) {
+    const [rows] = await pool.query<DocRow[]>(
+      `SELECT id, title, doc_type FROM documents WHERE id IN (?)`,
+      [neighbourIds]
+    );
+    for (const r of rows) neighbourDocs.set(r.id, { title: r.title, docType: r.doc_type || "note" });
+  }
+
+  return terms.map((t) => {
+    const props = asProps(t.props);
+    let owner: LexiconEntry["owner"] = null;
+    const explicit = props.owner?.trim().toLowerCase();
+    if (explicit) {
+      for (const [id, d] of neighbourDocs) {
+        if (d.title.toLowerCase() === explicit) { owner = { id, title: d.title }; break; }
+      }
+      // Explicit owner that isn't a linked doc still shows as a plain label.
+      if (!owner) owner = { id: "", title: props.owner };
+    } else {
+      let best = 0;
+      for (const [id, n] of neighbours.get(t.id) ?? []) {
+        const d = neighbourDocs.get(id);
+        if (d?.docType === "theorist" && n > best) { best = n; owner = { id, title: d.title }; }
+      }
+    }
+    return {
+      id: t.id,
+      title: t.title,
+      definition: termDefinitionFn(t.content ?? ""),
+      props,
+      linkCount: linkCount.get(t.id) ?? 0,
+      owner,
+    };
+  });
+}
+
 // ─── Version history ─────────────────────────────────────────────────────────
 //
 // Each meaningful update snapshots the PRE-edit state into document_versions.

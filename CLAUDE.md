@@ -655,6 +655,32 @@ Phase 3 of the synthesis workflow. Three additive `documents` columns:
   `type:theorist` → type filter, remainder → server FULLTEXT. Export
   frontmatter now emits aliases/type/collection/props (omitted when empty).
 
+### Docs: local graph · lexicon · thread timelines (the payoff layer)
+Phase 4 of the synthesis workflow, built on phases 1–3:
+- **Local graph** (`DocGraphModal.tsx`, "◉ Graph" in the editor header):
+  `/api/documents/graph?id=&depth=1|2` walks `document_links` doc-edges both
+  directions (node cap 60) → `layoutGraph` (`lib/docGraph.ts`, PURE, tested)
+  places nodes on **deterministic concentric rings** — deliberately NOT
+  force-directed (no dependency, no jiggle, same doc → same picture). Node
+  ring colour = doc type (`DOC_TYPES[].hex` — raw hex because SVG strokes
+  can't take Tailwind classes), edge colour = relation (`RELATION_HEX`),
+  dashed = plain link. Click opens, double-click re-centres, ±1/±2 hops,
+  labels toggle, hover shows the node's edges in the side rail.
+- **Lexicon** (`LexiconPanel.tsx`, third chip on the Docs/Files toggle):
+  `/api/documents/lexicon` → `getLexicon()` returns every `doc_type='term'`
+  doc with a first-paragraph definition (`termDefinition`, pure, skips
+  headings/lists/`← part of` breadcrumbs), link count, and **owner** —
+  explicit `props.owner` wins, else the term's most-linked theorist
+  neighbour. A–Z jump bar + course chips (from `props.course`).
+- **Thread timelines** (`MarkdownPreview` + `parseThreadTrace` in
+  `lib/threadTrace.ts`, PURE, tested): in a 🧵 thread doc, the ordered list
+  under a "Trace" heading renders as a vertical timeline — numbered stops,
+  clickable wiki buttons, relation chips, glosses from the "— suffix".
+  Markdown unchanged (Compose/export see a plain list). Docs containing task
+  checkboxes render normally — the pre/post split would break
+  `data-task-line` offsets, and task toggling wins over the fancy view.
+No new npm dep (esbuild stays `0`).
+
 ### Morning brief timezone (Auto-by-device, with optional pin)
 The brief computes "today", schedule day-labels, and travel weather server-side
 against one IANA zone. The client (`lib/briefingPrefetch.ts` +

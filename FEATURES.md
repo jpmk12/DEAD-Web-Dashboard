@@ -144,6 +144,11 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **Doc types** (`documents.doc_type`, vocabulary in `lib/docTypes.ts`): note / theorist / debate / thread / case / term / synthesis — one glyph + colour each. Type badge in the editor, icons on sidebar rows, multi-select filter chips. Typed templates pre-set type + property keys.
 - **Properties** (`documents.props` JSON): key:value facets (era, course, domain…) edited in the ⚙ panel; clicking a value filters the sidebar to `key:value`. Search grammar: `course:600` (property), `type:theorist` (type), plain words → FULLTEXT. Round-trip through export frontmatter.
 
+#### Graph · Lexicon · Threads
+- **◉ Graph** (editor header): the doc's link neighbourhood ±1–2 hops (`/api/documents/graph`), concentric-ring SVG layout (`lib/docGraph.ts`). Node colour = type, edge colour = relation, dashed = plain link; click opens, double-click re-centres.
+- **≔ Lexicon** (third pane chip): all term docs as a glossary — first-paragraph definition, owner (`props.owner` or most-linked theorist), link count, A–Z jump bar, course chips (`/api/documents/lexicon`).
+- **🧵 Thread timelines**: a thread doc's ordered list under a "Trace" heading renders as a clickable vertical timeline (relation chips carried through); markdown source unchanged.
+
 #### Sidebar
 - Search (FULLTEXT for ≥3 chars, LIKE for shorter; `key:value` + `type:x` tokens filter properties/types client-side)
 - **Smart views** (persisted to localStorage + URL hash): All / Pinned / Recent (7d) / Stale (30d+) / Untagged / From email / From OSINT / From news / Action items / Archived. Each shows count in parens.

@@ -2,11 +2,14 @@
 
 import React from "react";
 import { parseWikiInner, RELATION_GLYPHS, RELATION_CLASSES, type LinkRelation } from "@/lib/linkRelations";
+import { parseThreadTrace, type TraceStop } from "@/lib/threadTrace";
 
 interface MarkdownPreviewProps {
   text: string;
   onWikiLink?: (title: string) => void;
   onTaskToggle?: (lineIndex: number, checked: boolean) => void;
+  // The doc's type; "thread" docs render their Trace list as a timeline.
+  docType?: string;
 }
 
 // ─── Hover-preview data layer ────────────────────────────────────────────────
@@ -269,14 +272,50 @@ function renderBlocks(text: string): string {
   return out.join("\n");
 }
 
-export default function MarkdownPreview({ text, onWikiLink, onTaskToggle }: MarkdownPreviewProps) {
+// Timeline HTML for a 🧵 thread doc's Trace list: numbered stops on a rail,
+// clickable wiki buttons, relation chips, glosses. All user text escaped.
+function threadTimelineHtml(stops: TraceStop[]): string {
+  const items = stops.map((s, i) => {
+    const relChip = s.relation
+      ? `<span class="text-[9px] font-bold px-1 rounded border align-middle ml-1.5 ${RELATION_CLASSES[s.relation]}">${RELATION_GLYPHS[s.relation]} ${esc(s.relation)}</span>`
+      : "";
+    const head = s.title
+      ? `<button data-wiki="${esc(s.title)}" class="text-violet-300 hover:text-violet-200 font-semibold text-[13px]">${esc(s.title)}</button>${relChip}`
+      : `<span class="text-slate-200 font-semibold text-[13px]">${esc(s.gloss)}</span>`;
+    const gloss = s.title && (s.gloss || s.note)
+      ? `<div class="text-xs text-slate-400 leading-relaxed mt-0.5">${inline(s.gloss || s.note || "")}</div>`
+      : "";
+    return (
+      `<div class="relative bg-slate-900/60 border border-slate-800 rounded-lg px-3.5 py-2.5">` +
+        `<span class="absolute -left-[28px] top-3.5 w-3 h-3 rounded-full bg-slate-950 border-2 border-violet-400"></span>` +
+        `<span class="absolute -left-[52px] top-3 text-[10px] font-bold text-slate-600 w-4 text-right">${i + 1}</span>` +
+        head + gloss +
+      `</div>`
+    );
+  }).join("");
+  return `<div class="my-3 ml-12 pl-5 border-l-2 border-violet-500/35 space-y-3">${items}</div>`;
+}
+
+export default function MarkdownPreview({ text, onWikiLink, onTaskToggle, docType }: MarkdownPreviewProps) {
   // We render via dangerouslySetInnerHTML because we want inline code-block,
   // wiki-link, and task-checkbox nodes inline; all user-supplied content is
   // HTML-escaped above via esc() before any tag scaffolding. Each interactive
   // node (wiki button, task checkbox) carries its identifier on a data-
   // attribute and is picked up by the delegated click/change handlers below
   // so React state updates flow correctly.
-  const html = React.useMemo(() => renderBlocks(text), [text]);
+  //
+  // Thread docs get one extra render rule: the ordered list under a "Trace"
+  // heading becomes a timeline. The timeline splits the source into pre/post
+  // segments, which would break data-task-line indices (they're offsets into
+  // the FULL source), so any doc containing task checkboxes renders the
+  // normal way — correctness of task toggling beats the fancy view.
+  const html = React.useMemo(() => {
+    if (docType === "thread" && !/^\s*[-*]\s+\[[ xX]\]/m.test(text)) {
+      const t = parseThreadTrace(text);
+      if (t) return renderBlocks(t.pre) + threadTimelineHtml(t.stops) + renderBlocks(t.post);
+    }
+    return renderBlocks(text);
+  }, [text, docType]);
 
   // Hover preview card for wiki links: delegated mouseover on the container,
   // positioned under the hovered link. A sequence counter guards against a

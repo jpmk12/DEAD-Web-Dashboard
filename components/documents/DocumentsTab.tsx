@@ -6,6 +6,7 @@ import DocEditor from "./DocEditor";
 import FilesPanel from "./FilesPanel";
 import FileViewer from "./FileViewer";
 import ComposeModal from "./ComposeModal";
+import LexiconPanel from "./LexiconPanel";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 const LAST_SELECTED_KEY = "docs-last-selected";
@@ -20,7 +21,7 @@ interface DocSummary {
   pinned?: boolean;
 }
 
-type Pane = "docs" | "files";
+type Pane = "docs" | "files" | "lexicon";
 
 // Orchestrates the sidebar list + main editor across two surfaces — docs
 // and files. The top of the sidebar toggles between them; the rest of the
@@ -44,7 +45,7 @@ export default function DocumentsTab() {
   useEffect(() => {
     try {
       const lastPane = localStorage.getItem(LAST_PANE_KEY);
-      if (lastPane === "docs" || lastPane === "files") setPane(lastPane);
+      if (lastPane === "docs" || lastPane === "files" || lastPane === "lexicon") setPane(lastPane);
       const v = localStorage.getItem(LAST_SELECTED_KEY);
       if (v) setSelectedId(v);
       const f = localStorage.getItem(LAST_FILE_KEY);
@@ -147,13 +148,27 @@ export default function DocumentsTab() {
         >
           📁 Files
         </button>
+        <button
+          onClick={() => switchPane("lexicon")}
+          className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded border transition-all ${
+            pane === "lexicon"
+              ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+              : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"
+          }`}
+        >
+          ≔ Lexicon
+        </button>
         <span className="text-[10px] text-slate-700 font-mono ml-2">
-          {pane === "docs" ? "Markdown notes with wiki-links + version history" : "Uploaded files for safekeeping (30 MB per file)"}
+          {pane === "docs" ? "Markdown notes with wiki-links + version history"
+           : pane === "files" ? "Uploaded files for safekeeping (30 MB per file)"
+           : "Every ≔ term doc as a browsable glossary"}
         </span>
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {pane === "docs" ? (
+        {pane === "lexicon" ? (
+          <LexiconPanel onOpenDoc={(id) => { switchPane("docs"); select(id); }} />
+        ) : pane === "docs" ? (
           <>
             {!(isMobile && selectedId) && (
               <DocList

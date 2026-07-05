@@ -8,6 +8,7 @@ import DocToolbar from "./DocToolbar";
 import DocTOC from "./DocTOC";
 import DocHistoryModal from "./DocHistoryModal";
 import DocSplitModal from "./DocSplitModal";
+import DocGraphModal from "./DocGraphModal";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { findUnlinkedMentions, linkifyMention, type MentionCandidate, type UnlinkedMention } from "@/lib/docMentions";
 import { RELATION_GLYPHS, RELATION_CLASSES, type LinkRelation } from "@/lib/linkRelations";
@@ -122,6 +123,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [mobilePane, setMobilePane] = useState<"editor" | "preview" | "toc" | "chat">("editor");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   // /template picker: insertion position captured when the slash command was
   // chosen; the list is docs tagged "template", fetched when the picker opens.
   const [tplPicker, setTplPicker] = useState<{ pos: number } | null>(null);
@@ -825,6 +827,13 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             >
               ✂ Split
             </button>
+            <button
+              onClick={() => setGraphOpen(true)}
+              title="Graph — this doc's link neighbourhood (±1–2 hops)"
+              className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
+            >
+              ◉ Graph
+            </button>
             <a
               href={`/api/documents/${docId}/export`}
               download
@@ -1234,7 +1243,7 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
         </div>
         {(isMobile ? mobilePane === "preview" : splitView) && (
           <div className="h-full overflow-y-auto p-5 bg-slate-900/40">
-            <MarkdownPreview text={doc.content} onWikiLink={onOpenByTitle} onTaskToggle={onTaskToggle} />
+            <MarkdownPreview text={doc.content} onWikiLink={onOpenByTitle} onTaskToggle={onTaskToggle} docType={doc.docType} />
           </div>
         )}
         {(isMobile ? mobilePane === "chat" : chatOpen) && (
@@ -1365,6 +1374,14 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
           onChanged?.();
         }}
       />
+
+      {graphOpen && (
+        <DocGraphModal
+          docId={docId}
+          onClose={() => setGraphOpen(false)}
+          onOpenDoc={(id) => { if (id !== docId) onOpenById?.(id); }}
+        />
+      )}
 
       {splitOpen && doc && (
         <DocSplitModal

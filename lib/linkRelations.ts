@@ -32,6 +32,17 @@ export const RELATION_GLYPHS: Record<LinkRelation, string> = {
   "see-also": "↪",
 };
 
+// Raw colours for SVG edges in the local graph (utility classes don't apply
+// to SVG stroke attributes).
+export const RELATION_HEX: Record<LinkRelation, string> = {
+  supports: "#34d399",
+  contradicts: "#f87171",
+  extends: "#38bdf8",
+  defines: "#fbbf24",
+  "example-of": "#a78bfa",
+  "see-also": "#94a3b8",
+};
+
 // Tailwind classes for the superscript relation chip in the doc preview.
 export const RELATION_CLASSES: Record<LinkRelation, string> = {
   supports: "text-emerald-300 bg-emerald-500/10 border-emerald-500/40",
