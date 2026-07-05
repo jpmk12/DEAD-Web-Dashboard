@@ -18,10 +18,19 @@ export function buildMarkdownExport(doc: DocumentFull): string {
   const tagsLine = doc.tags.length > 0
     ? `tags: [${doc.tags.map(escapeYaml).join(", ")}]`
     : `tags: []`;
+  const propKeys = Object.keys(doc.props ?? {});
   const frontmatter = [
     "---",
     `title: ${escapeYaml(doc.title)}`,
     tagsLine,
+    // Optional organizational metadata — emitted only when meaningful so
+    // plain notes keep a minimal header.
+    ...(doc.aliases.length > 0 ? [`aliases: [${doc.aliases.map(escapeYaml).join(", ")}]`] : []),
+    ...(doc.docType && doc.docType !== "note" ? [`type: ${escapeYaml(doc.docType)}`] : []),
+    ...(doc.collection ? [`collection: ${escapeYaml(doc.collection)}`] : []),
+    ...(propKeys.length > 0
+      ? ["props:", ...propKeys.map((k) => `  ${escapeYaml(k)}: ${escapeYaml(doc.props[k])}`)]
+      : []),
     `pinned: ${doc.pinned ? "true" : "false"}`,
     `archived: ${doc.archived ? "true" : "false"}`,
     `created: ${doc.createdAt}`,

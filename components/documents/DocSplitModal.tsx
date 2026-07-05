@@ -8,6 +8,8 @@ interface DocSplitModalProps {
   title: string;
   content: string;
   tags: string[];
+  // Children inherit the master's collection so the split set stays together.
+  collection: string | null;
   onClose: () => void;
   // Fired after the split completes: (newMasterContent) so the editor can
   // refresh in place; the parent also bumps the sidebar list.
@@ -20,7 +22,7 @@ type Level = 1 | 2 | 3;
 // master keeps its preamble and becomes an index of [[wiki-links]] (sections
 // left unchecked stay inline). The pre-split master is force-snapshotted to
 // version history first, so the operation is fully undoable via 📜 History.
-export default function DocSplitModal({ docId, title, content, tags, onClose, onDone }: DocSplitModalProps) {
+export default function DocSplitModal({ docId, title, content, tags, collection, onClose, onDone }: DocSplitModalProps) {
   const [level, setLevel] = useState<Level>(2);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [tagInput, setTagInput] = useState(tags.filter((t) => t !== "template").join(", "));
@@ -71,6 +73,7 @@ export default function DocSplitModal({ docId, title, content, tags, onClose, on
             title: s.title,
             content: `← part of [[${title}]]\n\n${s.body}`.trimEnd() + "\n",
             tags: newTags,
+            collection,
           }),
         });
         if (!res.ok) throw new Error(`Failed creating "${s.title}"`);

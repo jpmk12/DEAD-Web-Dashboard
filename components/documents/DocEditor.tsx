@@ -11,6 +11,7 @@ import DocSplitModal from "./DocSplitModal";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { findUnlinkedMentions, linkifyMention, type MentionCandidate, type UnlinkedMention } from "@/lib/docMentions";
 import { RELATION_GLYPHS, RELATION_CLASSES, type LinkRelation } from "@/lib/linkRelations";
+import { DOC_TYPES, docTypeMeta } from "@/lib/docTypes";
 
 interface DocFull {
   id: string;
@@ -18,6 +19,9 @@ interface DocFull {
   content: string;
   tags: string[];
   aliases: string[];
+  collection: string | null;
+  docType: string;
+  props: Record<string, string>;
   pinned: boolean;
   archived?: boolean;
   createdAt: string;
@@ -96,6 +100,14 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [tagInput, setTagInput] = useState("");
   const [aliasInput, setAliasInput] = useState("");
   const [aliasEditorOpen, setAliasEditorOpen] = useState(false);
+  // Type badge dropdown + collection picker + properties panel.
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [collMenuOpen, setCollMenuOpen] = useState(false);
+  const [newCollInput, setNewCollInput] = useState("");
+  const [knownCollections, setKnownCollections] = useState<string[]>([]);
+  const [propsOpen, setPropsOpen] = useState(false);
+  const [propKeyInput, setPropKeyInput] = useState("");
+  const [propValInput, setPropValInput] = useState("");
   // Unlinked mentions: the name index (all docs' titles+aliases) + per-doc
   // dismissed names (localStorage) → scan runs client-side over the content.
   const [mentionIndex, setMentionIndex] = useState<MentionCandidate[] | null>(null);
@@ -549,6 +561,66 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     onChanged?.();
   };
 
+  // ─── Type / collection / properties ─────────────────────────────────────
+  const setDocType = async (key: string) => {
+    if (!doc) return;
+    setTypeMenuOpen(false);
+    if (key === doc.docType) return;
+    setDoc({ ...doc, docType: key });
+    await fetch(`/api/documents/${docId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ docType: key }),
+    }).catch(() => {});
+    onChanged?.();
+  };
+
+  const setCollection = async (collection: string | null) => {
+    if (!doc) return;
+    setCollMenuOpen(false);
+    setNewCollInput("");
+    if (collection === doc.collection) return;
+    setDoc({ ...doc, collection });
+    await fetch(`/api/documents/${docId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collection }),
+    }).catch(() => {});
+    onChanged?.();
+  };
+
+  const saveProps = async (props: Record<string, string>) => {
+    if (!doc) return;
+    setDoc({ ...doc, props });
+    await fetch(`/api/documents/${docId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ props }),
+    }).catch(() => {});
+    onChanged?.();
+  };
+  const addProp = () => {
+    const k = propKeyInput.trim();
+    if (!doc || !k) return;
+    saveProps({ ...doc.props, [k]: propValInput.trim() });
+    setPropKeyInput("");
+    setPropValInput("");
+  };
+  const removeProp = (k: string) => {
+    if (!doc) return;
+    const next = { ...doc.props };
+    delete next[k];
+    saveProps(next);
+  };
+  // Clicking a property value filters the sidebar to key:value — same
+  // faceted browse as the notebook's Map tab. Delivered over a window event
+  // so the editor doesn't need a prop drilled through DocumentsTab.
+  const filterByProp = (k: string, v: string) => {
+    try {
+      window.dispatchEvent(new CustomEvent("docs:search", { detail: `${k}:${v.split(/\s/)[0]}` }));
+    } catch { /* noop */ }
+  };
+
   // ─── Unlinked mentions ──────────────────────────────────────────────────
   const MENTION_DISMISS_KEY = `docs-mention-dismissed:${docId}`;
   useEffect(() => {
@@ -559,8 +631,9 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     fetch("/api/documents/titles")
       .then((r) => r.json())
       .then((d) => {
-        const docs: { id: string; title: string; aliases: string[] }[] = Array.isArray(d.docs) ? d.docs : [];
+        const docs: { id: string; title: string; aliases: string[]; collection?: string | null }[] = Array.isArray(d.docs) ? d.docs : [];
         setMentionIndex(docs.map((x) => ({ id: x.id, title: x.title, names: [x.title, ...(x.aliases ?? [])] })));
+        setKnownCollections([...new Set(docs.map((x) => x.collection).filter((c): c is string => !!c))].sort());
       })
       .catch(() => setMentionIndex([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -779,6 +852,106 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
 
         {/* Tags row */}
         <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Doc type badge — one kind per doc, one glyph per kind. */}
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => { setTypeMenuOpen((v) => !v); setCollMenuOpen(false); }}
+              title="Doc type — drives the sidebar icon + type filter"
+              className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md border transition-all ${
+                doc.docType !== "note"
+                  ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                  : "border-slate-700 text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              <span className={docTypeMeta(doc.docType).color}>{docTypeMeta(doc.docType).icon}</span>
+              {docTypeMeta(doc.docType).label} ▾
+            </button>
+            {typeMenuOpen && (
+              <div className="absolute top-full left-0 mt-1 w-40 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-30 overflow-hidden">
+                {DOC_TYPES.map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setDocType(t.key)}
+                    className={`w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs transition-colors ${
+                      doc.docType === t.key ? "bg-slate-800 text-slate-100" : "text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    <span className={t.color}>{t.icon}</span>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Collection picker — one-level grouping; typing a new name creates it. */}
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => { setCollMenuOpen((v) => !v); setTypeMenuOpen(false); }}
+              title="Collection — groups this doc in the sidebar"
+              className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border transition-all ${
+                doc.collection
+                  ? "border-sky-500/30 bg-slate-800/60 text-slate-200"
+                  : "border-slate-700 text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              ▤ {doc.collection ?? "No collection"} ▾
+            </button>
+            {collMenuOpen && (
+              <div className="absolute top-full left-0 mt-1 w-56 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-30 overflow-hidden">
+                <button
+                  onClick={() => setCollection(null)}
+                  className="w-full text-left px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+                >
+                  — No collection
+                </button>
+                {knownCollections.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCollection(c)}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                      doc.collection === c ? "bg-slate-800 text-sky-300" : "text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    ▤ {c}
+                  </button>
+                ))}
+                <div className="flex items-center gap-1 border-t border-slate-800 px-2 py-1.5">
+                  <input
+                    value={newCollInput}
+                    onChange={(e) => setNewCollInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newCollInput.trim()) { e.preventDefault(); setCollection(newCollInput.trim()); }
+                      if (e.key === "Escape") setCollMenuOpen(false);
+                    }}
+                    placeholder="＋ New collection…"
+                    className="flex-1 min-w-0 bg-slate-950 border border-slate-800 focus:border-sky-500/40 rounded px-2 py-1 text-[11px] text-slate-200 placeholder-slate-600 outline-none"
+                  />
+                  <button
+                    onClick={() => newCollInput.trim() && setCollection(newCollInput.trim())}
+                    disabled={!newCollInput.trim()}
+                    className="text-[9px] font-bold uppercase tracking-wider bg-sky-500/20 border border-sky-500/40 text-sky-300 px-1.5 py-1 rounded disabled:opacity-30"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Properties toggle — key:value facets, filterable from search. */}
+          <button
+            onClick={() => setPropsOpen((v) => !v)}
+            title="Properties — key:value metadata (era, course, …); click a value to filter the sidebar"
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all flex-shrink-0 ${
+              propsOpen || Object.keys(doc.props).length > 0
+                ? "text-amber-300 border-amber-500/40 bg-amber-500/10"
+                : "text-slate-600 border-slate-800 hover:text-slate-400 hover:border-slate-600"
+            }`}
+          >
+            ⚙ {Object.keys(doc.props).length > 0 ? Object.keys(doc.props).length : "props"}
+          </button>
+
           {doc.tags.map((t) => (
             <span key={t} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-300 border border-violet-500/30">
               {t}
@@ -830,6 +1003,50 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             </>
           )}
         </div>
+
+        {/* Properties panel — key:value rows; clicking a value filters the
+            sidebar to key:value (faceted browse). */}
+        {propsOpen && (
+          <div className="mt-2 border border-slate-800 rounded-lg overflow-hidden">
+            {Object.entries(doc.props).map(([k, v]) => (
+              <div key={k} className="flex items-center border-b border-slate-800/60 last:border-b-0">
+                <span className="w-32 flex-shrink-0 px-3 py-1.5 text-[11px] font-mono text-slate-500 border-r border-slate-800/60 truncate" title={k}>{k}</span>
+                <button
+                  onClick={() => v && filterByProp(k, v)}
+                  title={v ? `Filter sidebar to ${k}:${v.split(/\s/)[0]}` : "Empty — edit below"}
+                  className={`flex-1 text-left px-3 py-1.5 text-[11.5px] truncate ${v ? "text-slate-200 hover:text-sky-300" : "text-slate-700 italic"}`}
+                >
+                  {v ? <span className="border-b border-dashed border-slate-600">{v}</span> : "empty"}
+                </button>
+                <button onClick={() => removeProp(k)} title="Remove property" className="px-2.5 text-slate-600 hover:text-red-400 text-xs">×</button>
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-900/40">
+              <input
+                value={propKeyInput}
+                onChange={(e) => setPropKeyInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addProp(); } }}
+                placeholder="key"
+                className="w-28 bg-slate-950 border border-slate-800 focus:border-amber-500/40 rounded px-2 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-700 outline-none"
+              />
+              <span className="text-slate-700 text-[11px]">:</span>
+              <input
+                value={propValInput}
+                onChange={(e) => setPropValInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addProp(); } }}
+                placeholder="value"
+                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500/40 rounded px-2 py-1 text-[11px] text-slate-200 placeholder-slate-700 outline-none"
+              />
+              <button
+                onClick={addProp}
+                disabled={!propKeyInput.trim()}
+                className="text-[9px] font-bold uppercase tracking-wider bg-amber-500/15 border border-amber-500/40 text-amber-300 px-2 py-1 rounded disabled:opacity-30"
+              >
+                ＋
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Layout columns, in order from left to right:
@@ -1155,6 +1372,7 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
           title={doc.title}
           content={doc.content}
           tags={doc.tags}
+          collection={doc.collection}
           onClose={() => setSplitOpen(false)}
           onDone={(newMaster) => {
             // The modal already PATCHed the master server-side; sync the

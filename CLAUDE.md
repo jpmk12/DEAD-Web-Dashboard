@@ -628,6 +628,33 @@ Phase 2 of the synthesis workflow (`lib/linkRelations.ts` + `lib/docMentions.ts`
   "click to create".
 No new npm dep (esbuild stays `0`).
 
+### Docs: collections · doc types · properties (the organizational spine)
+Phase 3 of the synthesis workflow. Three additive `documents` columns:
+`collection VARCHAR(64) NULL`, `doc_type VARCHAR(16) DEFAULT 'note'`,
+`props JSON NULL`.
+- **Collections** are a plain name column — NO join table. Rename = one
+  UPDATE (`bulkSetCollection`); "delete" = docs fall back to "No collection".
+  Sidebar groups client-side under collapsible headers (named A→Z, ungrouped
+  last, pinned float within group; fold state in localStorage). **When no doc
+  has a collection the sidebar stays the flat Pinned/other layout** — headers
+  only appear once collections exist. Bulk bar "▤ Move" assigns (datalist of
+  existing names; empty = clear); the editor has a per-doc picker whose
+  "＋ New collection…" input creates by naming. Split children inherit the
+  master's collection.
+- **Doc types** (`lib/docTypes.ts`, pure): note/theorist/debate/thread/case/
+  term/synthesis — one glyph + one colour each, same vocabulary discipline as
+  `lib/icons.tsx`. Type badge in the editor tags row; icon on sidebar rows
+  (notes stay bare); multi-select filter chips (only types that exist get a
+  chip). Typed templates (`docTemplates.ts` now carries `docType` + `props`)
+  pre-set both on create-from-template.
+- **Properties** (`props` key:value, capped 20×40×200 via `asProps`): edited
+  in a ⚙ panel in the editor header; **clicking a value filters the sidebar**
+  via a `docs:search` window CustomEvent (no prop drilling). Search grammar
+  (`lib/docSearch.ts`, pure, tested): `key:value` tokens split client-side —
+  `course:600` → property filter (case-insensitive substring),
+  `type:theorist` → type filter, remainder → server FULLTEXT. Export
+  frontmatter now emits aliases/type/collection/props (omitted when empty).
+
 ### Morning brief timezone (Auto-by-device, with optional pin)
 The brief computes "today", schedule day-labels, and travel weather server-side
 against one IANA zone. The client (`lib/briefingPrefetch.ts` +

@@ -172,6 +172,9 @@ const SCHEMA_STATEMENTS = [
     content    MEDIUMTEXT   NOT NULL,
     tags       JSON         NOT NULL,
     aliases    JSON         NULL,
+    collection VARCHAR(64)  NULL,                       -- one-level grouping; NULL = "No collection"
+    doc_type   VARCHAR(16)  NOT NULL DEFAULT 'note',    -- lib/docTypes.ts vocabulary
+    props      JSON         NULL,                       -- key:value properties (era, course, …)
     pinned     TINYINT(1)   NOT NULL DEFAULT 0,
     created_at DATETIME(3)  NOT NULL,
     updated_at DATETIME(3)  NOT NULL,
@@ -316,6 +319,9 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "acled_password",            ddl: "ALTER TABLE user_prefs ADD COLUMN acled_password TEXT NULL" },
   { table: "user_prefs",  column: "timezone_mode",             ddl: "ALTER TABLE user_prefs ADD COLUMN timezone_mode VARCHAR(16) NOT NULL DEFAULT 'auto'" },
   { table: "documents",       column: "aliases",  ddl: "ALTER TABLE documents ADD COLUMN aliases JSON NULL" },
+  { table: "documents",       column: "collection", ddl: "ALTER TABLE documents ADD COLUMN collection VARCHAR(64) NULL" },
+  { table: "documents",       column: "doc_type",   ddl: "ALTER TABLE documents ADD COLUMN doc_type VARCHAR(16) NOT NULL DEFAULT 'note'" },
+  { table: "documents",       column: "props",      ddl: "ALTER TABLE documents ADD COLUMN props JSON NULL" },
   { table: "document_links",  column: "relation", ddl: "ALTER TABLE document_links ADD COLUMN relation VARCHAR(16) NULL" },
   { table: "document_links",  column: "note",     ddl: "ALTER TABLE document_links ADD COLUMN note VARCHAR(500) NULL" },
   // P7 instrumentation: wall-time of the model call and (where measurable) the

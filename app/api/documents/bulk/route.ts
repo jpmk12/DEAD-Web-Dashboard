@@ -6,12 +6,13 @@ import {
   bulkAddTag,
   bulkRemoveTag,
   bulkSetArchived,
+  bulkSetCollection,
 } from "@/lib/documents";
 
 // One endpoint for multi-select bulk ops in the Docs sidebar.
-// Body: { op, ids: string[], tag?: string }
-//   op ∈ "pin" | "unpin" | "delete" | "tag" | "untag"
-//   tag required for "tag" / "untag"
+// Body: { op, ids: string[], tag?: string, collection?: string | null }
+//   op ∈ "pin" | "unpin" | "delete" | "tag" | "untag" | "archive" | "unarchive" | "move"
+//   tag required for "tag" / "untag"; "move" reads collection (empty/null clears)
 // Cap ids at 500 per request — the UI typically operates on tens.
 
 const MAX_IDS = 500;
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  const r = body as { op?: unknown; ids?: unknown; tag?: unknown };
+  const r = body as { op?: unknown; ids?: unknown; tag?: unknown; collection?: unknown };
 
   if (typeof r.op !== "string") return NextResponse.json({ error: "op required" }, { status: 400 });
   if (!Array.isArray(r.ids)) return NextResponse.json({ error: "ids required" }, { status: 400 });
@@ -41,6 +42,10 @@ export async function POST(request: Request) {
     if (r.op === "delete")    return NextResponse.json(await bulkDelete(ids));
     if (r.op === "archive")   return NextResponse.json(await bulkSetArchived(ids, true));
     if (r.op === "unarchive") return NextResponse.json(await bulkSetArchived(ids, false));
+    if (r.op === "move") {
+      const collection = typeof r.collection === "string" && r.collection.trim() ? r.collection.trim().slice(0, 64) : null;
+      return NextResponse.json(await bulkSetCollection(ids, collection));
+    }
     if (r.op === "tag" || r.op === "untag") {
       if (typeof r.tag !== "string" || !r.tag.trim()) {
         return NextResponse.json({ error: "tag required" }, { status: 400 });

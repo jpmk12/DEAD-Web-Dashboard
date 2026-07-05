@@ -11,6 +11,13 @@ export interface DocumentSummary {
   // Alternate names this doc answers to — [[alias]] resolves here and the
   // unlinked-mentions scanner matches on them.
   aliases: string[];
+  // One-level grouping in the sidebar; null = "No collection".
+  collection: string | null;
+  // Entity kind (lib/docTypes.ts vocabulary); drives icon + type filter.
+  docType: string;
+  // Free key:value properties (era, course, domain, …) — filterable via
+  // key:value tokens in the sidebar search.
+  props: Record<string, string>;
   pinned: boolean;
   archived: boolean;
   updatedAt: string;
@@ -53,6 +60,9 @@ interface DocRow extends RowDataPacket {
   content: string;
   tags: string[] | null;
   aliases?: string[] | null;
+  collection?: string | null;
+  doc_type?: string | null;
+  props?: Record<string, unknown> | null;
   pinned: number;
   archived?: number;
   // Populated by listDocuments via CHAR_LENGTH(content) so we don't pay
@@ -76,6 +86,26 @@ function asTags(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === "string").slice(0, 20);
 }
 
+// Sanitise a props object: string keys/values only, capped counts + lengths.
+function asProps(v: unknown): Record<string, string> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    const key = k.trim().slice(0, 40);
+    if (!key) continue;
+    if (typeof val !== "string" && typeof val !== "number") continue;
+    out[key] = String(val).slice(0, 200);
+    if (Object.keys(out).length >= 20) break;
+  }
+  return out;
+}
+
+function asCollection(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const c = v.trim().slice(0, 64);
+  return c || null;
+}
+
 function summary(r: DocRow): DocumentSummary {
   // Word count = char_count / 5. Rough but good enough for sort + the
   // editor-footer estimate. Computed from CHAR_LENGTH selected in
@@ -86,6 +116,9 @@ function summary(r: DocRow): DocumentSummary {
     title: r.title,
     tags: asTags(r.tags),
     aliases: asTags(r.aliases),
+    collection: r.collection ?? null,
+    docType: r.doc_type || "note",
+    props: asProps(r.props),
     pinned: Boolean(r.pinned),
     archived: Boolean(r.archived),
     updatedAt: r.updated_at.toISOString(),
@@ -147,7 +180,7 @@ export async function listDocuments({
   params.push(limit);
 
   const [rows] = await pool.query<DocRow[]>(
-    `SELECT id, title, content, tags, aliases, pinned, archived, created_at, updated_at,
+    `SELECT id, title, content, tags, aliases, collection, doc_type, props, pinned, archived, created_at, updated_at,
             CHAR_LENGTH(content) AS char_count${scoreSelect}
      FROM documents
      ${whereSql}
@@ -176,35 +209,45 @@ export async function listDocuments({
 export async function getDocument(id: string): Promise<DocumentFull | null> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    "SELECT id, title, content, tags, aliases, pinned, archived, created_at, updated_at FROM documents WHERE id = ?",
+    "SELECT id, title, content, tags, aliases, collection, doc_type, props, pinned, archived, created_at, updated_at FROM documents WHERE id = ?",
 
     [id]
   );
   return rows.length > 0 ? full(rows[0]) : null;
 }
 
-export async function createDocument(input: { title: string; content?: string; tags?: string[]; aliases?: string[] }): Promise<DocumentFull> {
+export async function createDocument(input: {
+  title: string; content?: string; tags?: string[]; aliases?: string[];
+  collection?: string | null; docType?: string; props?: Record<string, string>;
+}): Promise<DocumentFull> {
   const id = crypto.randomUUID();
   const now = new Date();
   const title = input.title.trim().slice(0, 255) || "Untitled";
   const content = (input.content ?? "").slice(0, 200_000);
   const tags = asTags(input.tags);
   const aliases = asTags(input.aliases);
+  const collection = asCollection(input.collection);
+  const docType = (input.docType ?? "note").slice(0, 16);
+  const props = asProps(input.props);
   const pool = await getDb();
   await pool.execute(
-    `INSERT INTO documents (id, title, content, tags, aliases, pinned, created_at, updated_at)
-     VALUES (?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), 0, ?, ?)`,
-    [id, title, content, JSON.stringify(tags), JSON.stringify(aliases), now, now]
+    `INSERT INTO documents (id, title, content, tags, aliases, collection, doc_type, props, pinned, created_at, updated_at)
+     VALUES (?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, CAST(? AS JSON), 0, ?, ?)`,
+    [id, title, content, JSON.stringify(tags), JSON.stringify(aliases), collection, docType, JSON.stringify(props), now, now]
   );
   await rebuildLinksForDoc(id, content);
   return {
-    id, title, content, tags, aliases, pinned: false, archived: false,
+    id, title, content, tags, aliases, collection, docType, props, pinned: false, archived: false,
     wordCount: Math.round(content.length / 5),
     createdAt: now.toISOString(), updatedAt: now.toISOString(),
   };
 }
 
-export async function updateDocument(id: string, patch: { title?: string; content?: string; tags?: string[]; aliases?: string[]; pinned?: boolean; archived?: boolean }): Promise<DocumentFull | null> {
+export async function updateDocument(id: string, patch: {
+  title?: string; content?: string; tags?: string[]; aliases?: string[];
+  collection?: string | null; docType?: string; props?: Record<string, string>;
+  pinned?: boolean; archived?: boolean;
+}): Promise<DocumentFull | null> {
   const existing = await getDocument(id);
   if (!existing) return null;
   const next = {
@@ -212,6 +255,10 @@ export async function updateDocument(id: string, patch: { title?: string; conten
     content: patch.content !== undefined ? patch.content.slice(0, 200_000) : existing.content,
     tags: patch.tags !== undefined ? asTags(patch.tags) : existing.tags,
     aliases: patch.aliases !== undefined ? asTags(patch.aliases) : existing.aliases,
+    // collection: null clears it; undefined leaves it alone.
+    collection: patch.collection !== undefined ? asCollection(patch.collection) : existing.collection,
+    docType: patch.docType !== undefined ? patch.docType.slice(0, 16) : existing.docType,
+    props: patch.props !== undefined ? asProps(patch.props) : existing.props,
     pinned: patch.pinned !== undefined ? patch.pinned : existing.pinned,
   };
   // Snapshot the OLD state to document_versions before applying the patch —
@@ -227,15 +274,15 @@ export async function updateDocument(id: string, patch: { title?: string; conten
   // PATCH that just bumps title or content shouldn't restore an archived doc.
   if (patch.archived !== undefined) {
     await pool.execute(
-      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), aliases = CAST(? AS JSON), pinned = ?, archived = ?, updated_at = ?
+      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), aliases = CAST(? AS JSON), collection = ?, doc_type = ?, props = CAST(? AS JSON), pinned = ?, archived = ?, updated_at = ?
        WHERE id = ?`,
-      [next.title, next.content, JSON.stringify(next.tags), JSON.stringify(next.aliases), next.pinned ? 1 : 0, patch.archived ? 1 : 0, now, id]
+      [next.title, next.content, JSON.stringify(next.tags), JSON.stringify(next.aliases), next.collection, next.docType, JSON.stringify(next.props), next.pinned ? 1 : 0, patch.archived ? 1 : 0, now, id]
     );
   } else {
     await pool.execute(
-      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), aliases = CAST(? AS JSON), pinned = ?, updated_at = ?
+      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), aliases = CAST(? AS JSON), collection = ?, doc_type = ?, props = CAST(? AS JSON), pinned = ?, updated_at = ?
        WHERE id = ?`,
-      [next.title, next.content, JSON.stringify(next.tags), JSON.stringify(next.aliases), next.pinned ? 1 : 0, now, id]
+      [next.title, next.content, JSON.stringify(next.tags), JSON.stringify(next.aliases), next.collection, next.docType, JSON.stringify(next.props), next.pinned ? 1 : 0, now, id]
     );
   }
   if (patch.content !== undefined) {
@@ -354,7 +401,7 @@ export async function recordExternalLink(docId: string, type: LinkTargetType, ta
 export async function getBacklinks(targetType: LinkTargetType, targetId: string): Promise<BacklinkEntry[]> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    `SELECT d.id, d.title, d.content, d.tags, d.aliases, d.pinned, d.created_at, d.updated_at,
+    `SELECT d.id, d.title, d.content, d.tags, d.aliases, d.collection, d.doc_type, d.props, d.pinned, d.created_at, d.updated_at,
             dl.relation AS link_relation, dl.note AS link_note
      FROM document_links dl
      JOIN documents d ON d.id = dl.doc_id
@@ -419,7 +466,7 @@ export async function getOutboundLinks(docId: string): Promise<DocumentLink[]> {
 export async function getRecentDocsForContext(n: number = 5): Promise<DocumentFull[]> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    "SELECT id, title, content, tags, aliases, pinned, archived, created_at, updated_at FROM documents WHERE archived = 0 ORDER BY updated_at DESC LIMIT ?",
+    "SELECT id, title, content, tags, aliases, collection, doc_type, props, pinned, archived, created_at, updated_at FROM documents WHERE archived = 0 ORDER BY updated_at DESC LIMIT ?",
     [n]
   );
   return rows.map(full);
@@ -604,6 +651,19 @@ export async function bulkSetArchived(ids: string[], archived: boolean): Promise
   const [res] = await pool.query<ResultSetHeader>(
     "UPDATE documents SET archived = ?, updated_at = ? WHERE id IN (?)",
     [archived ? 1 : 0, new Date(), ids]
+  );
+  return { affected: res.affectedRows };
+}
+
+// Assign every selected doc to a collection (null clears — docs fall back to
+// "No collection"). Collections are just a name column, so this IS creation:
+// moving a doc to a new name brings the collection into existence.
+export async function bulkSetCollection(ids: string[], collection: string | null): Promise<{ affected: number }> {
+  if (ids.length === 0) return { affected: 0 };
+  const pool = await getDb();
+  const [res] = await pool.query<ResultSetHeader>(
+    "UPDATE documents SET collection = ?, updated_at = ? WHERE id IN (?)",
+    [asCollection(collection), new Date(), ids]
   );
   return { affected: res.affectedRows };
 }

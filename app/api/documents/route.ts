@@ -6,6 +6,7 @@ import {
   recordExternalLink,
   type LinkTargetType,
 } from "@/lib/documents";
+import { isDocType } from "@/lib/docTypes";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
 
   const raw = body as {
     title?: unknown; content?: unknown; tags?: unknown; aliases?: unknown;
+    collection?: unknown; docType?: unknown; props?: unknown;
     // Optional link recorded at creation time (e.g. "save article to notes").
     link?: { type?: unknown; id?: unknown; title?: unknown };
   };
@@ -46,8 +48,13 @@ export async function POST(request: Request) {
   const content = typeof raw.content === "string" ? raw.content : "";
   const tags = Array.isArray(raw.tags) ? raw.tags.filter((t): t is string => typeof t === "string") : [];
   const aliases = Array.isArray(raw.aliases) ? raw.aliases.filter((t): t is string => typeof t === "string") : [];
+  const collection = typeof raw.collection === "string" ? raw.collection : null;
+  const docType = isDocType(raw.docType) ? raw.docType : "note";
+  const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props)
+    ? Object.fromEntries(Object.entries(raw.props as Record<string, unknown>).filter(([, v]) => typeof v === "string").map(([k, v]) => [k, v as string]))
+    : {};
 
-  const doc = await createDocument({ title, content, tags, aliases });
+  const doc = await createDocument({ title, content, tags, aliases, collection, docType, props });
 
   if (raw.link && typeof raw.link === "object") {
     const t = raw.link.type;

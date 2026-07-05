@@ -7,6 +7,10 @@ export interface StarterTemplate {
   title: string;
   tags: string[];
   content: string;
+  // Creating a doc from a typed template pre-sets the doc's type + seeds its
+  // property keys (values left blank, ready to fill).
+  docType: string;
+  props: Record<string, string>;
 }
 
 export const TEMPLATE_TAG = "template";
@@ -15,6 +19,8 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   {
     title: "Template: Theorist card",
     tags: [TEMPLATE_TAG],
+    docType: "theorist",
+    props: { era: "", course: "", domain: "", work: "" },
     content: `*Work:* · *Era:* · *Course:*
 
 ## Core argument
@@ -37,6 +43,8 @@ What position or school is this a rebuttal to?
   {
     title: "Template: Debate — poles & synthesis",
     tags: [TEMPLATE_TAG],
+    docType: "debate",
+    props: { domain: "" },
     content: `## The question
 
 ## Pole A — [[Thinker A]]
@@ -53,6 +61,8 @@ What position or school is this a rebuttal to?
   {
     title: "Template: Thread / through-line",
     tags: [TEMPLATE_TAG],
+    docType: "thread",
+    props: { domain: "" },
     content: `*One idea traced across sources.*
 
 ## Gloss
@@ -71,6 +81,8 @@ What is the through-line, in two sentences?
   {
     title: "Template: Comps answer",
     tags: [TEMPLATE_TAG],
+    docType: "synthesis",
+    props: { course: "" },
     content: `## Question
 
 ## Thesis
@@ -87,6 +99,8 @@ What is the through-line, in two sentences?
   {
     title: "Template: Trip report",
     tags: [TEMPLATE_TAG],
+    docType: "note",
+    props: { location: "", dates: "" },
     content: `*Dates:* · *Location:* · *Travelers:*
 
 ## Purpose
@@ -103,6 +117,8 @@ What is the through-line, in two sentences?
   {
     title: "Template: Decision log",
     tags: [TEMPLATE_TAG],
+    docType: "note",
+    props: { decided: "" },
     content: `*Date:* · *Decision:*
 
 ## Context

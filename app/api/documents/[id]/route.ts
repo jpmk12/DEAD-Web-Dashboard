@@ -7,6 +7,7 @@ import {
   getOutboundLinks,
   getBacklinks,
 } from "@/lib/documents";
+import { isDocType } from "@/lib/docTypes";
 
 export const dynamic = "force-dynamic";
 
@@ -44,12 +45,18 @@ export async function PATCH(request: Request, ctx: RouteCtx) {
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
-  const raw = body as { title?: unknown; content?: unknown; tags?: unknown; aliases?: unknown; pinned?: unknown; archived?: unknown };
+  const raw = body as { title?: unknown; content?: unknown; tags?: unknown; aliases?: unknown; collection?: unknown; docType?: unknown; props?: unknown; pinned?: unknown; archived?: unknown };
   const patch: Parameters<typeof updateDocument>[1] = {};
   if (typeof raw.title === "string") patch.title = raw.title;
   if (typeof raw.content === "string") patch.content = raw.content;
   if (Array.isArray(raw.tags)) patch.tags = raw.tags.filter((t): t is string => typeof t === "string");
   if (Array.isArray(raw.aliases)) patch.aliases = raw.aliases.filter((t): t is string => typeof t === "string");
+  // collection: string sets, null clears, absent leaves alone.
+  if (typeof raw.collection === "string" || raw.collection === null) patch.collection = raw.collection;
+  if (isDocType(raw.docType)) patch.docType = raw.docType;
+  if (raw.props && typeof raw.props === "object" && !Array.isArray(raw.props)) {
+    patch.props = Object.fromEntries(Object.entries(raw.props as Record<string, unknown>).filter(([, v]) => typeof v === "string").map(([k, v]) => [k, v as string]));
+  }
   if (typeof raw.pinned === "boolean") patch.pinned = raw.pinned;
   if (typeof raw.archived === "boolean") patch.archived = raw.archived;
 

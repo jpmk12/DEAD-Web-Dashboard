@@ -13,6 +13,6 @@ export async function GET() {
 
   const docs = await listDocuments({ limit: 1000 });
   return NextResponse.json({
-    docs: docs.map((d) => ({ id: d.id, title: d.title, aliases: d.aliases })),
+    docs: docs.map((d) => ({ id: d.id, title: d.title, aliases: d.aliases, collection: d.collection, docType: d.docType })),
   });
 }

@@ -139,8 +139,13 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 #### Templates
 - Templates are ordinary docs tagged `template` (zero schema). New ▾ split-button on "New document": lists templates, **Save open doc as template**, and a one-click **starter set** (`lib/docTemplates.ts`: theorist card, debate, thread, comps answer, trip report, decision log).
 
+#### Organization (collections · types · properties)
+- **Collections**: one-level grouping (`documents.collection`). Sidebar renders collapsible per-collection groups (named A→Z, "No collection" last, pinned float within; flat layout until the first collection exists). Bulk "▤ Move" + per-doc picker in the editor ("＋ New collection…" creates by naming). Split children inherit the master's collection.
+- **Doc types** (`documents.doc_type`, vocabulary in `lib/docTypes.ts`): note / theorist / debate / thread / case / term / synthesis — one glyph + colour each. Type badge in the editor, icons on sidebar rows, multi-select filter chips. Typed templates pre-set type + property keys.
+- **Properties** (`documents.props` JSON): key:value facets (era, course, domain…) edited in the ⚙ panel; clicking a value filters the sidebar to `key:value`. Search grammar: `course:600` (property), `type:theorist` (type), plain words → FULLTEXT. Round-trip through export frontmatter.
+
 #### Sidebar
-- Search (FULLTEXT for ≥3 chars, LIKE for shorter)
+- Search (FULLTEXT for ≥3 chars, LIKE for shorter; `key:value` + `type:x` tokens filter properties/types client-side)
 - **Smart views** (persisted to localStorage + URL hash): All / Pinned / Recent (7d) / Stale (30d+) / Untagged / From email / From OSINT / From news / Action items / Archived. Each shows count in parens.
 - **Sort**: Recent / Title A-Z / Longest (by word count). Pinned always float to top.
 - **Clickable tag chips** on rows. Clicking adds the tag to the filter set. With 2+ tags active, an Any/All toggle (OR/AND) appears.
