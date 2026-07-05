@@ -125,6 +125,11 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - Word count / read time strip at the bottom
 - **✂ Split at headings**: break one long doc into per-section docs at H1/H2/H3 (fence-aware). Master keeps its preamble and becomes a `[[wiki-link]]` index; unchecked sections stay inline; children open with `← part of [[Master]]`. Pre-split state force-snapshotted to version history (`POST /api/documents/:id/versions`).
 - **/template slash command**: inline picker of docs tagged `template`; inserts the chosen template's body at the cursor.
+- **Typed links**: `[[Title | relation: note]]` — supports / contradicts / extends / defines / example-of / see-also. Relation renders as a superscript glyph chip in the preview; unknown pipe text is just a note. Relation + note live in the markdown (survive save/rebuild + export) and in `document_links.relation`/`note`.
+- **Aliases**: per-doc alternate names (`≈ alias` toggle next to tags, `documents.aliases` JSON). `[[alias]]` resolves to the doc (save-time link index + click-to-open) and feeds the mentions scanner.
+- **Unlinked mentions**: panel under the backlinks footer listing other docs' titles/aliases appearing as plain text (word-bounded, skips code + existing links). ⇄ Link wraps the occurrence in `[[ ]]` (short form), Link all, per-doc dismiss.
+- **Backlinks with context**: the "Linked from" footer shows each source's relation chip + the sentence around the link, not just its title.
+- **Hover previews**: hovering any wiki link in the preview shows a card with the target's title, this link's relation/note, a ~40-word excerpt, and tags (cached; `/api/documents/titles` name index).
 
 #### Compose (multi-doc → one deliverable)
 - Sidebar bulk bar gains **⧉ Compose** over the checked docs: reorder (↑/↓/remove), toggle title page / generated ToC / `[[link]]`→anchor rewriting / per-section metadata / footnote-links-out, live preview.

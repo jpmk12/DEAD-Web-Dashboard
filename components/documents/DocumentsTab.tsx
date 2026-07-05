@@ -97,12 +97,15 @@ export default function DocumentsTab() {
 
   const openByTitle = async (title: string) => {
     try {
-      const params = new URLSearchParams({ search: title });
-      const res = await fetch(`/api/documents?${params.toString()}`);
-      const data = await res.json();
-      const match: DocSummary | undefined = (data.docs ?? []).find((d: DocSummary) =>
-        d.title.toLowerCase() === title.toLowerCase()
-      );
+      // Resolve against titles AND aliases (the name index) so [[Clausewitz]]
+      // opens the doc aliased to it instead of creating a duplicate.
+      const idxRes = await fetch("/api/documents/titles");
+      const idxData = await idxRes.json();
+      const key = title.toLowerCase();
+      const entries: { id: string; title: string; aliases?: string[] }[] = Array.isArray(idxData.docs) ? idxData.docs : [];
+      const match =
+        entries.find((d) => d.title.toLowerCase() === key) ??
+        entries.find((d) => (d.aliases ?? []).some((a) => a.toLowerCase() === key));
       if (match) { select(match.id); return; }
       const createRes = await fetch("/api/documents", {
         method: "POST",

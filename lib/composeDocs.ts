@@ -6,6 +6,8 @@
 // rule as lib/airfields.ts / lib/firData.ts). Everything here is string math,
 // which also makes it unit-testable without fixtures.
 
+import { WIKI_LINK_RE as WIKI_RE, parseWikiInner } from "./linkRelations";
+
 export interface ComposeDoc {
   id: string;
   title: string;
@@ -29,8 +31,6 @@ export interface ComposeOptions {
   compiledAt?: Date;
 }
 
-const WIKI_RE = /\[\[([^\[\]\n]{1,200})\]\]/g;
-
 interface FootnoteState {
   // title(lower) → footnote number, so repeat references share one footnote.
   index: Map<string, number>;
@@ -39,7 +39,9 @@ interface FootnoteState {
 
 // Rewrite one doc's wiki links against the compile set. Internal targets
 // become anchor links; external targets become footnote markers (or plain
-// text when footnotes are off). No-op when rewriting is disabled.
+// text when footnotes are off). No-op when rewriting is disabled. Typed
+// links ([[Title | relation: note]]) compile to just the title — relation
+// and note are working metadata, not deliverable prose.
 function rewriteWikiLinks(
   content: string,
   sectionByTitle: Map<string, number>,
@@ -48,7 +50,7 @@ function rewriteWikiLinks(
 ): string {
   if (!opts.rewriteLinks) return content;
   return content.replace(WIKI_RE, (_m, raw) => {
-    const title = String(raw).trim();
+    const title = parseWikiInner(String(raw)).title;
     const n = sectionByTitle.get(title.toLowerCase());
     if (n !== undefined) return `[${title}](#sec-${n})`;
     if (!opts.footnoteExternal) return title;
@@ -197,8 +199,9 @@ function inlineHtml(line: string): string {
   s = s.replace(/`([^`\n]+)`/g, (_m, c) => put(`<code>${c}</code>`));
   // Footnote markers [^N] → superscript anchors.
   s = s.replace(/\[\^(\d+)\]/g, (_m, n) => put(`<sup id="fnref-${n}"><a href="#fn-${n}">${n}</a></sup>`));
-  // Leftover wiki links (rewriting off / unresolved) render as inert spans.
-  s = s.replace(/\[\[([^\[\]\n]{1,200})\]\]/g, (_m, t) => put(`<span class="wl">${esc(String(t).trim())}</span>`));
+  // Leftover wiki links (rewriting off / unresolved) render as inert spans —
+  // title only; any | relation: note segment is working metadata.
+  s = s.replace(/\[\[([^\[\]\n]{1,300})\]\]/g, (_m, t) => put(`<span class="wl">${esc(parseWikiInner(String(t)).title)}</span>`));
   // [text](url): http(s) opens a tab, #anchor stays internal, anything else is text.
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text, url) => {
     if (/^#[\w-]+$/.test(url)) return put(`<a href="${url}">${text}</a>`);

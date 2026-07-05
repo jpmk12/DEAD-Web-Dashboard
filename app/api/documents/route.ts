@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
   const raw = body as {
-    title?: unknown; content?: unknown; tags?: unknown;
+    title?: unknown; content?: unknown; tags?: unknown; aliases?: unknown;
     // Optional link recorded at creation time (e.g. "save article to notes").
     link?: { type?: unknown; id?: unknown; title?: unknown };
   };
@@ -45,8 +45,9 @@ export async function POST(request: Request) {
   const title = typeof raw.title === "string" ? raw.title : "Untitled";
   const content = typeof raw.content === "string" ? raw.content : "";
   const tags = Array.isArray(raw.tags) ? raw.tags.filter((t): t is string => typeof t === "string") : [];
+  const aliases = Array.isArray(raw.aliases) ? raw.aliases.filter((t): t is string => typeof t === "string") : [];
 
-  const doc = await createDocument({ title, content, tags });
+  const doc = await createDocument({ title, content, tags, aliases });
 
   if (raw.link && typeof raw.link === "object") {
     const t = raw.link.type;

@@ -1,11 +1,89 @@
 "use client";
 
 import React from "react";
+import { parseWikiInner, RELATION_GLYPHS, RELATION_CLASSES, type LinkRelation } from "@/lib/linkRelations";
 
 interface MarkdownPreviewProps {
   text: string;
   onWikiLink?: (title: string) => void;
   onTaskToggle?: (lineIndex: number, checked: boolean) => void;
+}
+
+// ─── Hover-preview data layer ────────────────────────────────────────────────
+// Module-level caches shared by every preview instance: the title/alias index
+// (one light fetch, 5-min TTL) and per-doc preview payloads. Hovering the same
+// link twice costs nothing.
+
+interface TitleIndexEntry { id: string; title: string; aliases: string[] }
+let titleIndex: { at: number; docs: TitleIndexEntry[] } | null = null;
+let titleIndexInflight: Promise<TitleIndexEntry[]> | null = null;
+
+async function getTitleIndex(): Promise<TitleIndexEntry[]> {
+  if (titleIndex && Date.now() - titleIndex.at < 5 * 60 * 1000) return titleIndex.docs;
+  if (titleIndexInflight) return titleIndexInflight;
+  titleIndexInflight = fetch("/api/documents/titles")
+    .then((r) => r.json())
+    .then((d) => {
+      const docs: TitleIndexEntry[] = Array.isArray(d.docs) ? d.docs : [];
+      titleIndex = { at: Date.now(), docs };
+      return docs;
+    })
+    .catch(() => titleIndex?.docs ?? [])
+    .finally(() => { titleIndexInflight = null; });
+  return titleIndexInflight;
+}
+
+interface DocPreviewData { title: string; excerpt: string; tags: string[] }
+const previewCache = new Map<string, DocPreviewData>();
+
+// Rough prose-ification of markdown for the excerpt: drop headings markers,
+// emphasis, wiki brackets (keeping titles), code ticks.
+function excerptOf(content: string): string {
+  return content
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\[\[([^\[\]|]+)(?:\|[^\[\]]*)?\]\]/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_`>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
+// Resolve a wiki name (title OR alias, case-insensitive) to a preview payload.
+async function previewByName(name: string): Promise<DocPreviewData | null> {
+  const key = name.trim().toLowerCase();
+  if (!key) return null;
+  const idx = await getTitleIndex();
+  const hit =
+    idx.find((d) => d.title.trim().toLowerCase() === key) ??
+    idx.find((d) => (d.aliases ?? []).some((a) => a.trim().toLowerCase() === key));
+  if (!hit) return null;
+  const cached = previewCache.get(hit.id);
+  if (cached) return cached;
+  try {
+    const res = await fetch(`/api/documents/${hit.id}`);
+    const data = await res.json();
+    if (!data.doc) return null;
+    const p: DocPreviewData = {
+      title: data.doc.title ?? hit.title,
+      excerpt: excerptOf(data.doc.content ?? ""),
+      tags: Array.isArray(data.doc.tags) ? data.doc.tags.slice(0, 4) : [],
+    };
+    previewCache.set(hit.id, p);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+interface HoverState {
+  top: number;
+  left: number;
+  name: string;
+  relation: string | null;
+  note: string | null;
+  data: DocPreviewData | null; // null = loading or unresolved
+  resolved: boolean;
 }
 
 // HTML-escape user content before injecting it into the rendered output.
@@ -44,11 +122,16 @@ function inline(line: string): string {
   ));
 
   // Wiki links → buttons. data-wiki carries the title for the delegated
-  // click handler on the rendered output.
-  s = s.replace(/\[\[([^\[\]\n]{1,200})\]\]/g, (_m, t) => {
-    const title = String(t).trim();
+  // click handler; data-rel / data-note carry the typed-link metadata from
+  // [[Title | relation: note]] for the relation chip + hover card. Only the
+  // title renders as prose — relation shows as a superscript glyph.
+  s = s.replace(/\[\[([^\[\]\n]{1,300})\]\]/g, (_m, t) => {
+    const ref = parseWikiInner(String(t));
+    const relChip = ref.relation
+      ? `<sup class="ml-0.5 px-1 rounded border text-[9px] font-bold align-super ${RELATION_CLASSES[ref.relation as LinkRelation]}" title="${esc(ref.relation)}${ref.note ? ` — ${esc(ref.note)}` : ""}">${RELATION_GLYPHS[ref.relation as LinkRelation]}</sup>`
+      : "";
     return stash(
-      `<button data-wiki="${esc(title)}" class="text-emerald-400 hover:text-emerald-300 border-b border-emerald-500/30 hover:border-emerald-400">${esc(title)}</button>`
+      `<button data-wiki="${esc(ref.title)}"${ref.relation ? ` data-rel="${esc(ref.relation)}"` : ""}${ref.note ? ` data-note="${esc(ref.note)}"` : ""} class="text-emerald-400 hover:text-emerald-300 border-b border-emerald-500/30 hover:border-emerald-400">${esc(ref.title)}${relChip}</button>`
     );
   });
 
@@ -195,6 +278,46 @@ export default function MarkdownPreview({ text, onWikiLink, onTaskToggle }: Mark
   // so React state updates flow correctly.
   const html = React.useMemo(() => renderBlocks(text), [text]);
 
+  // Hover preview card for wiki links: delegated mouseover on the container,
+  // positioned under the hovered link. A sequence counter guards against a
+  // stale fetch landing after the pointer moved to another link.
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [hover, setHover] = React.useState<HoverState | null>(null);
+  const hoverSeq = React.useRef(0);
+
+  const onMouseOver = React.useCallback((e: React.MouseEvent) => {
+    const el = (e.target as HTMLElement).closest("[data-wiki]") as HTMLElement | null;
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const name = el.getAttribute("data-wiki") ?? "";
+    if (!name || (hover && hover.name === name)) return;
+    const seq = ++hoverSeq.current;
+    const elRect = el.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const state: HoverState = {
+      top: elRect.bottom - cRect.top + 6,
+      left: Math.max(0, Math.min(elRect.left - cRect.left, cRect.width - 300)),
+      name,
+      relation: el.getAttribute("data-rel"),
+      note: el.getAttribute("data-note"),
+      data: null,
+      resolved: false,
+    };
+    setHover(state);
+    previewByName(name).then((data) => {
+      if (hoverSeq.current !== seq) return;
+      setHover((h) => (h && h.name === name ? { ...h, data, resolved: true } : h));
+    });
+  }, [hover]);
+
+  const onMouseOut = React.useCallback((e: React.MouseEvent) => {
+    const to = e.relatedTarget as HTMLElement | null;
+    // Keep the card while the pointer stays on a wiki link (or its children).
+    if (to && typeof to.closest === "function" && to.closest("[data-wiki]")) return;
+    hoverSeq.current++;
+    setHover(null);
+  }, []);
+
   // Click handler covers both wiki-link buttons and task-list checkboxes.
   // For checkboxes we read the data-task-line attribute and the post-click
   // `checked` state to compute the flip.
@@ -224,10 +347,42 @@ export default function MarkdownPreview({ text, onWikiLink, onTaskToggle }: Mark
   }
 
   return (
-    <div
-      className="prose prose-invert max-w-none text-sm"
-      onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div ref={containerRef} className="relative" onMouseOver={onMouseOver} onMouseOut={onMouseOut}>
+      <div
+        className="prose prose-invert max-w-none text-sm"
+        onClick={onClick}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {hover && (
+        <div
+          className="absolute z-30 w-[290px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl px-3.5 py-3 pointer-events-none"
+          style={{ top: hover.top, left: hover.left }}
+        >
+          <p className="text-xs font-bold text-slate-100 leading-snug">
+            {hover.resolved && hover.data ? hover.data.title : hover.name}
+          </p>
+          {(hover.relation || hover.note) && (
+            <p className="text-[10px] text-violet-300 mt-0.5">
+              {hover.relation ? `${RELATION_GLYPHS[hover.relation as LinkRelation] ?? ""} ${hover.relation}` : "note"}
+              {hover.note ? ` — ${hover.note}` : ""}
+            </p>
+          )}
+          <p className="text-[11px] text-slate-400 leading-relaxed mt-1.5 line-clamp-4">
+            {!hover.resolved
+              ? "Loading…"
+              : hover.data
+              ? hover.data.excerpt || <span className="italic text-slate-600">Empty doc</span>
+              : <span className="italic text-slate-600">No doc with this title yet — click to create it</span>}
+          </p>
+          {hover.resolved && hover.data && hover.data.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {hover.data.tags.map((t) => (
+                <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400/80 border border-violet-500/20">{t}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

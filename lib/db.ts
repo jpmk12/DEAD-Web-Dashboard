@@ -171,6 +171,7 @@ const SCHEMA_STATEMENTS = [
     title      VARCHAR(255) NOT NULL,
     content    MEDIUMTEXT   NOT NULL,
     tags       JSON         NOT NULL,
+    aliases    JSON         NULL,
     pinned     TINYINT(1)   NOT NULL DEFAULT 0,
     created_at DATETIME(3)  NOT NULL,
     updated_at DATETIME(3)  NOT NULL,
@@ -184,6 +185,8 @@ const SCHEMA_STATEMENTS = [
     target_type  VARCHAR(32)  NOT NULL,    -- 'doc' | 'article' | 'email' | 'event'
     target_id    VARCHAR(255) NOT NULL,
     target_title TEXT         NULL,
+    relation     VARCHAR(16)  NULL,        -- typed wiki-link: supports | contradicts | …
+    note         VARCHAR(500) NULL,        -- free-text annotation from [[Title | rel: note]]
     PRIMARY KEY (doc_id, target_type, target_id),
     INDEX idx_doc_links_target (target_type, target_id),
     CONSTRAINT fk_doc_links_doc FOREIGN KEY (doc_id)
@@ -312,6 +315,9 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "acled_email",               ddl: "ALTER TABLE user_prefs ADD COLUMN acled_email    VARCHAR(255) NULL" },
   { table: "user_prefs",  column: "acled_password",            ddl: "ALTER TABLE user_prefs ADD COLUMN acled_password TEXT NULL" },
   { table: "user_prefs",  column: "timezone_mode",             ddl: "ALTER TABLE user_prefs ADD COLUMN timezone_mode VARCHAR(16) NOT NULL DEFAULT 'auto'" },
+  { table: "documents",       column: "aliases",  ddl: "ALTER TABLE documents ADD COLUMN aliases JSON NULL" },
+  { table: "document_links",  column: "relation", ddl: "ALTER TABLE document_links ADD COLUMN relation VARCHAR(16) NULL" },
+  { table: "document_links",  column: "note",     ddl: "ALTER TABLE document_links ADD COLUMN note VARCHAR(500) NULL" },
   // P7 instrumentation: wall-time of the model call and (where measurable) the
   // upstream assembly phase, so latency claims cite measured baselines.
   { table: "anthropic_usage", column: "duration_ms",           ddl: "ALTER TABLE anthropic_usage ADD COLUMN duration_ms INT NULL" },

@@ -1,11 +1,16 @@
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import crypto from "node:crypto";
 import { getDb } from "./db";
+import { extractWikiLinkRefs } from "./linkRelations";
+import { snippetAround } from "./docMentions";
 
 export interface DocumentSummary {
   id: string;
   title: string;
   tags: string[];
+  // Alternate names this doc answers to — [[alias]] resolves here and the
+  // unlinked-mentions scanner matches on them.
+  aliases: string[];
   pinned: boolean;
   archived: boolean;
   updatedAt: string;
@@ -28,6 +33,18 @@ export interface DocumentLink {
   targetType: LinkTargetType;
   targetId: string;
   targetTitle: string | null;
+  // Typed wiki-link metadata from [[Title | relation: note]]. Re-derived from
+  // the doc text on every save; null for plain links and external targets.
+  relation: string | null;
+  note: string | null;
+}
+
+// Backlink row for the editor footer: who links here, HOW (relation/note),
+// and the sentence around the link so the connection is legible in place.
+export interface BacklinkEntry extends DocumentSummary {
+  relation: string | null;
+  note: string | null;
+  linkSnippet: string | null;
 }
 
 interface DocRow extends RowDataPacket {
@@ -35,6 +52,7 @@ interface DocRow extends RowDataPacket {
   title: string;
   content: string;
   tags: string[] | null;
+  aliases?: string[] | null;
   pinned: number;
   archived?: number;
   // Populated by listDocuments via CHAR_LENGTH(content) so we don't pay
@@ -49,6 +67,8 @@ interface LinkRow extends RowDataPacket {
   target_type: string;
   target_id: string;
   target_title: string | null;
+  relation?: string | null;
+  note?: string | null;
 }
 
 function asTags(v: unknown): string[] {
@@ -65,6 +85,7 @@ function summary(r: DocRow): DocumentSummary {
     id: r.id,
     title: r.title,
     tags: asTags(r.tags),
+    aliases: asTags(r.aliases),
     pinned: Boolean(r.pinned),
     archived: Boolean(r.archived),
     updatedAt: r.updated_at.toISOString(),
@@ -126,7 +147,7 @@ export async function listDocuments({
   params.push(limit);
 
   const [rows] = await pool.query<DocRow[]>(
-    `SELECT id, title, content, tags, pinned, archived, created_at, updated_at,
+    `SELECT id, title, content, tags, aliases, pinned, archived, created_at, updated_at,
             CHAR_LENGTH(content) AS char_count${scoreSelect}
      FROM documents
      ${whereSql}
@@ -155,40 +176,42 @@ export async function listDocuments({
 export async function getDocument(id: string): Promise<DocumentFull | null> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    "SELECT id, title, content, tags, pinned, archived, created_at, updated_at FROM documents WHERE id = ?",
+    "SELECT id, title, content, tags, aliases, pinned, archived, created_at, updated_at FROM documents WHERE id = ?",
 
     [id]
   );
   return rows.length > 0 ? full(rows[0]) : null;
 }
 
-export async function createDocument(input: { title: string; content?: string; tags?: string[] }): Promise<DocumentFull> {
+export async function createDocument(input: { title: string; content?: string; tags?: string[]; aliases?: string[] }): Promise<DocumentFull> {
   const id = crypto.randomUUID();
   const now = new Date();
   const title = input.title.trim().slice(0, 255) || "Untitled";
   const content = (input.content ?? "").slice(0, 200_000);
   const tags = asTags(input.tags);
+  const aliases = asTags(input.aliases);
   const pool = await getDb();
   await pool.execute(
-    `INSERT INTO documents (id, title, content, tags, pinned, created_at, updated_at)
-     VALUES (?, ?, ?, CAST(? AS JSON), 0, ?, ?)`,
-    [id, title, content, JSON.stringify(tags), now, now]
+    `INSERT INTO documents (id, title, content, tags, aliases, pinned, created_at, updated_at)
+     VALUES (?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), 0, ?, ?)`,
+    [id, title, content, JSON.stringify(tags), JSON.stringify(aliases), now, now]
   );
   await rebuildLinksForDoc(id, content);
   return {
-    id, title, content, tags, pinned: false, archived: false,
+    id, title, content, tags, aliases, pinned: false, archived: false,
     wordCount: Math.round(content.length / 5),
     createdAt: now.toISOString(), updatedAt: now.toISOString(),
   };
 }
 
-export async function updateDocument(id: string, patch: { title?: string; content?: string; tags?: string[]; pinned?: boolean; archived?: boolean }): Promise<DocumentFull | null> {
+export async function updateDocument(id: string, patch: { title?: string; content?: string; tags?: string[]; aliases?: string[]; pinned?: boolean; archived?: boolean }): Promise<DocumentFull | null> {
   const existing = await getDocument(id);
   if (!existing) return null;
   const next = {
     title: patch.title !== undefined ? patch.title.trim().slice(0, 255) || "Untitled" : existing.title,
     content: patch.content !== undefined ? patch.content.slice(0, 200_000) : existing.content,
     tags: patch.tags !== undefined ? asTags(patch.tags) : existing.tags,
+    aliases: patch.aliases !== undefined ? asTags(patch.aliases) : existing.aliases,
     pinned: patch.pinned !== undefined ? patch.pinned : existing.pinned,
   };
   // Snapshot the OLD state to document_versions before applying the patch —
@@ -204,15 +227,15 @@ export async function updateDocument(id: string, patch: { title?: string; conten
   // PATCH that just bumps title or content shouldn't restore an archived doc.
   if (patch.archived !== undefined) {
     await pool.execute(
-      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), pinned = ?, archived = ?, updated_at = ?
+      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), aliases = CAST(? AS JSON), pinned = ?, archived = ?, updated_at = ?
        WHERE id = ?`,
-      [next.title, next.content, JSON.stringify(next.tags), next.pinned ? 1 : 0, patch.archived ? 1 : 0, now, id]
+      [next.title, next.content, JSON.stringify(next.tags), JSON.stringify(next.aliases), next.pinned ? 1 : 0, patch.archived ? 1 : 0, now, id]
     );
   } else {
     await pool.execute(
-      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), pinned = ?, updated_at = ?
+      `UPDATE documents SET title = ?, content = ?, tags = CAST(? AS JSON), aliases = CAST(? AS JSON), pinned = ?, updated_at = ?
        WHERE id = ?`,
-      [next.title, next.content, JSON.stringify(next.tags), next.pinned ? 1 : 0, now, id]
+      [next.title, next.content, JSON.stringify(next.tags), JSON.stringify(next.aliases), next.pinned ? 1 : 0, now, id]
     );
   }
   if (patch.content !== undefined) {
@@ -236,46 +259,77 @@ export async function deleteDocument(id: string): Promise<boolean> {
 
 // ─── Link extraction (wiki-style [[Doc Title]]) ──────────────────────────────
 
-const WIKI_LINK_RE = /\[\[([^\[\]\n]{1,200})\]\]/g;
 
+// Distinct link target titles (pipe segments stripped) — kept for callers
+// that only care about WHAT is linked, not how.
 export function extractWikiLinks(content: string): string[] {
-  const out = new Set<string>();
-  for (const m of content.matchAll(WIKI_LINK_RE)) {
-    const t = m[1].trim();
-    if (t) out.add(t);
-  }
-  return [...out];
+  return [...new Set(extractWikiLinkRefs(content).map((r) => r.title))];
 }
 
 // Re-scan the doc's content, drop any existing doc-target edges from it, and
-// re-create them based on the [[Doc Title]] markers currently present. Other
-// link kinds (article/email/event) are inserted by the call sites that create
-// docs via "Save to notes" and are NOT touched here.
+// re-create them based on the [[Doc Title | relation: note]] markers currently
+// present. Titles resolve case-insensitively against doc titles AND aliases
+// (title match wins over alias). Other link kinds (article/email/event) are
+// inserted by the call sites that create docs via "Save to notes" and are NOT
+// touched here.
 async function rebuildLinksForDoc(docId: string, content: string): Promise<void> {
   const pool = await getDb();
   await pool.execute("DELETE FROM document_links WHERE doc_id = ? AND target_type = 'doc'", [docId]);
 
-  const titles = extractWikiLinks(content);
-  if (titles.length === 0) return;
+  const refs = extractWikiLinkRefs(content);
+  if (refs.length === 0) return;
+  const names = [...new Set(refs.map((r) => r.title.toLowerCase()))];
 
-  // Resolve linked titles to existing doc ids (case-insensitive).
+  // One query pulls exact-title matches plus every alias-carrying doc; alias
+  // matching happens in JS because MySQL JSON functions are case-sensitive.
+  // Alias-carrying docs are expected to stay a small subset.
   const [matchRows] = await pool.query<DocRow[]>(
-    `SELECT id, title FROM documents
-     WHERE LOWER(title) IN (?)`,
-    [titles.map((t) => t.toLowerCase())]
+    `SELECT id, title, aliases FROM documents
+     WHERE LOWER(title) IN (?) OR aliases IS NOT NULL`,
+    [names]
   );
-  if (matchRows.length === 0) return;
-
-  // Bulk insert. ON DUPLICATE KEY ignores re-adds.
-  const placeholders = matchRows.map(() => "(?, 'doc', ?, ?)").join(",");
-  const params: string[] = [];
+  const byName = new Map<string, { id: string; title: string }>();
   for (const r of matchRows) {
-    params.push(docId, r.id, r.title);
+    const key = r.title.toLowerCase();
+    if (names.includes(key) && !byName.has(key)) byName.set(key, { id: r.id, title: r.title });
+  }
+  for (const r of matchRows) {
+    for (const a of asTags(r.aliases)) {
+      const key = a.trim().toLowerCase();
+      if (key && names.includes(key) && !byName.has(key)) byName.set(key, { id: r.id, title: r.title });
+    }
+  }
+  if (byName.size === 0) return;
+
+  // One edge per target doc. When the same target is linked several times,
+  // a typed/annotated reference beats a plain one; otherwise first wins.
+  const perTarget = new Map<string, { targetId: string; targetTitle: string; relation: string | null; note: string | null }>();
+  for (const ref of refs) {
+    const hit = byName.get(ref.title.toLowerCase());
+    if (!hit) continue;
+    const existing = perTarget.get(hit.id);
+    const candidate = {
+      targetId: hit.id,
+      targetTitle: hit.title,
+      relation: ref.relation,
+      note: ref.note ? ref.note.slice(0, 500) : null,
+    };
+    if (!existing || (!existing.relation && !existing.note && (candidate.relation || candidate.note))) {
+      perTarget.set(hit.id, candidate);
+    }
+  }
+  if (perTarget.size === 0) return;
+
+  const edges = [...perTarget.values()];
+  const placeholders = edges.map(() => "(?, 'doc', ?, ?, ?, ?)").join(",");
+  const params: (string | null)[] = [];
+  for (const e of edges) {
+    params.push(docId, e.targetId, e.targetTitle, e.relation, e.note);
   }
   await pool.query(
-    `INSERT INTO document_links (doc_id, target_type, target_id, target_title)
+    `INSERT INTO document_links (doc_id, target_type, target_id, target_title, relation, note)
      VALUES ${placeholders}
-     ON DUPLICATE KEY UPDATE target_title = VALUES(target_title)`,
+     ON DUPLICATE KEY UPDATE target_title = VALUES(target_title), relation = VALUES(relation), note = VALUES(note)`,
     params
   );
 }
@@ -294,11 +348,14 @@ export async function recordExternalLink(docId: string, type: LinkTargetType, ta
 // ─── Backlinks ───────────────────────────────────────────────────────────────
 
 // "What docs reference this target?" For doc → doc, the targetType is 'doc'
-// and targetId is a UUID; for an article, it's the article id; etc.
-export async function getBacklinks(targetType: LinkTargetType, targetId: string): Promise<DocumentSummary[]> {
+// and targetId is a UUID; for an article, it's the article id; etc. Doc
+// backlinks carry the link's relation/note plus the sentence around the
+// [[link]] in the source doc, so the footer can show WHY docs connect.
+export async function getBacklinks(targetType: LinkTargetType, targetId: string): Promise<BacklinkEntry[]> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    `SELECT d.id, d.title, d.content, d.tags, d.pinned, d.created_at, d.updated_at
+    `SELECT d.id, d.title, d.content, d.tags, d.aliases, d.pinned, d.created_at, d.updated_at,
+            dl.relation AS link_relation, dl.note AS link_note
      FROM document_links dl
      JOIN documents d ON d.id = dl.doc_id
      WHERE dl.target_type = ? AND dl.target_id = ?
@@ -306,14 +363,44 @@ export async function getBacklinks(targetType: LinkTargetType, targetId: string)
      LIMIT 50`,
     [targetType, targetId]
   );
-  return rows.map(summary);
+
+  // Names the [[link]] could have used in the source doc: target's title or
+  // any of its aliases. Only relevant for doc targets.
+  let targetNames: string[] = [];
+  if (targetType === "doc") {
+    const target = await getDocument(targetId);
+    if (target) targetNames = [target.title, ...target.aliases].map((n) => n.toLowerCase()).filter(Boolean);
+  }
+
+  return rows.map((r) => {
+    let linkSnippet: string | null = null;
+    if (r.content && targetNames.length > 0) {
+      const lower = r.content.toLowerCase();
+      let best = -1;
+      let bestLen = 0;
+      for (const name of targetNames) {
+        const idx = lower.indexOf(`[[${name}`);
+        if (idx !== -1 && (best === -1 || idx < best)) { best = idx; bestLen = name.length + 2; }
+      }
+      if (best !== -1) {
+        linkSnippet = snippetAround(r.content, best, bestLen)
+          // Strip wiki-link brackets + any | relation: note segment so the
+          // snippet reads as prose.
+          .replace(/\[\[([^\[\]|]+)(?:\|[^\[\]]*)?\]\]/g, "$1")
+          .replace(/\[\[|\]\]/g, "");
+      }
+    }
+    const rel = (r as DocRow & { link_relation?: string | null }).link_relation ?? null;
+    const note = (r as DocRow & { link_note?: string | null }).link_note ?? null;
+    return { ...summary(r), relation: rel, note, linkSnippet };
+  });
 }
 
 // Outbound links from a single doc (for display alongside the editor).
 export async function getOutboundLinks(docId: string): Promise<DocumentLink[]> {
   const pool = await getDb();
   const [rows] = await pool.query<LinkRow[]>(
-    "SELECT doc_id, target_type, target_id, target_title FROM document_links WHERE doc_id = ?",
+    "SELECT doc_id, target_type, target_id, target_title, relation, note FROM document_links WHERE doc_id = ?",
     [docId]
   );
   return rows.map((r) => ({
@@ -321,6 +408,8 @@ export async function getOutboundLinks(docId: string): Promise<DocumentLink[]> {
     targetType: r.target_type as LinkTargetType,
     targetId: r.target_id,
     targetTitle: r.target_title,
+    relation: r.relation ?? null,
+    note: r.note ?? null,
   }));
 }
 
@@ -330,7 +419,7 @@ export async function getOutboundLinks(docId: string): Promise<DocumentLink[]> {
 export async function getRecentDocsForContext(n: number = 5): Promise<DocumentFull[]> {
   const pool = await getDb();
   const [rows] = await pool.query<DocRow[]>(
-    "SELECT id, title, content, tags, pinned, archived, created_at, updated_at FROM documents WHERE archived = 0 ORDER BY updated_at DESC LIMIT ?",
+    "SELECT id, title, content, tags, aliases, pinned, archived, created_at, updated_at FROM documents WHERE archived = 0 ORDER BY updated_at DESC LIMIT ?",
     [n]
   );
   return rows.map(full);

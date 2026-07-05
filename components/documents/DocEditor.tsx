@@ -9,12 +9,15 @@ import DocTOC from "./DocTOC";
 import DocHistoryModal from "./DocHistoryModal";
 import DocSplitModal from "./DocSplitModal";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { findUnlinkedMentions, linkifyMention, type MentionCandidate, type UnlinkedMention } from "@/lib/docMentions";
+import { RELATION_GLYPHS, RELATION_CLASSES, type LinkRelation } from "@/lib/linkRelations";
 
 interface DocFull {
   id: string;
   title: string;
   content: string;
   tags: string[];
+  aliases: string[];
   pinned: boolean;
   archived?: boolean;
   createdAt: string;
@@ -25,6 +28,9 @@ interface BacklinkRef {
   id: string;
   title: string;
   updatedAt: string;
+  relation: string | null;
+  note: string | null;
+  linkSnippet: string | null;
 }
 
 interface DocEditorProps {
@@ -88,6 +94,12 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("clean");
   const [tagInput, setTagInput] = useState("");
+  const [aliasInput, setAliasInput] = useState("");
+  const [aliasEditorOpen, setAliasEditorOpen] = useState(false);
+  // Unlinked mentions: the name index (all docs' titles+aliases) + per-doc
+  // dismissed names (localStorage) → scan runs client-side over the content.
+  const [mentionIndex, setMentionIndex] = useState<MentionCandidate[] | null>(null);
+  const [dismissedMentions, setDismissedMentions] = useState<Set<string>>(new Set());
   const [splitView, setSplitView] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
@@ -121,8 +133,9 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
       .then((r) => r.json())
       .then((data) => {
         setDoc(data.doc ?? null);
-        const bl: BacklinkRef[] = (data.backlinks ?? []).map((d: DocFull) => ({
+        const bl: BacklinkRef[] = (data.backlinks ?? []).map((d: DocFull & BacklinkRef) => ({
           id: d.id, title: d.title, updatedAt: d.updatedAt,
+          relation: d.relation ?? null, note: d.note ?? null, linkSnippet: d.linkSnippet ?? null,
         }));
         setBacklinks(bl);
         latestRef.current = { title: data.doc?.title ?? "", content: data.doc?.content ?? "" };
@@ -511,6 +524,81 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     onChanged?.();
   };
 
+  const addAlias = async () => {
+    const a = aliasInput.trim();
+    if (!doc || !a || doc.aliases.some((x) => x.toLowerCase() === a.toLowerCase())) return;
+    const aliases = [...doc.aliases, a].slice(0, 20);
+    setDoc({ ...doc, aliases });
+    setAliasInput("");
+    await fetch(`/api/documents/${docId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ aliases }),
+    }).catch(() => {});
+    onChanged?.();
+  };
+  const removeAlias = async (a: string) => {
+    if (!doc) return;
+    const aliases = doc.aliases.filter((x) => x !== a);
+    setDoc({ ...doc, aliases });
+    await fetch(`/api/documents/${docId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ aliases }),
+    }).catch(() => {});
+    onChanged?.();
+  };
+
+  // ─── Unlinked mentions ──────────────────────────────────────────────────
+  const MENTION_DISMISS_KEY = `docs-mention-dismissed:${docId}`;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(MENTION_DISMISS_KEY);
+      setDismissedMentions(new Set(raw ? (JSON.parse(raw) as string[]) : []));
+    } catch { setDismissedMentions(new Set()); }
+    fetch("/api/documents/titles")
+      .then((r) => r.json())
+      .then((d) => {
+        const docs: { id: string; title: string; aliases: string[] }[] = Array.isArray(d.docs) ? d.docs : [];
+        setMentionIndex(docs.map((x) => ({ id: x.id, title: x.title, names: [x.title, ...(x.aliases ?? [])] })));
+      })
+      .catch(() => setMentionIndex([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId]);
+
+  const mentions = useMemo(() => {
+    if (!doc || !mentionIndex) return [] as UnlinkedMention[];
+    const candidates = mentionIndex.filter((c) => c.id !== docId);
+    return findUnlinkedMentions(doc.content, candidates, dismissedMentions).slice(0, 8);
+  }, [doc, mentionIndex, dismissedMentions, docId]);
+
+  const dismissMention = (name: string) => {
+    setDismissedMentions((prev) => {
+      const next = new Set(prev);
+      next.add(name.toLowerCase());
+      try { localStorage.setItem(MENTION_DISMISS_KEY, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
+
+  const applyMention = (m: UnlinkedMention) => {
+    if (!doc) return;
+    const next = linkifyMention(doc.content, m);
+    if (next !== null) updateContent(next);
+  };
+
+  const applyAllMentions = () => {
+    if (!doc) return;
+    // Apply bottom-up so earlier offsets stay valid as [[ ]] wrappers grow
+    // the string.
+    let content = doc.content;
+    for (const m of [...mentions].sort((a, b) => b.index - a.index)) {
+      const next = linkifyMention(content, m);
+      if (next !== null) content = next;
+    }
+    if (content !== doc.content) updateContent(content);
+  };
+
   const onDelete = async () => {
     if (!doc) return;
     if (!confirm(`Delete "${doc.title}"? This can't be undone — use Archive (▢) if you want to hide it but keep it.`)) return;
@@ -707,6 +795,40 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             placeholder={doc.tags.length === 0 ? "+ tag" : ""}
             className="min-w-[80px] flex-shrink-0 bg-transparent text-[11px] text-slate-300 placeholder-slate-700 outline-none"
           />
+          {/* Aliases — alternate names this doc answers to. [[alias]] resolves
+              here and the mentions scanner matches on them. Collapsed behind a
+              small toggle so the header stays quiet when unused. */}
+          <button
+            onClick={() => setAliasEditorOpen((v) => !v)}
+            title="Aliases — other names this doc answers to ([[alias]] resolves here; unlinked-mention scanning matches them)"
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all flex-shrink-0 ${
+              aliasEditorOpen || doc.aliases.length > 0
+                ? "text-sky-300 border-sky-500/40 bg-sky-500/10"
+                : "text-slate-600 border-slate-800 hover:text-slate-400 hover:border-slate-600"
+            }`}
+          >
+            ≈ {doc.aliases.length > 0 ? doc.aliases.length : "alias"}
+          </button>
+          {aliasEditorOpen && (
+            <>
+              {doc.aliases.map((a) => (
+                <span key={a} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-300 border border-sky-500/30 font-mono">
+                  {a}
+                  <button onClick={() => removeAlias(a)} className="opacity-60 hover:opacity-100 leading-none">×</button>
+                </span>
+              ))}
+              <input
+                value={aliasInput}
+                onChange={(e) => setAliasInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addAlias(); }
+                }}
+                onBlur={addAlias}
+                placeholder="+ alias"
+                className="min-w-[70px] flex-shrink-0 bg-transparent text-[11px] text-sky-200 placeholder-slate-700 outline-none"
+              />
+            </>
+          )}
         </div>
       </div>
 
@@ -919,21 +1041,87 @@ Type / for the command menu (/h2, /task, /code, /today, …)`}
         )}
       </div>
 
-      {/* Backlinks footer */}
+      {/* Backlinks footer — who links here, HOW (relation chip), and the
+          sentence around the link so the connection reads in place. */}
       {backlinks.length > 0 && (
         <div className="border-t border-slate-800 px-5 py-3 bg-slate-900/40">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">
             ← Linked from ({backlinks.length})
           </p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="space-y-1.5 max-h-44 overflow-y-auto">
             {backlinks.map((b) => (
+              <div key={b.id} className="flex items-start gap-2.5 bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5">
+                {b.relation && (
+                  <span
+                    title={b.note ? `${b.relation} — ${b.note}` : b.relation}
+                    className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border flex-shrink-0 mt-0.5 ${
+                      RELATION_CLASSES[b.relation as LinkRelation] ?? "text-slate-400 bg-slate-500/10 border-slate-500/40"
+                    }`}
+                  >
+                    {RELATION_GLYPHS[b.relation as LinkRelation] ?? "↪"} {b.relation}
+                  </span>
+                )}
+                <button
+                  onClick={() => onOpenById?.(b.id)}
+                  className="text-[11px] font-semibold text-slate-200 hover:text-emerald-400 transition-colors flex-shrink-0 max-w-[220px] truncate text-left"
+                >
+                  {b.title}
+                </button>
+                {(b.linkSnippet || b.note) && (
+                  <p className="text-[10.5px] text-slate-500 leading-snug flex-1 min-w-0 truncate" title={b.linkSnippet ?? b.note ?? ""}>
+                    {b.linkSnippet ?? b.note}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Unlinked mentions — other docs' titles/aliases appearing as plain
+          text here. One click wraps the occurrence in [[ ]] (short form; alias
+          resolution maps it to the right doc). Dismissals persist per-doc. */}
+      {mentions.length > 0 && (
+        <div className="border-t border-slate-800 px-5 py-3 bg-amber-500/[0.03]">
+          <div className="flex items-center gap-2 mb-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400/80">
+              ◎ Unlinked mentions ({mentions.length})
+            </p>
+            {mentions.length > 1 && (
               <button
-                key={b.id}
-                onClick={() => onOpenById?.(b.id)}
-                className="text-[11px] px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 transition-all"
+                onClick={applyAllMentions}
+                className="text-[9px] font-bold uppercase tracking-wider border border-emerald-500/40 text-emerald-400 hover:text-emerald-300 px-1.5 py-0.5 rounded transition-all"
               >
-                {b.title}
+                ⇄ Link all
               </button>
+            )}
+          </div>
+          <div className="space-y-1.5 max-h-36 overflow-y-auto">
+            {mentions.map((m) => (
+              <div key={`${m.targetId}:${m.index}`} className="flex items-center gap-2.5 bg-slate-900/60 border border-amber-500/15 rounded-lg px-2.5 py-1.5">
+                <p className="text-[10.5px] text-slate-400 leading-snug flex-1 min-w-0 truncate" title={m.snippet}>
+                  {m.snippet}
+                </p>
+                {m.name.toLowerCase() !== m.targetTitle.toLowerCase() && (
+                  <span className="text-[9px] text-slate-600 font-mono flex-shrink-0 max-w-[160px] truncate" title={m.targetTitle}>
+                    → {m.targetTitle}
+                  </span>
+                )}
+                <button
+                  onClick={() => applyMention(m)}
+                  title={`Wrap "${m.name}" in [[ ]]`}
+                  className="text-[9px] font-bold uppercase tracking-wider border border-emerald-500/40 text-emerald-400 hover:text-emerald-300 px-1.5 py-0.5 rounded transition-all flex-shrink-0"
+                >
+                  ⇄ Link
+                </button>
+                <button
+                  onClick={() => dismissMention(m.name)}
+                  title="Stop suggesting this name on this doc"
+                  className="text-slate-600 hover:text-slate-400 text-xs flex-shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
             ))}
           </div>
         </div>

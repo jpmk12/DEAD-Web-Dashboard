@@ -596,6 +596,38 @@ side-effect-free, same rule as `lib/airfields.ts`; unit-tested in
   cursor).
 No new npm dep anywhere (esbuild stays `0`).
 
+### Docs: typed links · aliases · unlinked mentions · hover previews
+Phase 2 of the synthesis workflow (`lib/linkRelations.ts` + `lib/docMentions.ts`
+— both PURE, client-imported, unit-tested):
+- **Typed links**: `[[Title | relation: note]]` — relation ∈ supports/
+  contradicts/extends/defines/example-of/see-also; an unknown pipe segment is
+  a plain note, NEVER an error. **The relation lives in the markdown itself**
+  (parsed by `extractWikiLinkRefs`) because `rebuildLinksForDoc` wipes and
+  re-derives doc edges from text on every save — DB-only annotations would be
+  lost. Stored in new `document_links.relation`/`note` columns (additive);
+  one edge per doc pair, typed ref beats plain when both exist. The preview
+  renders title + a superscript glyph chip (`RELATION_GLYPHS`/`_CLASSES`);
+  Compose/miniMarkdown render just the title (metadata ≠ deliverable prose).
+- **Aliases**: `documents.aliases` JSON column (additive). Editor exposes an
+  "≈ alias" toggle next to tags. `[[alias]]` resolves in `rebuildLinksForDoc`
+  (title match beats alias; JS-side case-insensitive matching because MySQL
+  JSON functions are case-sensitive) and in `DocumentsTab.openByTitle` (via
+  `/api/documents/titles`, the lightweight id+title+aliases index route).
+- **Unlinked mentions** (`findUnlinkedMentions`): scans the open doc for other
+  docs' titles/aliases as plain text — word-bounded, case-insensitive, skips
+  existing `[[links]]` + code fences, one hit per target doc, names <3 chars
+  skipped. Editor panel under backlinks: ⇄ Link (wraps the occurrence in
+  `[[ ]]` — SHORT form, alias resolution maps it), Link all (applied
+  bottom-up so offsets stay valid), ✕ dismiss (localStorage per doc).
+- **Backlinks footer** now shows relation chip + the sentence around the link
+  (`getBacklinks` → `BacklinkEntry.linkSnippet`, computed vs the target's
+  title AND aliases).
+- **Hover previews** (`MarkdownPreview`): hovering a wiki link shows a card —
+  target title, this link's relation/note, ~40-word excerpt, tags. Module-
+  level caches (5-min title index + per-doc payloads); unresolved titles say
+  "click to create".
+No new npm dep (esbuild stays `0`).
+
 ### Morning brief timezone (Auto-by-device, with optional pin)
 The brief computes "today", schedule day-labels, and travel weather server-side
 against one IANA zone. The client (`lib/briefingPrefetch.ts` +
