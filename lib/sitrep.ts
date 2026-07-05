@@ -5,23 +5,25 @@
 // section is best-effort and reports its own liveness — a source that can't
 // be reached shows UNKNOWN, never an implied "all clear".
 
-import type { SitrepBase, TafReport } from "./types";
+import type { SitrepBase, TafReport, MetarObs } from "./types";
 import { getFlightCategories, getTafOutlook, type AviationWx, type TafOutlook } from "./aviationWx";
-import { decodeTaf } from "./metar";
+import { decodeMetar, decodeTaf } from "./metar";
 import { fetchWithTimeout } from "./fetchTimeout";
 import { getNotams, notamTimeState, type Notam } from "./notams";
-import { airfieldCapabilities, type RunwayCap } from "./ourAirports";
+import { airfieldCapabilities, airfieldRunways, type RunwayCap } from "./ourAirports";
 import { aggregateThreats } from "./severeWeather";
 import { getCurrentConditions, type CurrentConditions } from "./currentConditions";
 import { getDisasters, haversineKm } from "./disasters";
 import { getForceProtection } from "./forceProtection";
 import { gdeltLocalNews } from "./localNews";
-import { getCenterNotams } from "./airspace";
+import { getCenterNotams, getFuelNotams } from "./airspace";
 import { classifyAor } from "./aor";
 import {
-  groupNotams, filterImpactNews, tafTimeline, wxLed, opsLed, threatLed,
-  type NotamGroup, type TafSegment, type Led,
+  groupNotams, filterImpactNews, tafTimeline, wxLed, opsLed, threatLed, runwayWinds,
+  type NotamGroup, type TafSegment, type Led, type RunwayWind,
 } from "./sitrepSignals";
+import { astroData, type AstroData } from "./astro";
+import { recordSitrepDay, getSitrepHistory, type SitrepDay } from "./sitrepHistory";
 
 export interface SitrepAlert {
   event: string;
@@ -51,7 +53,10 @@ export interface SitrepPayload {
     alerts: SitrepAlert[];
     current: CurrentConditions | null;
     outlook: SitrepOutlookDay[];
+    windDirDeg: number | null;
+    windVariable: boolean;
   };
+  astro: AstroData;
   ops: {
     configured: boolean;   // DAIP CA present
     live: boolean;         // DAIP fetch succeeded
@@ -62,7 +67,13 @@ export interface SitrepPayload {
     capability: RunwayCap | null;
     // Enroute/center NOTAM picture for the owning ARTCC (base.artcc), when set.
     center: { code: string; live: boolean; count: number; items: { text: string; amber: boolean }[] } | null;
+    // Crosswind/headwind per runway end from the current METAR (advisory).
+    runwayWinds: RunwayWind[];
+    // System fuel NOTAMs referencing this ICAO (DAIP FUEL_NOTAMS).
+    fuel: { live: boolean; items: string[] } | null;
   };
+  // Worst LED per axis per UTC day, oldest→newest (≤7 rows incl. today).
+  history: SitrepDay[];
   threats: {
     fp: { composite: string; topDriver: string; axes: { key: string; severity: string; summary: string }[] } | null;
     disasters: { title: string; type: string; severity: string; km: number }[];
@@ -84,15 +95,17 @@ const UA = { "User-Agent": "DEAD-Dashboard/1.0", Accept: "application/json" };
 // Raw METAR line + full TAF (periods for the timeline). aviationWx's helpers
 // return the decoded category / worst-outlook views; the SITREP also wants
 // the raw obs text and the period-by-period picture.
-async function fetchRawWx(icao: string): Promise<{ metarRaw: string | null; taf: TafReport | null }> {
+async function fetchRawWx(icao: string): Promise<{ metar: MetarObs | null; taf: TafReport | null }> {
   const [metarRes, tafRes] = await Promise.all([
-    fetchWithTimeout(`${AWC}/metar?ids=${icao}&format=raw`, { headers: { ...UA, Accept: "text/plain" }, cache: "no-store" }, 10_000).catch(() => null),
+    fetchWithTimeout(`${AWC}/metar?ids=${icao}&format=json`, { headers: UA, cache: "no-store" }, 10_000).catch(() => null),
     fetchWithTimeout(`${AWC}/taf?ids=${icao}&format=json`, { headers: UA, cache: "no-store" }, 10_000).catch(() => null),
   ]);
-  let metarRaw: string | null = null;
+  let metar: MetarObs | null = null;
   if (metarRes?.ok) {
-    const text = (await metarRes.text()).trim();
-    metarRaw = text.split("\n")[0]?.trim() || null;
+    try {
+      const rows = await metarRes.json();
+      if (Array.isArray(rows) && rows.length > 0) metar = decodeMetar(rows[0] as Parameters<typeof decodeMetar>[0]);
+    } catch { /* metar stays null */ }
   }
   let taf: TafReport | null = null;
   if (tafRes?.ok) {
@@ -101,7 +114,7 @@ async function fetchRawWx(icao: string): Promise<{ metarRaw: string | null; taf:
       if (Array.isArray(rows) && rows.length > 0) taf = decodeTaf(rows[0] as Parameters<typeof decodeTaf>[0]);
     } catch { /* taf stays null */ }
   }
-  return { metarRaw, taf };
+  return { metar, taf };
 }
 
 // 3-day Open-Meteo outlook (imperial units to match the rest of the app).
@@ -166,6 +179,12 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       gdeltLocalNews(base.place || base.label).catch(() => []),
     ]);
 
+  const [runways, fuelRes, historyRows] = await Promise.all([
+    airfieldRunways(icao).catch(() => []),
+    getFuelNotams().catch(() => null),
+    getSitrepHistory(icao, 7).catch(() => [] as SitrepDay[]),
+  ]);
+
   // Center (ARTCC) enroute NOTAMs — the "what's between us and everywhere
   // else" layer the user's ops summary needs (KWRI → ZNY). Optional per base.
   let center: SitrepPayload["ops"]["center"] = null;
@@ -183,6 +202,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   }
 
   const nowWx = cats.byIcao[icao] ?? null;
+  const obs = rawWx.metar;
   const tafWorst = tafOutlook[icao] ?? null;
   const tafSegments = rawWx.taf ? tafTimeline(rawWx.taf.periods, now, 24) : [];
   const sitAlerts: SitrepAlert[] = alerts.slice(0, 6).map((a) => ({
@@ -227,13 +247,16 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
     weather: {
       live: cats.live,
       now: nowWx,
-      metarRaw: rawWx.metarRaw,
+      metarRaw: obs?.raw ?? null,
       tafWorst,
       tafSegments,
       alerts: sitAlerts,
       current,
       outlook,
+      windDirDeg: obs?.windDir ?? null,
+      windVariable: Boolean(obs?.windVariable),
     },
+    astro: astroData(base.lat, base.lon, now),
     ops: {
       configured: notams.configured,
       live: notams.live,
@@ -243,7 +266,15 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       fieldClosed,
       capability: caps[icao] ?? null,
       center,
+      runwayWinds: runwayWinds(runways, obs?.windDir ?? null, Boolean(obs?.windVariable), obs?.windSpeedKt ?? nowWx?.windKt ?? null, obs?.windGustKt ?? nowWx?.gustKt ?? null),
+      fuel: fuelRes
+        ? {
+            live: fuelRes.configured && fuelRes.live,
+            items: fuelRes.groups.flatMap((g) => g.notams).filter((n) => n.text.toUpperCase().includes(icao)).slice(0, 4).map((n) => n.text.slice(0, 200)),
+          }
+        : null,
     },
+    history: historyRows,
     threats: {
       fp,
       disasters: nearDisasters,
@@ -251,6 +282,14 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       newsScanned: newsRaw.length,
     },
   };
+
+  // Persist today's worst-per-axis LEDs (fire-and-forget) and reflect today
+  // in the history strip immediately.
+  recordSitrepDay(icao, payload.status).catch(() => {});
+  const today = new Date(now).toISOString().slice(0, 10);
+  if (!payload.history.some((h) => h.day === today)) {
+    payload.history = [...payload.history, { day: today, wx: payload.status.wx, ops: payload.status.ops, threat: payload.status.threat }].slice(-7);
+  }
 
   cache.set(cacheKey, { payload, expires: now + TTL_MS });
   return payload;

@@ -16,7 +16,7 @@ export interface SitrepNotam {
   runwaysClosed?: string[];
 }
 
-export type NotamGroupKey = "runway" | "navaid" | "hours" | "airspace" | "other";
+export type NotamGroupKey = "runway" | "navaid" | "hours" | "airspace" | "bird" | "other";
 
 export interface NotamGroup {
   key: NotamGroupKey;
@@ -29,6 +29,7 @@ const GROUP_OF: Record<string, NotamGroupKey> = {
   navaid: "navaid", approach: "navaid", gps_raim: "navaid",
   services: "hours",
   airspace: "airspace",
+  bird: "bird",
 };
 
 const GROUP_LABELS: Record<NotamGroupKey, string> = {
@@ -36,6 +37,7 @@ const GROUP_LABELS: Record<NotamGroupKey, string> = {
   navaid: "NAVAID / approach",
   hours: "Hours / services",
   airspace: "Airspace / TFR",
+  bird: "Bird / wildlife (BASH)",
   other: "Other",
 };
 
@@ -57,7 +59,7 @@ export function groupNotams(notams: SitrepNotam[]): { groups: NotamGroup[]; limi
     arr.push({ ...n, amber });
     buckets.set(key, arr);
   }
-  const order: NotamGroupKey[] = ["runway", "navaid", "hours", "airspace", "other"];
+  const order: NotamGroupKey[] = ["runway", "navaid", "hours", "airspace", "bird", "other"];
   const groups = order
     .filter((k) => buckets.has(k))
     .map((k) => ({
@@ -154,6 +156,57 @@ export function tafTimeline(periods: TafPeriod[], nowMs: number, horizonH = 24):
     segs.push({ cat, fromMs: from, toMs: to, label: zHour(from) });
   }
   return segs.slice(0, 8);
+}
+
+// ─── Runway wind components ─────────────────────────────────────────────────
+//
+// Planning-grade crosswind/headwind per runway end from the decoded METAR.
+// Advisory ONLY — thresholds are coarse heavy-aircraft planning numbers, not
+// flight-manual limits, and say so in the UI.
+
+export interface RunwayWind {
+  ident: string;          // runway end, e.g. "24"
+  headingDegT: number;
+  headKt: number;         // positive = headwind for this end, negative = tailwind
+  crossKt: number;        // absolute crosswind component
+  gustCrossKt: number | null;
+  flag: "g" | "a" | "r";  // advisory: a ≥20kt cross (or gust ≥25), r ≥30
+}
+
+export function runwayWindComponents(headingDegT: number, windDirDeg: number, windKt: number, gustKt: number | null): Omit<RunwayWind, "ident" | "headingDegT" | "flag"> {
+  const delta = ((windDirDeg - headingDegT) * Math.PI) / 180;
+  const headKt = Math.round(Math.cos(delta) * windKt);
+  const crossKt = Math.abs(Math.round(Math.sin(delta) * windKt));
+  const gustCrossKt = gustKt != null ? Math.abs(Math.round(Math.sin(delta) * gustKt)) : null;
+  return { headKt, crossKt, gustCrossKt };
+}
+
+export function crosswindFlag(crossKt: number, gustCrossKt: number | null): "g" | "a" | "r" {
+  if (crossKt >= 30 || (gustCrossKt ?? 0) >= 35) return "r";
+  if (crossKt >= 20 || (gustCrossKt ?? 0) >= 25) return "a";
+  return "g";
+}
+
+// Components for every runway end with a known heading. Variable wind → no
+// rows (a direction-less crosswind is noise, not information).
+export function runwayWinds(
+  runways: { leIdent: string; heIdent: string; leHeadingDegT: number | null; heHeadingDegT: number | null }[],
+  windDirDeg: number | null,
+  windVariable: boolean,
+  windKt: number | null,
+  gustKt: number | null,
+): RunwayWind[] {
+  if (windDirDeg == null || windVariable || windKt == null) return [];
+  const out: RunwayWind[] = [];
+  for (const r of runways) {
+    for (const [ident, hdg] of [[r.leIdent, r.leHeadingDegT], [r.heIdent, r.heHeadingDegT]] as const) {
+      if (!ident || hdg == null) continue;
+      const c = runwayWindComponents(hdg, windDirDeg, windKt, gustKt);
+      out.push({ ident, headingDegT: hdg, ...c, flag: crosswindFlag(c.crossKt, c.gustCrossKt) });
+    }
+  }
+  // favoured ends first (most headwind), then by ident for stability
+  return out.sort((a, b) => b.headKt - a.headKt || a.ident.localeCompare(b.ident));
 }
 
 // ─── Status LEDs ─────────────────────────────────────────────────────────────

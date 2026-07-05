@@ -25,6 +25,17 @@ const SCHEMA_STATEMENTS = [
     composite   VARCHAR(10)  NOT NULL,
     PRIMARY KEY (day, entry_key)
   ) ENGINE=InnoDB`,
+  // Daily SITREP status per base (worst LED seen that day per axis) — powers
+  // the "last 7 days" strip + changed-since-yesterday markers.
+  `CREATE TABLE IF NOT EXISTS sitrep_status_daily (
+    day     VARCHAR(10) NOT NULL,
+    icao    VARCHAR(4)  NOT NULL,
+    wx      VARCHAR(1)  NOT NULL,
+    ops     VARCHAR(1)  NOT NULL,
+    threat  VARCHAR(1)  NOT NULL,
+    PRIMARY KEY (day, icao)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS saved_items (
     id          VARCHAR(255) PRIMARY KEY,
     type        VARCHAR(32)  NOT NULL,

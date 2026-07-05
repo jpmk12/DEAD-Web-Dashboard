@@ -16,9 +16,22 @@ export interface OaAirfield { ident: string; name: string; lat: number; lon: num
 export type AirframeClass = "C-17" | "C-130" | "light";
 export interface RunwayCap { lengthFt: number; surface: string; lighted: boolean; cls: AirframeClass }
 
+// Full per-runway detail for one airport (SITREP crosswind math needs the
+// magnetic-true headings of each end). Built in the same runways.csv pass.
+export interface RunwayDetail {
+  pair: string;              // "06/24"
+  lengthFt: number;
+  surface: string;
+  leIdent: string;
+  heIdent: string;
+  leHeadingDegT: number | null;
+  heHeadingDegT: number | null;
+}
+
 let cache: { fields: OaAirfield[]; expires: number } | null = null;
 let loading: Promise<OaAirfield[]> | null = null;
 let rwCache: { map: Map<string, RunwayCap>; expires: number } | null = null;
+let rwDetail: Map<string, RunwayDetail[]> | null = null;
 let rwLoading: Promise<Map<string, RunwayCap>> | null = null;
 
 const HARD_SURFACE = /asp|con|pem|bit|tar|paved|concrete|asphalt|grooved/i;
@@ -109,7 +122,10 @@ async function loadRunways(): Promise<Map<string, RunwayCap>> {
       const iId = h.indexOf("airport_ident"), iLen = h.indexOf("length_ft"),
         iSurf = h.indexOf("surface"), iLit = h.indexOf("lighted"), iClosed = h.indexOf("closed");
       if (iId < 0 || iLen < 0) return rwCache?.map ?? new Map();
+      const iLe = h.indexOf("le_ident"), iHe = h.indexOf("he_ident"),
+        iLeH = h.indexOf("le_heading_degT"), iHeH = h.indexOf("he_heading_degT");
       const map = new Map<string, RunwayCap>();
+      const detail = new Map<string, RunwayDetail[]>();
       for (let i = 1; i < lines.length; i++) {
         if (!lines[i]) continue;
         const c = splitCsvLine(lines[i]);
@@ -117,12 +133,30 @@ async function loadRunways(): Promise<Map<string, RunwayCap>> {
         const ident = c[iId];
         const len = Number(c[iLen]);
         if (!ident || !Number.isFinite(len) || len <= 0) continue;
+        const surface = (c[iSurf] || "").slice(0, 24);
+        // per-runway detail (all open runways, not just the longest)
+        if (iLe >= 0 && iHe >= 0) {
+          const le = (c[iLe] || "").trim().toUpperCase();
+          const he = (c[iHe] || "").trim().toUpperCase();
+          if (le || he) {
+            const leH = Number(c[iLeH]); const heH = Number(c[iHeH]);
+            const arr = detail.get(ident) ?? [];
+            arr.push({
+              pair: le && he ? `${le}/${he}` : (le || he),
+              lengthFt: Math.round(len),
+              surface,
+              leIdent: le, heIdent: he,
+              leHeadingDegT: Number.isFinite(leH) ? leH : null,
+              heHeadingDegT: Number.isFinite(heH) ? heH : null,
+            });
+            detail.set(ident, arr);
+          }
+        }
         const prev = map.get(ident);
         if (prev && prev.lengthFt >= len) continue;
-        const surface = (c[iSurf] || "").slice(0, 24);
         map.set(ident, { lengthFt: Math.round(len), surface, lighted: iLit >= 0 && c[iLit] === "1", cls: classify(len, surface) });
       }
-      if (map.size > 0) rwCache = { map, expires: Date.now() + TTL };
+      if (map.size > 0) { rwCache = { map, expires: Date.now() + TTL }; rwDetail = detail; }
       return rwCache?.map ?? map;
     } catch {
       return rwCache?.map ?? new Map();
@@ -131,6 +165,14 @@ async function loadRunways(): Promise<Map<string, RunwayCap>> {
     }
   })();
   return rwLoading;
+}
+
+// All open runways (with end headings) for one airport — SITREP crosswind.
+export async function airfieldRunways(identRaw: string): Promise<RunwayDetail[]> {
+  const ident = identRaw.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(ident)) return [];
+  await loadRunways();
+  return rwDetail?.get(ident) ?? [];
 }
 
 // Runway capability for specific idents (ICAO). Used for the curated gateway set

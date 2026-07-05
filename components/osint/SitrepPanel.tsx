@@ -327,6 +327,35 @@ export default function SitrepPanel({ active }: { active: boolean }) {
             ))}
           </div>
 
+          {/* Last-7-days trend strip: one LED cluster per day (WX/OPS/THREAT). */}
+          {payload.history.length > 1 && (
+            <div className="flex items-center gap-2 px-1">
+              <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600">Last {payload.history.length} days</span>
+              <div className="flex gap-1.5">
+                {payload.history.map((h) => (
+                  <div key={h.day} title={`${h.day} — WX/OPS/THREAT`} className="flex flex-col items-center gap-0.5">
+                    <div className="flex gap-0.5">
+                      {([h.wx, h.ops, h.threat] as Led[]).map((l, i) => (
+                        <span key={i} className={`w-1.5 h-1.5 rounded-full ${LED_CLASS[l]}`} />
+                      ))}
+                    </div>
+                    <span className="text-[7px] text-slate-700 font-mono">{h.day.slice(8)}</span>
+                  </div>
+                ))}
+              </div>
+              {(() => {
+                const RANK: Record<Led, number> = { u: 0, g: 1, a: 2, r: 3 };
+                const prev = payload.history[payload.history.length - 2];
+                const worseAxes = prev
+                  ? (["wx", "ops", "threat"] as const).filter((k) => RANK[payload.status[k]] > RANK[prev[k]] && prev[k] !== "u")
+                  : [];
+                return worseAxes.length > 0
+                  ? <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">↑ {worseAxes.join(" · ")} worse than yesterday</span>
+                  : null;
+              })()}
+            </div>
+          )}
+
           {/* Commander's read */}
           {(readLoading || read) && (
             <div className="border border-amber-500/30 bg-amber-500/[0.04] rounded-xl px-4 py-3">
@@ -411,6 +440,12 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                   ))}
                 </div>
               )}
+              {/* Astro / illumination — pure math, minute precision (planning-grade). */}
+              <p className="text-[10px] text-slate-500 mt-2.5 pt-2 border-t border-slate-800/60 font-mono">
+                ☉ {payload.astro.sunriseZ?.slice(11, 16) ?? "—"}–{payload.astro.sunsetZ?.slice(11, 16) ?? "—"}Z
+                <span className="text-slate-600"> · civil {payload.astro.civilDawnZ?.slice(11, 16) ?? "—"}/{payload.astro.civilDuskZ?.slice(11, 16) ?? "—"}Z</span>
+                <span className="text-slate-400"> · ☽ {payload.astro.moon.illumPct}% {payload.astro.moon.phaseName}</span>
+              </p>
             </SectionCard>
 
             {/* OPS */}
@@ -433,6 +468,54 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                 </div>
               ))}
               {payload.ops.configured && payload.ops.live && payload.ops.notamCount === 0 && <Row sev="g" src="DAIP">No active NOTAMs</Row>}
+
+              {/* Runway wind components — advisory, from the current METAR. */}
+              {payload.ops.runwayWinds.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-slate-800/60">
+                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1">
+                    Runway winds <span className="font-normal normal-case tracking-normal">— advisory, not flight guidance</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {payload.ops.runwayWinds.map((r) => (
+                      <span
+                        key={r.ident}
+                        title={`heading ${Math.round(r.headingDegT)}°T · head ${r.headKt}kt · cross ${r.crossKt}kt${r.gustCrossKt ? ` (gust ${r.gustCrossKt})` : ""}`}
+                        className={`text-[10px] font-mono px-2 py-1 rounded-md border ${
+                          r.flag === "r" ? "border-red-500/50 text-red-300 bg-red-500/10"
+                          : r.flag === "a" ? "border-amber-500/50 text-amber-300 bg-amber-500/10"
+                          : "border-slate-700 text-slate-400"
+                        }`}
+                      >
+                        RWY {r.ident} · {r.headKt >= 0 ? `head ${r.headKt}` : `TAIL ${-r.headKt}`} · x{r.crossKt}{r.gustCrossKt ? `G${r.gustCrossKt}` : ""}kt
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {payload.weather.windVariable && (
+                <p className="text-[9.5px] text-slate-600 mt-1.5">Wind variable — crosswind components not computed.</p>
+              )}
+
+              {/* Fuel NOTAMs (system feed, filtered to this ICAO). */}
+              {payload.ops.fuel && (
+                <div className="mt-2 pt-2 border-t border-slate-800/60">
+                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">Fuel NOTAMs</p>
+                  {!payload.ops.fuel.live && <Row sev="u" src="DAIP">Fuel feed UNREACHABLE — UNKNOWN, not clear</Row>}
+                  {payload.ops.fuel.live && payload.ops.fuel.items.length === 0 && <Row sev="g" src="DAIP">No fuel NOTAMs referencing {payload.base.icao}</Row>}
+                  {payload.ops.fuel.items.map((t, i) => <Row key={i} sev="a" src="DAIP">{t}</Row>)}
+                </div>
+              )}
+
+              {/* Bird/BASH advisory: elevated windows around civil dawn/dusk. */}
+              <p className="text-[9.5px] text-slate-600 mt-2 pt-2 border-t border-slate-800/60">
+                🐦 Elevated bird activity (±30 min of civil twilight):{" "}
+                <span className="text-slate-400 font-mono">
+                  {payload.astro.civilDawnZ ? `${payload.astro.civilDawnZ.slice(11, 16)}Z–${payload.astro.sunriseZ ? new Date(Date.parse(payload.astro.sunriseZ) + 30 * 60000).toISOString().slice(11, 16) : "—"}Z` : "—"}
+                  {" · "}
+                  {payload.astro.civilDuskZ ? `${payload.astro.sunsetZ ? new Date(Date.parse(payload.astro.sunsetZ) - 30 * 60000).toISOString().slice(11, 16) : "—"}Z–${payload.astro.civilDuskZ.slice(11, 16)}Z` : "—"}
+                </span>
+                {" "}— seasonal proxy; see Bird/wildlife NOTAMs above when present.
+              </p>
 
               {/* Center (ARTCC) enroute picture — configured per base. */}
               <div className="mt-2 pt-2 border-t border-slate-800/60">

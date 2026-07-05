@@ -993,6 +993,19 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
 - **Commander's Read** `/api/sitrep/read` (POST {icao}): 3-bullet BLUF +
   watch items from the SAME cached payload (claude-sonnet-4-6, gated on the
   `chat` feature, cached 15 min per base+status fingerprint).
+- **v2 additions**: `lib/astro.ts` (PURE NOAA-equation sun times + synodic
+  moon illumination — planning-grade minute precision, tested on invariants
+  not almanac values; polar day/night returns null, never fake times);
+  **runway winds** — `airfieldRunways()` (ourAirports keeps per-runway end
+  headings from runways.csv in the same 24-h pass) × decoded METAR wind
+  (`decodeMetar` — the metar fetch is format=json now, giving windDir) →
+  `runwayWinds()` in sitrepSignals (advisory chips: amber ≥20kt cross /
+  ≥25 gust, red ≥30; variable wind → no rows); **fuel NOTAMs** (system
+  `getFuelNotams()` filtered to the ICAO); **bird/BASH** — NOTAM category
+  `bird` gets its own group + a dawn/dusk elevated-activity line derived
+  from astro; **daily history** — `sitrep_status_daily` table (worst LED
+  per axis per UTC day, `lib/sitrepHistory.ts`) renders a last-7-days strip
+  + "worse than yesterday" markers.
 - **UI** `SitrepPanel.tsx` (OSINT pane chip "SITREP"): base chips
   (double-click removes), status strip, BLUF, Weather/Ops/Threats cards +
   an honest v2-placeholder Infrastructure card, inline ARTCC setter, and

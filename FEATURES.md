@@ -242,6 +242,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **Status strip**: WX / OPS / THREAT LEDs (pure rollups in `lib/sitrepSignals.ts`); INFRA is an explicit v2 UNKNOWN placeholder.
 - **Commander's Read** (`POST /api/sitrep/read`): AI BLUF (3 bullets) + watch items, chat-gated, cached 15 min.
 - **⧉ Save to Docs**: dated SITREP doc tagged `sitrep` + icao.
+- **v2**: astro strip (sunrise/sunset/civil twilight Z + moon % illumination, pure math), per-runway-end crosswind/headwind chips from the live METAR (advisory thresholds), fuel NOTAMs filtered to the field, bird/BASH group + dawn-dusk elevated windows, and a last-7-days LED history strip (`sitrep_status_daily`) with worse-than-yesterday markers.
 
 ### 6. Markets
 
