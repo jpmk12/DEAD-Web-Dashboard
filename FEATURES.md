@@ -236,6 +236,13 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **Diagnostics**: `GET /api/osint/crisis-diag` (owner) reports per-source health (ACLED tier, UCDP token, GPSJam, OurAirports, INFORM Risk).
 
 
+#### SITREP (per-base commander's report)
+- **Config**: 1-4 bases (`user_prefs.sitrep_bases`, seeded KWRI+ZNY), managed via `/api/sitrep/bases` (add/remove/set-ARTCC; ICAO resolves hubs → gateways → OurAirports). Preferences saves preserve the list.
+- **`GET /api/sitrep?icao=`** assembles (10-min cache): decoded METAR + raw + 24-h TAF category timeline, NWS point alerts, Open-Meteo current + 3-day outlook, bucketed DAIP NOTAMs (runway/navaid/hours/airspace; limiting + field-closed detection), **center (ARTCC) enroute NOTAMs**, runway capability, single-base Force Protection composite + axes, disasters ≤500 km, impact-filtered GDELT local news.
+- **Status strip**: WX / OPS / THREAT LEDs (pure rollups in `lib/sitrepSignals.ts`); INFRA is an explicit v2 UNKNOWN placeholder.
+- **Commander's Read** (`POST /api/sitrep/read`): AI BLUF (3 bullets) + watch items, chat-gated, cached 15 min.
+- **⧉ Save to Docs**: dated SITREP doc tagged `sitrep` + icao.
+
 ### 6. Markets
 
 **Purpose**: Editable ticker watchlist + DOD daily contract awards feed.

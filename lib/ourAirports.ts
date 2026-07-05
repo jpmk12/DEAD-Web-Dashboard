@@ -148,6 +148,15 @@ export function capTag(cap: RunwayCap | undefined): string {
   return `${cap.lengthFt}ft${cap.surface ? ` ${cap.surface.slice(0, 4).toLowerCase()}` : ""} · ${cap.cls}`;
 }
 
+// Exact-ident lookup (SITREP "add base" resolution fallback when the ICAO
+// isn't in the curated hub/gateway sets). Same cached CSV as everything else.
+export async function airportByIdent(identRaw: string): Promise<OaAirfield | null> {
+  const ident = identRaw.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(ident)) return null;
+  const fields = await load();
+  return fields.find((f) => f.ident.toUpperCase() === ident) ?? null;
+}
+
 export async function nearestOurAirports(lat: number, lon: number, n = 2, maxKm = 1500): Promise<(OaAirfield & { km: number; cap?: RunwayCap })[]> {
   const fields = await load();
   const near = fields

@@ -50,6 +50,7 @@ const SCHEMA_STATEMENTS = [
     theme                VARCHAR(32) NOT NULL DEFAULT 'nightwatch',
     timezone             VARCHAR(64) NOT NULL DEFAULT 'America/Chicago',
     timezone_mode        VARCHAR(16) NOT NULL DEFAULT 'auto',
+    sitrep_bases         JSON        NULL,
     last_updated         DATETIME(3) NOT NULL
   ) ENGINE=InnoDB`,
 
@@ -317,6 +318,7 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "documents",   column: "archived",                  ddl: "ALTER TABLE documents ADD COLUMN archived TINYINT(1) NOT NULL DEFAULT 0" },
   { table: "user_prefs",  column: "acled_email",               ddl: "ALTER TABLE user_prefs ADD COLUMN acled_email    VARCHAR(255) NULL" },
   { table: "user_prefs",  column: "acled_password",            ddl: "ALTER TABLE user_prefs ADD COLUMN acled_password TEXT NULL" },
+  { table: "user_prefs",  column: "sitrep_bases",              ddl: "ALTER TABLE user_prefs ADD COLUMN sitrep_bases JSON NULL" },
   { table: "user_prefs",  column: "timezone_mode",             ddl: "ALTER TABLE user_prefs ADD COLUMN timezone_mode VARCHAR(16) NOT NULL DEFAULT 'auto'" },
   { table: "documents",       column: "aliases",  ddl: "ALTER TABLE documents ADD COLUMN aliases JSON NULL" },
   { table: "documents",       column: "collection", ddl: "ALTER TABLE documents ADD COLUMN collection VARCHAR(64) NULL" },

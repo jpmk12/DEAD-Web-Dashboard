@@ -966,6 +966,39 @@ delete** `/api/osint/aircraft` (OpenSky) or `/api/osint/ships`: they still feed
 the OSINT feed-pane "AOR contacts" strip. OSINT panes are now: **All / Social /
 Telegram / News / Crisis / Ground**.
 
+### SITREP (OSINT "SITREP" sub-pane — per-base commander's report)
+The squadron commander's situation report for 1-4 configured bases (KWRI is
+the seeded default). Config: `user_prefs.sitrep_bases` JSON (`SitrepBase`:
+icao/label/lat/lon/country/place + optional `artcc`), managed ONLY via
+`/api/sitrep/bases` (GET; POST add/remove/artcc — the pane never round-trips
+the whole prefs object, and the user-prefs POST **preserves** stored bases
+when the field is absent so a Preferences save can't wipe them). Add resolves
+ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
+- **Assembler** `lib/sitrep.ts` (server-only, 10-min cache/base):
+  one Promise.all over existing sources — AWC METAR raw + decoded categories
+  + full TAF (`decodeTaf` periods), NWS point alerts (`aggregateThreats`),
+  Open-Meteo current + 3-day outlook, DAIP LOCATION NOTAMs, OurAirports
+  runway capability, `getForceProtection` for the single base (composite +
+  axes), disasters ≤500 km, GDELT local news filtered by the impact
+  vocabulary. **Center NOTAMs**: `base.artcc` (KWRI → ZNY) →
+  `getCenterNotams()` in `lib/airspace.ts` — same `FIR_ARTCC` DAIP query +
+  cache namespace as Overflight but WITHOUT the `firByCode` gate (US ARTCCs
+  aren't in the overflight FIR set).
+- **Pure logic** `lib/sitrepSignals.ts` (client-safe, tested): NOTAM display
+  buckets (runway/navaid/hours/airspace; amber = closures/fuel-unavailable,
+  `fieldClosed` on AD CLSD), `IMPACT_TERMS` news filter (word-bounded),
+  `tafTimeline` (24-h category bar; TEMPO/PROB folded by worst category),
+  and the wx/ops/threat LED rollups. UNKNOWN discipline everywhere: a dead
+  source shows UNKNOWN with the reason, never implied-clear.
+- **Commander's Read** `/api/sitrep/read` (POST {icao}): 3-bullet BLUF +
+  watch items from the SAME cached payload (claude-sonnet-4-6, gated on the
+  `chat` feature, cached 15 min per base+status fingerprint).
+- **UI** `SitrepPanel.tsx` (OSINT pane chip "SITREP"): base chips
+  (double-click removes), status strip, BLUF, Weather/Ops/Threats cards +
+  an honest v2-placeholder Infrastructure card, inline ARTCC setter, and
+  **⧉ Save to Docs** (dated doc tagged `sitrep` + icao). Infra sources
+  (IODA/USGS/FAA NAS) are v2 pending live probes from prod. No new npm dep.
+
 ### Ground Truth (OSINT "Ground" sub-pane — per-country situation room)
 A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
 `"ground"` (`components/ground/GroundTruthTab.tsx`). A country rail + detail panel

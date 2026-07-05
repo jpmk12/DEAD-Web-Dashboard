@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { UserPrefs, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "./types";
+import { UserPrefs, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature , SitrepBase } from "./types";
 import { ALL_AI_FEATURES } from "./aiFeatures";
 import { classifyAor } from "./aor";
 import { encryptSecret, decryptSecret } from "./secretBox";
@@ -48,6 +48,7 @@ const DEFAULT_PREFS: UserPrefs = {
   trackedLocations: [],
   countriesOfInterest: [],
   forceLocations: [],
+  sitrepBases: [{ icao: "KWRI", label: "JB McGuire-Dix-Lakehurst", lat: 40.0155, lon: -74.5917, country: "United States", place: "McGuire AFB New Jersey", artcc: "ZNY" }],
   marketsWatchlist: DEFAULT_MARKETS_WATCHLIST,
   osintFeeds: [],
   newsletterSources: DEFAULT_NEWSLETTER_SOURCES,
@@ -76,6 +77,7 @@ interface PrefsRow extends RowDataPacket {
   dismissed_vip_suggestions: string[] | null;
   tracked_locations: TrackedLocation[] | null;
   force_locations: ForceLocation[] | null;
+  sitrep_bases: SitrepBase[] | null;
   countries_of_interest: CountryWatch[] | null;
   markets_watchlist: TickerEntry[] | null;
   osint_feeds: OsintFeed[] | null;
@@ -111,6 +113,27 @@ function asTrackedLocations(v: unknown): TrackedLocation[] {
     if (typeof r.id !== "string" || typeof r.label !== "string") return [];
     return [{ id: r.id, label: r.label.slice(0, 60), lat, lon }];
   });
+}
+
+// SITREP base list sanitiser (also used by the /api/sitrep/bases route).
+// A NULL column (never saved) seeds the KWRI default; a saved [] stays [].
+export function sanitizeSitrepBases(v: unknown): SitrepBase[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): SitrepBase[] => {
+    if (!x || typeof x !== "object") return [];
+    const r = x as Record<string, unknown>;
+    const lat = Number(r.lat), lon = Number(r.lon);
+    if (typeof r.icao !== "string" || !/^[A-Za-z0-9]{4}$/.test(r.icao)) return [];
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+    return [{
+      icao: r.icao.toUpperCase(),
+      label: String(r.label ?? r.icao).slice(0, 80),
+      lat, lon,
+      country: String(r.country ?? "").slice(0, 60),
+      place: String(r.place ?? r.label ?? r.icao).slice(0, 120),
+      ...(typeof r.artcc === "string" && /^[A-Za-z]{3,4}$/.test(r.artcc.trim()) ? { artcc: r.artcc.trim().toUpperCase() } : {}),
+    }];
+  }).slice(0, 4);
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -218,7 +241,7 @@ function asMetarStations(v: unknown): MetarStation[] {
 export async function getUserPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, timezone_mode, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, timezone_mode, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -234,6 +257,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     trackedLocations: asTrackedLocations(r.tracked_locations),
     countriesOfInterest: asCountryWatch(r.countries_of_interest),
     forceLocations: asForceLocations(r.force_locations),
+    sitrepBases: r.sitrep_bases == null ? DEFAULT_PREFS.sitrepBases : sanitizeSitrepBases(r.sitrep_bases),
     // First-time users get the curated defense default until they edit.
     marketsWatchlist: r.markets_watchlist ? asTickerEntries(r.markets_watchlist) : DEFAULT_MARKETS_WATCHLIST,
     osintFeeds: asOsintFeeds(r.osint_feeds),
@@ -270,13 +294,13 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
         vip_senders, mute_senders, dismissed_vip_suggestions,
-        tracked_locations, force_locations, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
+        tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
         ai_enabled, ai_feature_toggles,
         local_feed_key, local_zipcode, local_city, local_lat, local_lon,
         theme, timezone, timezone_mode, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
@@ -289,6 +313,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        dismissed_vip_suggestions  = VALUES(dismissed_vip_suggestions),
        tracked_locations          = VALUES(tracked_locations),
        force_locations            = VALUES(force_locations),
+       sitrep_bases               = VALUES(sitrep_bases),
        countries_of_interest      = VALUES(countries_of_interest),
        markets_watchlist          = VALUES(markets_watchlist),
        osint_feeds                = VALUES(osint_feeds),
@@ -316,6 +341,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.dismissedVipSuggestions),
       JSON.stringify(prefs.trackedLocations),
       JSON.stringify(prefs.forceLocations ?? []),
+      JSON.stringify(prefs.sitrepBases ?? []),
       JSON.stringify(prefs.countriesOfInterest ?? []),
       JSON.stringify(prefs.marketsWatchlist),
       JSON.stringify(prefs.osintFeeds),

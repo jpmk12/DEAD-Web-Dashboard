@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
+import { getUserPrefs, saveUserPrefs, sanitizeSitrepBases } from "@/lib/userPrefs";
 import { clearBriefingCache } from "@/lib/briefingCache";
 import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
@@ -231,6 +231,12 @@ export async function POST(request: Request) {
     theme: VALID_THEMES.has(raw.theme as AppTheme) ? (raw.theme as AppTheme) : "nightwatch",
     timezone: typeof raw.timezone === "string" && /^[A-Za-z_/]+$/.test(raw.timezone) ? raw.timezone.slice(0, 50) : "America/Chicago",
     timezoneMode: raw.timezoneMode === "pinned" ? "pinned" : "auto",
+    // SITREP bases are managed by /api/sitrep/bases, not the Preferences form.
+    // A prefs Save that doesn't carry them must PRESERVE the stored value —
+    // otherwise every Preferences save would wipe the SITREP config.
+    sitrepBases: Array.isArray(raw.sitrepBases)
+      ? sanitizeSitrepBases(raw.sitrepBases)
+      : (await getUserPrefs().catch(() => null))?.sitrepBases ?? [],
   };
 
   await saveUserPrefs(prefs);

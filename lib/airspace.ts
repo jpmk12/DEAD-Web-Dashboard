@@ -191,6 +191,21 @@ export async function getFirNotams(firCodes: string[]): Promise<AirspaceResult> 
   return { configured: true, live: anyLive, type: "FIR_ARTCC", groups };
 }
 
+// Enroute/center NOTAMs for ONE FAA ARTCC (e.g. ZNY for KWRI) — the SITREP
+// Ops section's "center picture". Same FIR_ARTCC query and cache namespace as
+// the Overflight layer, but WITHOUT the firByCode gate: US ARTCCs aren't in
+// the overflight FIR set (no centroid needed here — this is a list, not a map
+// layer).
+export async function getCenterNotams(codeRaw: string): Promise<AirspaceResult> {
+  const code = codeRaw.trim().toUpperCase();
+  if (!/^[A-Z]{3,4}$/.test(code)) return { configured: true, live: true, type: "FIR_ARTCC", groups: [] };
+  const { configured, raw } = await cachedDaipQuery(`fir:${code}`, { type: "FIR_ARTCC", locs: code, radius: "10", sort: "Criticality" });
+  if (!configured) return { configured: false, live: false, type: "FIR_ARTCC", groups: [] };
+  if (raw == null) return { configured: true, live: false, type: "FIR_ARTCC", groups: [] };
+  const own = parseAirspaceGroups(raw).find((g) => g.code === code);
+  return { configured: true, live: true, type: "FIR_ARTCC", groups: own ? [own] : [] };
+}
+
 // Official GPS/WAAS outage NOTAMs (system-level; complements GPSJam).
 export async function getGpsNotams(): Promise<AirspaceResult> {
   return query("GPS_WAAS", "gps", {});

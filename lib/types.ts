@@ -92,6 +92,20 @@ export interface SavedItem {
 
 export type AppTheme = "nightwatch" | "amber" | "arctic" | "mission";
 
+// A base the OSINT SITREP pane reports on (1-4). `place` is the GDELT
+// local-news query string (defaults to the label at add time).
+export interface SitrepBase {
+  icao: string;
+  label: string;
+  lat: number;
+  lon: number;
+  country: string;
+  place: string;
+  // Owning FAA ARTCC / FIR for the center-NOTAM picture (e.g. KWRI → ZNY).
+  // Optional; set at add time ("KWRI ZNY") or from the Ops card.
+  artcc?: string;
+}
+
 export interface UserPrefs {
   role: string;
   priorityTopics: string[];
@@ -113,6 +127,7 @@ export interface UserPrefs {
   // and add airfield-specific signals when given an ICAO.
   countriesOfInterest: CountryWatch[];
   forceLocations: ForceLocation[];
+  sitrepBases: SitrepBase[];
   // Markets tab — custom ticker watchlist. TradingView symbol format,
   // e.g. "NYSE:LMT", "NASDAQ:CACI", "NYMEX:CL1!".
   marketsWatchlist: TickerEntry[];
