@@ -70,6 +70,24 @@ ZNY center. After deploy:
    runway, daily status history, multi-base strip, SITREP line in the
    morning brief).
 
+## 🆕 X capture tool — approved plan (build next)
+
+Direction approved: NO server-side X credentials (paid API + datacenter
+blocks + ban risk). Instead: **bookmarklet captures rendered x.com posts →
+versioned JSON file → dashboard import**.
+- Contract: `dead-x-capture` v1 JSON (id/url/author/handle/time/text/metrics,
+  source.kind list|bookmarks|timeline, capturedAt).
+- Phase 1 (sandbox-safe): `lib/xImport.ts` pure parser + tests; `x_items`
+  table (post-id PK = idempotent re-imports; prune 14 d / 1000); import route
+  `POST /api/osint/x-import`; merge into `/api/osint/feed` as kind `social`
+  labeled `𝕏 {source}` (rides existing clustering/watchlist/triage/trends);
+  Social-pane import UI (file + drag-drop + result toast + bookmarklet
+  installer); bookmarklet in `tools/x-capture-bookmarklet.js`.
+- Phase 2: selector fixes from the user's first REAL captures (user saves an
+  x.com page HTML and uploads it if fields come back missing — same
+  capture-then-build pattern as DAIP/state.gov). Phase 3 optional:
+  direct-POST with device token / extension.
+
 ## Ramp up in 5 minutes
 
 1. **`FEATURES.md`** at the repo root — comprehensive parity spec. Every
