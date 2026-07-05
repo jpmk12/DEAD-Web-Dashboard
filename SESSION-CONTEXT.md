@@ -50,6 +50,26 @@ Owner-only debug routes require logging in as `OWNER_EMAIL`.
 
 ---
 
+## 🆕 SITREP v1 — post-deploy verification + v2 kickoff
+
+v1 shipped (`0a8b2af` + review fixes): OSINT → SITREP pane, KWRI seeded with
+ZNY center. After deploy:
+1. Open OSINT → SITREP. KWRI card should populate; check the four LEDs and
+   that DAIP-backed sections (NOTAMs + ZNY center) show data, not UNKNOWN
+   (UNKNOWN there = DoD CA / DAIP reachability issue, same as Force
+   Protection).
+2. Commander's Read should render 3 bullets (requires `chat` AI feature on).
+3. **v2 gate**: hit `GET /api/sitrep/infra-diag` (owner-only) and paste the
+   JSON back into a session. It probes IODA (internet), USGS water gauges,
+   FAA NAS status, and a GDELT power-outage query from the prod IP — the
+   sandbox can't reach these, so parsers for the Infrastructure card are
+   written only after this capture (same pattern as DAIP/state.gov).
+4. v2 build list (approved direction): wire whichever probes come back clean
+   into the Infrastructure card (power stays news-derived + labeled), then
+   the extras menu the user picks from (astro/illumination, crosswind per
+   runway, daily status history, multi-base strip, SITREP line in the
+   morning brief).
+
 ## Ramp up in 5 minutes
 
 1. **`FEATURES.md`** at the repo root — comprehensive parity spec. Every

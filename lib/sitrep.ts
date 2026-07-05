@@ -133,7 +133,10 @@ async function fetchOutlook(lat: number, lon: number): Promise<SitrepOutlookDay[
 }
 
 export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
-  const hit = cache.get(base.icao);
+  // Key includes the ARTCC so setting/changing the center via the inline
+  // editor takes effect immediately instead of waiting out the TTL.
+  const cacheKey = `${base.icao}|${base.artcc ?? ""}`;
+  const hit = cache.get(cacheKey);
   if (hit && hit.expires > Date.now()) return hit.payload;
 
   const icao = base.icao.toUpperCase();
@@ -249,6 +252,6 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
     },
   };
 
-  cache.set(base.icao, { payload, expires: now + TTL_MS });
+  cache.set(cacheKey, { payload, expires: now + TTL_MS });
   return payload;
 }

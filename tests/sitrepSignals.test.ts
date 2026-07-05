@@ -39,6 +39,8 @@ describe("impactMatches / filterImpactNews", () => {
     expect(impactMatches("JCP&L power outage hits Burlington County")).toContain("power outage");
     expect(impactMatches("Protest planned at main gate Saturday")).toEqual(expect.arrayContaining(["protest", "gate"]));
     expect(impactMatches("Delegate meets governor")).toEqual([]); // "gate" inside "Delegate" must not match
+    // Regression: a failed first occurrence must not mask a later valid one.
+    expect(impactMatches("Delegate speaks as gate closed for repairs")).toEqual(expect.arrayContaining(["gate", "closed"]));
   });
 
   it("filters items and carries the matched terms", () => {

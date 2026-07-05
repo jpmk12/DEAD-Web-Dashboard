@@ -89,12 +89,19 @@ export function impactMatches(text: string): string[] {
   const lower = ` ${text.toLowerCase()} `;
   const out: string[] = [];
   for (const term of IMPACT_TERMS) {
-    const idx = lower.indexOf(term);
-    if (idx === -1) continue;
-    const before = lower[idx - 1] ?? " ";
-    const after = lower[idx + term.length] ?? " ";
-    if (/[a-z0-9]/.test(before) || /[a-z0-9]/.test(after)) continue;
-    out.push(term);
+    // Scan every occurrence — the first hit may sit inside another word
+    // ("Delegate…") while a later one is a true match ("…gate closed").
+    let from = 0;
+    while (true) {
+      const idx = lower.indexOf(term, from);
+      if (idx === -1) break;
+      from = idx + 1;
+      const before = lower[idx - 1] ?? " ";
+      const after = lower[idx + term.length] ?? " ";
+      if (/[a-z0-9]/.test(before) || /[a-z0-9]/.test(after)) continue;
+      out.push(term);
+      break;
+    }
   }
   return [...new Set(out)];
 }
