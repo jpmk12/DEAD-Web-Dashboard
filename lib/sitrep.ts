@@ -6,7 +6,7 @@
 // be reached shows UNKNOWN, never an implied "all clear".
 
 import type { SitrepBase, TafReport, MetarObs } from "./types";
-import { getFlightCategories, getTafOutlook, type AviationWx, type TafOutlook } from "./aviationWx";
+import { getFlightCategories, getTafOutlook, CAT_RANK, type AviationWx, type TafOutlook } from "./aviationWx";
 import { decodeMetar, decodeTaf } from "./metar";
 import { fetchWithTimeout } from "./fetchTimeout";
 import { getNotams, notamTimeState, type Notam } from "./notams";
@@ -89,6 +89,70 @@ export interface SitrepPayload {
     news: { title: string; link: string; matched: string[] }[];
     newsScanned: number;
   };
+}
+
+// Compact per-base rollup for the multi-base tile strip and the Morning Brief
+// block — derived deterministically from an assembled payload (no extra fetch,
+// no model call).
+export interface SitrepSummary {
+  icao: string;
+  label: string;
+  status: SitrepPayload["status"];
+  driver: string;    // short tile line — the worst axis explains itself
+  line: string;      // 1-2 sentence Morning Brief read
+  worse: string[];   // axes worse than yesterday (history compare, u ignored)
+}
+
+const LED_RANK: Record<Led, number> = { u: 0, g: 1, a: 2, r: 3 };
+
+export function sitrepSummary(p: SitrepPayload): SitrepSummary {
+  const prev = p.history.length >= 2 ? p.history[p.history.length - 2] : null;
+  const worse = prev
+    ? (["wx", "ops", "threat"] as const).filter((k) => LED_RANK[p.status[k]] > LED_RANK[prev[k]] && prev[k] !== "u")
+    : [];
+
+  const cat = p.weather.now?.flightCategory ?? null;
+  const tafWorst = p.weather.tafWorst?.worst ?? null;
+  const wxShort = cat
+    ? `${cat}${tafWorst && tafWorst !== cat ? ` → ${tafWorst} fcst` : ""}`
+    : "no METAR";
+  const limitingNotam = p.ops.groups.flatMap((g) => g.items).find((n) => n.amber);
+  const opsShort = p.ops.fieldClosed ? "FIELD CLOSED (NOTAM)"
+    : p.ops.limiting ? (limitingNotam ? limitingNotam.text.slice(0, 48) : "limiting NOTAM active")
+    : (!p.ops.configured || !p.ops.live) ? "DAIP unreachable — OPS UNKNOWN"
+    : `${p.ops.notamCount} NOTAMs, none limiting`;
+  const infraShort = !p.infra.internet.live && !p.infra.nas?.live ? "infra sensors unreachable — UNKNOWN"
+    : p.infra.internet.led === "r" || p.infra.internet.led === "a" ? "internet degradation detected"
+    : p.infra.nas?.nearby.some((x) => x.kind === "closure" || x.kind === "groundStop")
+      ? `NAS ${p.infra.nas.nearby.find((x) => x.kind === "closure" || x.kind === "groundStop")!.kind === "closure" ? "closure" : "ground stop"} at ${p.infra.nas.nearby.find((x) => x.kind === "closure" || x.kind === "groundStop")!.airport}`
+    : p.infra.powerNews.length > 0 ? "power reporting in local news"
+    : "no infra degradation";
+  const axisShort: Record<"wx" | "ops" | "threat" | "infra", string> = {
+    wx: wxShort,
+    ops: opsShort,
+    threat: p.threats.fp ? p.threats.fp.topDriver : "FP assessment unavailable",
+    infra: infraShort,
+  };
+  // Tile driver = the worst axis speaking for itself. Ties resolve toward the
+  // airfield (ops), which is what the tile owner runs. All-green = wx + NOTAM count.
+  const order: ("ops" | "wx" | "threat" | "infra")[] = ["ops", "wx", "threat", "infra"];
+  const worst = order.reduce((acc, k) => (LED_RANK[p.status[k]] > LED_RANK[p.status[acc]] ? k : acc), order[0]);
+  const driver = p.status[worst] === "g" ? `${wxShort} · ${opsShort}` : axisShort[worst];
+
+  // Brief sentence: field state, weather trajectory, infra — the day's read.
+  const fieldClause = p.ops.fieldClosed ? "Field CLOSED by NOTAM"
+    : p.ops.limiting ? `Field open with a limiting NOTAM${limitingNotam ? ` — ${limitingNotam.text.slice(0, 60)}` : ""}`
+    : p.ops.configured && p.ops.live ? `Field open, ${p.ops.notamCount} NOTAMs (none limiting)`
+    : "Airfield status UNKNOWN (DAIP unreachable)";
+  const tafFrom = p.weather.tafWorst?.fromISO ? ` after ${p.weather.tafWorst.fromISO.slice(11, 16)}Z` : "";
+  const wxClause = cat
+    ? `${cat} now${tafWorst && tafWorst !== cat && CAT_RANK[tafWorst] > CAT_RANK[cat] ? `, TAF drops ${tafWorst}${tafFrom}` : ""}`
+    : "no current METAR";
+  const xw = p.ops.runwayWinds.find((r) => r.flag !== "g");
+  const xwClause = xw ? `; crosswind advisory RWY ${xw.ident} (${xw.crossKt}kt${xw.gustCrossKt ? ` G${xw.gustCrossKt}` : ""})` : "";
+  const line = `${fieldClause}; ${wxClause}. ${infraShort.charAt(0).toUpperCase()}${infraShort.slice(1)}${xwClause}.`;
+
+  return { icao: p.base.icao, label: p.base.label, status: p.status, driver, line, worse: [...worse] };
 }
 
 const TTL_MS = 10 * 60 * 1000;

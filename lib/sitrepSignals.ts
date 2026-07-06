@@ -209,6 +209,105 @@ export function runwayWinds(
   return out.sort((a, b) => b.headKt - a.headKt || a.ident.localeCompare(b.ident));
 }
 
+// ─── Closure-window timeline ─────────────────────────────────────────────────
+//
+// NOTAM B)/C) times → horizontal bars over the next horizon. Only NOTAMs whose
+// text matches a window-worthy pattern (closure / unserviceable / fuel-limited)
+// AND that carry at least one parseable time become bars — everything else
+// stays a text row in the groups above. Never a guessed bar.
+
+export type WindowKind = "closure" | "unserviceable" | "limited";
+
+export interface ClosureWindow {
+  label: string;         // "RWY 06/24" · "TWY A" · "ILS RWY 24" · "Airfield" · "Fuel"
+  kind: WindowKind;
+  fromMs: number;        // clamped to [now, now+horizon]
+  toMs: number;
+  openEnded: boolean;    // no C) end time — bar runs to the horizon edge
+  text: string;          // source NOTAM snippet (tooltip)
+}
+
+const CLSD_RE = /\bCLSD\b|\bCLOSED\b/i;
+const US_RE = /\bU\/S\b|\bUNSERVICEABLE\b|\bOTS\b|\bOUT OF SERVICE\b|\bINOP(?:ERATIVE)?\b/i;
+const FUEL_LIM_RE = /\bFUEL\b.*(\bNOT\s+AVBL\b|\bUNAVBL\b|\bLIMITED\b|\bU\/S\b)|(\bNOT\s+AVBL\b|\bUNAVBL\b|\bLIMITED\b).*\bFUEL\b/i;
+
+function windowKind(text: string): WindowKind | null {
+  if (FUEL_LIM_RE.test(text)) return "limited";
+  if (CLSD_RE.test(text)) return "closure";
+  if (US_RE.test(text)) return "unserviceable";
+  return null;
+}
+
+export function windowLabel(text: string, category: string): string {
+  const up = text.toUpperCase();
+  if (/\bAD\s+CLSD|AERODROME\s+CLSD/.test(up)) return "Airfield";
+  const rwy = up.match(/RWY\s*([0-9]{2}[LRC]?(?:\/[0-9]{2}[LRC]?)?)/);
+  const navaid = up.match(/\b(ILS|LOC|VOR|TACAN|NDB|RNAV|PAPI|VASI|ALS|GLIDESLOPE|GS)\b/);
+  if (navaid) return rwy ? `${navaid[1]} RWY ${rwy[1]}` : navaid[1];
+  if (rwy) return `RWY ${rwy[1]}`;
+  const twy = up.match(/TWY\s*([A-Z]{1,2}\d{0,2}\b)/);
+  if (twy) return `TWY ${twy[1]}`;
+  if (/\bFUEL\b/.test(up)) return "Fuel";
+  if (/\bAPRON|RAMP\b/.test(up)) return "Apron";
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+const KIND_ORDER: Record<WindowKind, number> = { closure: 0, unserviceable: 1, limited: 2 };
+
+export function closureWindows(notams: SitrepNotam[], nowMs: number, horizonH = 48): ClosureWindow[] {
+  const horizonEnd = nowMs + horizonH * 3600_000;
+  const out: ClosureWindow[] = [];
+  for (const n of notams) {
+    const kind = windowKind(n.text);
+    if (!kind) continue;
+    const startMs = n.start ? Date.parse(n.start) : NaN;
+    const endMs = n.end ? Date.parse(n.end) : NaN;
+    const hasStart = Number.isFinite(startMs);
+    const hasEnd = Number.isFinite(endMs);
+    if (!hasStart && !hasEnd) continue;                 // no parseable window → text row only
+    const from = hasStart ? startMs : nowMs;            // already in effect
+    const to = hasEnd ? endMs : horizonEnd;             // open-ended → horizon edge
+    if (to <= nowMs || from >= horizonEnd || to <= from) continue;
+    out.push({
+      label: windowLabel(n.text, n.category),
+      kind,
+      fromMs: Math.max(from, nowMs),
+      toMs: Math.min(to, horizonEnd),
+      openEnded: !hasEnd,
+      text: n.text.slice(0, 160),
+    });
+  }
+  return out
+    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.fromMs - b.fromMs)
+    .slice(0, 12);
+}
+
+const zHhmm = (ms: number) => {
+  const d = new Date(ms);
+  return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`;
+};
+
+// Runway/airfield closure windows that overlap a forecast IFR/LIFR segment —
+// the "single-runway ops in instrument conditions" trap the text list hides.
+export function windowConflicts(windows: ClosureWindow[], segments: TafSegment[]): string[] {
+  const out: string[] = [];
+  for (const w of windows) {
+    if (w.kind !== "closure") continue;
+    if (!/^RWY|^Airfield/.test(w.label)) continue;
+    let worst: TafSegment | null = null;
+    for (const s of segments) {
+      if (s.cat !== "IFR" && s.cat !== "LIFR") continue;
+      if (s.fromMs < w.toMs && s.toMs > w.fromMs) {
+        if (!worst || CAT_RANK[s.cat] > CAT_RANK[worst.cat]) worst = s;
+      }
+    }
+    if (worst) {
+      out.push(`${w.label} ${w.kind} (${zHhmm(w.fromMs)}–${w.openEnded ? "UFN" : zHhmm(w.toMs)}) overlaps forecast ${worst.cat} (${zHhmm(worst.fromMs)}–${zHhmm(worst.toMs)})`);
+    }
+  }
+  return [...new Set(out)].slice(0, 3);
+}
+
 // ─── Status LEDs ─────────────────────────────────────────────────────────────
 
 export type Led = "g" | "a" | "r" | "u";

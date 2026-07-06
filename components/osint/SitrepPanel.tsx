@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { SitrepPayload } from "@/lib/sitrep";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
-import type { Led } from "@/lib/sitrepSignals";
+import { closureWindows, windowConflicts, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
 
 const LED_CLASS: Record<Led, string> = {
   g: "bg-emerald-400 shadow-[0_0_8px] shadow-emerald-400/70",
@@ -118,6 +118,24 @@ export default function SitrepPanel({ active }: { active: boolean }) {
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  // Multi-base LED strip: compact status for every configured base.
+  const [summaries, setSummaries] = useState<Record<string, SitrepSummary>>({});
+
+  const loadSummaries = useCallback(() => {
+    fetch("/api/sitrep/summary")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!Array.isArray(d?.bases)) return;
+        const map: Record<string, SitrepSummary> = {};
+        for (const s of d.bases as SitrepSummary[]) map[s.icao] = s;
+        setSummaries(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (active && bases !== null && bases.length > 0) loadSummaries();
+  }, [active, bases, loadSummaries]);
 
   // Load configured bases once the pane is active.
   useEffect(() => {
@@ -156,7 +174,10 @@ export default function SitrepPanel({ active }: { active: boolean }) {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "SITREP failed"))
       .finally(() => setLoading(false));
-  }, []);
+    // The freshly assembled payload may have moved this base's LEDs — keep the
+    // tile strip in step (server-side cache makes this cheap).
+    loadSummaries();
+  }, [loadSummaries]);
 
   useEffect(() => {
     if (!active || !icao) return;
@@ -251,6 +272,28 @@ export default function SitrepPanel({ active }: { active: boolean }) {
     }
   };
 
+  // Closure-window timeline (pure math over the payload the pane already has):
+  // NOTAM B)/C) times → bars over the next 48 h, TAF categories on the same
+  // axis, runway-closure × IFR overlaps called out.
+  const tlNowMs = payload ? Date.parse(payload.generatedAt) : 0;
+  const tlWindows = useMemo(
+    () => (payload ? closureWindows(payload.ops.groups.flatMap((g) => g.items), tlNowMs, 48) : []),
+    [payload, tlNowMs],
+  );
+  const tlConflicts = useMemo(
+    () => (payload ? windowConflicts(tlWindows, payload.weather.tafSegments) : []),
+    [payload, tlWindows],
+  );
+  const tlRows = useMemo(() => {
+    const map = new Map<string, ClosureWindow[]>();
+    for (const w of tlWindows) {
+      const arr = map.get(w.label) ?? [];
+      arr.push(w);
+      map.set(w.label, arr);
+    }
+    return [...map.entries()];
+  }, [tlWindows]);
+
   if (bases === null) {
     return <div className="p-6 text-xs text-slate-500">Loading SITREP config…</div>;
   }
@@ -259,23 +302,48 @@ export default function SitrepPanel({ active }: { active: boolean }) {
 
   return (
     <div className="space-y-3">
-      {/* Base chips + add */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {bases.map((b) => (
-          <button
-            key={b.icao}
-            onClick={() => setIcao(b.icao)}
-            onDoubleClick={() => removeBase(b.icao)}
-            title={`${b.label} — double-click to remove`}
-            className={`text-[11px] font-bold tracking-wide px-3 py-1.5 rounded-lg border transition-all ${
-              icao === b.icao
-                ? "bg-emerald-500/10 border-emerald-500/50 text-slate-100"
-                : "border-slate-700 text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            {b.icao} <span className="font-normal text-slate-500">· {b.label.length > 24 ? b.label.slice(0, 23) + "…" : b.label}</span>
-          </button>
-        ))}
+      {/* Multi-base LED strip — every configured base at a glance; click to
+          open, double-click to remove. Tiles with a problem announce it. */}
+      <div className="flex items-stretch gap-2 flex-wrap">
+        {bases.map((b) => {
+          const s = summaries[b.icao] ?? null;
+          const worstLed: Led = s
+            ? ((["r", "a", "g", "u"] as Led[]).find((l) => Object.values(s.status).includes(l)) ?? "u")
+            : "u";
+          return (
+            <button
+              key={b.icao}
+              onClick={() => setIcao(b.icao)}
+              onDoubleClick={() => removeBase(b.icao)}
+              title={`${b.label} — double-click to remove`}
+              className={`text-left flex-1 min-w-[150px] max-w-[230px] rounded-xl border px-3 py-2 transition-all ${
+                icao === b.icao ? "border-violet-500/50 bg-violet-500/[.07]"
+                : worstLed === "r" ? "border-red-500/45 bg-slate-900/70 hover:border-red-400/60"
+                : worstLed === "a" ? "border-amber-500/45 bg-slate-900/70 hover:border-amber-400/60"
+                : "border-slate-800 bg-slate-900/70 hover:border-slate-600"
+              }`}
+            >
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[12px] font-extrabold tracking-wide text-slate-100">{b.icao}</span>
+                <span className="text-[8.5px] uppercase tracking-wider text-slate-600 truncate">{b.label.length > 18 ? b.label.slice(0, 17) + "…" : b.label}</span>
+              </div>
+              <div className="flex gap-2.5 mt-1.5">
+                {(["wx", "ops", "threat", "infra"] as const).map((k) => (
+                  <span key={k} className="flex flex-col items-center gap-0.5">
+                    <span className={`w-2 h-2 rounded-full ${LED_CLASS[s?.status[k] ?? "u"]}`} />
+                    <span className="text-[7px] font-bold tracking-widest text-slate-600">{k === "threat" ? "THR" : k === "infra" ? "INF" : k.toUpperCase()}</span>
+                  </span>
+                ))}
+              </div>
+              <p className={`text-[9.5px] mt-1 truncate ${worstLed === "r" ? "text-red-300" : worstLed === "a" ? "text-amber-300" : "text-slate-500"}`} title={s?.driver}>
+                {s ? s.driver : "loading…"}
+              </p>
+              {s && s.worse.length > 0 && (
+                <p className="text-[8.5px] text-amber-400 font-bold uppercase tracking-wider mt-0.5">↑ {s.worse.join(" · ")} worse than yesterday</p>
+              )}
+            </button>
+          );
+        })}
         {bases.length < 4 && (
           <div className="flex items-center gap-1.5">
             {addOpen ? (
@@ -511,6 +579,82 @@ export default function SitrepPanel({ active }: { active: boolean }) {
               )}
               {payload.weather.windVariable && (
                 <p className="text-[9.5px] text-slate-600 mt-1.5">Wind variable — crosswind components not computed.</p>
+              )}
+
+              {/* Closure-window timeline — NOTAM B)/C) times as bars over the
+                  next 48 h with TAF categories on the same axis. Only NOTAMs
+                  with parseable windows become bars; the rest stay text above. */}
+              {tlWindows.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-slate-800/60">
+                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1.5">
+                    Closure windows <span className="font-normal normal-case tracking-normal">— next 48 h, all times Z</span>
+                  </p>
+                  {/* hour axis: 8 ticks × 6 h */}
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-24 flex-shrink-0" />
+                    <div className="flex-1 grid grid-cols-8 text-[7.5px] text-slate-600 font-mono">
+                      {Array.from({ length: 8 }, (_, i) => (
+                        <span key={i} className="border-l border-slate-800 pl-0.5">
+                          {String(new Date(tlNowMs + i * 6 * 3600_000).getUTCHours()).padStart(2, "0")}Z
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  {tlRows.map(([label, ws]) => (
+                    <div key={label} className="flex items-center gap-2 mb-1">
+                      <span className="w-24 flex-shrink-0 text-right text-[9px] text-slate-400 truncate" title={label}>{label}</span>
+                      <div className="relative flex-1 h-4 bg-slate-800/30 rounded overflow-hidden">
+                        <div className="absolute inset-0 grid grid-cols-8">
+                          {Array.from({ length: 8 }, (_, i) => <i key={i} className="border-l border-slate-800/70" />)}
+                        </div>
+                        {ws.map((w, i) => {
+                          const left = ((w.fromMs - tlNowMs) / (48 * 3600_000)) * 100;
+                          const width = Math.max(1.5, ((w.toMs - w.fromMs) / (48 * 3600_000)) * 100);
+                          const zhm = (ms: number) => new Date(ms).toISOString().slice(11, 16) + "Z";
+                          return (
+                            <span
+                              key={i}
+                              title={`${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}`}
+                              className={`absolute top-[2px] bottom-[2px] rounded-[3px] border px-1 text-[7.5px] font-bold flex items-center overflow-hidden whitespace-nowrap ${
+                                w.kind === "closure" ? "bg-red-500/20 border-red-500/55 text-red-300"
+                                : w.kind === "unserviceable" ? "bg-amber-500/20 border-amber-500/55 text-amber-300"
+                                : "bg-sky-500/15 border-sky-500/45 text-sky-300"
+                              }`}
+                              style={{ left: `${left}%`, width: `${width}%` }}
+                            >
+                              {width > 12 ? `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}` : ""}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {/* TAF categories on the same axis (24-h forecast → half the track) */}
+                  {payload.weather.tafSegments.length > 0 && (
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="w-24 flex-shrink-0 text-right text-[9px] text-slate-400">TAF</span>
+                      <div className="relative flex-1 h-3.5 rounded overflow-hidden bg-slate-800/30">
+                        {payload.weather.tafSegments.map((s, i) => {
+                          const left = Math.max(0, ((s.fromMs - tlNowMs) / (48 * 3600_000)) * 100);
+                          const width = Math.max(0.5, ((s.toMs - s.fromMs) / (48 * 3600_000)) * 100);
+                          return (
+                            <span key={i} className={`absolute top-0 bottom-0 flex items-center justify-center text-[7px] font-extrabold tracking-wider ${SEG_BG[s.cat]}`} style={{ left: `${left}%`, width: `${width}%` }}>
+                              {width > 6 ? s.cat : ""}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {tlConflicts.map((c, i) => (
+                    <div key={i} className="mt-1.5 border border-red-500/35 bg-red-500/[.07] rounded-lg px-2.5 py-1.5 text-[10px] text-red-300">
+                      ⚠ <b className="text-red-200">Window conflict:</b> {c}
+                    </div>
+                  ))}
+                  <p className="text-[8.5px] text-slate-600 mt-1.5">
+                    Bars come only from NOTAMs with parseable B)/C) times — anything unparseable stays a text row above, never a guessed bar. Open-ended windows run to the edge (UFN).
+                  </p>
+                </div>
               )}
 
               {/* Fuel NOTAMs (system feed, filtered to this ICAO). */}

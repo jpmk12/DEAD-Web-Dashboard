@@ -1041,6 +1041,26 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   `status.infra` = `infraLed(internet, nas, powerNews, commsNews)`; the
   Commander's Read gets INTERNET/FAA NAS/POWER/COMMS lines and the read
   fingerprint includes the infra LED. All keyless, pure fetch (esbuild `0`).
+- **v3 (all three approved options)**: (1) **multi-base LED strip** — the base
+  chips became status tiles (4 LEDs + driver line + worse-than-yesterday, worst
+  axis colours the border; click selects, double-click removes), fed by
+  `GET /api/sitrep/summary` → `sitrepSummary(payload)` in `lib/sitrep.ts` (a
+  deterministic per-base rollup over the SAME 10-min-cached assembly — no extra
+  fan-out after first load; failed assembly → all-UNKNOWN stub, never a missing
+  tile). (2) **Morning Brief "⚑ Base SITREP" block** — `BriefingModal` fetches
+  the same summary route on open and renders bases with any amber/red (or a
+  worse-than-yesterday delta) as full LED blocks; quiet bases collapse to one
+  "all green" line. Deliberately NOT baked into the day-cached brief JSON —
+  LEDs are fetched live at open so a cached brief never shows stale status,
+  and no model tokens are spent (the `line` sentence is deterministic).
+  (3) **closure-window timeline** — `closureWindows`/`windowConflicts` in
+  `lib/sitrepSignals.ts` (PURE, tested): NOTAM B)/C) ISO times → 48-h bars
+  (closure red / U-S amber / fuel-limited sky) grouped per asset
+  (`windowLabel` extracts RWY/TWY/NAVAID/Airfield/Fuel), TAF category strip on
+  the same axis, and runway-closure × forecast-IFR overlaps called out as
+  conflicts. Only window-pattern NOTAMs WITH a parseable time become bars —
+  everything else stays a text row (never a guessed bar); open-ended windows
+  run to the horizon flagged UFN.
 
 ### Ground Truth (OSINT "Ground" sub-pane — per-country situation room)
 A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is

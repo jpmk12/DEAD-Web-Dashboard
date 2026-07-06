@@ -73,8 +73,26 @@ ZNY center. After deploy:
    now computed (was hardcoded "u"); Commander's Read includes infra lines.
    Verify on next deploy: SITREP → Infrastructure card shows IODA chips and
    NAS counts for KWRI (a quiet day reads "no degradation detected").
-   Remaining extras menu (not yet picked): multi-base LED strip, SITREP
-   line in the morning brief, closure-window timeline.
+   ~~Remaining extras menu~~ → **v3 SHIPPED (all three, user-approved from
+   mockup)**: multi-base LED tile strip (`/api/sitrep/summary` +
+   `sitrepSummary()` deterministic rollups), Morning Brief "⚑ Base SITREP"
+   block (same route, fetched live on open — never cached into the brief),
+   closure-window timeline (`closureWindows`/`windowConflicts` pure+tested;
+   bars only from parseable B)/C) times, runway×IFR conflicts called out).
+
+## Crisis-diag capture (2026-07-06, prod) — source truth
+- **UCDP: WORKING.** `UCDP_API_TOKEN` is set and accepted. Version 26.0.4,
+  newest event 2026-04-03 (~3-month candidate lag is normal). 26.1 also
+  live; 25.1 returns 0 rows (expected, superseded).
+- **ACLED: authenticated but tier-restricted** — read 200, count 0, tier
+  allows only events ≥12 months old (≤2025-07-06). The live strikes layer
+  stays empty on this account; UCDP is the working current-events source.
+  To fix: request recent/real-time access from ACLED (their access form),
+  else leave as-is — the map already falls back cleanly.
+- **GPSJam: working with a 1-day lag** — today's file 404s until published;
+  yesterday 200 (~1 MB). Confirmed CSV header:
+  `hex,count_good_aircraft,count_bad_aircraft`.
+- **OurAirports: 5,276 fields loaded. INFORM Risk: 191 countries (2022).**
 
 ## 🆕 X capture tool — Phase 1 SHIPPED, Phase 2 gated on real captures
 

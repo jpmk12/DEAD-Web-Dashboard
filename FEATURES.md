@@ -246,6 +246,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **Commander's Read** (`POST /api/sitrep/read`): AI BLUF (3 bullets) + watch items, chat-gated, cached 15 min.
 - **⧉ Save to Docs**: dated SITREP doc tagged `sitrep` + icao.
 - **v2**: astro strip (sunrise/sunset/civil twilight Z + moon % illumination, pure math), per-runway-end crosswind/headwind chips from the live METAR (advisory thresholds), fuel NOTAMs filtered to the field, bird/BASH group + dawn-dusk elevated windows, a last-7-days LED history strip (`sitrep_status_daily`) with worse-than-yesterday markers, and the live Infrastructure card above.
+- **v3**: **multi-base LED tile strip** (every configured base: 4 LEDs + driver line + worse-than-yesterday; worst axis colours the border; fed by `GET /api/sitrep/summary` — deterministic rollups over the cached assemblies), **Morning Brief "⚑ Base SITREP" block** (same summary route fetched live on brief open — bases needing attention get full LED blocks, quiet ones collapse to one "all green" line; never baked into the cached brief), and the **closure-window timeline** in the Ops card (NOTAM B)/C) times → 48-h bars per asset with the TAF category strip on the same axis + runway-closure × forecast-IFR conflict call-outs; unparseable windows stay text rows).
 
 ### 6. Markets
 
@@ -499,6 +500,11 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/osint/radar               GET — RainViewer radar frame index (proxied for CSP)
 /api/osint/situation           GET — Claude one-line "situation now" read
 /api/osint/crisis-diag         GET — per-source health (owner-only)
+/api/sitrep                    GET — per-base SITREP assembly (?icao=)
+/api/sitrep/bases              GET / POST — SITREP base config (add/remove/artcc)
+/api/sitrep/summary            GET — all-base LED rollups (tile strip + brief)
+/api/sitrep/read               POST — Commander's Read (AI BLUF, chat-gated)
+/api/sitrep/infra-diag         GET — infra source probes (owner-only)
 /api/crisis-read               POST — Claude mobility-demand read of the crisis board
 
 /api/markets/contracts         GET — DOD RSS parse

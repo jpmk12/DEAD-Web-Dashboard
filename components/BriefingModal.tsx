@@ -9,6 +9,7 @@ import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPref
 import { BriefIcon, DigestIcon } from "@/lib/icons";
 import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
 import { buildBriefingHTML, buildDigestHTML, openPrintWindow, downloadHTML } from "@/lib/exports";
+import type { SitrepSummary } from "@/lib/sitrep";
 
 interface Briefing {
   headline: string;
@@ -56,6 +57,18 @@ export default function BriefingModal({
   const [refreshing, setRefreshing] = useState(false);
   const [tripSuggestion, setTripSuggestion] = useState<TripSuggestion | null>(null);
   const [tripBusy, setTripBusy] = useState(false);
+  // Base SITREP block — fetched fresh on every open (never baked into the
+  // day-cached brief text, so the LEDs are always current). Best-effort: no
+  // configured bases or a failed fetch just hides the section.
+  const [sitreps, setSitreps] = useState<SitrepSummary[]>([]);
+
+  useEffect(() => {
+    if (!open || mode !== "briefing") return;
+    fetch("/api/sitrep/summary")
+      .then((r) => r.json())
+      .then((d) => setSitreps(Array.isArray(d?.bases) ? d.bases : []))
+      .catch(() => setSitreps([]));
+  }, [open, mode]);
 
   // Calendar trip auto-suggest (commit 4/4): detect a likely TDY from today's
   // events and offer one-tap "set as your location". Client-side, decoupled
@@ -402,6 +415,43 @@ export default function BriefingModal({
                 )}
               </div>
 
+              {/* ⚑ Base SITREP — per-base LEDs + one-line read, fetched live
+                  (not part of the day-cached AI text). Quiet bases collapse
+                  to a single line so the brief stays short. */}
+              {sitreps.length > 0 && (() => {
+                const attention = sitreps.filter((s) => Object.values(s.status).some((l) => l === "a" || l === "r") || s.worse.length > 0);
+                const quiet = sitreps.filter((s) => !attention.includes(s));
+                return (
+                  <div>
+                    <BriefHeader title="⚑ Base SITREP" />
+                    <div className="space-y-2">
+                      {attention.map((s) => (
+                        <div key={s.icao} className="border border-violet-500/30 bg-violet-500/[.06] rounded-xl px-3.5 py-2.5">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-[12px] font-extrabold text-slate-100 tracking-wide">{s.icao}</span>
+                            {(["wx", "ops", "threat", "infra"] as const).map((k) => (
+                              <span key={k} className="inline-flex items-center gap-1 text-[8px] font-bold tracking-widest text-slate-500">
+                                <span className={`w-1.5 h-1.5 rounded-full ${SITREP_LED[s.status[k]]}`} />
+                                {k === "threat" ? "THR" : k === "infra" ? "INF" : k.toUpperCase()}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-sm text-slate-300 leading-relaxed mt-1.5">{s.line}</p>
+                          {s.worse.length > 0 && (
+                            <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider mt-1">↑ {s.worse.join(" · ")} worse than yesterday</p>
+                          )}
+                        </div>
+                      ))}
+                      {quiet.length > 0 && (
+                        <p className="text-xs text-slate-500 px-1">
+                          {quiet.map((s) => s.icao).join(" · ")} — all green, nothing overnight.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {(briefing.weather?.length ?? 0) > 0 && (
                 <BriefSection title="Weather & travel" items={briefing.weather!} accent="text-sky-400" dot="bg-sky-400" />
               )}
@@ -477,6 +527,13 @@ export default function BriefingModal({
     </div>
   );
 }
+
+const SITREP_LED: Record<string, string> = {
+  g: "bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400/70",
+  a: "bg-amber-400 shadow-[0_0_6px] shadow-amber-400/70",
+  r: "bg-red-500 shadow-[0_0_6px] shadow-red-500/70",
+  u: "bg-slate-600",
+};
 
 function BriefHeader({ title }: { title: string }) {
   return (
