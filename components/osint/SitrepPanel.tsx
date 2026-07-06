@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
 import { closureWindows, windowConflicts, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
+import { renderSitrepHtml } from "@/lib/sitrepExport";
 
 const LED_CLASS: Record<Led, string> = {
   g: "bg-emerald-400 shadow-[0_0_8px] shadow-emerald-400/70",
@@ -272,6 +273,23 @@ export default function SitrepPanel({ active }: { active: boolean }) {
     }
   };
 
+  // Download a self-contained HTML snapshot (zero scripts, zero external
+  // resources) for sharing with people who have no dashboard access — opens
+  // offline from a desktop / share drive / email attachment.
+  const exportHtml = () => {
+    if (!payload) return;
+    const html = renderSitrepHtml(payload, read && read.bluf.length > 0 ? { bluf: read.bluf, watch: read.watch } : null);
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `SITREP-${payload.base.icao}-${payload.generatedAt.slice(0, 16).replace(/[-:]/g, "").replace("T", "-")}Z.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // Closure-window timeline (pure math over the payload the pane already has):
   // NOTAM B)/C) times → bars over the next 48 h, TAF categories on the same
   // axis, runway-closure × IFR overlaps called out.
@@ -375,6 +393,9 @@ export default function SitrepPanel({ active }: { active: boolean }) {
             <button onClick={() => icao && loadSitrep(icao)} title="Refresh" className="text-[11px] text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded-lg px-2 py-1 transition-all">↻</button>
             <button onClick={saveToDocs} disabled={saveState !== "idle"} title="Save this SITREP as a dated doc" className="text-[10px] font-bold uppercase tracking-wider border border-violet-500/40 text-violet-300 hover:text-violet-200 rounded-lg px-2.5 py-1 transition-all disabled:opacity-50">
               {saveState === "saved" ? "✓ Saved" : saveState === "saving" ? "Saving…" : "⧉ Save to Docs"}
+            </button>
+            <button onClick={exportHtml} title="Download a self-contained HTML snapshot to share — opens offline in any browser, no login needed" className="text-[10px] font-bold uppercase tracking-wider border border-sky-500/40 text-sky-300 hover:text-sky-200 rounded-lg px-2.5 py-1 transition-all">
+              ⇩ Export HTML
             </button>
           </div>
         )}

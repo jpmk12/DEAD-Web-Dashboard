@@ -1061,6 +1061,18 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   conflicts. Only window-pattern NOTAMs WITH a parseable time become bars —
   everything else stays a text row (never a guessed bar); open-ended windows
   run to the horizon flagged UFN.
+- **⇩ Export HTML (standalone shareable SITREP)**: `lib/sitrepExport.ts` →
+  `renderSitrepHtml(payload, read)` — PURE client-safe string builder
+  (tested) that renders the pane's current payload + BLUF into ONE
+  self-contained HTML file: **zero JavaScript, zero external resources**
+  (locked-down-machine friendly, prints cleanly), big "SNAPSHOT AS OF …Z —
+  NOT LIVE" stamp, per-row source tags, same UNKNOWN-≠-clear discipline,
+  closure timeline + TAF bar re-rendered as static divs via the same pure
+  fns. ALL dynamic text HTML-escaped (`esc()`) — NOTAM/news text is external
+  content. Recipients need no login/server/network. A **live** shareable
+  viewer (tokenized public read-only route + polling file) was investigated
+  and offered but deliberately NOT built — it punches a hole in the
+  single-user auth wall; revisit only on explicit request.
 
 ### Ground Truth (OSINT "Ground" sub-pane — per-country situation room)
 A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
