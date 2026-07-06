@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { normEmail } from "@/lib/allowlist";
 import { anthropic } from "@/lib/claude";
 import { NewsItem, NewsletterSummary, ChatMessage, ThreadsResult } from "@/lib/types";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
@@ -115,7 +116,7 @@ export async function POST(request: Request) {
     ? threads as ThreadsResult
     : null;
 
-  const userPrefs = await getUserPrefs();
+  const userPrefs = await getUserPrefs(normEmail(session.user?.email));
   const userContext = buildUserContext(userPrefs);
 
   if (!isFeatureEnabled("news_chat", userPrefs)) {

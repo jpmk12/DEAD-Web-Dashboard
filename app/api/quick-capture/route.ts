@@ -113,7 +113,7 @@ export async function POST(request: Request) {
   const input = typeof raw.input === "string" ? raw.input.trim().slice(0, MAX_INPUT) : "";
   if (!input) return NextResponse.json({ error: "input is required" }, { status: 400 });
 
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
   const today = format(new Date(), "EEEE, MMMM d, yyyy");
 
@@ -199,7 +199,7 @@ function normalisePlan(raw: unknown): Captured | null {
 
 async function executePlan(plan: Captured, accessToken: string, userEmail: string): Promise<NextResponse> {
   try {
-    const prefs = await getUserPrefs().catch(() => null);
+    const prefs = await getUserPrefs(userEmail).catch(() => null);
     const tz = prefs?.timezone || "America/Chicago";
 
     if (plan.kind === "task") {

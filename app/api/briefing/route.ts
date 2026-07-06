@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     tz?: string;
   };
 
-  const prefs = await getUserPrefs();
+  const prefs = await getUserPrefs(normEmail(session.user?.email));
   const userContext = buildUserContext(prefs);
   // Timezone resolution honours the user's Preferences choice:
   //  • "pinned" → the saved pref zone overrides the device, so a traveler reads

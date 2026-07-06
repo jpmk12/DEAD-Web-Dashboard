@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getUserPrefs, saveUserPrefs, sanitizeSitrepBases } from "@/lib/userPrefs";
-import { clearBriefingCache } from "@/lib/briefingCache";
+import { getUserPrefs, saveUserPrefs, savePersonalPrefs, sanitizeSitrepBases } from "@/lib/userPrefs";
+import { clearBriefingCache, clearBriefingCacheFor } from "@/lib/briefingCache";
 import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 import { classifyAor } from "@/lib/aor";
 import { isOwner } from "@/lib/currentUser";
+import { normEmail } from "@/lib/allowlist";
 
 const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
 const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
@@ -172,24 +173,13 @@ export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const prefs = await getUserPrefs();
+  const prefs = await getUserPrefs(normEmail(session.user?.email));
   return NextResponse.json({ prefs });
 }
 
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // Multi-user phase 1: user_prefs is still ONE shared row (team config +
-  // the owner's personal prefs), so writes are owner-only until the phase-2
-  // personal/team split lands. Crew members get read access (GET) so every
-  // tab renders, and their personal surfaces (email, calendar, brief, chat
-  // memory, UI state) are already per-user.
-  if (!isOwner(session.user?.email)) {
-    return NextResponse.json(
-      { error: "Preferences are managed by the dashboard owner for now — personal settings for crew accounts arrive in the next update." },
-      { status: 403 }
-    );
-  }
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (contentLength > 60_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
@@ -251,10 +241,19 @@ export async function POST(request: Request) {
       : (await getUserPrefs().catch(() => null))?.sitrepBases ?? [],
   };
 
-  await saveUserPrefs(prefs);
-  // The Morning Brief is cached per date+tz and reads home/role/topics/tz from
-  // prefs — drop that cache so an edit (e.g. changing home) is reflected today
-  // instead of being masked by this morning's already-generated brief.
-  clearBriefingCache().catch((err) => console.error("Briefing cache invalidation failed:", err));
-  return NextResponse.json({ ok: true });
+  // Multi-user phase 2 split: the OWNER writes the shared row (team config +
+  // his personal values, single-user-era layout). CREW writes touch ONLY the
+  // personal subset, into their user_personal_prefs overlay — team fields in
+  // their payload are ignored, so a crew Save can never clobber team config.
+  const email = normEmail(session.user?.email);
+  if (isOwner(email)) {
+    await saveUserPrefs(prefs);
+    // Team config feeds every brief — a team edit invalidates all of them.
+    clearBriefingCache().catch((err) => console.error("Briefing cache invalidation failed:", err));
+  } else {
+    await savePersonalPrefs(email, prefs);
+    // A personal edit only invalidates the caller's brief.
+    clearBriefingCacheFor(email).catch((err) => console.error("Briefing cache invalidation failed:", err));
+  }
+  return NextResponse.json({ ok: true, prefs: await getUserPrefs(email) });
 }

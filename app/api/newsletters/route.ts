@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { fetchNewsletterEmails, markAsRead } from "@/lib/gmail";
@@ -73,7 +74,7 @@ export async function GET() {
   // Resolve the user's configured newsletter sources. getUserPrefs() already
   // returns the built-in defaults when the column is unset and respects a
   // deliberately-emptied list; `?? DEFAULT` only covers a DB read failure.
-  const userPrefs = await getUserPrefs().catch(() => null);
+  const userPrefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const allRules = userPrefs?.newsletterSources ?? DEFAULT_NEWSLETTER_SOURCES;
   const activeRules = allRules.filter((r) => r.enabled !== false);
   const NEWSLETTER_QUERIES = activeRules.map((r) => ({ query: buildNewsletterQuery(r), source: r.id }));

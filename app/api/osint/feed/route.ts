@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
@@ -248,7 +249,7 @@ export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const feeds = prefs?.osintFeeds ?? [];
   const xItems = await getXItems().catch(() => [] as StoredXItem[]);
   if (feeds.length === 0 && xItems.length === 0) return NextResponse.json({ feeds: [], items: [] });

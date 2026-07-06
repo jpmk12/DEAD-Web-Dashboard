@@ -65,6 +65,13 @@ export async function saveCachedBriefing(date: string, tz: string, briefing: Cac
 // timezone all feed the brief, and the cache is keyed only by date+tz, so
 // without this a settings edit is masked by the already-generated brief until
 // the date rolls over (e.g. changing home shows the old location all day).
+// Per-user variant: a crew member's personal-pref save only invalidates
+// THEIR brief; the owner's team-config saves still clear everything.
+export async function clearBriefingCacheFor(email: string): Promise<void> {
+  const pool = await getDb();
+  await pool.execute("DELETE FROM briefing_cache WHERE user_email = ?", [email]);
+}
+
 export async function clearBriefingCache(): Promise<void> {
   const pool = await getDb();
   await pool.execute("DELETE FROM briefing_cache");

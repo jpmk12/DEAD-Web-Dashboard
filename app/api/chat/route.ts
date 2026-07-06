@@ -103,7 +103,7 @@ export async function POST(request: Request) {
 
   const userEmail = normEmail(session.user?.email);
   const [userPrefs, memory, recentDocs] = await Promise.all([
-    getUserPrefs(),
+    getUserPrefs(userEmail),
     getMemory(userEmail).catch(() => null),
     getRecentDocsForContext(5).catch(() => []),
   ]);

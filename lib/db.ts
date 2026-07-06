@@ -85,6 +85,17 @@ const SCHEMA_STATEMENTS = [
     last_updated         DATETIME(3) NOT NULL
   ) ENGINE=InnoDB`,
 
+  // Per-user personal preferences (multi-user phase 2): JSON overlay of the
+  // PERSONAL subset of UserPrefs (lib/userPrefs PERSONAL_PREF_KEYS). The
+  // user_prefs single row remains TEAM config + the owner's personal values
+  // (single-user-era legacy); crew accounts overlay this table on top of
+  // app defaults — never on the owner's personal values.
+  `CREATE TABLE IF NOT EXISTS user_personal_prefs (
+    user_email   VARCHAR(255) NOT NULL PRIMARY KEY,
+    prefs        JSON         NOT NULL,
+    last_updated DATETIME(3)  NOT NULL
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS article_prefs (
     id           TINYINT      NOT NULL PRIMARY KEY DEFAULT 1,
     keywords     JSON         NOT NULL,

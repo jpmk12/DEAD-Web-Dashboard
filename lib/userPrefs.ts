@@ -1,5 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
+import { normEmail } from "./allowlist";
 import { UserPrefs, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature , SitrepBase } from "./types";
 import { ALL_AI_FEATURES } from "./aiFeatures";
 import { classifyAor } from "./aor";
@@ -238,7 +239,7 @@ function asMetarStations(v: unknown): MetarStation[] {
   }).slice(0, 12);
 }
 
-export async function getUserPrefs(): Promise<UserPrefs> {
+async function getTeamPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
     "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, timezone_mode, last_updated FROM user_prefs WHERE id = 1"
@@ -285,6 +286,94 @@ export async function getUserPrefs(): Promise<UserPrefs> {
     timezoneMode: r.timezone_mode === "pinned" ? "pinned" : "auto",
     lastUpdated: r.last_updated.toISOString(),
   };
+}
+
+// ─── Personal / team split (multi-user phase 2) ─────────────────────────────
+// The user_prefs single row is TEAM config + the owner's personal values
+// (single-user-era legacy). Crew accounts get the PERSONAL subset from
+// user_personal_prefs, overlaid on app DEFAULTS — never on the owner's
+// personal values. Team fields are owner-managed everywhere.
+
+export const PERSONAL_PREF_KEYS = [
+  "role", "priorityTopics", "deprioritizeTopics", "watchlist",
+  "vipSenders", "muteSenders", "dismissedVipSuggestions",
+  "newsletterSources", "disabledNewsSources",
+  "localFeedKey", "localZipcode", "localCity", "localLat", "localLon",
+  "theme", "timezone", "timezoneMode",
+] as const;
+export type PersonalPrefKey = (typeof PERSONAL_PREF_KEYS)[number];
+
+export function pickPersonal(src: Partial<UserPrefs>): Partial<UserPrefs> {
+  const out: Record<string, unknown> = {};
+  for (const k of PERSONAL_PREF_KEYS) {
+    const v = (src as Record<string, unknown>)[k];
+    if (v !== undefined) out[k] = v;
+  }
+  return out as Partial<UserPrefs>;
+}
+
+const OVERLAY_THEMES = ["nightwatch", "amber", "arctic", "mission"] as const;
+
+// Validate a stored/incoming personal overlay field-by-field. Unknown or
+// malformed fields are dropped, never defaulted — an absent key means "fall
+// through to the base value".
+function sanitizeOverlay(raw: unknown): Partial<UserPrefs> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const r = raw as Record<string, unknown>;
+  const out: Partial<UserPrefs> = {};
+  if (typeof r.role === "string") out.role = r.role.slice(0, 2000);
+  for (const k of ["priorityTopics", "deprioritizeTopics", "watchlist", "vipSenders", "muteSenders", "dismissedVipSuggestions", "disabledNewsSources"] as const) {
+    if (r[k] !== undefined) out[k] = asStringArray(r[k]);
+  }
+  if (r.newsletterSources !== undefined) out.newsletterSources = asNewsletterSources(r.newsletterSources);
+  if (typeof r.localFeedKey === "string") out.localFeedKey = r.localFeedKey.slice(0, 64);
+  if (typeof r.localZipcode === "string") out.localZipcode = r.localZipcode.slice(0, 16);
+  if (typeof r.localCity === "string") out.localCity = r.localCity.slice(0, 255);
+  if (r.localLat !== undefined) out.localLat = Number.isFinite(Number(r.localLat)) ? Number(r.localLat) : null;
+  if (r.localLon !== undefined) out.localLon = Number.isFinite(Number(r.localLon)) ? Number(r.localLon) : null;
+  if (typeof r.theme === "string" && (OVERLAY_THEMES as readonly string[]).includes(r.theme)) out.theme = r.theme as UserPrefs["theme"];
+  if (typeof r.timezone === "string" && r.timezone) out.timezone = r.timezone.slice(0, 64);
+  if (r.timezoneMode === "pinned" || r.timezoneMode === "auto") out.timezoneMode = r.timezoneMode;
+  return out;
+}
+
+interface PersonalRow extends RowDataPacket { prefs: unknown }
+
+export async function getPersonalOverlay(email: string): Promise<Partial<UserPrefs>> {
+  const pool = await getDb();
+  const [rows] = await pool.query<PersonalRow[]>(
+    "SELECT prefs FROM user_personal_prefs WHERE user_email = ?",
+    [normEmail(email)]
+  );
+  if (rows.length === 0) return {};
+  let raw = rows[0].prefs;
+  if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { return {}; } }
+  return sanitizeOverlay(raw);
+}
+
+// Merge-save the personal subset of `patch` into the caller's overlay row.
+export async function savePersonalPrefs(email: string, patch: Partial<UserPrefs>): Promise<void> {
+  const clean = sanitizeOverlay(pickPersonal(patch));
+  const existing = await getPersonalOverlay(email).catch(() => ({}));
+  const merged = { ...existing, ...clean };
+  const pool = await getDb();
+  await pool.execute(
+    `INSERT INTO user_personal_prefs (user_email, prefs, last_updated)
+     VALUES (?, CAST(? AS JSON), ?)
+     ON DUPLICATE KEY UPDATE prefs = VALUES(prefs), last_updated = VALUES(last_updated)`,
+    [normEmail(email), JSON.stringify(merged), new Date()]
+  );
+}
+
+// The one prefs reader. No email (background/shared contexts) or the OWNER →
+// the legacy shared row as-is. Crew → team fields from the shared row +
+// personal fields from app defaults + their own overlay.
+export async function getUserPrefs(email?: string): Promise<UserPrefs> {
+  const team = await getTeamPrefs();
+  const e = normEmail(email);
+  if (!e || e === normEmail(process.env.OWNER_EMAIL)) return team;
+  const overlay = await getPersonalOverlay(e).catch(() => ({}));
+  return { ...team, ...pickPersonal(DEFAULT_PREFS), ...overlay };
 }
 
 export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Promise<void> {

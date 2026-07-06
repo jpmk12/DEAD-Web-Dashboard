@@ -770,17 +770,34 @@ OWNER_EMAIL-gated.
   calls log '' and report as "shared" in the AI Controls per-user breakdown
   (`AiUsageSummary.byUser`, shown for the last 30 days once >1 identity).
 
-**Phase 2 (approved direction, NOT built)** — the personal/team prefs split.
-User's call: gray-zone items go PERSONAL. Target split:
-- personal: role, priority/deprioritize topics, watchlist, theme, timezone(+mode),
-  local area, vip/mute senders, newsletter sources+prefs, disabled news sources,
-  article feedback (`article_prefs`), `saved_items`, `trips`, `contacts`.
-- team (owner-managed): osint_feeds, force_locations, countries, sitrep_bases,
-  tracked_locations, markets watchlist, ACLED creds, AI feature toggles.
-Design: a `user_personal_prefs (user_email PK, prefs JSON)` table; readers call
-`getUserPrefs(email)` which merges team row + personal row (owner's legacy
-values seed his personal row). Then relax the user-prefs POST gate to split
-writes by field class.
+**Phase 2 CORE (shipped)** — the personal/team prefs split:
+- `user_personal_prefs (user_email PK, prefs JSON)` holds each crew member's
+  PERSONAL overlay. The split lives in `lib/userPrefs.ts`:
+  `PERSONAL_PREF_KEYS` (role, priority/deprioritize topics, watchlist, vip/mute
+  senders, dismissed VIP suggestions, newsletter sources, disabled news
+  sources, local area, theme, timezone+mode) + `pickPersonal` (pure, tested)
+  + `sanitizeOverlay` (field-by-field validation; malformed fields DROP, never
+  default — absent key = fall through to base).
+- **`getUserPrefs(email?)`**: no email (background/shared contexts) or the
+  OWNER → the legacy shared row as-is (it carries the owner's personal values
+  from the single-user era; the owner has NO overlay row by design). Crew →
+  team fields from the shared row + personal fields from APP DEFAULTS (never
+  the owner's values) + their overlay.
+- **POST /api/user-prefs split**: owner writes the whole shared row (as
+  always); crew writes go through `savePersonalPrefs` (personal subset only —
+  team fields in their payload are ignored, so a crew Save cannot clobber team
+  config). Brief-cache invalidation is scoped: team edit → clear all; personal
+  edit → `clearBriefingCacheFor(email)`.
+- Per-user prefs are wired into the personally-sensitive routes: user-prefs
+  GET/POST, briefing, chat, gmail (vip/mute), newsletters, osint feed
+  (watchlist), quick-capture, digest, news-chat. News curation
+  (`news_overview_cache`, PK = date) deliberately stays owner-flavored — a
+  per-user ctx would make two users' caches fight over one row.
+
+**Phase 2b (NOT built)** — per-user satellite tables, same legacy-'' pattern
+as phase 1: `article_prefs` (news feedback), `newsletter_prefs`, `saved_items`,
+`trips` (a crew trip currently changes the OWNER's effective location too —
+known cross-user effect), `contacts`.
 
 ### Secondary Gmail account (the "Add account" OAuth flow)
 The Email tab can connect a **second** Google account alongside the NextAuth

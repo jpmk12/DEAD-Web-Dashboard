@@ -84,7 +84,7 @@ export async function GET() {
     secondaryAccessToken
       ? getUnreadEmails(secondaryAccessToken, "secondary", secondaryEmail).catch(() => [] as EmailMessage[])
       : Promise.resolve([] as EmailMessage[]),
-    getUserPrefs().catch(() => null),
+    getUserPrefs(normEmail(session.user?.email)).catch(() => null),
   ]);
 
   const allEmails = [...primaryEmails, ...secondaryEmails];

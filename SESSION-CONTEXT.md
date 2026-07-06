@@ -91,12 +91,18 @@ with the PERSONAL split for gray-zone items and per-user cost visibility.
   in the hosting UI; (2) Google Cloud Console → OAuth consent screen: if
   Testing, add her as a Test user (7-day refresh expiry caveat); if published
   unverified, she clicks through the "unverified app" warning once; (3) deploy.
-- **Phase 2 (build next on request)**: user_personal_prefs table + team/personal
-  field split (personal: role/topics/watchlist/theme/timezone/local
-  area/vip-mute/newsletter+article prefs/saved_items/trips/contacts; team:
-  osint feeds/force locations/sitrep bases/tracked locations/markets/ACLED/AI
-  toggles), getUserPrefs(email) merge, relax prefs POST gate, per-user
-  clearBriefingCache on personal-pref saves.
+- **Phase 2 CORE SHIPPED** (see CLAUDE.md): user_personal_prefs overlay table,
+  getUserPrefs(email) merge (crew = team config + app defaults + their
+  overlay; owner = legacy shared row), prefs POST split (crew saves touch
+  ONLY personal fields), per-user brief-cache invalidation, per-user prefs
+  wired into briefing/chat/gmail/newsletters/osint-feed/quick-capture/digest/
+  news-chat. Crew can now set their own theme, timezone, watchlist, topics,
+  role, home area, VIP/mute, newsletter + news-source prefs.
+- **Phase 2b (remaining, same legacy-'' pattern as phase 1)**: per-user
+  article_prefs, newsletter_prefs, saved_items, trips (NOTE: a crew-created
+  trip currently shifts the OWNER's effective location too — do trips first),
+  contacts. News curation deliberately stays owner-flavored (shared news tab;
+  news_overview_cache PK is date).
 
 ## Crisis-diag capture (2026-07-06, prod) — source truth
 - **UCDP: WORKING.** `UCDP_API_TOKEN` is set and accepted. Version 26.0.4,

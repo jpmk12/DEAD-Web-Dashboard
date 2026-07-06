@@ -26,7 +26,7 @@ export async function GET() {
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const [prefs, articlePrefs, newsletterPrefs] = await Promise.all([
-    getUserPrefs(),
+    getUserPrefs(normEmail(session.user?.email)),
     readArticlePrefs(),
     readNewsletterPrefs(),
   ]);
