@@ -335,14 +335,18 @@ export default function SitrepPanel({ active }: { active: boolean }) {
               onDoubleClick={() => removeBase(b.icao)}
               title={`${b.label} — double-click to remove`}
               className={`text-left flex-1 min-w-[150px] max-w-[230px] rounded-xl border px-3 py-2 transition-all ${
-                icao === b.icao ? "border-violet-500/50 bg-violet-500/[.07]"
-                : worstLed === "r" ? "border-red-500/45 bg-slate-900/70 hover:border-red-400/60"
-                : worstLed === "a" ? "border-amber-500/45 bg-slate-900/70 hover:border-amber-400/60"
-                : "border-slate-800 bg-slate-900/70 hover:border-slate-600"
+                icao === b.icao
+                  ? "border-violet-400 bg-violet-500/15 ring-2 ring-violet-400/60 shadow-[0_0_14px_rgba(167,139,250,0.35)]"
+                : worstLed === "r" ? "border-red-500/45 bg-slate-900/70 opacity-80 hover:opacity-100 hover:border-red-400/60"
+                : worstLed === "a" ? "border-amber-500/45 bg-slate-900/70 opacity-80 hover:opacity-100 hover:border-amber-400/60"
+                : "border-slate-800 bg-slate-900/70 opacity-80 hover:opacity-100 hover:border-slate-600"
               }`}
             >
               <div className="flex items-baseline gap-1.5">
                 <span className="text-[12px] font-extrabold tracking-wide text-slate-100">{b.icao}</span>
+                {icao === b.icao && (
+                  <span className="text-[7.5px] font-extrabold uppercase tracking-widest text-violet-300 border border-violet-400/50 bg-violet-500/20 rounded px-1 py-[1px]">Viewing</span>
+                )}
                 <span className="text-[8.5px] uppercase tracking-wider text-slate-600 truncate">{b.label.length > 18 ? b.label.slice(0, 17) + "…" : b.label}</span>
               </div>
               <div className="flex gap-2.5 mt-1.5">
