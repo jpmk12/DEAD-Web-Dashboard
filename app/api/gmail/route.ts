@@ -10,6 +10,7 @@ import { getCachedClassifications, cacheClassifications } from "@/lib/emailCache
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { extractJsonArray } from "@/lib/aiJson";
 import { logCall } from "@/lib/anthropicLog";
+import { normEmail } from "@/lib/allowlist";
 import { EmailMessage, EmailPriority } from "@/lib/types";
 
 const SYSTEM_PROMPT = `You are an email triage assistant. You will receive a JSON array of email objects.
@@ -141,7 +142,7 @@ export async function GET() {
       });
 
       // Fire-and-forget usage log; never blocks the response.
-      logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+      logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       // Claude sometimes wraps the array in a ```json fence or adds prose;

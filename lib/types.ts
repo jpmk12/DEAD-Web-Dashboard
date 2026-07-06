@@ -251,6 +251,9 @@ export interface AiUsageSummary {
   // instrumented (non-streaming) calls in the window.
   byRoute: { route: string; micros: number; calls: number; p50Ms?: number; p95Ms?: number }[];
   byModel: { model: string; micros: number; calls: number }[];
+  // Per-user attribution (multi-user). "shared" = background/unattributed calls
+  // and rows logged before the split.
+  byUser: { user: string; micros: number; calls: number }[];
 }
 
 // Forecast / alerts / space-weather payloads returned by the weather APIs.

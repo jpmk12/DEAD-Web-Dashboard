@@ -21,7 +21,7 @@ operational picture. Built with **Next.js 15 (App Router)** and deployed on
 | Server | custom `server.js` Next.js server (binds `process.env.PORT`) |
 | Database | managed MySQL via `mysql2` (`lib/db.ts`) |
 | AI | Anthropic SDK (`@anthropic-ai/sdk`) — Opus / Haiku per route |
-| Auth | NextAuth 5 + Google OAuth, single-user (allowlisted by `OWNER_EMAIL`) |
+| Auth | NextAuth 5 + Google OAuth — owner (`OWNER_EMAIL`) + small crew allowlist (`ALLOWED_EMAILS`) |
 | Maps | React-Leaflet 5 + OpenStreetMap / CARTO dark tiles, `h3-js` for GPS hexes |
 | Icons | `lucide-react` (vocabulary in `lib/icons.tsx`) |
 | Realtime | `ws` — server-side AISStream vessel bridge |
@@ -123,6 +123,8 @@ hosting platform. The rest are set via the hosting UI (see `.env.example`):
 `GOOGLE_CLIENT_SECRET`, `ANTHROPIC_API_KEY`, `OWNER_EMAIL`.
 
 **Optional** (feature simply stays off when unset, never a hard error):
+`ALLOWED_EMAILS` (comma-separated additional sign-ins — crew accounts get their own
+email/calendar/brief/chat memory; team config stays owner-managed),
 `GMAIL_SECONDARY_REDIRECT_URI` (second Gmail account), `AISSTREAM_API_KEY` (live
 maritime AIS), `UCDP_API_TOKEN` (Crisis-map conflict layer), and ACLED credentials
 (set in Preferences, or `ACLED_EMAIL` / `ACLED_PASSWORD` to override).

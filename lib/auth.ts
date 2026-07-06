@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import { isAllowedEmail } from "./allowlist";
 
 // Refresh the Google access token directly against the OAuth token endpoint.
 // Done as a plain fetch (rather than google-auth-library's deprecated
@@ -56,8 +57,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   callbacks: {
     async signIn({ profile }) {
-      if (!process.env.OWNER_EMAIL) return false;
-      return profile?.email === process.env.OWNER_EMAIL;
+      // Owner + the small crew allowlist (ALLOWED_EMAILS, comma-separated).
+      // Case-insensitive; no owner configured -> nobody signs in.
+      return isAllowedEmail(profile?.email, process.env.OWNER_EMAIL, process.env.ALLOWED_EMAILS);
     },
     async jwt({ token, account }) {
       // Fresh sign-in: capture the tokens and clear any prior error.

@@ -35,6 +35,7 @@ export async function logCall(opts: {
   usage: AnthropicUsage;
   durationMs?: number;
   assemblyMs?: number;
+  user?: string;      // session email for per-user cost attribution ('' = unattributed/shared)
 }): Promise<void> {
   const input  = opts.usage.input_tokens  ?? 0;
   const output = opts.usage.output_tokens ?? 0;
@@ -46,11 +47,12 @@ export async function logCall(opts: {
     const pool = await getDb();
     await pool.execute(
       `INSERT INTO anthropic_usage
-         (route, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_micros, created_at, duration_ms, assembly_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (route, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_micros, created_at, duration_ms, assembly_ms, user_email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [opts.route, opts.model, input, output, cacheCreation, cacheRead, micros, Date.now(),
        Number.isFinite(opts.durationMs) ? Math.round(opts.durationMs!) : null,
-       Number.isFinite(opts.assemblyMs) ? Math.round(opts.assemblyMs!) : null]
+       Number.isFinite(opts.assemblyMs) ? Math.round(opts.assemblyMs!) : null,
+       (opts.user ?? "").toLowerCase()]
     );
   } catch (err) {
     console.error("anthropic_usage insert failed:", err);
@@ -100,11 +102,21 @@ async function summaryBetween(startMs: number, endMs: number): Promise<AiUsageSu
     return { p50Ms: pct(xs, 50), p95Ms: pct(xs, 95) };
   };
 
+  // Per-user attribution (multi-user phase 1). Rows logged before the split
+  // or from shared/background routes carry '' and report as "shared".
+  const [byUser] = await pool.query<(RowDataPacket & { user_email: string; calls: number; micros: string })[]>(
+    `SELECT user_email, COUNT(*) AS calls, COALESCE(SUM(cost_micros), 0) AS micros
+     FROM anthropic_usage WHERE created_at >= ? AND created_at < ?
+     GROUP BY user_email ORDER BY micros DESC`,
+    [startMs, endMs]
+  );
+
   return {
     totalMicros: Number(totals[0]?.micros ?? 0),
     totalCalls: Number(totals[0]?.calls ?? 0),
     byRoute: byRoute.map((r) => ({ route: r.route, micros: Number(r.micros), calls: Number(r.calls), ...latency(r.route) })),
     byModel: byModel.map((r) => ({ model: r.model, micros: Number(r.micros), calls: Number(r.calls) })),
+    byUser: byUser.map((r) => ({ user: r.user_email || "shared", micros: Number(r.micros), calls: Number(r.calls) })),
   };
 }
 

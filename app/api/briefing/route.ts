@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { getCachedBriefing, saveCachedBriefing } from "@/lib/briefingCache";
+import { normEmail } from "@/lib/allowlist";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
@@ -139,7 +140,7 @@ export async function POST(request: Request) {
   // caller's current pref, so flipping timezone regenerates instead of serving
   // a stale brief built around a different calendar day.
   if (!forceRefresh) {
-    const cached = await getCachedBriefing(cacheKey, tz).catch(() => null);
+    const cached = await getCachedBriefing(cacheKey, tz, normEmail(session.user?.email)).catch(() => null);
     if (cached) {
       return NextResponse.json({ briefing: cached.briefing, cached: true, generatedAt: cached.generatedAt });
     }
@@ -318,7 +319,7 @@ export async function POST(request: Request) {
       messages: [{ role: "user", content: userContent }],
     });
 
-    logCall({ route: "briefing", model: "claude-opus-4-7", usage: response.usage, durationMs: Date.now() - modelStart, assemblyMs }).catch(() => {});
+    logCall({ route: "briefing", model: "claude-opus-4-7", usage: response.usage, durationMs: Date.now() - modelStart, assemblyMs, user: normEmail(session.user?.email) }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
@@ -363,7 +364,7 @@ export async function POST(request: Request) {
       );
     }
     // Fire-and-forget cache write so the next open of Brief today is instant.
-    saveCachedBriefing(cacheKey, tz, briefing).catch((err) =>
+    saveCachedBriefing(cacheKey, tz, briefing, normEmail(session.user?.email)).catch((err) =>
       console.error("Briefing cache write failed:", err)
     );
     return NextResponse.json({ briefing, cached: false });

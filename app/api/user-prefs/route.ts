@@ -5,6 +5,7 @@ import { clearBriefingCache } from "@/lib/briefingCache";
 import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 import { classifyAor } from "@/lib/aor";
+import { isOwner } from "@/lib/currentUser";
 
 const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
 const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
@@ -178,6 +179,17 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Multi-user phase 1: user_prefs is still ONE shared row (team config +
+  // the owner's personal prefs), so writes are owner-only until the phase-2
+  // personal/team split lands. Crew members get read access (GET) so every
+  // tab renders, and their personal surfaces (email, calendar, brief, chat
+  // memory, UI state) are already per-user.
+  if (!isOwner(session.user?.email)) {
+    return NextResponse.json(
+      { error: "Preferences are managed by the dashboard owner for now — personal settings for crew accounts arrive in the next update." },
+      { status: 403 }
+    );
+  }
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (contentLength > 60_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });

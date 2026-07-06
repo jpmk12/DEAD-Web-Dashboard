@@ -104,9 +104,11 @@ const SCHEMA_STATEMENTS = [
   // dismissed clusters, map provider/layer choices, newsletter quiet-prompt
   // dismissals. Shallow-merged JSON blob keyed by namespaced strings.
   `CREATE TABLE IF NOT EXISTS app_ui_state (
-    id         TINYINT      NOT NULL PRIMARY KEY DEFAULT 1,
+    id         TINYINT      NOT NULL DEFAULT 1,
+    user_email VARCHAR(255) NOT NULL DEFAULT '',
     state      JSON         NOT NULL,
-    updated_at DATETIME(3)  NOT NULL
+    updated_at DATETIME(3)  NOT NULL,
+    PRIMARY KEY (user_email)
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS newsletter_cache (
@@ -167,15 +169,23 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_osint_cache_prompt_hash (prompt_hash)
   ) ENGINE=InnoDB`,
 
+  // user_memory / surface_state / app_ui_state / briefing_cache are PERSONAL
+  // surfaces: keyed by user_email since the multi-user split. Rows written
+  // before the split carry user_email = '' and are honoured as the OWNER's
+  // legacy rows (see lib/currentUser.ts).
   `CREATE TABLE IF NOT EXISTS user_memory (
-    id           TINYINT     NOT NULL PRIMARY KEY DEFAULT 1,
-    content      MEDIUMTEXT  NOT NULL,
-    last_updated DATETIME(3) NOT NULL
+    id           TINYINT      NOT NULL DEFAULT 1,
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    content      MEDIUMTEXT   NOT NULL,
+    last_updated DATETIME(3)  NOT NULL,
+    PRIMARY KEY (user_email)
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS surface_state (
-    surface       VARCHAR(64) NOT NULL PRIMARY KEY,
-    last_seen_at  BIGINT      NOT NULL
+    surface       VARCHAR(64)  NOT NULL,
+    user_email    VARCHAR(255) NOT NULL DEFAULT '',
+    last_seen_at  BIGINT       NOT NULL,
+    PRIMARY KEY (surface, user_email)
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS vip_suggestions_cache (
@@ -185,9 +195,11 @@ const SCHEMA_STATEMENTS = [
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS briefing_cache (
-    date         VARCHAR(10) NOT NULL PRIMARY KEY,   -- YYYY-MM-DD in user's tz
-    briefing     JSON        NOT NULL,
-    generated_at BIGINT      NOT NULL
+    date         VARCHAR(10)  NOT NULL,               -- YYYY-MM-DD in user's tz
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    briefing     JSON         NOT NULL,
+    generated_at BIGINT       NOT NULL,
+    PRIMARY KEY (date, user_email)
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS news_overview_cache (
@@ -370,6 +382,25 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // `event_id` keys a calendar trip to its source event for idempotent upsert.
   { table: "trips", column: "source",   ddl: "ALTER TABLE trips ADD COLUMN source   VARCHAR(16)  NOT NULL DEFAULT 'manual'" },
   { table: "trips", column: "event_id", ddl: "ALTER TABLE trips ADD COLUMN event_id VARCHAR(255) NULL" },
+  // Multi-user split (phase 1): personal surfaces gain a user_email key.
+  // Pre-split rows keep user_email = '' and read as the owner's legacy rows.
+  { table: "briefing_cache",  column: "user_email", ddl: "ALTER TABLE briefing_cache  ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "surface_state",   column: "user_email", ddl: "ALTER TABLE surface_state   ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "app_ui_state",    column: "user_email", ddl: "ALTER TABLE app_ui_state    ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "user_memory",     column: "user_email", ddl: "ALTER TABLE user_memory     ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "anthropic_usage", column: "user_email", ddl: "ALTER TABLE anthropic_usage ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+];
+
+// Primary-key rebuilds for the multi-user split: the personal tables move to
+// (original key, user_email) composite PKs. Each runs only when the PRIMARY
+// index doesn't yet include user_email (fresh installs create the composite
+// PK directly, so these are no-ops there). Runs AFTER COLUMN_MIGRATIONS so
+// the column is guaranteed to exist.
+const KEY_MIGRATIONS: { table: string; ddl: string }[] = [
+  { table: "briefing_cache", ddl: "ALTER TABLE briefing_cache DROP PRIMARY KEY, ADD PRIMARY KEY (date, user_email)" },
+  { table: "surface_state",  ddl: "ALTER TABLE surface_state  DROP PRIMARY KEY, ADD PRIMARY KEY (surface, user_email)" },
+  { table: "app_ui_state",   ddl: "ALTER TABLE app_ui_state   DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+  { table: "user_memory",    ddl: "ALTER TABLE user_memory    DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
 ];
 
 interface ColumnRow extends RowDataPacket { cnt: number }
@@ -378,6 +409,15 @@ async function columnExists(pool: mysql.Pool, table: string, column: string): Pr
   const [rows] = await pool.query<ColumnRow[]>(
     `SELECT COUNT(*) AS cnt FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+    [table, column]
+  );
+  return rows.length > 0 && Number(rows[0].cnt) > 0;
+}
+
+async function pkIncludes(pool: mysql.Pool, table: string, column: string): Promise<boolean> {
+  const [rows] = await pool.query<ColumnRow[]>(
+    `SELECT COUNT(*) AS cnt FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = ? AND index_name = 'PRIMARY' AND column_name = ?`,
     [table, column]
   );
   return rows.length > 0 && Number(rows[0].cnt) > 0;
@@ -399,6 +439,10 @@ async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
       // and the ALTER (e.g. two concurrent boots).
       if (code !== "ER_DUP_FIELDNAME") throw err;
     }
+  }
+  for (const { table, ddl } of KEY_MIGRATIONS) {
+    if (await pkIncludes(pool, table, "user_email")) continue;
+    await pool.query(ddl);
   }
   return pool;
 }

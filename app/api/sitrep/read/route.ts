@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { logCall } from "@/lib/anthropicLog";
+import { normEmail } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { assembleSitrep } from "@/lib/sitrep";
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
   try {
     const modelStart = Date.now();
     const resp = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 500, messages: [{ role: "user", content: prompt }] });
-    logCall({ route: "sitrep_read", model: "claude-sonnet-4-6", usage: resp.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+    logCall({ route: "sitrep_read", model: "claude-sonnet-4-6", usage: resp.usage, durationMs: Date.now() - modelStart , user: normEmail(session.user?.email) }).catch(() => {});
     const textBlock = resp.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
     let bluf: string[] = [];

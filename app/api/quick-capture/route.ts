@@ -6,6 +6,7 @@ import { createTask } from "@/lib/googleTasks";
 import { createEvent } from "@/lib/calendar";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getMemory, saveMemory } from "@/lib/userMemory";
+import { normEmail } from "@/lib/allowlist";
 import { geocodePlace } from "@/lib/geocode";
 import { createTrip } from "@/lib/trips";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -106,7 +107,7 @@ export async function POST(request: Request) {
   if (raw.commit !== undefined) {
     const plan = normalisePlan(raw.commit);
     if (!plan) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
-    return executePlan(plan, session.accessToken as string);
+    return executePlan(plan, session.accessToken as string, normEmail(session.user?.email));
   }
 
   const input = typeof raw.input === "string" ? raw.input.trim().slice(0, MAX_INPUT) : "";
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
       system: buildSystem(today, tz),
       messages: [{ role: "user", content: input }],
     });
-    logCall({ route: "quick_capture", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
+    logCall({ route: "quick_capture", model: "claude-haiku-4-5", usage: response.usage, user: normEmail(session.user?.email) }).catch(() => {});
   } catch (err) {
     console.error("Quick-capture classify failed:", err);
     return NextResponse.json({ error: "Couldn't process that — try again" }, { status: 503 });
@@ -196,7 +197,7 @@ function normalisePlan(raw: unknown): Captured | null {
   return null;
 }
 
-async function executePlan(plan: Captured, accessToken: string): Promise<NextResponse> {
+async function executePlan(plan: Captured, accessToken: string, userEmail: string): Promise<NextResponse> {
   try {
     const prefs = await getUserPrefs().catch(() => null);
     const tz = prefs?.timezone || "America/Chicago";
@@ -243,11 +244,11 @@ async function executePlan(plan: Captured, accessToken: string): Promise<NextRes
     }
 
     // note → append to memory under a single "## Notes" section
-    const memory = await getMemory();
+    const memory = await getMemory(userEmail);
     const dateStr = format(new Date(), "yyyy-MM-dd");
     const noteBullet = `- (${dateStr}) ${plan.content.trim()}`;
     const updated = appendNoteToMemory(memory.content ?? "", noteBullet);
-    await saveMemory(updated);
+    await saveMemory(userEmail, updated);
     return NextResponse.json({ kind: "note", content: plan.content.trim() });
   } catch (err) {
     console.error("Quick-capture execute failed:", err);

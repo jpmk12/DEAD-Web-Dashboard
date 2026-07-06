@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUiState, mergeUiState } from "@/lib/uiState";
+import { normEmail } from "@/lib/allowlist";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const state = await getUiState().catch(() => ({}));
+  const state = await getUiState(normEmail(session.user?.email)).catch(() => ({}));
   return NextResponse.json({ state });
 }
 
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "patch object required" }, { status: 400 });
   }
 
-  const state = await mergeUiState(patch as Record<string, unknown>).catch(() => null);
+  const state = await mergeUiState(normEmail(session.user?.email), patch as Record<string, unknown>).catch(() => null);
   if (!state) return NextResponse.json({ error: "Save failed" }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

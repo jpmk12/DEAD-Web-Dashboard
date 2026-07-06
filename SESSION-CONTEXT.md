@@ -80,6 +80,24 @@ ZNY center. After deploy:
    closure-window timeline (`closureWindows`/`windowConflicts` pure+tested;
    bars only from parseable B)/C) times, runway×IFR conflicts called out).
 
+## Multi-user Phase 1 SHIPPED / Phase 2 QUEUED (2026-07-06)
+User approved multi-user for ONE additional account: **denise.poole21@gmail.com**,
+with the PERSONAL split for gray-zone items and per-user cost visibility.
+- **Phase 1 shipped** (see CLAUDE.md "Multi-user (crew)"): ALLOWED_EMAILS
+  allowlist, per-user brief cache / chat memory / surface state / UI state
+  (legacy '' rows = owner), owner-only prefs writes, anthropic_usage.user_email
+  attribution + AI Controls "By user" breakdown.
+- **Owner setup steps**: (1) set env `ALLOWED_EMAILS=denise.poole21@gmail.com`
+  in the hosting UI; (2) Google Cloud Console → OAuth consent screen: if
+  Testing, add her as a Test user (7-day refresh expiry caveat); if published
+  unverified, she clicks through the "unverified app" warning once; (3) deploy.
+- **Phase 2 (build next on request)**: user_personal_prefs table + team/personal
+  field split (personal: role/topics/watchlist/theme/timezone/local
+  area/vip-mute/newsletter+article prefs/saved_items/trips/contacts; team:
+  osint feeds/force locations/sitrep bases/tracked locations/markets/ACLED/AI
+  toggles), getUserPrefs(email) merge, relax prefs POST gate, per-user
+  clearBriefingCache on personal-pref saves.
+
 ## Crisis-diag capture (2026-07-06, prod) — source truth
 - **UCDP: WORKING.** `UCDP_API_TOKEN` is set and accepted. Version 26.0.4,
   newest event 2026-04-03 (~3-month candidate lag is normal). 26.1 also

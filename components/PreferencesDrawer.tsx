@@ -1635,6 +1635,21 @@ function AIControlPanel({
                   ))}
                 </ul>
               )}
+              {/* Per-user attribution — shown once more than one identity has
+                  spend ("shared" = background jobs + pre-split rows). */}
+              {showBreakdown && (usage.last30.byUser?.length ?? 0) > 1 && (
+                <>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mt-3 mb-1">By user — last 30 days</p>
+                  <ul className="space-y-0.5">
+                    {usage.last30.byUser.map((u) => (
+                      <li key={u.user} className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
+                        <span className="text-slate-400 truncate">{u.user}</span>
+                        <span className="text-slate-500 flex-shrink-0">{formatUsd(u.micros)} · {u.calls}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </>
           )}
         </div>

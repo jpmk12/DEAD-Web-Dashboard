@@ -743,6 +743,45 @@ the Crisis map renders "Armed Conflict Location &
 Event Data Project (ACLED) — acleddata.com" in the sources line + popups; keep it. `lib/acled.ts` is
 pure `fetch` (no new npm dep, so `grep -c esbuild package-lock.json` stays `0`).
 
+### Multi-user (crew) — phase 1 shipped, phase 2 pending
+The dashboard is now **owner + small crew**: `ALLOWED_EMAILS` (comma-separated,
+case-insensitive) admits additional Google accounts alongside `OWNER_EMAIL`
+(`lib/allowlist.ts`, pure + tested; checked in the NextAuth `signIn` callback).
+The owner remains the admin: diag routes and team-config writes stay
+OWNER_EMAIL-gated.
+
+**Phase 1 (shipped)** — crew accounts are SAFE, not yet fully personalized:
+- **Per-user personal surfaces** (privacy-leak closure): `briefing_cache`,
+  `user_memory` (chat memory + pending exchanges), `surface_state`, and
+  `app_ui_state` are keyed by `user_email`. Pre-split rows carry
+  `user_email = ''` and are honoured as the OWNER's legacy rows — reads prefer
+  the exact-email row and fall back to `''` only for the owner
+  (`lib/currentUser.ts`). PK rebuilds run via `KEY_MIGRATIONS` in `lib/db.ts`
+  (checked against information_schema, no-ops on fresh installs where the
+  CREATE TABLE already has the composite PK).
+- **Email/Calendar are inherently per-user** — the Google token lives in each
+  session's JWT; the secondary-Gmail token is an httpOnly cookie (per browser).
+- **`user_prefs` POST is owner-only** until phase 2: the single shared row is
+  team config + the owner's personal prefs, so a crew Save would clobber both.
+  Crew gets GET (tabs render off shared config).
+- **Per-user AI cost attribution**: `anthropic_usage.user_email` + optional
+  `user` on `logCall`; wired on the personal-spend routes (chat, briefing,
+  email triage, digest, quick-capture, sitrep read, memory). Shared/background
+  calls log '' and report as "shared" in the AI Controls per-user breakdown
+  (`AiUsageSummary.byUser`, shown for the last 30 days once >1 identity).
+
+**Phase 2 (approved direction, NOT built)** — the personal/team prefs split.
+User's call: gray-zone items go PERSONAL. Target split:
+- personal: role, priority/deprioritize topics, watchlist, theme, timezone(+mode),
+  local area, vip/mute senders, newsletter sources+prefs, disabled news sources,
+  article feedback (`article_prefs`), `saved_items`, `trips`, `contacts`.
+- team (owner-managed): osint_feeds, force_locations, countries, sitrep_bases,
+  tracked_locations, markets watchlist, ACLED creds, AI feature toggles.
+Design: a `user_personal_prefs (user_email PK, prefs JSON)` table; readers call
+`getUserPrefs(email)` which merges team row + personal row (owner's legacy
+values seed his personal row). Then relax the user-prefs POST gate to split
+writes by field class.
+
 ### Secondary Gmail account (the "Add account" OAuth flow)
 The Email tab can connect a **second** Google account alongside the NextAuth
 primary login. It's a hand-rolled OAuth flow (NOT NextAuth) in

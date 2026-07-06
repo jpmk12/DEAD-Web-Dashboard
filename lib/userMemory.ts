@@ -5,6 +5,7 @@ import { ChatMessage } from "./types";
 import { isFeatureEnabled } from "./aiFeatures";
 import { logCall } from "./anthropicLog";
 import { getUserPrefs } from "./userPrefs";
+import { isOwner } from "./currentUser";
 
 const MAX_MEMORY_CHARS = 12_000; // ~3k tokens; safety cap before storage
 
@@ -34,59 +35,69 @@ export interface UserMemory {
   lastUpdated: string; // ISO
 }
 
-export async function getMemory(): Promise<UserMemory> {
+export async function getMemory(email: string): Promise<UserMemory> {
   const pool = await getDb();
-  const [rows] = await pool.query<MemoryRow[]>(
-    "SELECT content, last_updated FROM user_memory WHERE id = 1"
+  const [rows] = await pool.query<(MemoryRow & { user_email: string })[]>(
+    "SELECT content, last_updated, user_email FROM user_memory WHERE user_email IN (?, '')",
+    [email]
   );
-  if (rows.length === 0) {
+  const row = rows.find((r) => r.user_email === email)
+    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  if (!row) {
     return { content: "", lastUpdated: new Date(0).toISOString() };
   }
   return {
-    content: rows[0].content ?? "",
-    lastUpdated: rows[0].last_updated.toISOString(),
+    content: row.content ?? "",
+    lastUpdated: row.last_updated.toISOString(),
   };
 }
 
-async function getPendingExchanges(): Promise<PendingExchange[]> {
+async function getPendingExchanges(email: string): Promise<PendingExchange[]> {
   const pool = await getDb();
-  const [rows] = await pool.query<MemoryRow[]>(
-    "SELECT pending_exchanges FROM user_memory WHERE id = 1"
+  const [rows] = await pool.query<(MemoryRow & { user_email: string })[]>(
+    "SELECT pending_exchanges, user_email FROM user_memory WHERE user_email IN (?, '')",
+    [email]
   );
-  if (rows.length === 0) return [];
-  const raw = rows[0].pending_exchanges;
+  const row = rows.find((r) => r.user_email === email)
+    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  const raw = row?.pending_exchanges;
   return Array.isArray(raw) ? raw : [];
 }
 
-async function savePendingExchanges(pending: PendingExchange[]): Promise<void> {
+async function savePendingExchanges(email: string, pending: PendingExchange[]): Promise<void> {
   const pool = await getDb();
   // Cap the queue so a long stretch without consolidation doesn't grow
   // unbounded; drop the oldest entries first.
   const capped = pending.slice(-MAX_PENDING_EXCHANGES);
   await pool.execute(
-    `INSERT INTO user_memory (id, content, last_updated, pending_exchanges)
-     VALUES (1, '', ?, CAST(? AS JSON))
+    `INSERT INTO user_memory (id, user_email, content, last_updated, pending_exchanges)
+     VALUES (1, ?, '', ?, CAST(? AS JSON))
      ON DUPLICATE KEY UPDATE pending_exchanges = VALUES(pending_exchanges)`,
-    [new Date(), JSON.stringify(capped)]
+    [email, new Date(), JSON.stringify(capped)]
   );
 }
 
-export async function saveMemory(content: string): Promise<void> {
+export async function saveMemory(email: string, content: string): Promise<void> {
   const pool = await getDb();
   const capped = content.slice(0, MAX_MEMORY_CHARS);
   await pool.execute(
-    `INSERT INTO user_memory (id, content, last_updated)
-     VALUES (1, ?, ?)
+    `INSERT INTO user_memory (id, user_email, content, last_updated)
+     VALUES (1, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        content      = VALUES(content),
        last_updated = VALUES(last_updated)`,
-    [capped, new Date()]
+    [email, capped, new Date()]
   );
 }
 
-export async function clearMemory(): Promise<void> {
+export async function clearMemory(email: string): Promise<void> {
   const pool = await getDb();
-  await pool.execute("DELETE FROM user_memory WHERE id = 1");
+  // The owner's clear also removes any pre-split legacy row.
+  if (isOwner(email)) {
+    await pool.execute("DELETE FROM user_memory WHERE user_email IN (?, '')", [email]);
+  } else {
+    await pool.execute("DELETE FROM user_memory WHERE user_email = ?", [email]);
+  }
 }
 
 // Inject into AI system prompts. Returns an empty string when memory is empty
@@ -104,6 +115,7 @@ export function buildMemoryContext(memory: UserMemory): string {
 // chat exchanges, ask Haiku to produce an UPDATED memory document.
 // Fire-and-forget at the call site.
 export async function updateMemoryFromChat(
+  email: string,
   recentMessages: ChatMessage[],
   assistantReply: string
 ): Promise<void> {
@@ -117,8 +129,8 @@ export async function updateMemoryFromChat(
   const prefs = await getUserPrefs().catch(() => null);
   if (!isFeatureEnabled("memory", prefs)) return;
 
-  const current = await getMemory();
-  const pending = await getPendingExchanges();
+  const current = await getMemory(email);
+  const pending = await getPendingExchanges(email);
 
   // Always append this turn to the queue first — that way a fact disclosed
   // mid-window survives until consolidation fires, even if the user goes
@@ -128,7 +140,7 @@ export async function updateMemoryFromChat(
   // Within the gap window? Persist the queue and bail.
   const lastUpdatedMs = new Date(current.lastUpdated).getTime();
   if (Number.isFinite(lastUpdatedMs) && Date.now() - lastUpdatedMs < MIN_UPDATE_GAP_MS) {
-    await savePendingExchanges(pending);
+    await savePendingExchanges(email, pending);
     return;
   }
 
@@ -170,17 +182,17 @@ ${exchange}`;
     system,
     messages: [{ role: "user", content: userMsg }],
   });
-  logCall({ route: "memory", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
+  logCall({ route: "memory", model: "claude-haiku-4-5", usage: response.usage, user: email }).catch(() => {});
 
   const text =
     response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
 
   // Always clear the pending queue once we've attempted consolidation — even
   // an empty / unchanged response means the queued exchanges were considered.
-  await savePendingExchanges([]);
+  await savePendingExchanges(email, []);
 
   if (!text) return;
   // Don't overwrite with an obvious no-op (same length & prefix → likely unchanged).
   if (text === current.content.trim()) return;
-  await saveMemory(text);
+  await saveMemory(email, text);
 }

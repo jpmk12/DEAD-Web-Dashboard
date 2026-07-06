@@ -6,6 +6,7 @@ import { readPrefs as readArticlePrefs } from "@/lib/articlePrefs";
 import { readPrefs as readNewsletterPrefs } from "@/lib/newsletterPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
+import { normEmail } from "@/lib/allowlist";
 import { extractJsonObject } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +94,7 @@ export async function GET() {
       messages: [{ role: "user", content: context }],
     });
 
-    logCall({ route: "digest", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+    logCall({ route: "digest", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

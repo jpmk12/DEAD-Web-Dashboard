@@ -1,9 +1,11 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
+import { isOwner } from "./currentUser";
 
-// One row per local-date key (YYYY-MM-DD in the user's timezone). The dashboard
-// is single-user so global keys are fine. Bump by deleting the row or passing
-// refresh=1 to /api/briefing.
+// One row per (local-date, user_email). Pre-multi-user rows carry
+// user_email = '' and are honoured as the OWNER's legacy rows: reads prefer
+// the exact-email row and fall back to '' only for the owner. Bump by
+// deleting the row or passing refresh=1 to /api/briefing.
 
 export interface CachedBriefing {
   headline: string;
@@ -22,30 +24,32 @@ interface CacheRow extends RowDataPacket {
 
 // Returns the cached briefing for `date` ONLY when its stored tz matches the
 // caller's current pref — changing timezone mid-day should regenerate.
-export async function getCachedBriefing(date: string, tz: string): Promise<{ briefing: CachedBriefing; generatedAt: number } | null> {
+export async function getCachedBriefing(date: string, tz: string, email: string): Promise<{ briefing: CachedBriefing; generatedAt: number } | null> {
   const pool = await getDb();
-  const [rows] = await pool.query<CacheRow[]>(
-    "SELECT briefing, generated_at, tz FROM briefing_cache WHERE date = ?",
-    [date]
+  const [rows] = await pool.query<(CacheRow & { user_email: string })[]>(
+    "SELECT briefing, generated_at, tz, user_email FROM briefing_cache WHERE date = ? AND user_email IN (?, '')",
+    [date, email]
   );
-  if (rows.length === 0) return null;
-  if (rows[0].tz && rows[0].tz !== tz) return null;
+  const row = rows.find((r) => r.user_email === email)
+    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  if (!row) return null;
+  if (row.tz && row.tz !== tz) return null;
   return {
-    briefing: rows[0].briefing,
-    generatedAt: Number(rows[0].generated_at) || 0,
+    briefing: row.briefing,
+    generatedAt: Number(row.generated_at) || 0,
   };
 }
 
-export async function saveCachedBriefing(date: string, tz: string, briefing: CachedBriefing): Promise<void> {
+export async function saveCachedBriefing(date: string, tz: string, briefing: CachedBriefing, email: string): Promise<void> {
   const pool = await getDb();
   await pool.execute(
-    `INSERT INTO briefing_cache (date, tz, briefing, generated_at)
-     VALUES (?, ?, CAST(? AS JSON), ?)
+    `INSERT INTO briefing_cache (date, user_email, tz, briefing, generated_at)
+     VALUES (?, ?, ?, CAST(? AS JSON), ?)
      ON DUPLICATE KEY UPDATE
        briefing     = VALUES(briefing),
        generated_at = VALUES(generated_at),
        tz           = VALUES(tz)`,
-    [date, tz, JSON.stringify(briefing), Date.now()]
+    [date, email, tz, JSON.stringify(briefing), Date.now()]
   );
   // Best-effort: prune anything older than 7 days so the table stays bounded.
   pool

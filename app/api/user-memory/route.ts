@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getMemory, saveMemory, clearMemory } from "@/lib/userMemory";
+import { normEmail } from "@/lib/allowlist";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const memory = await getMemory();
+  const memory = await getMemory(normEmail(session.user?.email));
   return NextResponse.json({ memory });
 }
 
@@ -24,13 +25,13 @@ export async function POST(request: Request) {
 
   const raw = body as { content?: unknown };
   const content = typeof raw.content === "string" ? raw.content : "";
-  await saveMemory(content);
+  await saveMemory(normEmail(session.user?.email), content);
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  await clearMemory();
+  await clearMemory(normEmail(session.user?.email));
   return NextResponse.json({ ok: true });
 }

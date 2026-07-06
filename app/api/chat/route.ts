@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { CalendarEvent, ChatMessage, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { getMemory, buildMemoryContext, updateMemoryFromChat } from "@/lib/userMemory";
+import { normEmail } from "@/lib/allowlist";
 import { getRecentDocsForContext } from "@/lib/documents";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
@@ -100,9 +101,10 @@ export async function POST(request: Request) {
   const safeArticles = Array.isArray(articles) ? (articles as NewsItem[]).slice(0, 20) : [];
   const safeNewsletters = Array.isArray(newsletters) ? (newsletters as NewsletterSummary[]).slice(0, 10) : [];
 
+  const userEmail = normEmail(session.user?.email);
   const [userPrefs, memory, recentDocs] = await Promise.all([
     getUserPrefs(),
-    getMemory().catch(() => null),
+    getMemory(userEmail).catch(() => null),
     getRecentDocsForContext(5).catch(() => []),
   ]);
   const userContext = buildUserContext(userPrefs);
@@ -245,6 +247,7 @@ ${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
         // Log usage after the stream resolved successfully.
         logCall({
           route: "chat",
+          user: userEmail,
           model: "claude-opus-4-7",
           usage: {
             input_tokens: inputTokens,
@@ -266,7 +269,7 @@ ${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
       // failures are logged but never surfaced to the user. Skipped when the
       // assistant reply is empty (overload path).
       if (assistantText.trim()) {
-        updateMemoryFromChat(sanitizedMessages, assistantText).catch((err) =>
+        updateMemoryFromChat(userEmail, sanitizedMessages, assistantText).catch((err) =>
           console.error("Memory update failed:", err)
         );
       }
