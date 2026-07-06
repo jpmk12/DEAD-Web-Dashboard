@@ -173,7 +173,27 @@ Rules:
 - The "due" field for tasks is optional; "description" and "location" for events are also optional
 - Include only one action block per response; if several changes are needed, do them one at a time`;
 
+  // Authoritative weekday reference for the next 10 weeks. LLMs are unreliable
+  // at calendar arithmetic: when the user types a bare date ("14 Jul 0800")
+  // the model would otherwise derive the weekday itself and sometimes get it
+  // wrong (announcing a Tuesday event as "Sunday") even while the calendar add
+  // lands correctly. Event-context lines already carry computed weekdays; this
+  // table covers NEW dates the user mentions. ~400 tokens, correctness-critical.
+  const weekdayTable = (() => {
+    const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+    const wd = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" });
+    const rows: string[] = [];
+    for (let d = 0; d < 70; d++) {
+      const t = new Date(Date.now() + d * 86_400_000);
+      rows.push(`${fmt.format(t)}=${wd.format(t)}`);
+    }
+    return rows.join(" ");
+  })();
+
   const dynamicBlock = `Today is ${today}. User's timezone: ${tz}.
+
+DATE→WEEKDAY REFERENCE (next 70 days, ${tz}). NEVER compute a weekday yourself — when you state a weekday for ANY date, look it up here or in the calendar lines below; if a date is outside this table, omit the weekday rather than guessing:
+${weekdayTable}
 
 USER'S UPCOMING CALENDAR:
 ${formatEvents(sanitizedContext, tz)}
