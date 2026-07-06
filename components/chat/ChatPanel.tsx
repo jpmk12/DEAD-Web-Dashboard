@@ -482,6 +482,10 @@ export default function ChatPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: newMessages.filter((m) => m.role !== "assistant" || m.content),
+          // Device IANA zone — with timezoneMode "auto" the server uses this
+          // (same contract as the morning brief) so scheduling chat matches
+          // where the user actually is, not a stale pinned pref.
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
           calendarContext: calendarEvents,
           tasks,
           articles,

@@ -19,6 +19,10 @@ const VALID_ROLES = new Set(["user", "assistant"]);
 // Event times are rendered in the USER's timezone — without it, formatting falls
 // back to the server's tz (UTC in production) and every time is shifted (e.g.
 // 08:30 CDT shown as 13:30), which had the assistant misreading the calendar.
+function isValidTz(tz: string): boolean {
+  try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return true; } catch { return false; }
+}
+
 function formatEvents(events: CalendarEvent[], tz: string): string {
   if (!events.length) return "No upcoming events found.";
   // Each event gets a [N] handle (1-based, matching the order the client sent)
@@ -69,7 +73,7 @@ export async function POST(request: Request) {
     return new Response("Invalid request body", { status: 400 });
   }
 
-  const { messages, calendarContext, tasks, articles, newsletters } = body as Record<string, unknown>;
+  const { messages, calendarContext, tasks, articles, newsletters, tz: bodyTz } = body as Record<string, unknown>;
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return new Response("messages must be a non-empty array", { status: 400 });
@@ -128,7 +132,15 @@ export async function POST(request: Request) {
       safeNewsletters.flatMap((n) => n.bullets.slice(0, 3).map((b) => `• ${b}`)).join("\n")
     : "";
 
-  const tz = userPrefs.timezone || "America/Chicago";
+  // Timezone resolution — SAME contract as /api/briefing: "pinned" → the
+  // saved pref wins; "auto" (default) → the device zone the client sent wins,
+  // so scheduling chat follows where the user actually is (a stale Chicago
+  // default was making the assistant second-guess Eastern-time adds).
+  const requestTz = typeof bodyTz === "string" && isValidTz(bodyTz) ? bodyTz : "";
+  const tz =
+    userPrefs.timezoneMode === "pinned"
+      ? userPrefs.timezone || requestTz || "America/Chicago"
+      : requestTz || userPrefs.timezone || "America/Chicago";
   const today = longDateInTz(tz);
 
   // The system prompt splits into a cacheable "rules + identity + user
