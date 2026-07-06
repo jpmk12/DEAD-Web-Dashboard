@@ -16,24 +16,28 @@ import { upsertCalendarTrip, listActiveCalendarTrips, deleteTrip } from "./trips
 // SYNC_INTERVAL_MS — concurrent callers share the in-flight promise, and later
 // callers inside the window no-op (the DB writes from the last run still stand).
 const SYNC_INTERVAL_MS = 10 * 60 * 1000;
-let lastSyncAt = 0;
-let inFlight: Promise<void> | null = null;
+// Throttle state is PER USER — a global window would let one user's poll
+// starve every other user's calendar-trip auto-activation indefinitely
+// (and hand user B a promise that is syncing user A's calendar).
+const syncState = new Map<string, { lastSyncAt: number; inFlight: Promise<void> | null }>();
 
 export async function syncCalendarTripsThrottled(email: string, accessToken: string, today: string): Promise<void> {
-  if (inFlight) return inFlight;
-  if (Date.now() - lastSyncAt < SYNC_INTERVAL_MS) return;
-  inFlight = (async () => {
+  const st = syncState.get(email) ?? { lastSyncAt: 0, inFlight: null };
+  syncState.set(email, st);
+  if (st.inFlight) return st.inFlight;
+  if (Date.now() - st.lastSyncAt < SYNC_INTERVAL_MS) return;
+  st.inFlight = (async () => {
     try {
       const events = await getUpcomingEvents(accessToken);
       await syncCalendarTrips(email, events, today);
-      lastSyncAt = Date.now();
+      st.lastSyncAt = Date.now();
     } catch {
       // Best-effort: auto-activation must never break the page that triggered it.
     } finally {
-      inFlight = null;
+      st.inFlight = null;
     }
   })();
-  return inFlight;
+  return st.inFlight;
 }
 
 // Reconcile calendar-derived trips with the calendar for `today`: upsert every

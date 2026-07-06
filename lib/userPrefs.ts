@@ -329,8 +329,12 @@ function sanitizeOverlay(raw: unknown): Partial<UserPrefs> {
   if (typeof r.localFeedKey === "string") out.localFeedKey = r.localFeedKey.slice(0, 64);
   if (typeof r.localZipcode === "string") out.localZipcode = r.localZipcode.slice(0, 16);
   if (typeof r.localCity === "string") out.localCity = r.localCity.slice(0, 255);
-  if (r.localLat !== undefined) out.localLat = Number.isFinite(Number(r.localLat)) ? Number(r.localLat) : null;
-  if (r.localLon !== undefined) out.localLon = Number.isFinite(Number(r.localLon)) ? Number(r.localLon) : null;
+  // null is a VALID value ("no home set") and must survive as null — Number(null)
+  // is 0, which would pin the user to 0°N 0°E. Malformed values DROP the key.
+  if (r.localLat === null) out.localLat = null;
+  else if (r.localLat !== undefined && typeof r.localLat === "number" && Number.isFinite(r.localLat)) out.localLat = r.localLat;
+  if (r.localLon === null) out.localLon = null;
+  else if (r.localLon !== undefined && typeof r.localLon === "number" && Number.isFinite(r.localLon)) out.localLon = r.localLon;
   if (typeof r.theme === "string" && (OVERLAY_THEMES as readonly string[]).includes(r.theme)) out.theme = r.theme as UserPrefs["theme"];
   if (typeof r.timezone === "string" && r.timezone) out.timezone = r.timezone.slice(0, 64);
   if (r.timezoneMode === "pinned" || r.timezoneMode === "auto") out.timezoneMode = r.timezoneMode;
@@ -369,10 +373,12 @@ export async function savePersonalPrefs(email: string, patch: Partial<UserPrefs>
 // the legacy shared row as-is. Crew → team fields from the shared row +
 // personal fields from app defaults + their own overlay.
 export async function getUserPrefs(email?: string): Promise<UserPrefs> {
-  const team = await getTeamPrefs();
   const e = normEmail(email);
-  if (!e || e === normEmail(process.env.OWNER_EMAIL)) return team;
-  const overlay = await getPersonalOverlay(e).catch(() => ({}));
+  if (!e || e === normEmail(process.env.OWNER_EMAIL)) return getTeamPrefs();
+  const [team, overlay] = await Promise.all([
+    getTeamPrefs(),
+    getPersonalOverlay(e).catch(() => ({})),
+  ]);
   return { ...team, ...pickPersonal(DEFAULT_PREFS), ...overlay };
 }
 

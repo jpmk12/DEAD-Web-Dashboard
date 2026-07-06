@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { EmailMessage, ActionItem } from "@/lib/types";
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
 
   if (!actionable.length) return NextResponse.json({ actions: [] });
 
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   if (!isFeatureEnabled("email_actions", prefs)) {
     return NextResponse.json({ actions: [], disabled: true });
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
   }
 
   // ── Generate the draft text for review ──
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   if (!prefs || !isFeatureEnabled("email_draft", prefs)) {
     return NextResponse.json(
       { error: "Drafted replies are disabled in Preferences → AI Controls", disabled: true },

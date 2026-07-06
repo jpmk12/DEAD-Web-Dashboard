@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getVipSuggestions } from "@/lib/replySignals";
@@ -12,7 +13,7 @@ export async function GET() {
   }
 
   const primaryEmail = (session as { user?: { email?: string } }).user?.email ?? "";
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
 
   // Exclude anything the user has already classified or dismissed.
   const exclude = new Set<string>();

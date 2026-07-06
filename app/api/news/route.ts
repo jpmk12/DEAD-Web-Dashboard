@@ -20,7 +20,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userPrefs = await getUserPrefs();
+  const userPrefs = await getUserPrefs(normEmail(session.user?.email));
   // Home local feeds ALWAYS stay — even on a TDY trip you keep home news. The
   // trip gets its own "While you're at <place>" strip (tripNews, built below)
   // rather than replacing the home feed set.

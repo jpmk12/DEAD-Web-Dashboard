@@ -29,7 +29,7 @@ function invalidateBrief() {
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
   // Auto-activate TDY from trip-like calendar events before reading (throttled,
   // best-effort) so an active trip appears without a manual entry.

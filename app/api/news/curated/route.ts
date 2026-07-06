@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normEmail } from "@/lib/allowlist";
+import { ownerEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
@@ -50,6 +50,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // DELIBERATELY owner-flavored (no session email): the curated overview is
+  // ONE shared read per day (news_overview_cache PK = date). Per-caller prefs
+  // here would let whoever loads first freeze THEIR flavor for everyone —
+  // see CLAUDE.md "News curation ... deliberately stays owner-flavored".
   const prefs = await getUserPrefs().catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
   const day = todayInTz(tz);
@@ -72,7 +76,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ critical: [], discover: [], mode: "deterministic", day, cached: false, transient: true });
   }
 
-  const articlePrefs = await readArticlePrefs(normEmail(session.user?.email)).catch(() => ({ keywords: {}, sources: {}, lastUpdated: "" }));
+  const articlePrefs = await readArticlePrefs(ownerEmail()).catch(() => ({ keywords: {}, sources: {}, lastUpdated: "" }));
 
   // Deterministic ranking is both the AI's pre-filter order AND the fallback.
   const watchlist = prefs?.watchlist ?? [];

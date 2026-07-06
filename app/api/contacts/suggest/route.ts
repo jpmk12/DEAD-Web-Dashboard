@@ -28,7 +28,7 @@ export async function GET() {
 
   const primaryEmail = (session as { user?: { email?: string } }).user?.email ?? "";
   const [prefs, contacts] = await Promise.all([
-    getUserPrefs().catch(() => null),
+    getUserPrefs(normEmail(session.user?.email)).catch(() => null),
     listContacts(normEmail(session.user?.email)).catch(() => []),
   ]);
 

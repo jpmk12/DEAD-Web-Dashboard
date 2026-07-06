@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const today = todayInTz(prefs?.timezone || "America/Chicago");
   const contacts = await listContacts(normEmail(session.user?.email)).catch(() => []);
   const ordered = sortByDue(contacts, today).map((c) => ({ ...c, status: contactStatus(c, today) }));
@@ -45,7 +45,7 @@ export async function PATCH(request: Request) {
   const id = String(body.id ?? "");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
 
   if (body.action === "contacted") {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { cookies } from "next/headers";
 import { format } from "date-fns";
 import { auth } from "@/lib/auth";
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
   const token = await resolveToken(account, session.accessToken as string);
   if (!token) return NextResponse.json({ error: "Account not connected" }, { status: 400 });
 
-  const prefs = await getUserPrefs().catch(() => null);
+  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
   const accountEmail = account === "secondary" ? "" : ((session as { user?: { email?: string } }).user?.email ?? "");
 

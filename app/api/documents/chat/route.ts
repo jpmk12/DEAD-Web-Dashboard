@@ -1,4 +1,5 @@
 import { anthropic } from "@/lib/claude";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { getDocument } from "@/lib/documents";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
 
   const [doc, prefs] = await Promise.all([
     getDocument(docId).catch(() => null),
-    getUserPrefs(),
+    getUserPrefs(normEmail(session.user?.email)),
   ]);
   if (!doc) return new Response("Document not found", { status: 404 });
 

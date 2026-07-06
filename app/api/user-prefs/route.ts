@@ -251,9 +251,13 @@ export async function POST(request: Request) {
     // Team config feeds every brief — a team edit invalidates all of them.
     clearBriefingCache().catch((err) => console.error("Briefing cache invalidation failed:", err));
   } else {
-    await savePersonalPrefs(email, prefs);
+    // Save from the RAW body, not the fully-defaulted `prefs` object above:
+    // sanitizeOverlay's contract is "absent key = fall through to base", and
+    // the defaulted object would pin every personal default into the overlay
+    // on first save (freezing the user out of future default improvements).
+    await savePersonalPrefs(email, raw);
     // A personal edit only invalidates the caller's brief.
     clearBriefingCacheFor(email).catch((err) => console.error("Briefing cache invalidation failed:", err));
   }
-  return NextResponse.json({ ok: true, prefs: await getUserPrefs(email) });
+  return NextResponse.json({ ok: true });
 }

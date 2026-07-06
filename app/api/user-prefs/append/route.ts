@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { normEmail, isOwner } from "@/lib/allowlist";
+import { getUserPrefs, savePersonalPrefs } from "@/lib/userPrefs";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +40,20 @@ export async function POST(request: Request) {
   const rawValue = typeof body.value === "string" ? body.value.trim() : "";
   if (!rawValue) return NextResponse.json({ error: "value is required" }, { status: 400 });
   const value = rawValue.slice(0, MAX_VALUE_LEN);
+
+  // vipSenders / muteSenders / dismissedVipSuggestions are PERSONAL fields.
+  // The shared-row SQL below is the OWNER's path only — a crew append must
+  // land in the crew member's user_personal_prefs overlay, not mutate the
+  // owner's lists (which is where the pre-split UPDATE ... WHERE id = 1 wrote).
+  const email = normEmail(session.user?.email);
+  if (!isOwner(email)) {
+    const current = await getUserPrefs(email);
+    const arr = (current[field as "vipSenders" | "muteSenders" | "dismissedVipSuggestions"] ?? []) as string[];
+    if (!arr.includes(value)) {
+      await savePersonalPrefs(email, { [field]: [...arr, value].slice(-max) } as Record<string, string[]>);
+    }
+    return NextResponse.json({ ok: true });
+  }
 
   const pool = await getDb();
   // JSON_ARRAY_APPEND on NULL silently returns NULL, so COALESCE first; then

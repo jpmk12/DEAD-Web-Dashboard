@@ -472,6 +472,37 @@ async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
     if (await pkIncludes(pool, table, "user_email")) continue;
     await pool.query(ddl);
   }
+  // One-time legacy backfill: stamp pre-multi-user rows (user_email = '')
+  // with the OWNER's email so the '' fallback branches become dead paths.
+  // Fixes the shadowing class outright (e.g. a fresh owner-keyed user_memory
+  // row hiding the legacy row's content) and means a session that somehow
+  // carries no email matches NOTHING instead of the owner's legacy data.
+  // UPDATE IGNORE: if an owner-keyed row already exists (PK conflict), the
+  // legacy row is left in place and the read-side exact-first fallback still
+  // resolves correctly. Idempotent — after the first boot there are no ''
+  // rows left to touch. anthropic_usage deliberately keeps '' (= "shared").
+  const owner = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
+  if (owner) {
+    for (const table of ["briefing_cache", "user_memory", "surface_state", "app_ui_state",
+                         "saved_items", "article_prefs", "newsletter_prefs", "trips", "contacts"]) {
+      await pool.query(`UPDATE IGNORE ${table} SET user_email = ? WHERE user_email = ''`, [owner]).catch(() => {});
+    }
+  }
+  // Secondary indexes for the new per-user predicates (PKs don't cover them:
+  // saved_items' PK is (id, user_email) — id leftmost — and trips/contacts
+  // keep their id PKs). Without these, per-user list queries are table scans.
+  for (const { table, index, ddl } of [
+    { table: "trips",       index: "idx_trips_user",    ddl: "ALTER TABLE trips       ADD INDEX idx_trips_user (user_email, start_date)" },
+    { table: "contacts",    index: "idx_contacts_user", ddl: "ALTER TABLE contacts    ADD INDEX idx_contacts_user (user_email)" },
+    { table: "saved_items", index: "idx_saved_user",    ddl: "ALTER TABLE saved_items ADD INDEX idx_saved_user (user_email, saved_at)" },
+  ]) {
+    const [idx] = await pool.query<ColumnRow[]>(
+      `SELECT COUNT(*) AS cnt FROM information_schema.statistics
+       WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`,
+      [table, index]
+    );
+    if (Number(idx[0]?.cnt ?? 0) === 0) await pool.query(ddl);
+  }
   return pool;
 }
 
