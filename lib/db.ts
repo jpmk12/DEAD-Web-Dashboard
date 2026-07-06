@@ -36,6 +36,26 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (day, icao)
   ) ENGINE=InnoDB`,
 
+  // Imported X (Twitter) posts from dead-x-capture bookmarklet files. Post id
+  // is the PK so re-importing the same capture is idempotent. Pruned on every
+  // import: rows older than 14 days (by import time) and beyond the newest
+  // 1000 are dropped — this is a rolling working set, not an archive.
+  `CREATE TABLE IF NOT EXISTS x_items (
+    id            VARCHAR(40)  NOT NULL PRIMARY KEY,
+    url           VARCHAR(500) NOT NULL DEFAULT '',
+    author        VARCHAR(120) NOT NULL DEFAULT '',
+    handle        VARCHAR(30)  NOT NULL DEFAULT '',
+    posted_at     DATETIME(3)  NULL,
+    text          TEXT         NOT NULL,
+    metrics       JSON         NULL,
+    quoted        JSON         NULL,
+    source_kind   VARCHAR(16)  NOT NULL,
+    source_label  VARCHAR(80)  NOT NULL,
+    imported_at   DATETIME(3)  NOT NULL,
+    INDEX idx_x_items_posted   (posted_at),
+    INDEX idx_x_items_imported (imported_at)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS saved_items (
     id          VARCHAR(255) PRIMARY KEY,
     type        VARCHAR(32)  NOT NULL,

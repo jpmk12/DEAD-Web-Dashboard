@@ -632,21 +632,24 @@
     <tr><td><strong>All</strong></td>
         <td>Every configured RSS/Atom feed merged, sorted by pubDate.</td></tr>
     <tr><td><strong>Social</strong></td>
-        <td>Feeds tagged <code>social</code> — typically X/Twitter via
-            rsshub.app bridges.</td></tr>
+        <td>Feeds tagged <code>social</code> (Bluesky / Mastodon / Reddit
+            RSS) plus imported X posts (see “X capture import” below).</td></tr>
     <tr><td><strong>Telegram</strong></td>
-        <td>Feeds tagged <code>telegram</code> — channel bridges.</td></tr>
+        <td>Feeds tagged <code>telegram</code> — channels read from their
+            public t.me preview pages.</td></tr>
     <tr><td><strong>News</strong></td>
         <td>Feeds tagged <code>news</code> — niche aggregators not in the
             main News tab.</td></tr>
-    <tr><td><strong>Aircraft</strong></td>
-        <td>ADS-B Exchange map centred on your home location, military
-            filter on.</td></tr>
-    <tr><td><strong>Maritime</strong></td>
-        <td>MarineTraffic map centred on your home location.</td></tr>
     <tr><td><strong>Crisis</strong></td>
         <td>Strategic situation map — disasters, conflict, weather and the
-            airlift network on one board (see below).</td></tr>
+            airlift network on one board (see below). Live military ADS-B
+            and vessel AIS are layers here.</td></tr>
+    <tr><td><strong>Regional</strong></td>
+        <td>Ground Truth — per-country situation room for the Force
+            Protection watch.</td></tr>
+    <tr><td><strong>SITREP</strong></td>
+        <td>Per-base commander's situation report (weather, ops/NOTAMs,
+            threats) for your configured hubs.</td></tr>
   </table>
 
   <h4>Configuring feeds</h4>
@@ -655,9 +658,26 @@
     Suggested URL templates:
   </p>
   <ul>
-    <li>X account: <code>https://rsshub.app/twitter/user/USERNAME</code></li>
-    <li>Telegram channel: <code>https://rsshub.app/telegram/channel/NAME</code></li>
+    <li>Bluesky account: <code>https://bsky.app/profile/HANDLE/rss</code></li>
+    <li>Reddit sub: <code>https://www.reddit.com/r/SUB/.rss</code></li>
+    <li>Telegram channel: <code>https://t.me/s/CHANNEL</code></li>
   </ul>
+
+  <h4>X capture import</h4>
+  <p>
+    X/Twitter has no usable live feed (paid API, scraper blocks), so X
+    content comes in through a capture file instead: on the
+    <span class="ui">Social</span> pane, open
+    <span class="ui">Bookmarklet</span>, copy the one-liner into a new
+    browser bookmark, then run that bookmark while viewing an x.com list /
+    bookmarks / search / profile in your own logged-in browser. It downloads
+    a <code>x-capture-….json</code> of the posts on screen (up to 200);
+    drop the file on the import card and the posts join the feed as
+    <code>𝕏 {source}</code> — clustered, watchlist-matched and AI-triaged
+    like any other item. Re-imports dedupe by post id; imports expire after
+    14 days (newest 1000 kept). Nothing is automated and no credentials
+    ever leave your browser.
+  </p>
 
   <h4>SSRF safety</h4>
   <p>

@@ -1097,6 +1097,38 @@ A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
 - No new npm dep (existing react-leaflet + server-side rss-parser + pure fetch),
   so `grep -c esbuild package-lock.json` stays `0`.
 
+### X capture import (OSINT Social pane — the "dead-x-capture" flow)
+X content enters the dashboard through a **user-side capture file, never a
+server-side fetch**. Decision (twice confirmed): NO server use of the user's
+X credentials and NO server scraping — X's API is paid at any usable tier,
+x.com blocks datacenter IPs, and automated credential use risks the account.
+The approved path: a **bookmarklet** run in the user's own logged-in browser
+copies the posts currently rendered (list/bookmarks/search/profile/timeline)
+into a versioned `dead-x-capture` v1 JSON download, which the user uploads on
+the Social pane. Pieces:
+- `tools/x-capture-bookmarklet.js` — readable, commented source (fix X DOM
+  selector churn HERE), hand-minified into `lib/xBookmarklet.ts` (client-safe
+  exported string; shown in a copy-button textarea, never an `<a href>` —
+  React blocks `javascript:` URLs).
+- `lib/xImport.ts` — PURE parser/validator (client-safe, unit-tested): format/
+  version gate, 200-post + 1000-char caps, only `https` x.com/twitter.com
+  status permalinks survive (`sanitizeXUrl` — a crafted file can't smuggle
+  arbitrary links), "1.2K"-style metric strings parsed, stable ids (explicit →
+  from URL → djb2 hash of handle+text) so re-imports are idempotent.
+- `lib/xStore.ts` (server-only) + `x_items` table (post id PK): upsert keyed
+  by id, rolling prune (14 days by import time / newest 1000), 60 s in-process
+  read cache so the 90 s feed poll doesn't hammer MySQL.
+- `POST /api/osint/x-import` (validate+upsert; GET status; DELETE clear) and a
+  merge in `/api/osint/feed`: imported posts become kind `social`, feedLabel
+  `𝕏 {source.label}` — riding existing clustering/watchlist/triage/trends with
+  zero special-casing downstream. The feed route's empty-feeds early-return
+  now also checks the X store.
+- UI: `components/osint/XImportCard.tsx` on the Social pane (drag-drop + file
+  picker, status/source chips, bookmarklet installer, Clear).
+Phase 2 (pending real captures): selector fixes against saved x.com HTML the
+user uploads — same capture-then-build pattern as DAIP/state.gov. No new npm
+dep anywhere (esbuild stays `0`).
+
 ### Strategic Economics tab (the retooled "Markets" → label "Economy")
 The old **Markets** tab (TradingView ticker/overview/econ-calendar + DoD contracts)
 was **retooled**, NOT retired, into a mobility-economics board: *global economic

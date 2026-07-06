@@ -7,6 +7,7 @@ import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import GroundTruthTab from "@/components/ground/GroundTruthTab";
 import SitrepPanel from "@/components/osint/SitrepPanel";
+import XImportCard from "@/components/osint/XImportCard";
 
 // Leaflet uses window/document at import time, so we have to load the map
 // component client-only. Without ssr: false the build fails with a
@@ -727,6 +728,10 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       {/* Feed list pane */}
       {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && (
         <>
+          {/* X capture import — upload dead-x-capture JSON files (bookmarklet
+              output); imported posts ride the feed as kind "social". */}
+          {pane === "social" && <XImportCard onImported={loadFeed} />}
+
           {loading && (
             <div className="space-y-2">
               {[1, 2, 3, 4].map((i) => (
@@ -775,8 +780,9 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
                 )}
                 {pane === "social" && (
                   <p className="text-slate-500">
-                    X / Twitter has no working feed (X blocks scrapers + datacenter IPs and killed free API access).
-                    Use platforms with native RSS instead — they don&apos;t depend on a bridge and don&apos;t rate-limit:
+                    X / Twitter has no working live feed (X blocks scrapers + datacenter IPs and killed free API access) —
+                    use the <span className="text-sky-300">𝕏 Capture import</span> card above to bring in posts from your own browser.
+                    For live sources, use platforms with native RSS — they don&apos;t depend on a bridge and don&apos;t rate-limit:
                     Bluesky (<span className="font-mono text-slate-400">bsky.app/profile/&lt;handle&gt;/rss</span>),
                     Mastodon (<span className="font-mono text-slate-400">&lt;instance&gt;/@user.rss</span>),
                     Reddit (<span className="font-mono text-slate-400">reddit.com/r/&lt;sub&gt;/.rss</span>).

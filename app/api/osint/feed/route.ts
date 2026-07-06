@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
+import { getXItems, type StoredXItem } from "@/lib/xStore";
 
 export const dynamic = "force-dynamic";
 
@@ -224,13 +225,33 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
   }
 }
 
+// Imported X posts (dead-x-capture files, lib/xStore) ride the feed as kind
+// "social" so they inherit clustering / triage / watchlist / trends for free.
+// Best-effort: no DB (or an empty store) just contributes nothing.
+function xToOsint(x: StoredXItem): OsintItem {
+  const quoted = x.quoted?.text
+    ? ` ⟪quoting ${x.quoted.handle ? `@${x.quoted.handle}` : x.quoted.author || "post"}: ${x.quoted.text.slice(0, 140)}⟫`
+    : "";
+  return {
+    id: `x:${x.id}`,
+    title: x.text.slice(0, 160),
+    link: x.url,
+    pubDate: x.postedAt ?? x.importedAt,
+    summary: `${x.handle ? `@${x.handle}: ` : ""}${x.text}${quoted}`.slice(0, 400),
+    feedId: "x-import",
+    feedLabel: `𝕏 ${x.sourceLabel}`,
+    feedKind: "social",
+  };
+}
+
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const prefs = await getUserPrefs().catch(() => null);
   const feeds = prefs?.osintFeeds ?? [];
-  if (feeds.length === 0) return NextResponse.json({ feeds: [], items: [] });
+  const xItems = await getXItems().catch(() => [] as StoredXItem[]);
+  if (feeds.length === 0 && xItems.length === 0) return NextResponse.json({ feeds: [], items: [] });
 
   // Per-feed cache so a single broken feed doesn't burn the whole batch.
   // Race the whole batch against an overall budget so a wedged feed can't
@@ -262,8 +283,8 @@ export async function GET() {
   );
   const results = await Promise.race([fetchAll, budget]);
 
-  // Flat merge sorted by pubDate desc.
-  const flat = results.flatMap((r) => r.items);
+  // Flat merge sorted by pubDate desc — live feeds plus imported X posts.
+  const flat = [...results.flatMap((r) => r.items), ...xItems.map(xToOsint)];
   flat.sort((a, b) => {
     const ta = new Date(a.pubDate).getTime();
     const tb = new Date(b.pubDate).getTime();

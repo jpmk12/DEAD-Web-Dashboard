@@ -70,23 +70,28 @@ ZNY center. After deploy:
    runway, daily status history, multi-base strip, SITREP line in the
    morning brief).
 
-## 🆕 X capture tool — approved plan (build next)
+## 🆕 X capture tool — Phase 1 SHIPPED, Phase 2 gated on real captures
 
 Direction approved: NO server-side X credentials (paid API + datacenter
 blocks + ban risk). Instead: **bookmarklet captures rendered x.com posts →
 versioned JSON file → dashboard import**.
-- Contract: `dead-x-capture` v1 JSON (id/url/author/handle/time/text/metrics,
-  source.kind list|bookmarks|timeline, capturedAt).
-- Phase 1 (sandbox-safe): `lib/xImport.ts` pure parser + tests; `x_items`
-  table (post-id PK = idempotent re-imports; prune 14 d / 1000); import route
-  `POST /api/osint/x-import`; merge into `/api/osint/feed` as kind `social`
-  labeled `𝕏 {source}` (rides existing clustering/watchlist/triage/trends);
-  Social-pane import UI (file + drag-drop + result toast + bookmarklet
-  installer); bookmarklet in `tools/x-capture-bookmarklet.js`.
-- Phase 2: selector fixes from the user's first REAL captures (user saves an
-  x.com page HTML and uploads it if fields come back missing — same
-  capture-then-build pattern as DAIP/state.gov). Phase 3 optional:
-  direct-POST with device token / extension.
+- **Phase 1 is BUILT** (see CLAUDE.md "X capture import" for the full map):
+  `lib/xImport.ts` pure parser (+ `tests/xImport.test.ts`), `x_items` table
+  (post-id PK = idempotent re-imports; prune 14 d / newest 1000),
+  `POST/GET/DELETE /api/osint/x-import`, merge into `/api/osint/feed` as kind
+  `social` labeled `𝕏 {source}` (rides clustering/watchlist/triage/trends),
+  `XImportCard` on the Social pane (drag-drop + file + status chips + Clear +
+  bookmarklet installer), readable bookmarklet source in
+  `tools/x-capture-bookmarklet.js` minified into `lib/xBookmarklet.ts`.
+- **User test loop**: copy the bookmarklet from OSINT → Social → Bookmarklet,
+  save it as a browser bookmark, run it on an x.com list/bookmarks view, drop
+  the downloaded JSON on the card.
+- **Phase 2** (NEXT, needs the user): if a capture comes back with missing
+  authors/text/metrics, the user saves the x.com page HTML (Ctrl-S) and
+  uploads it in chat; fix the selectors in `tools/x-capture-bookmarklet.js`
+  against the real markup, re-minify into `lib/xBookmarklet.ts` (parse-check
+  both with `new Function`). Same capture-then-build pattern as DAIP.
+  Phase 3 optional: direct-POST with device token / extension.
 
 ## Ramp up in 5 minutes
 

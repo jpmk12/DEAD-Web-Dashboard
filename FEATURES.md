@@ -57,6 +57,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 | `thread_sessions` / `threads` | Saved Threads view history |
 | `signal_daily_counts` | Trend layer: per-day term counts (topic/category/watch/region/aor/label), 180-day retention |
 | `signal_seen` | Trend layer dedup ledger (sha1 of item id), 14-day retention |
+| `x_items` | Imported X posts from dead-x-capture files (post id PK; pruned 14 days / newest 1000) |
 
 ---
 
@@ -196,6 +197,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **Per-feed health dots** in Preferences (green/amber/red/slate based on last fetch status)
 - **Test feed button** per feed row — POST `/api/osint/test-feed` returns diagnostics + suggested alternative bridge instances on failure
 - **Suggested feeds catalog** in Preferences — curated list (`lib/osintSuggestions.ts`) with one-click + Add
+- **𝕏 Capture import** (Social pane): X has no usable live feed from this host, so a bookmarklet (`tools/x-capture-bookmarklet.js`, copyable from the pane's Bookmarklet panel via `lib/xBookmarklet.ts`) captures the posts rendered in the user's own logged-in browser into a `dead-x-capture` v1 JSON file, uploaded via the pane's import card (file picker or drag-drop). `POST /api/osint/x-import` validates with the pure parser `lib/xImport.ts` (caps 200 posts/file, text ≤1000 chars, only https x.com/twitter.com status permalinks kept, "1.2K"-style metrics parsed, stable ids → idempotent re-import) and upserts into the `x_items` table (`lib/xStore.ts`; rolling prune: 14 days by import time / newest 1000). Imported posts merge into `/api/osint/feed` as kind `social` labeled `𝕏 {source}`, so they inherit clustering, watchlist, AI triage, and trends for free. GET returns status (count/newest/per-source chips); DELETE clears. **No server-side X access of any kind** — deliberate (paid API, datacenter blocks, ToS/ban risk).
 
 #### Aircraft map
 - **Source toggle**: Self-hosted (OpenSky Network) or Iframe provider (adsb.fi / airplanes.live / etc.)
@@ -486,6 +488,7 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/osint/triage              POST — Claude triage on a batch
 /api/osint/test-feed           POST — single-URL diagnostic
 /api/osint/geocode             GET — Nominatim proxy
+/api/osint/x-import            POST — import dead-x-capture JSON; GET — status; DELETE — clear
 /api/osint/aircraft            GET — OpenSky proxy
 /api/osint/ships               GET — AISStream snapshot
 /api/osint/conflict            GET — UCDP georeferenced events (ReliefWeb fallback)
