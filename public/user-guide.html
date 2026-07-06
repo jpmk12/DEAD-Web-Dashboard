@@ -618,6 +618,48 @@
       storage to configure.</li>
   </ul>
 
+  <h4>Synthesis workbench</h4>
+  <p>
+    Docs is built for turning many working notes into one deliverable and
+    for seeing the connections between ideas:
+  </p>
+  <ul>
+    <li><strong>Typed wiki-links:</strong> <code>[[Title | supports: your
+      note]]</code> — relations (supports / contradicts / extends / defines /
+      example-of / see-also) render as glyph chips on links and backlinks.
+      <strong>Aliases</strong> (set with the <span class="ui">≈ alias</span>
+      editor) let <code>[[shorthand]]</code> resolve to the full title.</li>
+    <li><strong>Unlinked mentions:</strong> the editor spots other docs'
+      titles/aliases appearing as plain text and offers one-click
+      <span class="ui">⇄ Link</span> / Link&nbsp;all.</li>
+    <li><strong>Hover previews:</strong> hovering any wiki link shows the
+      target's excerpt, tags, and this link's relation/note.</li>
+    <li><strong>Collections, types &amp; properties:</strong> group docs under
+      collapsible collection headers; give each doc a type (note / theorist /
+      debate / thread / case / term / synthesis); attach key:value properties.
+      Search understands <code>type:theorist</code> and
+      <code>course:600</code>-style filters.</li>
+    <li><strong>Local graph:</strong> <span class="ui">◉ Graph</span> draws
+      the open doc's link neighbourhood (1–2 hops) on deterministic rings —
+      node colour = doc type, edge colour = relation.</li>
+    <li><strong>Lexicon:</strong> a third sidebar surface listing every
+      <em>term</em> doc with its first-paragraph definition, owner, and link
+      count — an A–Z of your vocabulary.</li>
+    <li><strong>Thread timelines:</strong> in a 🧵 thread doc, an ordered
+      list under a "Trace" heading renders as a clickable vertical timeline
+      of the argument.</li>
+    <li><strong>Compose:</strong> select docs → <span class="ui">⧉ Compose</span>
+      assembles them into one deliverable (reorder, title page, ToC,
+      link-rewrite, footnotes) — save as a new doc, export markdown, or export
+      a self-contained HTML notebook.</li>
+    <li><strong>Split at headings:</strong> <span class="ui">✂ Split</span>
+      cuts a long doc into per-section child docs and turns the master into a
+      linked index (a version snapshot is taken first, so it's undoable).</li>
+    <li><strong>Templates:</strong> any doc tagged <code>template</code> —
+      reachable from the New ▾ button or the <code>/template</code> slash
+      command in the editor.</li>
+  </ul>
+
 
   <h3><span class="num">05</span>OSINT</h3>
   <p>
@@ -772,6 +814,40 @@
     source's health.
   </p>
 
+  <h4>SITREP &nbsp;<small style="color: var(--text-faint); font-size: 12px; text-transform: none; letter-spacing: 0;">— per-base commander's report</small></h4>
+  <p>
+    A situation report for up to 4 configured operating locations (add by
+    ICAO — hubs, gateways, and any OurAirports field resolve automatically).
+    The <strong>multi-base tile strip</strong> shows every base at a glance:
+    four LEDs (WX / OPS / THR / INF), the worst-axis driver line, and an
+    "↑ worse than yesterday" marker; click a tile to open the full report,
+    double-click to remove.
+  </p>
+  <p>
+    Each report composes: decoded METAR + raw + a 24-h TAF category bar,
+    NWS alerts and a 3-day outlook, sunrise/sunset/twilight + moon
+    illumination, bucketed DAIP NOTAMs (runway / NAVAID / hours / airspace /
+    bird) with limiting and field-closed detection, a
+    <strong>closure-window timeline</strong> (NOTAM start/end times drawn as
+    48-h bars per asset, with runway-closure × forecast-IFR conflicts called
+    out), per-runway crosswind advisories, ARTCC center NOTAMs, fuel NOTAMs,
+    Force Protection posture, disasters within 500 km, impact-filtered local
+    news, and live <strong>infrastructure</strong> sensing (IODA internet
+    signals, FAA NAS programs near the field, USGS gauge stages; power is
+    news-derived and labeled as such). An AI <strong>Commander's Read</strong>
+    gives a 3-bullet BLUF + watch items, and a 7-day LED history strip tracks
+    the trend. The core discipline everywhere: an unreachable source reads
+    <strong>UNKNOWN — never implied-clear</strong>.
+  </p>
+  <p>
+    <span class="ui">⧉ Save to Docs</span> files a dated SITREP doc;
+    <span class="ui">⇩ Export HTML</span> downloads a <strong>self-contained
+    snapshot file</strong> you can share with people who have no dashboard
+    access — zero scripts, zero external resources, opens offline in any
+    browser, stamped "SNAPSHOT — NOT LIVE". Bases needing attention also
+    surface as a <span class="ui">⚑ Base SITREP</span> block in the Morning
+    Brief.
+  </p>
 
   <h3><span class="num">06</span>Markets</h3>
   <p>
@@ -872,6 +948,11 @@
     <li><strong>Schedule</strong> — time-sensitive items from your
       calendar.</li>
     <li><strong>Key developments</strong> — top 3 with context.</li>
+    <li><strong>⚑ Base SITREP</strong> — a live LED block per configured
+      SITREP base that needs attention (any amber/red axis, or worse than
+      yesterday), with a one-line status read; quiet bases collapse to a
+      single "all green" line. Fetched fresh on every open — never stale
+      from the brief cache.</li>
     <li><strong>Top stories</strong> — 2-3 stories worth a deeper read.</li>
     <li><strong>Connections</strong> — paragraph noting cross-domain
       patterns.</li>

@@ -34,8 +34,9 @@ in the managed database.
 
 ## Features
 
-Eight tabs (`lib/icons.tsx` → `TAB_ICONS`), plus a Morning Brief and a floating AI
-assistant in the top bar:
+Eight tabs (`lib/icons.tsx` → `TAB_ICONS`), plus a Morning Brief (timezone-aware —
+auto-follows the device zone or pins to a chosen one, and includes a live Base
+SITREP block) and a floating AI assistant in the top bar:
 
 - **Glance** — the at-a-glance landing view, including the **Global Reach Watch**
   (NEO/evacuation, disasters, base weather, and access degraders — conflict, GPS/EW,
@@ -46,14 +47,33 @@ assistant in the top bar:
   rail that can add events/tasks.
 - **Email** — AI-triaged unread inbox across a primary + optional secondary Gmail
   account, with action-item extraction and VIP/mute rules.
-- **Docs** — a personal markdown wiki: wiki-links, autosave, version history,
-  smart views, tag management, and a file repo (MySQL blobs).
+- **Docs** — a personal markdown wiki grown into a **synthesis workbench**:
+  typed wiki-links (`[[Title | supports: note]]`), aliases, unlinked-mention
+  detection, hover previews, collections / doc types / properties, a local
+  knowledge graph, a term lexicon, thread timelines, compose-to-deliverable
+  (merge docs into one export), split-at-headings, templates, autosave +
+  version history, and a file repo (MySQL blobs).
 - **OSINT** — aggregated feed panes (All / Social / Telegram / News / Crisis /
-  Ground) plus the **Crisis map**: a self-rendered Leaflet board fusing disasters,
-  conflict (UCDP/ACLED), weather hazards, GPS interference, NOTAMs, military
-  ADS-B + AIS movement, AMC hubs / gateways, and planning-grade reach rings.
-  **Ground Truth** is a per-country situation room (incidents, advisories, health,
-  AI SITREP).
+  Ground / SITREP) plus the **Crisis map**: a self-rendered Leaflet board fusing
+  disasters, conflict (UCDP/ACLED), weather hazards, GPS interference, NOTAMs,
+  military ADS-B + AIS movement, AMC hubs / gateways, and planning-grade reach
+  rings. **Ground Truth** is a per-country situation room (incidents, advisories,
+  health, AI SITREP). The **𝕏 Capture import** brings X/Twitter content in via a
+  bookmarklet that collects posts in your own logged-in browser (no server-side
+  credentials or scraping — X has no usable feed from a datacenter host) and
+  exports a JSON file the Social pane ingests into clustering / triage / trends.
+- **SITREP** — a per-base **commander's situation report** for up to 4 configured
+  fields (multi-base LED tile strip; Weather / Ops / Threats / Infrastructure
+  cards): decoded METAR + 24-h TAF category timeline, bucketed DAIP NOTAMs with a
+  **closure-window timeline** (runway-closure × forecast-IFR conflicts called
+  out), per-runway crosswind advisories, ARTCC center NOTAMs, astro/illumination,
+  Force Protection + disasters + impact-filtered local news, and live
+  infrastructure sensing (IODA internet, FAA NAS programs, USGS gauges — power
+  stays news-derived and labeled). Includes an AI **Commander's Read** (3-bullet
+  BLUF), a daily status-history strip, a block in the Morning Brief, and
+  **⇩ Export HTML** — a self-contained, script-free snapshot file shareable with
+  people who have no dashboard access (opens offline in any browser). Every
+  unreachable source renders **UNKNOWN, never implied-clear**.
 - **Economy** — a mobility-economics board: energy/fuel prices, an AI *Economic
   Access Read*, and a strategic-chokepoint watch.
 - **Weather** — multi-location NWS forecasts + Open-Meteo enrichment, alerts,
