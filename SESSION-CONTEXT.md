@@ -104,6 +104,19 @@ with the PERSONAL split for gray-zone items and per-user cost visibility.
   contacts. News curation deliberately stays owner-flavored (shared news tab;
   news_overview_cache PK is date).
 
+## Pre-go-live code review (2026-07-06) — done, 10 fixed, 4 deferred
+8-angle review of the multi-user series: 14 findings, all CONFIRMED ones
+fixed in `6e1fa26` (append-route crew corruption, owner-memory shadowing,
+9 bare getUserPrefs routes, legacy-'' backfill, lat/lon null→0, per-user
+calendar-sync throttle, curated-news boundary, overlay default-pinning,
+missing indexes, sequential reads). **Deferred polish (non-behavioral,
+safe to ship without)**: (1) consolidate the owner-legacy scoping rule
+(3 shapes × 9 sites → one lib/userScope helper) — lower urgency now the
+backfill makes '' branches near-dead; (2) adopt sessionUser() / collapse
+~59 inline normEmail calls; (3) per-email writeQueue in article/
+newsletter prefs; (4) dedupe OVERLAY_THEMES/VALID_THEMES + use isOwner in
+getUserPrefs. Do these as a cleanup pass before adding user #3.
+
 ## Crisis-diag capture (2026-07-06, prod) — source truth
 - **UCDP: WORKING.** `UCDP_API_TOKEN` is set and accepted. Version 26.0.4,
   newest event 2026-04-03 (~3-month candidate lag is normal). 26.1 also
