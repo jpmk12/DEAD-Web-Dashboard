@@ -65,6 +65,17 @@ function CenterInput({ icao, onSaved }: { icao: string; onSaved: () => void }) {
   );
 }
 
+// One-line driver text for the Infrastructure status tile.
+function infraSummary(p: SitrepPayload): string {
+  const inf = p.infra;
+  if (!inf.internet.live && !inf.nas?.live) return "sensors unreachable — UNKNOWN";
+  if (inf.internet.led === "r" || inf.internet.led === "a") return "internet degradation detected";
+  const hot = inf.nas?.nearby.find((x) => x.kind === "closure" || x.kind === "groundStop");
+  if (hot) return `NAS: ${hot.kind === "closure" ? "closure" : "ground stop"} at ${hot.airport}`;
+  if (inf.powerNews.length > 0) return "power reporting in local news";
+  return "no degradation detected";
+}
+
 function SectionCard({ led, title, sources, children }: { led: Led; title: string; sources: string; children: React.ReactNode }) {
   const [folded, setFolded] = useState(false);
   return (
@@ -212,6 +223,12 @@ export default function SitrepPanel({ active }: { active: boolean }) {
     md.push(`\n## Ops`);
     md.push(`- Field: ${p.ops.fieldClosed ? "CLOSED" : p.ops.limiting ? "LIMITED" : p.ops.configured && p.ops.live ? "OPEN" : "UNKNOWN"} · ${p.ops.notamCount} active NOTAMs${p.ops.capability ? ` · ${p.ops.capability.lengthFt} ft ${p.ops.capability.surface} (${p.ops.capability.cls})` : ""}`);
     for (const g of p.ops.groups) for (const n of g.items) md.push(`- ${n.amber ? "**" : ""}[${g.label}] ${n.text.slice(0, 200)}${n.amber ? "**" : ""}`);
+    md.push(`\n## Infrastructure`);
+    md.push(`- Internet (${p.infra.internet.entity ?? "region"}): ${p.infra.internet.live ? (p.infra.internet.led === "g" ? "no macro degradation" : p.infra.internet.series.filter((sr) => (sr.dropPct ?? 0) >= 50).map((sr) => `${sr.label} −${sr.dropPct}%`).join(", ") || "insufficient data") : "IODA UNREACHABLE — UNKNOWN"}`);
+    if (p.infra.nas) md.push(`- FAA NAS: ${p.infra.nas.live ? `${p.infra.nas.counts.groundStops} GS / ${p.infra.nas.counts.groundDelays} GD / ${p.infra.nas.counts.closures} closures nationally` : "UNREACHABLE — UNKNOWN"}`);
+    for (const pr of p.infra.nas?.nearby ?? []) md.push(`- ${pr.kind === "groundStop" ? "**GROUND STOP**" : pr.kind === "closure" ? "**CLOSURE**" : pr.kind} ${pr.airport} · ${pr.km} km — ${pr.reason}${pr.detail ? ` · ${pr.detail}` : ""}`);
+    for (const n of p.infra.powerNews) md.push(`- Power (news-derived): ${n.title}`);
+    for (const n of p.infra.commsNews) md.push(`- Comms (news-derived): ${n.title}`);
     md.push(`\n## Threats`);
     if (p.threats.fp) md.push(`- FP: **${p.threats.fp.composite.toUpperCase()}** — ${p.threats.fp.topDriver}`);
     for (const d of p.threats.disasters) md.push(`- [${d.severity}] ${d.type} ${d.km} km — ${d.title}`);
@@ -315,7 +332,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
               ["Weather", payload.status.wx, payload.weather.now ? `${payload.weather.now.flightCategory} now${payload.weather.tafWorst && payload.weather.tafWorst.worst !== payload.weather.now.flightCategory ? ` → ${payload.weather.tafWorst.worst} fcst` : ""}` : "no METAR"],
               ["Ops / Airfield", payload.status.ops, payload.ops.fieldClosed ? "FIELD CLOSED (NOTAM)" : payload.ops.limiting ? "limiting NOTAM active" : payload.ops.configured && payload.ops.live ? `${payload.ops.notamCount} NOTAMs, none limiting` : "DAIP unavailable — UNKNOWN"],
               ["Threat", payload.status.threat, payload.threats.fp ? payload.threats.fp.topDriver : "assessment unavailable"],
-              ["Infrastructure", payload.status.infra, "v2 — sources pending · UNKNOWN ≠ all clear"],
+              ["Infrastructure", payload.status.infra, infraSummary(payload)],
             ] as [string, Led, string][]).map(([k, l, v]) => (
               <div key={k} className="flex items-center gap-2.5 bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2.5">
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${LED_CLASS[l]}`} />
@@ -574,17 +591,87 @@ export default function SitrepPanel({ active }: { active: boolean }) {
               ))}
             </SectionCard>
 
-            {/* INFRA (v2 placeholder, honest) */}
-            <SectionCard led="u" title="Infrastructure Watch" sources="IODA · USGS Water · news — v2">
-              <Row sev="u" src="—"><b>Power:</b> UNKNOWN — source pending (news-derived detection ships in v2)</Row>
-              <Row sev="u" src="—"><b>Internet:</b> UNKNOWN — IODA integration pending live verification from prod</Row>
-              <Row sev="u" src="—"><b>Water/flood:</b> UNKNOWN — USGS gauge integration pending</Row>
-              <p className="text-[9.5px] text-slate-600 mt-2">Blank ≠ all clear. These sources can&apos;t be probed from the build sandbox; v2 wires them after live checks.</p>
+            {/* INFRASTRUCTURE — IODA internet + FAA NAS + USGS water sensors,
+                power/comms stay news-derived and say so. */}
+            <SectionCard led={payload.status.infra} title="Infrastructure Watch" sources="IODA (Georgia Tech) · FAA NAS · USGS · news">
+              {/* Internet — macro connectivity for the base's state/country */}
+              {!payload.infra.internet.live && <Row sev="u" src="IODA"><b>Internet:</b> IODA UNREACHABLE this cycle — UNKNOWN, not clear</Row>}
+              {payload.infra.internet.live && (
+                <Row sev={payload.infra.internet.led === "u" ? "u" : payload.infra.internet.led} src="IODA">
+                  <b>Internet ({payload.infra.internet.entity}):</b>{" "}
+                  {payload.infra.internet.led === "g" ? "no macro degradation across measurement sources" : payload.infra.internet.led === "u" ? "insufficient signal data" : "degradation detected"}
+                  {payload.infra.internet.series.length > 0 && (
+                    <span className="flex flex-wrap gap-1.5 mt-1">
+                      {payload.infra.internet.series.map((sr) => (
+                        <span key={sr.datasource} className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded border ${
+                          (sr.dropPct ?? 0) >= 80 ? "border-red-500/50 text-red-300 bg-red-500/10"
+                          : (sr.dropPct ?? 0) >= 50 ? "border-amber-500/50 text-amber-300 bg-amber-500/10"
+                          : "border-slate-700 text-slate-500"
+                        }`}>
+                          {sr.label} {sr.dropPct !== null ? `−${sr.dropPct}%` : "n/a"}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </Row>
+              )}
+
+              {/* FAA NAS — national ATC programs, nearby ones called out (US bases) */}
+              {payload.infra.nas && !payload.infra.nas.live && <Row sev="u" src="FAA NAS"><b>NAS status:</b> UNREACHABLE — UNKNOWN</Row>}
+              {payload.infra.nas?.live && (
+                <>
+                  <Row sev={payload.infra.nas.nearby.some((p) => p.kind === "closure" || p.kind === "groundStop") ? "a" : "g"} src="FAA NAS">
+                    <b>NAS:</b> {payload.infra.nas.counts.groundStops} ground stops · {payload.infra.nas.counts.groundDelays} ground delays · {payload.infra.nas.counts.closures} closures nationally
+                    {payload.infra.nas.nearby.length === 0 && <span className="text-slate-500"> — none within 250 km</span>}
+                  </Row>
+                  {payload.infra.nas.nearby.map((p, i) => (
+                    <Row key={i} sev={p.kind === "closure" || p.kind === "groundStop" ? "a" : "u"} src="FAA NAS">
+                      <b>{p.kind === "groundStop" ? "GROUND STOP" : p.kind === "closure" ? "CLOSURE" : p.kind === "groundDelay" ? "Ground delay" : "Delay"}</b>{" "}
+                      {p.airport} · {p.km} km — {p.reason}{p.detail ? ` · ${p.detail}` : ""}
+                    </Row>
+                  ))}
+                </>
+              )}
+
+              {/* Power / comms — news-derived only; no sensor exists, say so */}
+              {payload.infra.powerNews.length > 0
+                ? payload.infra.powerNews.map((n, i) => (
+                    <Row key={`p${i}`} sev="a" src="news">
+                      <b>Power:</b> <a href={n.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-300">{n.title.slice(0, 120)}</a>
+                    </Row>
+                  ))
+                : <Row sev="u" src="news"><b>Power:</b> no outage reporting in local news — news-derived, absence ≠ verified clear</Row>}
+              {payload.infra.commsNews.map((n, i) => (
+                <Row key={`c${i}`} sev="a" src="news">
+                  <b>Comms:</b> <a href={n.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-300">{n.title.slice(0, 120)}</a>
+                </Row>
+              ))}
+
+              {/* Water — USGS gauge levels (informational; flood POSTURE comes
+                  from the NWS alerts in the Weather card) */}
+              {payload.infra.water && (
+                <div className="mt-2 pt-2 border-t border-slate-800/60">
+                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">
+                    Water gauges <span className="font-normal normal-case tracking-normal">— levels only; flood warnings appear under Weather</span>
+                  </p>
+                  {!payload.infra.water.live && <Row sev="u" src="USGS">Gauge feed UNREACHABLE — UNKNOWN</Row>}
+                  {payload.infra.water.live && payload.infra.water.gauges.length === 0 && <Row sev="u" src="USGS">No active gauges reporting in the local box</Row>}
+                  {payload.infra.water.gauges.map((g, i) => (
+                    <Row key={i} sev="b" src="USGS">{g.site} — stage {g.stageFt} ft</Row>
+                  ))}
+                  {payload.infra.waterNews.map((n, i) => (
+                    <Row key={`w${i}`} sev="a" src="news">
+                      <a href={n.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-300">{n.title.slice(0, 120)}</a>
+                    </Row>
+                  ))}
+                </div>
+              )}
+              <p className="text-[9.5px] text-slate-600 mt-2">Planning-grade heuristics: IODA measures state/country-level connectivity (not the base LAN); power has no direct sensor. UNKNOWN ≠ all clear.</p>
             </SectionCard>
           </div>
 
           <p className="text-[9px] text-slate-600 font-mono px-1">
-            Sources: AWC {payload.weather.live ? "live" : "DOWN"} · DAIP {payload.ops.configured ? (payload.ops.live ? "live" : "DOWN") : "not configured"} · FP {payload.threats.fp ? "live" : "DOWN"} · GDELT scanned {payload.threats.newsScanned} · every gap reads UNKNOWN, never implied-clear
+            Sources: AWC {payload.weather.live ? "live" : "DOWN"} · DAIP {payload.ops.configured ? (payload.ops.live ? "live" : "DOWN") : "not configured"} · FP {payload.threats.fp ? "live" : "DOWN"} · IODA {payload.infra.internet.live ? "live" : "DOWN"} · NAS {payload.infra.nas ? (payload.infra.nas.live ? "live" : "DOWN") : "n/a"} · GDELT scanned {payload.threats.newsScanned} · every gap reads UNKNOWN, never implied-clear
           </p>
         </>
       )}

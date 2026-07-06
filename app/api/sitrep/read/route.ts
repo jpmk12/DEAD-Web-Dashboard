@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
   const s = await assembleSitrep(base);
   const fingerprint = [
-    s.status.wx, s.status.ops, s.status.threat,
+    s.status.wx, s.status.ops, s.status.threat, s.status.infra,
     s.weather.tafWorst?.worst ?? "-",
     s.ops.notamCount, s.threats.news.length, s.threats.disasters.length,
   ].join("|");
@@ -60,6 +60,14 @@ export async function POST(req: Request) {
     lines.push(`CENTER (${o.center.code} ARTCC): ${o.center.live ? `${o.center.count} active enroute NOTAMs` : "UNREACHABLE — UNKNOWN"}`);
     for (const n of o.center.items.slice(0, 4)) lines.push(`CENTER NOTAM${n.amber ? " [SIGNIFICANT]" : ""}: ${n.text.slice(0, 160)}`);
   }
+  const inf = s.infra;
+  lines.push(`INTERNET (${inf.internet.entity ?? "region"}): ${inf.internet.live ? (inf.internet.led === "g" ? "no macro degradation (IODA)" : inf.internet.series.filter((x) => (x.dropPct ?? 0) >= 50).map((x) => `${x.label} down ~${x.dropPct}%`).join(", ") || "minor variation") : "IODA UNREACHABLE — UNKNOWN"}`);
+  if (inf.nas) {
+    lines.push(`FAA NAS: ${inf.nas.live ? `${inf.nas.counts.groundStops} ground stops / ${inf.nas.counts.groundDelays} ground delays / ${inf.nas.counts.closures} closures nationally` : "UNREACHABLE — UNKNOWN"}`);
+    for (const p of inf.nas.nearby.slice(0, 4)) lines.push(`NAS NEARBY (${p.km}km): ${p.kind === "groundStop" ? "GROUND STOP" : p.kind === "closure" ? "CLOSURE" : p.kind === "groundDelay" ? "ground delay" : "delay"} at ${p.airport} — ${p.reason}${p.detail ? ` (${p.detail})` : ""}`);
+  }
+  if (inf.powerNews.length > 0) lines.push(`POWER (news-derived, unverified): ${inf.powerNews.map((n) => n.title.slice(0, 100)).join(" | ")}`);
+  if (inf.commsNews.length > 0) lines.push(`COMMS (news-derived, unverified): ${inf.commsNews.map((n) => n.title.slice(0, 100)).join(" | ")}`);
   if (s.threats.fp) {
     lines.push(`FORCE PROTECTION: ${s.threats.fp.composite.toUpperCase()} — ${s.threats.fp.topDriver}`);
     for (const ax of s.threats.fp.axes) if (ax.severity !== "green") lines.push(`FP AXIS ${ax.key}: ${ax.severity} — ${ax.summary.slice(0, 120)}`);

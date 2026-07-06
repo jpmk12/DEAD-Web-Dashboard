@@ -59,16 +59,22 @@ ZNY center. After deploy:
    (UNKNOWN there = DoD CA / DAIP reachability issue, same as Force
    Protection).
 2. Commander's Read should render 3 bullets (requires `chat` AI feature on).
-3. **v2 gate**: hit `GET /api/sitrep/infra-diag` (owner-only) and paste the
-   JSON back into a session. It probes IODA (internet), USGS water gauges,
-   FAA NAS status, and a GDELT power-outage query from the prod IP — the
-   sandbox can't reach these, so parsers for the Infrastructure card are
-   written only after this capture (same pattern as DAIP/state.gov).
-4. v2 build list (approved direction): wire whichever probes come back clean
-   into the Infrastructure card (power stays news-derived + labeled), then
-   the extras menu the user picks from (astro/illumination, crosswind per
-   runway, daily status history, multi-base strip, SITREP line in the
-   morning brief).
+3. ~~v2 gate~~ **DONE 2026-07-06**: the user ran `GET /api/sitrep/infra-diag`
+   from prod and pasted the JSON. Findings now encoded in code + CLAUDE.md:
+   IODA live BOTH endpoints (but `from`/`until` MUST be epoch seconds —
+   `now-1d` is silently zeroed; NJ region = 4453 via entities search);
+   USGS live (WaterML envelope); FAA NAS live (XML Delay_type sections);
+   GDELT fresh probe 429'd → power stays news-derived from the local-news
+   fetch we already make.
+4. **Infrastructure card is LIVE** (`lib/infraSignals.ts` pure+tested,
+   `lib/infra.ts` fetchers): IODA internet drop% chips, FAA NAS national
+   counts + ≤250 km nearby ground stops/closures, USGS gauge levels
+   (informational), power/comms news-derived + labeled. `status.infra` is
+   now computed (was hardcoded "u"); Commander's Read includes infra lines.
+   Verify on next deploy: SITREP → Infrastructure card shows IODA chips and
+   NAS counts for KWRI (a quiet day reads "no degradation detected").
+   Remaining extras menu (not yet picked): multi-base LED strip, SITREP
+   line in the morning brief, closure-window timeline.
 
 ## 🆕 X capture tool — Phase 1 SHIPPED, Phase 2 gated on real captures
 

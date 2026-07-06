@@ -1007,10 +1007,40 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   per axis per UTC day, `lib/sitrepHistory.ts`) renders a last-7-days strip
   + "worse than yesterday" markers.
 - **UI** `SitrepPanel.tsx` (OSINT pane chip "SITREP"): base chips
-  (double-click removes), status strip, BLUF, Weather/Ops/Threats cards +
-  an honest v2-placeholder Infrastructure card, inline ARTCC setter, and
-  **⧉ Save to Docs** (dated doc tagged `sitrep` + icao). Infra sources
-  (IODA/USGS/FAA NAS) are v2 pending live probes from prod. No new npm dep.
+  (double-click removes), status strip, BLUF, Weather/Ops/Threats/
+  Infrastructure cards, inline ARTCC setter, and **⧉ Save to Docs** (dated
+  doc tagged `sitrep` + icao). No new npm dep.
+- **Infrastructure card (LIVE — contracts pinned from the 2026-07-06 prod
+  run of `/api/sitrep/infra-diag`)**: `lib/infraSignals.ts` (PURE parsers,
+  tested against the captured samples) + `lib/infra.ts` (server fetchers,
+  fail-safe → UNKNOWN). Sources & the non-obvious contract facts:
+  - **IODA** (Georgia Tech, keyless): entity code resolved via
+    `/v2/entities/query` search (US bases → state region parsed from
+    `base.place`, e.g. New Jersey = 4453; else country), then
+    `/v2/signals/raw/{type}/{code}`. **`from`/`until` MUST be epoch
+    seconds** — relative strings like `now-1d` are silently zeroed
+    (`requestParameters` came back `from:0`). Model series (`*-sarima`,
+    `*-norm`) are skipped; drop% = latest-vs-baseline medians per raw
+    source (bgp / ping-slash24 / merit-nt / gtr). RED needs corroboration
+    (2 sources ≥80% or one ≥95); single-source ≥50% is amber.
+  - **FAA NAS** (`nasstatus.faa.gov/api/airport-status-information`, XML):
+    one national fetch cached 5 min shared across bases; regex-parsed
+    Delay_type sections (Ground_Stop_List/Ground_Delay_List/
+    Airport_Closure_List/Arrival_Departure_Delay_List). FAA LIDs map to
+    OurAirports via `K`+LID for the ≤250 km "nearby" call-outs; nearby
+    closure/ground-stop = amber (own-field closure = red). US bases only
+    (`nas: null` OCONUS).
+  - **USGS gauges** (`waterservices.usgs.gov/nwis/iv`, WaterML): stage
+    levels only, informational — flood POSTURE stays with the NWS alerts
+    in the Weather card. `noDataValue` (-999999) → null. US only.
+  - **Power/comms have NO sensor** — derived from the already-fetched
+    GDELT impact news via `splitInfraNews` (the diag's fresh GDELT probe
+    429'd: rate budget already spent on local news — do NOT add another
+    GDELT call). News can raise the LED to amber, never red; with no
+    sensor reporting the LED is UNKNOWN even if news exists.
+  `status.infra` = `infraLed(internet, nas, powerNews, commsNews)`; the
+  Commander's Read gets INTERNET/FAA NAS/POWER/COMMS lines and the read
+  fingerprint includes the infra LED. All keyless, pure fetch (esbuild `0`).
 
 ### Ground Truth (OSINT "Ground" sub-pane — per-country situation room)
 A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
@@ -1169,7 +1199,10 @@ OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
 METAR + TAF; also the node flight-category rings via `/api/airfield-weather`),
 Yahoo Finance (`query1.finance.yahoo.com`, energy/commodity quotes; Stooq
 `stooq.com` is a best-effort fallback only), Nager.Date
-(`date.nager.at`, public holidays), and DoD DAIP (`www.daip.jcs.mil`, NOTAMs —
+(`date.nager.at`, public holidays), IODA
+(`api.ioda.inetintel.cc.gatech.edu`, internet connectivity signals), USGS
+water services (`waterservices.usgs.gov`, gauge stages), FAA NAS status
+(`nasstatus.faa.gov`, ATC programs XML), and DoD DAIP (`www.daip.jcs.mil`, NOTAMs —
 needs the bundled DoD CA). The one
 **WebSocket** is the AISStream vessel bridge (`wss://stream.aisstream.io`, over
 443). The only non-HTTP connection is to the platform's managed MySQL, which is

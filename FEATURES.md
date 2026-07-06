@@ -241,10 +241,11 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 #### SITREP (per-base commander's report)
 - **Config**: 1-4 bases (`user_prefs.sitrep_bases`, seeded KWRI+ZNY), managed via `/api/sitrep/bases` (add/remove/set-ARTCC; ICAO resolves hubs → gateways → OurAirports). Preferences saves preserve the list.
 - **`GET /api/sitrep?icao=`** assembles (10-min cache): decoded METAR + raw + 24-h TAF category timeline, NWS point alerts, Open-Meteo current + 3-day outlook, bucketed DAIP NOTAMs (runway/navaid/hours/airspace; limiting + field-closed detection), **center (ARTCC) enroute NOTAMs**, runway capability, single-base Force Protection composite + axes, disasters ≤500 km, impact-filtered GDELT local news.
-- **Status strip**: WX / OPS / THREAT LEDs (pure rollups in `lib/sitrepSignals.ts`); INFRA is an explicit v2 UNKNOWN placeholder.
+- **Status strip**: WX / OPS / THREAT / INFRA LEDs (pure rollups in `lib/sitrepSignals.ts` + `lib/infraSignals.ts`).
+- **Infrastructure card** (contracts pinned from a live prod diag): IODA internet drop% per measurement source (state/country level, epoch-second windows), FAA NAS national program counts + nearby (≤250 km) ground stops/closures, USGS gauge stages (informational — flood posture stays with NWS alerts), power/comms strictly news-derived and labeled. Fail-safe: dead source → UNKNOWN, never implied-clear.
 - **Commander's Read** (`POST /api/sitrep/read`): AI BLUF (3 bullets) + watch items, chat-gated, cached 15 min.
 - **⧉ Save to Docs**: dated SITREP doc tagged `sitrep` + icao.
-- **v2**: astro strip (sunrise/sunset/civil twilight Z + moon % illumination, pure math), per-runway-end crosswind/headwind chips from the live METAR (advisory thresholds), fuel NOTAMs filtered to the field, bird/BASH group + dawn-dusk elevated windows, and a last-7-days LED history strip (`sitrep_status_daily`) with worse-than-yesterday markers.
+- **v2**: astro strip (sunrise/sunset/civil twilight Z + moon % illumination, pure math), per-runway-end crosswind/headwind chips from the live METAR (advisory thresholds), fuel NOTAMs filtered to the field, bird/BASH group + dawn-dusk elevated windows, a last-7-days LED history strip (`sitrep_status_daily`) with worse-than-yesterday markers, and the live Infrastructure card above.
 
 ### 6. Markets
 

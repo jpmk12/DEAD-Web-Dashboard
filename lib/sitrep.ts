@@ -24,6 +24,8 @@ import {
 } from "./sitrepSignals";
 import { astroData, type AstroData } from "./astro";
 import { recordSitrepDay, getSitrepHistory, type SitrepDay } from "./sitrepHistory";
+import { getInfraSources, type SitrepInfra } from "./infra";
+import { splitInfraNews, infraLed, nasLed } from "./infraSignals";
 
 export interface SitrepAlert {
   event: string;
@@ -74,6 +76,13 @@ export interface SitrepPayload {
   };
   // Worst LED per axis per UTC day, oldest→newest (≤7 rows incl. today).
   history: SitrepDay[];
+  // Infrastructure: IODA internet + USGS water + FAA NAS sensors, plus the
+  // news-derived utility buckets (power has NO sensor — labeled as such).
+  infra: SitrepInfra & {
+    powerNews: { title: string; link: string; matched: string[] }[];
+    waterNews: { title: string; link: string; matched: string[] }[];
+    commsNews: { title: string; link: string; matched: string[] }[];
+  };
   threats: {
     fp: { composite: string; topDriver: string; axes: { key: string; severity: string; summary: string }[] } | null;
     disasters: { title: string; type: string; severity: string; km: number }[];
@@ -155,7 +164,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   const icao = base.icao.toUpperCase();
   const now = Date.now();
 
-  const [cats, tafOutlook, rawWx, notams, caps, alerts, current, outlook, disasters, fpResult, newsRaw] =
+  const [cats, tafOutlook, rawWx, notams, caps, alerts, current, outlook, disasters, fpResult, newsRaw, infraSources] =
     await Promise.all([
       getFlightCategories([icao]).catch(() => ({ live: false, byIcao: {} as Record<string, AviationWx> })),
       getTafOutlook([icao], 24).catch(() => ({} as Record<string, TafOutlook>)),
@@ -177,6 +186,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
         kind: "base" as const,
       }]).catch(() => null),
       gdeltLocalNews(base.place || base.label).catch(() => []),
+      getInfraSources(base).catch((): SitrepInfra => ({ internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null })),
     ]);
 
   const [runways, fuelRes, historyRows] = await Promise.all([
@@ -233,6 +243,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
     .slice(0, 5);
 
   const impactNews = filterImpactNews(newsRaw.map((n) => ({ title: n.title, link: n.link }))).slice(0, 6);
+  const infraNews = splitInfraNews(impactNews);
 
   const severeAlert = sitAlerts.some((a) => a.lifeThreatening || a.severity === "Extreme");
   const payload: SitrepPayload = {
@@ -242,7 +253,12 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       wx: wxLed(nowWx?.flightCategory ?? null, tafWorst?.worst ?? null, sitAlerts.length, severeAlert),
       ops: opsLed(notams.configured, notams.live, limiting, fieldClosed),
       threat: threatLed(fp?.composite ?? null),
-      infra: "u", // v2 — IODA / USGS / power sources pending live verification
+      infra: infraLed(
+        infraSources.internet.led,
+        infraSources.nas ? nasLed(infraSources.nas.live, infraSources.nas.nearby, icao) : null,
+        infraNews.power.length,
+        infraNews.comms.length,
+      ),
     },
     weather: {
       live: cats.live,
@@ -275,6 +291,12 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
         : null,
     },
     history: historyRows,
+    infra: {
+      ...infraSources,
+      powerNews: infraNews.power,
+      waterNews: infraNews.water,
+      commsNews: infraNews.comms,
+    },
     threats: {
       fp,
       disasters: nearDisasters,
