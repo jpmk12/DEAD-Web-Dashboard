@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ critical: [], discover: [], mode: "deterministic", day, cached: false, transient: true });
   }
 
-  const articlePrefs = await readArticlePrefs().catch(() => ({ keywords: {}, sources: {}, lastUpdated: "" }));
+  const articlePrefs = await readArticlePrefs(normEmail(session.user?.email)).catch(() => ({ keywords: {}, sources: {}, lastUpdated: "" }));
 
   // Deterministic ranking is both the AI's pre-filter order AND the fallback.
   const watchlist = prefs?.watchlist ?? [];

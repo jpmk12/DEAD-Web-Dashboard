@@ -5,7 +5,7 @@ import { ChatMessage } from "./types";
 import { isFeatureEnabled } from "./aiFeatures";
 import { logCall } from "./anthropicLog";
 import { getUserPrefs } from "./userPrefs";
-import { isOwner } from "./currentUser";
+import { isOwner } from "./allowlist";
 
 const MAX_MEMORY_CHARS = 12_000; // ~3k tokens; safety cap before storage
 

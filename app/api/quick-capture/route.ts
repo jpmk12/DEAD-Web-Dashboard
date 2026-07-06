@@ -232,7 +232,7 @@ async function executePlan(plan: Captured, accessToken: string, userEmail: strin
     if (plan.kind === "trip") {
       const geo = await geocodePlace(plan.location);
       if (!geo) return NextResponse.json({ error: `Couldn't locate "${plan.location}" — add a state or country.` }, { status: 422 });
-      const trip = await createTrip({
+      const trip = await createTrip(userEmail, {
         label: plan.label || geo.label,
         location: plan.location,
         lat: geo.lat,

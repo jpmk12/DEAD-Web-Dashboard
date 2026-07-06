@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getVipSuggestions } from "@/lib/replySignals";
@@ -28,7 +29,7 @@ export async function GET() {
   const primaryEmail = (session as { user?: { email?: string } }).user?.email ?? "";
   const [prefs, contacts] = await Promise.all([
     getUserPrefs().catch(() => null),
-    listContacts().catch(() => []),
+    listContacts(normEmail(session.user?.email)).catch(() => []),
   ]);
 
   // Already on the roster — don't re-suggest.

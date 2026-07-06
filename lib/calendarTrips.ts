@@ -19,13 +19,13 @@ const SYNC_INTERVAL_MS = 10 * 60 * 1000;
 let lastSyncAt = 0;
 let inFlight: Promise<void> | null = null;
 
-export async function syncCalendarTripsThrottled(accessToken: string, today: string): Promise<void> {
+export async function syncCalendarTripsThrottled(email: string, accessToken: string, today: string): Promise<void> {
   if (inFlight) return inFlight;
   if (Date.now() - lastSyncAt < SYNC_INTERVAL_MS) return;
   inFlight = (async () => {
     try {
       const events = await getUpcomingEvents(accessToken);
-      await syncCalendarTrips(events, today);
+      await syncCalendarTrips(email, events, today);
       lastSyncAt = Date.now();
     } catch {
       // Best-effort: auto-activation must never break the page that triggered it.
@@ -39,7 +39,7 @@ export async function syncCalendarTripsThrottled(accessToken: string, today: str
 // Reconcile calendar-derived trips with the calendar for `today`: upsert every
 // qualifying event, then drop any calendar trip covering today whose source
 // event no longer qualifies (deleted, moved off today, or location removed).
-export async function syncCalendarTrips(events: CalendarEvent[], today: string): Promise<void> {
+export async function syncCalendarTrips(email: string, events: CalendarEvent[], today: string): Promise<void> {
   const qualifying = detectTripEvents(events, today);
   const wantIds = new Set<string>();
   for (const q of qualifying) {
@@ -47,7 +47,7 @@ export async function syncCalendarTrips(events: CalendarEvent[], today: string):
     const geo = await geocodePlace(q.location);
     if (!geo) continue; // un-geocodable today → just skip; pruning handles removal
     wantIds.add(q.eventId);
-    await upsertCalendarTrip({
+    await upsertCalendarTrip(email, {
       eventId: q.eventId,
       label: q.label || geo.label,
       location: q.location,
@@ -57,8 +57,8 @@ export async function syncCalendarTrips(events: CalendarEvent[], today: string):
       endDate: q.endDate,
     });
   }
-  const active = await listActiveCalendarTrips(today);
+  const active = await listActiveCalendarTrips(email, today);
   for (const t of active) {
-    if (!t.eventId || !wantIds.has(t.eventId)) await deleteTrip(t.id);
+    if (!t.eventId || !wantIds.has(t.eventId)) await deleteTrip(email, t.id);
   }
 }

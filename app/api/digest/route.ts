@@ -27,8 +27,8 @@ export async function GET() {
 
   const [prefs, articlePrefs, newsletterPrefs] = await Promise.all([
     getUserPrefs(normEmail(session.user?.email)),
-    readArticlePrefs(),
-    readNewsletterPrefs(),
+    readArticlePrefs(normEmail(session.user?.email)),
+    readNewsletterPrefs(normEmail(session.user?.email)),
   ]);
 
   const userContext = buildUserContext(prefs);

@@ -1,6 +1,14 @@
 import type { RowDataPacket } from "mysql2";
 import { randomUUID } from "crypto";
 import { getDb } from "./db";
+import { isOwner } from "./allowlist";
+// Email scoping: exact-email rows + pre-split '' rows for the owner.
+function scopeClause(email: string): { clause: string; params: string[] } {
+  return isOwner(email)
+    ? { clause: "user_email IN (?, '')", params: [email] }
+    : { clause: "user_email = ?", params: [email] };
+}
+
 
 // Keep-in-touch / relationship cadence. A roster of important people, each with
 // a check-in cadence (days). "lastContacted" is set manually (mark-contacted),
@@ -71,15 +79,17 @@ function rowToContact(r: ContactRow): Contact {
   };
 }
 
-export async function listContacts(): Promise<Contact[]> {
+export async function listContacts(userEmail: string): Promise<Contact[]> {
   const pool = await getDb();
+  const sc = scopeClause(userEmail);
   const [rows] = await pool.query<ContactRow[]>(
-    "SELECT id, name, email, cadence_days, tier, last_contacted, notes, created_at FROM contacts ORDER BY name",
+    `SELECT id, name, email, cadence_days, tier, last_contacted, notes, created_at FROM contacts WHERE ${sc.clause} ORDER BY name`,
+    sc.params,
   );
   return rows.map(rowToContact);
 }
 
-export async function createContact(c: {
+export async function createContact(userEmail: string, c: {
   name: string; email?: string | null; cadenceDays?: number; tier?: string | null; notes?: string | null;
 }): Promise<Contact> {
   const pool = await getDb();
@@ -87,14 +97,14 @@ export async function createContact(c: {
   const cadenceDays = Number.isFinite(c.cadenceDays) ? Math.min(3650, Math.max(1, c.cadenceDays!)) : 90;
   const now = new Date();
   await pool.execute(
-    "INSERT INTO contacts (id, name, email, cadence_days, tier, last_contacted, notes, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
-    [id, c.name, c.email ?? null, cadenceDays, c.tier ?? null, c.notes ?? null, now],
+    "INSERT INTO contacts (id, user_email, name, email, cadence_days, tier, last_contacted, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+    [id, userEmail, c.name, c.email ?? null, cadenceDays, c.tier ?? null, c.notes ?? null, now],
   );
   return { id, name: c.name, email: c.email ?? null, cadenceDays, tier: c.tier ?? null, lastContacted: null, notes: c.notes ?? null, createdAt: now.toISOString() };
 }
 
 // Partial edit. Only the provided fields change; markContacted sets the date.
-export async function updateContact(id: string, patch: {
+export async function updateContact(userEmail: string, id: string, patch: {
   name?: string; email?: string | null; cadenceDays?: number; tier?: string | null; notes?: string | null; lastContacted?: string | null;
 }): Promise<void> {
   const sets: string[] = [];
@@ -107,10 +117,12 @@ export async function updateContact(id: string, patch: {
   if (patch.lastContacted !== undefined) { sets.push("last_contacted = ?"); vals.push(patch.lastContacted); }
   if (sets.length === 0) return;
   const pool = await getDb();
-  await pool.execute(`UPDATE contacts SET ${sets.join(", ")} WHERE id = ?`, [...vals, id]);
+  const sc = scopeClause(userEmail);
+  await pool.execute(`UPDATE contacts SET ${sets.join(", ")} WHERE id = ? AND ${sc.clause}`, [...vals, id, ...sc.params]);
 }
 
-export async function deleteContact(id: string): Promise<void> {
+export async function deleteContact(userEmail: string, id: string): Promise<void> {
   const pool = await getDb();
-  await pool.execute("DELETE FROM contacts WHERE id = ?", [id]);
+  const sc = scopeClause(userEmail);
+  await pool.execute(`DELETE FROM contacts WHERE id = ? AND ${sc.clause}`, [id, ...sc.params]);
 }

@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./currentUser";
+import { isOwner } from "./allowlist";
 
 // One row per (local-date, user_email). Pre-multi-user rows carry
 // user_email = '' and are honoured as the OWNER's legacy rows: reads prefer

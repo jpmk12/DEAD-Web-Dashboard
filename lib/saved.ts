@@ -1,5 +1,14 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
+import { isOwner } from "./allowlist";
+// Email scoping for reads/mutations: exact-email rows, plus pre-multi-user
+// '' rows which belong to the OWNER (single-user-era legacy).
+function scopeClause(email: string): { clause: string; params: string[] } {
+  return isOwner(email)
+    ? { clause: "user_email IN (?, '')", params: [email] }
+    : { clause: "user_email = ?", params: [email] };
+}
+
 import { SavedItem } from "./types";
 
 interface SavedRow extends RowDataPacket {
@@ -24,21 +33,24 @@ function rowToItem(r: SavedRow): SavedItem {
   };
 }
 
-export async function getSaved(): Promise<SavedItem[]> {
+export async function getSaved(email: string): Promise<SavedItem[]> {
   const pool = await getDb();
+  const sc = scopeClause(email);
   const [rows] = await pool.query<SavedRow[]>(
-    "SELECT id, type, title, content, source, link, saved_at FROM saved_items ORDER BY saved_at DESC"
+    `SELECT id, type, title, content, source, link, saved_at FROM saved_items WHERE ${sc.clause} ORDER BY saved_at DESC`,
+    sc.params
   );
   return rows.map(rowToItem);
 }
 
-export async function addSaved(item: SavedItem): Promise<void> {
+export async function addSaved(email: string, item: SavedItem): Promise<void> {
   const pool = await getDb();
   await pool.execute(
-    `INSERT IGNORE INTO saved_items (id, type, title, content, source, link, saved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT IGNORE INTO saved_items (id, user_email, type, title, content, source, link, saved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       item.id,
+      email,
       item.type,
       item.title,
       item.content,
@@ -49,7 +61,8 @@ export async function addSaved(item: SavedItem): Promise<void> {
   );
 }
 
-export async function removeSaved(id: string): Promise<void> {
+export async function removeSaved(email: string, id: string): Promise<void> {
   const pool = await getDb();
-  await pool.execute("DELETE FROM saved_items WHERE id = ?", [id]);
+  const sc = scopeClause(email);
+  await pool.execute(`DELETE FROM saved_items WHERE id = ? AND ${sc.clause}`, [id, ...sc.params]);
 }

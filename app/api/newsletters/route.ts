@@ -115,7 +115,7 @@ export async function GET() {
   // Emails not yet in cache need Claude summarisation
   const needsProcessing = allEmails.filter((e) => !cached.has(e.id));
 
-  const prefs = await readPrefs();
+  const prefs = await readPrefs(normEmail(session.user?.email));
   const prefsContext = buildPrefsContext(prefs);
 
   // Summarise new emails with Claude

@@ -27,3 +27,14 @@ export function isAllowedEmail(
   if (e === owner) return true;
   return parseEmailList(allowedRaw).includes(e);
 }
+
+// Owner identity — env-driven, no auth import, so DB libs (and their tests)
+// can use it without dragging NextAuth into the module graph.
+export function ownerEmail(): string {
+  return normEmail(process.env.OWNER_EMAIL);
+}
+
+export function isOwner(email: string | null | undefined): boolean {
+  const o = ownerEmail();
+  return !!o && normEmail(email) === o;
+}

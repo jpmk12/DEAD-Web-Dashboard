@@ -1,6 +1,7 @@
 import type { RowDataPacket } from "mysql2";
 import { randomUUID } from "crypto";
 import { getDb } from "./db";
+import { isOwner } from "./allowlist";
 import { haversineKm } from "./disasters";
 
 // TDY / travel trips. A trip is a labelled, geocoded place with a date range.
@@ -96,24 +97,36 @@ function rowToTrip(r: TripRow): Trip {
 }
 const TRIP_COLS = "id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at";
 
-export async function listTrips(): Promise<Trip[]> {
+// Email scoping for reads/mutations: exact-email rows, plus pre-multi-user
+// '' rows which belong to the OWNER (single-user-era legacy).
+function scopeClause(email: string): { clause: string; params: string[] } {
+  return isOwner(email)
+    ? { clause: "user_email IN (?, '')", params: [email] }
+    : { clause: "user_email = ?", params: [email] };
+}
+
+
+export async function listTrips(email: string): Promise<Trip[]> {
   const pool = await getDb();
+  const sc = scopeClause(email);
   const [rows] = await pool.query<TripRow[]>(
-    `SELECT ${TRIP_COLS} FROM trips ORDER BY start_date DESC`,
+    `SELECT ${TRIP_COLS} FROM trips WHERE ${sc.clause} ORDER BY start_date DESC`,
+    sc.params,
   );
   return rows.map(rowToTrip);
 }
 
-export async function getActiveTrip(today: string): Promise<Trip | null> {
+export async function getActiveTrip(email: string, today: string): Promise<Trip | null> {
   const pool = await getDb();
+  const sc = scopeClause(email);
   const [rows] = await pool.query<TripRow[]>(
-    `SELECT ${TRIP_COLS} FROM trips WHERE start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1`,
-    [today, today],
+    `SELECT ${TRIP_COLS} FROM trips WHERE start_date <= ? AND end_date >= ? AND ${sc.clause} ORDER BY start_date DESC LIMIT 1`,
+    [today, today, ...sc.params],
   );
   return rows[0] ? rowToTrip(rows[0]) : null;
 }
 
-export async function createTrip(t: {
+export async function createTrip(email: string, t: {
   label: string; location: string; lat: number; lon: number;
   startDate: string; endDate: string; tz?: string | null; notes?: string | null;
   source?: "manual" | "calendar"; eventId?: string | null;
@@ -125,9 +138,9 @@ export async function createTrip(t: {
   const source = t.source ?? "manual";
   const eventId = t.eventId ?? null;
   await pool.execute(
-    `INSERT INTO trips (id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, t.tz ?? null, feedKey, t.notes ?? null, source, eventId, now],
+    `INSERT INTO trips (id, user_email, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, email, t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, t.tz ?? null, feedKey, t.notes ?? null, source, eventId, now],
   );
   return {
     id, label: t.label, location: t.location, lat: t.lat, lon: t.lon,
@@ -136,9 +149,10 @@ export async function createTrip(t: {
   };
 }
 
-export async function getTripById(id: string): Promise<Trip | null> {
+export async function getTripById(email: string, id: string): Promise<Trip | null> {
   const pool = await getDb();
-  const [rows] = await pool.query<TripRow[]>(`SELECT ${TRIP_COLS} FROM trips WHERE id = ? LIMIT 1`, [id]);
+  const sc = scopeClause(email);
+  const [rows] = await pool.query<TripRow[]>(`SELECT ${TRIP_COLS} FROM trips WHERE id = ? AND ${sc.clause} LIMIT 1`, [id, ...sc.params]);
   return rows[0] ? rowToTrip(rows[0]) : null;
 }
 
@@ -147,6 +161,7 @@ export async function getTripById(id: string): Promise<Trip | null> {
 // source event and would just be re-synced, so the route blocks those earlier
 // with a clearer message. Returns the updated trip (or null if nothing matched).
 export async function updateTrip(
+  email: string,
   id: string,
   fields: { startDate?: string; endDate?: string; label?: string },
 ): Promise<Trip | null> {
@@ -157,24 +172,26 @@ export async function updateTrip(
   if (fields.label !== undefined) { sets.push("label = ?"); vals.push(fields.label); }
   if (sets.length > 0) {
     const pool = await getDb();
-    vals.push(id);
-    await pool.execute(`UPDATE trips SET ${sets.join(", ")} WHERE id = ? AND source = 'manual'`, vals);
+    const sc = scopeClause(email);
+    await pool.execute(`UPDATE trips SET ${sets.join(", ")} WHERE id = ? AND source = 'manual' AND ${sc.clause}`, [...vals, id, ...sc.params]);
   }
-  return getTripById(id);
+  return getTripById(email, id);
 }
 
-export async function deleteTrip(id: string): Promise<void> {
+export async function deleteTrip(email: string, id: string): Promise<void> {
   const pool = await getDb();
-  await pool.execute("DELETE FROM trips WHERE id = ?", [id]);
+  const sc = scopeClause(email);
+  await pool.execute(`DELETE FROM trips WHERE id = ? AND ${sc.clause}`, [id, ...sc.params]);
 }
 
 // Calendar-sourced trips covering `today`. Used by the auto-sync to prune trips
 // whose source event was deleted/moved so they don't linger as a phantom TDY.
-export async function listActiveCalendarTrips(today: string): Promise<Trip[]> {
+export async function listActiveCalendarTrips(email: string, today: string): Promise<Trip[]> {
   const pool = await getDb();
+  const sc = scopeClause(email);
   const [rows] = await pool.query<TripRow[]>(
-    `SELECT ${TRIP_COLS} FROM trips WHERE source = 'calendar' AND start_date <= ? AND end_date >= ?`,
-    [today, today],
+    `SELECT ${TRIP_COLS} FROM trips WHERE source = 'calendar' AND start_date <= ? AND end_date >= ? AND ${sc.clause}`,
+    [today, today, ...sc.params],
   );
   return rows.map(rowToTrip);
 }
@@ -183,15 +200,16 @@ export async function listActiveCalendarTrips(today: string): Promise<Trip[]> {
 // re-sync is idempotent (and an event whose dates/location moved updates in
 // place rather than duplicating). Only ever touches source='calendar' rows, so
 // hand-entered trips are never clobbered.
-export async function upsertCalendarTrip(t: {
+export async function upsertCalendarTrip(email: string, t: {
   eventId: string; label: string; location: string; lat: number; lon: number;
   startDate: string; endDate: string;
 }): Promise<void> {
   const pool = await getDb();
   const feedKey = nearestFeedKey(t.lat, t.lon);
+  const sc = scopeClause(email);
   const [rows] = await pool.query<TripRow[]>(
-    "SELECT id FROM trips WHERE source = 'calendar' AND event_id = ? LIMIT 1",
-    [t.eventId],
+    `SELECT id FROM trips WHERE source = 'calendar' AND event_id = ? AND ${sc.clause} LIMIT 1`,
+    [t.eventId, ...sc.params],
   );
   if (rows[0]) {
     await pool.execute(
@@ -202,9 +220,9 @@ export async function upsertCalendarTrip(t: {
     return;
   }
   await pool.execute(
-    `INSERT INTO trips (id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'calendar', ?, ?)`,
-    [randomUUID(), t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, null, feedKey, null, t.eventId, new Date()],
+    `INSERT INTO trips (id, user_email, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'calendar', ?, ?)`,
+    [randomUUID(), email, t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, null, feedKey, null, t.eventId, new Date()],
   );
 }
 

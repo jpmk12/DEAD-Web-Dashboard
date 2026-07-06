@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./currentUser";
+import { isOwner } from "./allowlist";
 
 // Cross-device UI state — a shallow-merged JSON blob keyed by namespaced
 // strings (e.g. "osint.dismissed", "crisisMap.layers"). Deliberately separate

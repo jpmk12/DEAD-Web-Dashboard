@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { recordFeedback, recordOpen } from "@/lib/articlePrefs";
 
@@ -29,9 +30,9 @@ export async function POST(req: Request) {
   const title = body.title.slice(0, 500);
   const source = body.source.slice(0, 100);
   if (body.action === "opened") {
-    await recordOpen(title, source);
+    await recordOpen(normEmail(session.user?.email), title, source);
   } else {
-    await recordFeedback(title, source, body.action as "useful" | "not_useful");
+    await recordFeedback(normEmail(session.user?.email), title, source, body.action as "useful" | "not_useful");
   }
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./currentUser";
+import { isOwner } from "./allowlist";
 
 // "Surfaces" are top-level views the user scans for new content. The dashboard
 // records when they last visited each so the next visit can dim items older

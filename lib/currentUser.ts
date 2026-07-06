@@ -5,16 +5,10 @@
 // row, fall back to '' only for the owner).
 
 import { auth } from "./auth";
-import { normEmail } from "./allowlist";
+import { normEmail, isOwner } from "./allowlist";
 
-export function ownerEmail(): string {
-  return normEmail(process.env.OWNER_EMAIL);
-}
-
-export function isOwner(email: string | null | undefined): boolean {
-  const o = ownerEmail();
-  return !!o && normEmail(email) === o;
-}
+// Re-exported so route code can import identity helpers from one place.
+export { ownerEmail, isOwner } from "./allowlist";
 
 export interface SessionUser {
   email: string;     // normalized (lowercase)

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { recordOpen, recordDeepDive, recordFeedback, normalizeSubject, setDismissed, setKept } from "@/lib/newsletterPrefs";
 
@@ -35,10 +36,10 @@ export async function POST(request: Request) {
     if (typeof id !== "string" || !id || id.length > 256) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
     }
-    if (action === "hide") await setDismissed(id, true);
-    else if (action === "show") await setDismissed(id, false);
-    else if (action === "keep") await setKept(id, true);
-    else await setKept(id, false);
+    if (action === "hide") await setDismissed(normEmail(session.user?.email), id, true);
+    else if (action === "show") await setDismissed(normEmail(session.user?.email), id, false);
+    else if (action === "keep") await setKept(normEmail(session.user?.email), id, true);
+    else await setKept(normEmail(session.user?.email), id, false);
     return NextResponse.json({ ok: true });
   }
 
@@ -58,13 +59,13 @@ export async function POST(request: Request) {
     if (!normalizeSubject(subject)) {
       return NextResponse.json({ error: "subject invalid" }, { status: 400 });
     }
-    if (action === "deep_dive") await recordDeepDive(subject);
-    else await recordOpen(subject);
+    if (action === "deep_dive") await recordDeepDive(normEmail(session.user?.email), subject);
+    else await recordOpen(normEmail(session.user?.email), subject);
   } else {
     if (typeof id !== "string" || !id) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
     }
-    await recordFeedback(id, action as "useful" | "not_useful");
+    await recordFeedback(normEmail(session.user?.email), id, action as "useful" | "not_useful");
   }
 
   return NextResponse.json({ ok: true });

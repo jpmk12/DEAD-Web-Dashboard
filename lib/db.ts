@@ -57,13 +57,15 @@ const SCHEMA_STATEMENTS = [
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS saved_items (
-    id          VARCHAR(255) PRIMARY KEY,
+    id          VARCHAR(255) NOT NULL,
+    user_email  VARCHAR(255) NOT NULL DEFAULT '',
     type        VARCHAR(32)  NOT NULL,
     title       TEXT         NOT NULL,
     content     MEDIUMTEXT   NOT NULL,
     source      VARCHAR(255) NOT NULL,
     link        TEXT         NULL,
     saved_at    DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id, user_email),
     INDEX idx_saved_at (saved_at)
   ) ENGINE=InnoDB`,
 
@@ -97,17 +99,21 @@ const SCHEMA_STATEMENTS = [
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS article_prefs (
-    id           TINYINT      NOT NULL PRIMARY KEY DEFAULT 1,
+    id           TINYINT      NOT NULL DEFAULT 1,
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
     keywords     JSON         NOT NULL,
     sources      JSON         NOT NULL,
-    last_updated DATETIME(3)  NOT NULL
+    last_updated DATETIME(3)  NOT NULL,
+    PRIMARY KEY (user_email)
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS newsletter_prefs (
-    id           TINYINT      NOT NULL PRIMARY KEY DEFAULT 1,
+    id           TINYINT      NOT NULL DEFAULT 1,
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
     open_counts  JSON         NOT NULL,
     feedback     JSON         NOT NULL,
-    last_updated DATETIME(3)  NOT NULL
+    last_updated DATETIME(3)  NOT NULL,
+    PRIMARY KEY (user_email)
   ) ENGINE=InnoDB`,
 
   // Single-row store for cross-device UI state that isn't a "preference" proper
@@ -289,6 +295,7 @@ const SCHEMA_STATEMENTS = [
   // the morning brief, then auto-reverts when the trip ends.
   `CREATE TABLE IF NOT EXISTS trips (
     id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    user_email  VARCHAR(255) NOT NULL DEFAULT '',
     label       VARCHAR(120) NOT NULL,
     location    VARCHAR(200) NOT NULL,
     lat         DOUBLE       NOT NULL,
@@ -309,6 +316,7 @@ const SCHEMA_STATEMENTS = [
   // and the app surfaces who's due/overdue on the Calendar tab.
   `CREATE TABLE IF NOT EXISTS contacts (
     id             VARCHAR(36)  NOT NULL PRIMARY KEY,
+    user_email     VARCHAR(255) NOT NULL DEFAULT '',
     name           VARCHAR(160) NOT NULL,
     email          VARCHAR(254) NULL,
     cadence_days   INT          NOT NULL DEFAULT 90,
@@ -400,6 +408,12 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "app_ui_state",    column: "user_email", ddl: "ALTER TABLE app_ui_state    ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
   { table: "user_memory",     column: "user_email", ddl: "ALTER TABLE user_memory     ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
   { table: "anthropic_usage", column: "user_email", ddl: "ALTER TABLE anthropic_usage ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  // Phase 2b satellites: same legacy-'' pattern.
+  { table: "saved_items",      column: "user_email", ddl: "ALTER TABLE saved_items      ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "article_prefs",    column: "user_email", ddl: "ALTER TABLE article_prefs    ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "newsletter_prefs", column: "user_email", ddl: "ALTER TABLE newsletter_prefs ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "trips",            column: "user_email", ddl: "ALTER TABLE trips            ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  { table: "contacts",         column: "user_email", ddl: "ALTER TABLE contacts         ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
 ];
 
 // Primary-key rebuilds for the multi-user split: the personal tables move to
@@ -412,6 +426,9 @@ const KEY_MIGRATIONS: { table: string; ddl: string }[] = [
   { table: "surface_state",  ddl: "ALTER TABLE surface_state  DROP PRIMARY KEY, ADD PRIMARY KEY (surface, user_email)" },
   { table: "app_ui_state",   ddl: "ALTER TABLE app_ui_state   DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
   { table: "user_memory",    ddl: "ALTER TABLE user_memory    DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+  { table: "saved_items",      ddl: "ALTER TABLE saved_items      DROP PRIMARY KEY, ADD PRIMARY KEY (id, user_email)" },
+  { table: "article_prefs",    ddl: "ALTER TABLE article_prefs    DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+  { table: "newsletter_prefs", ddl: "ALTER TABLE newsletter_prefs DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
 ];
 
 interface ColumnRow extends RowDataPacket { cnt: number }

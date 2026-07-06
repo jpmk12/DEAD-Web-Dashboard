@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { todayInTz } from "@/lib/date";
@@ -32,10 +33,10 @@ export async function GET() {
   const tz = prefs?.timezone || "America/Chicago";
   // Auto-activate TDY from trip-like calendar events before reading (throttled,
   // best-effort) so an active trip appears without a manual entry.
-  await syncCalendarTripsThrottled(session.accessToken as string, todayInTz(tz)).catch(() => {});
+  await syncCalendarTripsThrottled(normEmail(session.user?.email), session.accessToken as string, todayInTz(tz)).catch(() => {});
   const [trips, active] = await Promise.all([
-    listTrips().catch(() => []),
-    getActiveTrip(todayInTz(tz)).catch(() => null),
+    listTrips(normEmail(session.user?.email)).catch(() => []),
+    getActiveTrip(normEmail(session.user?.email), todayInTz(tz)).catch(() => null),
   ]);
   return NextResponse.json({ trips, active });
 }
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
   const geo = await geocodePlace(location);
   if (!geo) return NextResponse.json({ error: `Couldn't locate "${location}" — try a city + state/country.` }, { status: 422 });
 
-  const trip = await createTrip({
+  const trip = await createTrip(normEmail(session.user?.email), {
     label: label || geo.label,
     location,
     lat: geo.lat,
@@ -83,7 +84,7 @@ export async function PATCH(request: Request) {
   const id = String(body.id ?? "").trim();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const existing = await getTripById(id);
+  const existing = await getTripById(normEmail(session.user?.email), id);
   if (!existing) return NextResponse.json({ error: "Trip not found" }, { status: 404 });
   // Calendar-derived trips mirror a calendar event; editing them here would be
   // undone by the next sync. Point the user at the real source instead.
@@ -102,7 +103,7 @@ export async function PATCH(request: Request) {
   if (endDate < startDate) return NextResponse.json({ error: "End date can't be before the start date" }, { status: 400 });
   if (label !== undefined && !label) return NextResponse.json({ error: "Label can't be empty" }, { status: 400 });
 
-  const trip = await updateTrip(id, { startDate, endDate, ...(label !== undefined ? { label } : {}) });
+  const trip = await updateTrip(normEmail(session.user?.email), id, { startDate, endDate, ...(label !== undefined ? { label } : {}) });
   invalidateBrief();
   return NextResponse.json({ ok: true, trip });
 }
@@ -112,7 +113,7 @@ export async function DELETE(request: Request) {
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const id = new URL(request.url).searchParams.get("id") ?? "";
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  await deleteTrip(id);
+  await deleteTrip(normEmail(session.user?.email), id);
   invalidateBrief();
   return NextResponse.json({ ok: true });
 }

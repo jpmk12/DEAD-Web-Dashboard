@@ -193,7 +193,7 @@ export async function POST(request: Request) {
   // Effective location: an active TDY trip overrides home for weather. Resolved
   // here (generation path only, after the cache check) so cache hits don't pay
   // for the query.
-  const activeTrip = await getActiveTrip(cacheKey).catch(() => null);
+  const activeTrip = await getActiveTrip(normEmail(session.user?.email), cacheKey).catch(() => null);
   // Home is ALWAYS a weather point — even on TDY you keep eyes on home. A trip is
   // an ADDITIONAL point ("where you are now"), never a swap that hides home.
   const homePoint: NamedPoint | null =

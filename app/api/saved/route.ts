@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { getSaved, addSaved, removeSaved } from "@/lib/saved";
 import { SavedItem } from "@/lib/types";
@@ -9,7 +10,7 @@ export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const items = await getSaved();
+  const items = await getSaved(normEmail(session.user?.email));
   return NextResponse.json({ items });
 }
 
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
     savedAt: new Date().toISOString(),
   };
 
-  await addSaved(safe);
+  await addSaved(normEmail(session.user?.email), safe);
   return NextResponse.json({ ok: true });
 }
 
@@ -47,6 +48,6 @@ export async function DELETE(request: Request) {
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-  await removeSaved(String(id).slice(0, 200));
+  await removeSaved(normEmail(session.user?.email), String(id).slice(0, 200));
   return NextResponse.json({ ok: true });
 }

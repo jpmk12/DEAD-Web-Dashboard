@@ -1,5 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
+import { isOwner } from "./allowlist";
 import { NewsItem } from "./types";
 
 export interface ArticlePrefs {
@@ -59,42 +60,45 @@ function pruneDict(dict: Record<string, number>): Record<string, number> {
   );
 }
 
-async function readPrefsRaw(): Promise<ArticlePrefs> {
+async function readPrefsRaw(email: string): Promise<ArticlePrefs> {
   const pool = await getDb();
-  const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT keywords, sources, last_updated FROM article_prefs WHERE id = 1"
+  const [rows] = await pool.query<(PrefsRow & { user_email: string })[]>(
+    "SELECT keywords, sources, last_updated, user_email FROM article_prefs WHERE user_email IN (?, '')",
+    [email]
   );
-  if (rows.length === 0) {
+  const row = rows.find((r) => r.user_email === email)
+    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  if (!row) {
     return { keywords: {}, sources: {}, lastUpdated: new Date(0).toISOString() };
   }
   return {
-    keywords: asNumRecord(rows[0].keywords),
-    sources: asNumRecord(rows[0].sources),
-    lastUpdated: rows[0].last_updated.toISOString(),
+    keywords: asNumRecord(row.keywords),
+    sources: asNumRecord(row.sources),
+    lastUpdated: row.last_updated.toISOString(),
   };
 }
 
-export async function readPrefs(): Promise<ArticlePrefs> {
+export async function readPrefs(email: string): Promise<ArticlePrefs> {
   await writeQueue;
-  return readPrefsRaw();
+  return readPrefsRaw(email);
 }
 
-async function writePrefs(prefs: ArticlePrefs): Promise<void> {
+async function writePrefs(email: string, prefs: ArticlePrefs): Promise<void> {
   const pool = await getDb();
   await pool.execute(
-    `INSERT INTO article_prefs (id, keywords, sources, last_updated)
-     VALUES (1, CAST(? AS JSON), CAST(? AS JSON), ?)
+    `INSERT INTO article_prefs (id, user_email, keywords, sources, last_updated)
+     VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), ?)
      ON DUPLICATE KEY UPDATE
        keywords     = VALUES(keywords),
        sources      = VALUES(sources),
        last_updated = VALUES(last_updated)`,
-    [JSON.stringify(prefs.keywords), JSON.stringify(prefs.sources), new Date()]
+    [email, JSON.stringify(prefs.keywords), JSON.stringify(prefs.sources), new Date()]
   );
 }
 
-async function updatePrefs(updater: (prefs: ArticlePrefs) => ArticlePrefs): Promise<void> {
+async function updatePrefs(email: string, updater: (prefs: ArticlePrefs) => ArticlePrefs): Promise<void> {
   const next = writeQueue.then(async () => {
-    const current = await readPrefsRaw();
+    const current = await readPrefsRaw(email);
     const raw = updater(current);
     const updated: ArticlePrefs = {
       ...raw,
@@ -102,7 +106,7 @@ async function updatePrefs(updater: (prefs: ArticlePrefs) => ArticlePrefs): Prom
       sources: pruneDict(raw.sources),
       lastUpdated: new Date().toISOString(),
     };
-    await writePrefs(updated);
+    await writePrefs(email, updated);
   });
   writeQueue = next.catch((err) => {
     console.error("Failed to persist article preferences:", err);
@@ -111,13 +115,14 @@ async function updatePrefs(updater: (prefs: ArticlePrefs) => ArticlePrefs): Prom
 }
 
 export async function recordFeedback(
+  email: string,
   title: string,
   source: string,
   action: "useful" | "not_useful"
 ): Promise<void> {
   const delta = action === "useful" ? 1 : -1;
   const keywords = extractKeywords(title);
-  await updatePrefs((prefs) => {
+  await updatePrefs(email, (prefs) => {
     const updatedKeywords = { ...prefs.keywords };
     for (const kw of keywords) {
       updatedKeywords[kw] = (updatedKeywords[kw] ?? 0) + delta;
@@ -131,11 +136,11 @@ export async function recordFeedback(
 // Implicit signal: the user clicked through to read this article. Counts at
 // ~1/4 the weight of an explicit "useful" so a thumbs-up still dominates,
 // but consistent opens for a source/topic still nudge ranking over time.
-export async function recordOpen(title: string, source: string): Promise<void> {
+export async function recordOpen(email: string, title: string, source: string): Promise<void> {
   const KW_DELTA = 0.25;
   const SRC_DELTA = 0.25;
   const keywords = extractKeywords(title);
-  await updatePrefs((prefs) => {
+  await updatePrefs(email, (prefs) => {
     const updatedKeywords = { ...prefs.keywords };
     for (const kw of keywords) {
       updatedKeywords[kw] = (updatedKeywords[kw] ?? 0) + KW_DELTA;

@@ -1,5 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
+import { isOwner } from "./allowlist";
 
 export interface NewsletterPrefs {
   openCounts: Record<string, number>;
@@ -64,50 +65,54 @@ function asFeedback(v: unknown): Record<string, "useful" | "not_useful"> {
 
 let writeQueue: Promise<void> = Promise.resolve();
 
-async function readPrefsRaw(): Promise<NewsletterPrefs> {
+async function readPrefsRaw(email: string): Promise<NewsletterPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT open_counts, feedback, dismissed, kept, last_updated FROM newsletter_prefs WHERE id = 1"
+    "SELECT open_counts, feedback, dismissed, kept, last_updated, user_email FROM newsletter_prefs WHERE user_email IN (?, '')",
+    [email]
   );
-  if (rows.length === 0) {
+  const row = (rows as (typeof rows[number] & { user_email?: string })[]).find((r) => r.user_email === email)
+    ?? (isOwner(email) ? (rows as (typeof rows[number] & { user_email?: string })[]).find((r) => r.user_email === "") : undefined);
+  if (!row) {
     return { openCounts: {}, feedback: {}, dismissed: [], kept: [], lastUpdated: new Date(0).toISOString() };
   }
   return {
-    openCounts: asNumRecord(rows[0].open_counts),
-    feedback: asFeedback(rows[0].feedback),
-    dismissed: asStrArray(rows[0].dismissed),
-    kept: asStrArray(rows[0].kept),
-    lastUpdated: rows[0].last_updated.toISOString(),
+    openCounts: asNumRecord(row.open_counts),
+    feedback: asFeedback(row.feedback),
+    dismissed: asStrArray(row.dismissed),
+    kept: asStrArray(row.kept),
+    lastUpdated: row.last_updated.toISOString(),
   };
 }
 
-export async function readPrefs(): Promise<NewsletterPrefs> {
+export async function readPrefs(email: string): Promise<NewsletterPrefs> {
   await writeQueue;
-  return readPrefsRaw();
+  return readPrefsRaw(email);
 }
 
-async function writePrefs(prefs: NewsletterPrefs): Promise<void> {
+async function writePrefs(email: string, prefs: NewsletterPrefs): Promise<void> {
   const pool = await getDb();
   await pool.execute(
-    `INSERT INTO newsletter_prefs (id, open_counts, feedback, dismissed, kept, last_updated)
-     VALUES (1, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?)
+    `INSERT INTO newsletter_prefs (id, user_email, open_counts, feedback, dismissed, kept, last_updated)
+     VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?)
      ON DUPLICATE KEY UPDATE
        open_counts  = VALUES(open_counts),
        feedback     = VALUES(feedback),
        dismissed    = VALUES(dismissed),
        kept         = VALUES(kept),
        last_updated = VALUES(last_updated)`,
-    [JSON.stringify(prefs.openCounts), JSON.stringify(prefs.feedback), JSON.stringify(prefs.dismissed), JSON.stringify(prefs.kept), new Date()]
+    [email, JSON.stringify(prefs.openCounts), JSON.stringify(prefs.feedback), JSON.stringify(prefs.dismissed), JSON.stringify(prefs.kept), new Date()]
   );
 }
 
 async function updatePrefs(
+  email: string,
   updater: (prefs: NewsletterPrefs) => NewsletterPrefs
 ): Promise<void> {
   const next = writeQueue.then(async () => {
-    const current = await readPrefsRaw();
+    const current = await readPrefsRaw(email);
     const updated = { ...updater(current), lastUpdated: new Date().toISOString() };
-    await writePrefs(updated);
+    await writePrefs(email, updated);
   });
   writeQueue = next.catch((err) => {
     console.error("Failed to persist newsletter preferences:", err);
@@ -115,10 +120,10 @@ async function updatePrefs(
   return next;
 }
 
-export async function recordOpen(subject: string): Promise<void> {
+export async function recordOpen(email: string, subject: string): Promise<void> {
   const key = normalizeSubject(subject);
   if (!key) return;
-  await updatePrefs((prefs) => ({
+  await updatePrefs(email, (prefs) => ({
     ...prefs,
     openCounts: { ...prefs.openCounts, [key]: (prefs.openCounts[key] ?? 0) + 1 },
   }));
@@ -131,20 +136,21 @@ export async function recordOpen(subject: string): Promise<void> {
 // top-series list, and the quiet-series pruning with no further changes.
 const DEEP_DIVE_WEIGHT = 3;
 
-export async function recordDeepDive(subject: string): Promise<void> {
+export async function recordDeepDive(email: string, subject: string): Promise<void> {
   const key = normalizeSubject(subject);
   if (!key) return;
-  await updatePrefs((prefs) => ({
+  await updatePrefs(email, (prefs) => ({
     ...prefs,
     openCounts: { ...prefs.openCounts, [key]: (prefs.openCounts[key] ?? 0) + DEEP_DIVE_WEIGHT },
   }));
 }
 
 export async function recordFeedback(
+  email: string,
   id: string,
   value: "useful" | "not_useful"
 ): Promise<void> {
-  await updatePrefs((prefs) => ({
+  await updatePrefs(email, (prefs) => ({
     ...prefs,
     feedback: { ...prefs.feedback, [id]: value },
   }));
@@ -152,17 +158,17 @@ export async function recordFeedback(
 
 // Add/remove an id from the hide or keep set (most-recent-kept, capped). `on`
 // adds, `!on` removes. Returns once persisted so the write is durable.
-function toggleIdSet(field: "dismissed" | "kept", id: string, on: boolean): Promise<void> {
+function toggleIdSet(email: string, field: "dismissed" | "kept", id: string, on: boolean): Promise<void> {
   if (!id) return Promise.resolve();
-  return updatePrefs((prefs) => {
+  return updatePrefs(email, (prefs) => {
     const without = (prefs[field] ?? []).filter((x) => x !== id);
     const next = on ? [...without, id].slice(-ID_SET_CAP) : without;
     return { ...prefs, [field]: next };
   });
 }
 
-export const setDismissed = (id: string, on: boolean) => toggleIdSet("dismissed", id, on);
-export const setKept = (id: string, on: boolean) => toggleIdSet("kept", id, on);
+export const setDismissed = (email: string, id: string, on: boolean) => toggleIdSet(email, "dismissed", id, on);
+export const setKept = (email: string, id: string, on: boolean) => toggleIdSet(email, "kept", id, on);
 
 export function buildPrefsContext(prefs: NewsletterPrefs): string {
   const topSeries = Object.entries(prefs.openCounts)

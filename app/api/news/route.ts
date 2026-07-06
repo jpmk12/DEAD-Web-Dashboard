@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { fetchFeed } from "@/lib/rss";
 import { readPrefs, sortByPreference } from "@/lib/articlePrefs";
@@ -26,8 +27,8 @@ export async function GET() {
   const today = todayInTz(userPrefs.timezone || "America/Chicago");
   // Auto-activate TDY from trip-like calendar events (throttled, best-effort) so
   // the strip follows you even without a hand-entered trip.
-  await syncCalendarTripsThrottled(session.accessToken as string, today).catch(() => {});
-  const activeTrip = await getActiveTrip(today).catch(() => null);
+  await syncCalendarTripsThrottled(normEmail(session.user?.email), session.accessToken as string, today).catch(() => {});
+  const activeTrip = await getActiveTrip(normEmail(session.user?.email), today).catch(() => null);
   const localFeedKey = userPrefs.localFeedKey ?? "colorado";
   const localFeeds = LOCAL_NEWS_SETS[localFeedKey] ?? LOCAL_NEWS_SETS.colorado;
   // Apply the user's disabled-source filter BEFORE fetching — disabling
@@ -38,7 +39,7 @@ export async function GET() {
 
   const [feedResults, prefs] = await Promise.all([
     Promise.all(allFeeds.map(({ url, name, category }) => fetchFeed(url, name, category))),
-    readPrefs(),
+    readPrefs(normEmail(session.user?.email)),
   ]);
 
   const feedItems = feedResults.flatMap((r) => r.items);
