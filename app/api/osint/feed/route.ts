@@ -306,17 +306,25 @@ export async function GET() {
   }))).catch(() => {});
 
   return NextResponse.json({
-    feeds: feeds.map((f) => {
-      const r = results.find((r) => r.feed.id === f.id);
-      return {
-        id: f.id,
-        label: f.label,
-        kind: f.kind,
-        count: r?.items.length ?? 0,
-        fetchedAt: r?.fetchedAt ?? 0,
-        ok: r?.ok ?? false,
-      };
-    }),
+    feeds: [
+      ...feeds.map((f) => {
+        const r = results.find((r) => r.feed.id === f.id);
+        return {
+          id: f.id,
+          label: f.label,
+          kind: f.kind,
+          count: r?.items.length ?? 0,
+          fetchedAt: r?.fetchedAt ?? 0,
+          ok: r?.ok ?? false,
+        };
+      }),
+      // Synthetic row for the X import store so its presence is OBSERVABLE in
+      // the pane (count in the feed list = the server really merged them; a
+      // populated card but no row here means a stale server bundle).
+      ...(xItems.length > 0
+        ? [{ id: "x-import", label: "𝕏 Capture import", kind: "social", count: xItems.length, fetchedAt: Date.now(), ok: true }]
+        : []),
+    ],
     items: flat,
   });
 }

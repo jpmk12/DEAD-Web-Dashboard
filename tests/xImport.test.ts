@@ -36,6 +36,12 @@ describe("parseXCapture envelope", () => {
     expect(p.metrics).toEqual({ likes: 1200, reposts: 34 });
   });
 
+  it("strips the browser-tab notification-count prefix from the label", () => {
+    const r = parseXCapture(wrap([{ id: "99991111", text: "x" }], { source: { kind: "list", label: "(20) Mobility watch" } }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.capture.source.label).toBe("Mobility watch");
+  });
+
   it("falls back to kind unknown for unrecognized source kinds", () => {
     const r = parseXCapture(JSON.stringify({
       format: "dead-x-capture", version: 1,

@@ -1159,7 +1159,14 @@ the Social pane. Pieces:
 - `tools/x-capture-bookmarklet.js` — readable, commented source (fix X DOM
   selector churn HERE), hand-minified into `lib/xBookmarklet.ts` (client-safe
   exported string; shown in a copy-button textarea, never an `<a href>` —
-  React blocks `javascript:` URLs).
+  React blocks `javascript:` URLs). **v2 is an accumulating collector**
+  (proven necessary by the first real capture: X VIRTUALIZES its timeline —
+  posts leave the DOM as they scroll off-screen, so v1's one-shot snapshot
+  only ever saw ~5 posts): tap once to start → floating counter collects on
+  a 500 ms interval while the user scrolls (deduped by status id, cap 200) →
+  tap the counter (or the bookmark again) to download. Also strips the
+  "(20) " tab-notification prefix from the source label and reads a list's
+  real name from the header h2 when the title is just "List".
 - `lib/xImport.ts` — PURE parser/validator (client-safe, unit-tested): format/
   version gate, 200-post + 1000-char caps, only `https` x.com/twitter.com
   status permalinks survive (`sanitizeXUrl` — a crafted file can't smuggle

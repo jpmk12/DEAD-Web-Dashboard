@@ -158,8 +158,9 @@ export default function XImportCard({ onImported }: Props) {
           </p>
           <ol className="list-decimal list-inside space-y-0.5 text-slate-400">
             <li><span className="text-slate-200">Copy the bookmarklet</span> below, then create a new browser bookmark and paste it as the bookmark&apos;s URL (name it e.g. &quot;DEAD X capture&quot;).</li>
-            <li>On <span className="font-mono text-slate-300">x.com</span>, open the list / bookmarks / search / profile you want and scroll so the posts you care about have rendered.</li>
-            <li>Tap the bookmark — it downloads <span className="font-mono text-slate-300">x-capture-….json</span> (up to 200 posts).</li>
+            <li>On <span className="font-mono text-slate-300">x.com</span>, open the list / bookmarks / search / profile you want, then <span className="text-slate-200">tap the bookmark once to start collecting</span> — a green counter appears bottom-right.</li>
+            <li><span className="text-slate-200">Scroll normally</span> — the counter climbs as posts render (X removes posts from the page as you scroll, so collection has to ride along; up to 200).</li>
+            <li>Tap the <span className="text-emerald-400">green counter</span> (or the bookmark again) — it downloads <span className="font-mono text-slate-300">x-capture-….json</span>.</li>
             <li>Drop the file on this card (or use <span className="text-sky-300">Import file</span>). Re-importing the same posts is safe — they dedupe by post id.</li>
           </ol>
           <div className="flex items-center gap-2">

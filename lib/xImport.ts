@@ -148,7 +148,9 @@ export function parseXCapture(raw: string): XParseOk | XParseErr {
   const kind: XSourceKind = SOURCE_KINDS.includes(asStr(srcRaw.kind) as XSourceKind)
     ? (asStr(srcRaw.kind) as XSourceKind)
     : "unknown";
-  const label = cleanText(srcRaw.label, LABEL_MAX) || kind;
+  // Strip the browser-tab notification-count prefix ("(20) OSINT list" →
+  // "OSINT list") — belt-and-braces for captures from the v1 bookmarklet.
+  const label = cleanText(srcRaw.label, LABEL_MAX).replace(/^\(\d+\)\s*/, "") || kind;
 
   const warnings: string[] = [];
   let skippedNoText = 0;
