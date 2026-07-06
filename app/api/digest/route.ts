@@ -21,9 +21,24 @@ const SYSTEM_PROMPT = `You are a personal reading analyst. Based on the user's e
 
 Be concrete and reference the actual keywords / sources from the user data — vague platitudes ("you read a lot about world events") are unhelpful.`;
 
+// Server-side day cache — the digest summarizes a WEEK of reading patterns,
+// so one generation per user per day is more than fresh enough. Without this
+// the client prefetch (fires on every mount/focus past its 30-min in-memory
+// TTL) ran a full Sonnet call per page reload; this was the app's single
+// largest source of silent AI spend.
+const DIGEST_TTL_MS = 24 * 60 * 60 * 1000;
+const digestCache = new Map<string, { digest: unknown; day: string; expires: number }>();
+
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const email = normEmail(session.user?.email);
+  const day = new Date().toISOString().slice(0, 10);
+  const hit = digestCache.get(email);
+  if (hit && hit.day === day && hit.expires > Date.now()) {
+    return NextResponse.json({ digest: hit.digest, cached: true });
+  }
 
   const [prefs, articlePrefs, newsletterPrefs] = await Promise.all([
     getUserPrefs(normEmail(session.user?.email)),
@@ -110,6 +125,7 @@ export async function GET() {
       coverageGaps: String(p.coverageGaps ?? "").slice(0, 1000),
       nextWeekRecommendations: Array.isArray(p.nextWeekRecommendations) ? (p.nextWeekRecommendations as unknown[]).map((s) => String(s).slice(0, 400)) : [],
     };
+    digestCache.set(email, { digest, day, expires: Date.now() + DIGEST_TTL_MS });
     return NextResponse.json({ digest });
   } catch (err) {
     console.error("Digest failed:", err);

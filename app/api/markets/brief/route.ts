@@ -42,7 +42,9 @@ interface MacroBrief {
   watchItems: string[];
 }
 
-const TTL_MS = 30 * 60 * 1000;
+// 3 h: macro/energy conditions don't move on a 30-min cadence — the old TTL
+// allowed ~16 Sonnet generations/day under hourly Economy-tab visits.
+const TTL_MS = 3 * 60 * 60 * 1000;
 const cache = new Map<string, { data: MacroBrief; expires: number }>();
 
 export async function POST(request: Request) {
