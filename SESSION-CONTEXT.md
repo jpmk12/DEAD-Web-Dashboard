@@ -107,14 +107,22 @@ versioned JSON file → dashboard import**.
   `XImportCard` on the Social pane (drag-drop + file + status chips + Clear +
   bookmarklet installer), readable bookmarklet source in
   `tools/x-capture-bookmarklet.js` minified into `lib/xBookmarklet.ts`.
-- **User test loop**: copy the bookmarklet from OSINT → Social → Bookmarklet,
-  save it as a browser bookmark, run it on an x.com list/bookmarks view, drop
-  the downloaded JSON on the card.
-- **Phase 2** (NEXT, needs the user): if a capture comes back with missing
-  authors/text/metrics, the user saves the x.com page HTML (Ctrl-S) and
-  uploads it in chat; fix the selectors in `tools/x-capture-bookmarklet.js`
-  against the real markup, re-minify into `lib/xBookmarklet.ts` (parse-check
-  both with `new Function`). Same capture-then-build pattern as DAIP.
+- **VERIFIED END-TO-END IN PROD (2026-07-06)**: user's second capture with
+  the v2 accumulating collector pulled **90 posts** from an X list
+  ("@JustinPoole35/OSINT SCRAP"), imported as "85 new, 5 updated" (the 5 =
+  idempotent dedupe against the first capture), and the posts flow through
+  the feed — the OSINT Situation line synthesized from their content.
+  History: the FIRST capture (v1 one-shot) got only 5 posts because **X
+  virtualizes its timeline** (posts leave the DOM off-screen) → v2 collector
+  fix; the posts also didn't render initially because of the platform's
+  known **stale-deploy bundle corruption** (import card = new file worked;
+  feed route = pre-existing file served stale) → cleared by redeploy. The
+  feed route now returns a synthetic "𝕏 Capture import" feed row whenever
+  the store is non-empty so this failure mode is observable from the pane.
+- **Phase 2 (selector fixes) not needed** — the real captures came back
+  clean. Reopen only if X's DOM churns (symptom: empty authors/text in the
+  JSON); fix selectors in `tools/x-capture-bookmarklet.js`, re-minify into
+  `lib/xBookmarklet.ts`, parse-check both with `new Function`.
   Phase 3 optional: direct-POST with device token / extension.
 
 ## Ramp up in 5 minutes
