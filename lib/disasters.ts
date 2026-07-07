@@ -276,7 +276,14 @@ const SEV_RANK: Record<DisasterEvent["severity"], number> = { red: 0, orange: 1,
 // Exported for unit tests.
 export function dedupe(events: DisasterEvent[]): DisasterEvent[] {
   const kept: DisasterEvent[] = [];
+  // Exact-id dedup FIRST: GDACS's event list carries one feature per advisory
+  // EPISODE of the same event (same eventid, new storm position each update),
+  // so a moving typhoon showed up once per advisory — the 25 km geo check
+  // below can never collapse track positions hundreds of km apart.
+  const seenIds = new Set<string>();
   for (const e of events) {
+    if (e.id && seenIds.has(e.id)) continue;
+    if (e.id) seenIds.add(e.id);
     const dup = kept.find(
       (k) => k.type === e.type && k.lat != null && k.lon != null && e.lat != null && e.lon != null
         && haversineKm(k.lat, k.lon, e.lat, e.lon) <= 25,

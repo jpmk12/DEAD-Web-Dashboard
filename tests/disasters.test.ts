@@ -73,3 +73,21 @@ describe("computeHadrScore", () => {
     expect(s).toBeLessThanOrEqual(100);
   });
 });
+
+describe("dedupe — GDACS episode collapse", () => {
+  const ev = (id: string, lat: number, lon: number) => ({
+    id, type: "cyclone", title: "Tropical Cyclone BAVI-26", severity: "orange",
+    country: "Guam, Japan", lat, lon, time: "", link: "", source: "GDACS",
+  }) as unknown as Parameters<typeof dedupe>[0][number];
+
+  it("collapses repeated advisories of the same event id even when positions moved far apart", () => {
+    const out = dedupe([
+      ev("gdacs-TC-101", 13.5, 144.8),   // near Guam
+      ev("gdacs-TC-101", 20.1, 135.2),   // later episode, ~1000 km away
+      ev("gdacs-TC-101", 26.7, 128.0),   // later still
+      ev("gdacs-TC-202", 26.75, 128.05), // DIFFERENT storm — survives (id differs, not near the KEPT position)
+      ev("gdacs-TC-303", 13.55, 144.85), // different id but within 25 km of the kept first episode → geo-merged
+    ]);
+    expect(out.map((e) => e.id)).toEqual(["gdacs-TC-101", "gdacs-TC-202"]);
+  });
+});
