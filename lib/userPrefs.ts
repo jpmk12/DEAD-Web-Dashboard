@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { normEmail } from "./allowlist";
+import { normEmail, isOwner } from "./allowlist";
 import { UserPrefs, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature , SitrepBase } from "./types";
 import { ALL_AI_FEATURES } from "./aiFeatures";
 import { classifyAor } from "./aor";
@@ -312,7 +312,9 @@ export function pickPersonal(src: Partial<UserPrefs>): Partial<UserPrefs> {
   return out as Partial<UserPrefs>;
 }
 
-const OVERLAY_THEMES = ["nightwatch", "amber", "arctic", "mission"] as const;
+// The one theme vocabulary — the user-prefs route builds its validation Set
+// from this too, so a new theme is added in exactly one place.
+export const APP_THEMES = ["nightwatch", "amber", "arctic", "mission"] as const;
 
 // Validate a stored/incoming personal overlay field-by-field. Unknown or
 // malformed fields are dropped, never defaulted — an absent key means "fall
@@ -335,7 +337,7 @@ function sanitizeOverlay(raw: unknown): Partial<UserPrefs> {
   else if (r.localLat !== undefined && typeof r.localLat === "number" && Number.isFinite(r.localLat)) out.localLat = r.localLat;
   if (r.localLon === null) out.localLon = null;
   else if (r.localLon !== undefined && typeof r.localLon === "number" && Number.isFinite(r.localLon)) out.localLon = r.localLon;
-  if (typeof r.theme === "string" && (OVERLAY_THEMES as readonly string[]).includes(r.theme)) out.theme = r.theme as UserPrefs["theme"];
+  if (typeof r.theme === "string" && (APP_THEMES as readonly string[]).includes(r.theme)) out.theme = r.theme as UserPrefs["theme"];
   if (typeof r.timezone === "string" && r.timezone) out.timezone = r.timezone.slice(0, 64);
   if (r.timezoneMode === "pinned" || r.timezoneMode === "auto") out.timezoneMode = r.timezoneMode;
   return out;
@@ -374,7 +376,7 @@ export async function savePersonalPrefs(email: string, patch: Partial<UserPrefs>
 // personal fields from app defaults + their own overlay.
 export async function getUserPrefs(email?: string): Promise<UserPrefs> {
   const e = normEmail(email);
-  if (!e || e === normEmail(process.env.OWNER_EMAIL)) return getTeamPrefs();
+  if (!e || isOwner(e)) return getTeamPrefs();
   const [team, overlay] = await Promise.all([
     getTeamPrefs(),
     getPersonalOverlay(e).catch(() => ({})),

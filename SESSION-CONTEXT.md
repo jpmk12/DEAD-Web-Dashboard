@@ -109,13 +109,20 @@ with the PERSONAL split for gray-zone items and per-user cost visibility.
 fixed in `6e1fa26` (append-route crew corruption, owner-memory shadowing,
 9 bare getUserPrefs routes, legacy-'' backfill, lat/lon null→0, per-user
 calendar-sync throttle, curated-news boundary, overlay default-pinning,
-missing indexes, sequential reads). **Deferred polish (non-behavioral,
-safe to ship without)**: (1) consolidate the owner-legacy scoping rule
-(3 shapes × 9 sites → one lib/userScope helper) — lower urgency now the
-backfill makes '' branches near-dead; (2) adopt sessionUser() / collapse
-~59 inline normEmail calls; (3) per-email writeQueue in article/
-newsletter prefs; (4) dedupe OVERLAY_THEMES/VALID_THEMES + use isOwner in
-getUserPrefs. Do these as a cleanup pass before adding user #3.
+missing indexes, sequential reads). **Deferred polish — cleanup pass DONE
+(2026-07-07)**: (1) ✅ owner-legacy scoping rule consolidated into
+`lib/userScope.ts` (`scopeClause` + `pickUserRow`, imports isOwner from
+./allowlist so vitest collection stays next-auth-free) — replaced the 3
+verbatim scopeClause copies (trips/saved/contacts), the rows.find chains
+(briefingCache/uiState/userMemory×2/articlePrefs/newsletterPrefs),
+surfaceState's two-pass loop, and userMemory clearMemory's if/else;
+(3) ✅ per-email writeQueue (Map<email, Promise>) in article/newsletter
+prefs — one user's updates no longer serialize behind another's;
+(4) ✅ OVERLAY_THEMES/VALID_THEMES deduped into exported `APP_THEMES` in
+lib/userPrefs.ts (route builds its Set from it) + getUserPrefs uses
+isOwner. **Only remaining deferred item: (2) adopt sessionUser() /
+collapse ~59 inline normEmail calls** — too broad for a polish pass; do
+deliberately when touching those routes anyway.
 
 ## Crisis-diag capture (2026-07-06, prod) — source truth
 - **UCDP: WORKING.** `UCDP_API_TOKEN` is set and accepted. Version 26.0.4,

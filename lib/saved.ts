@@ -1,14 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
-// Email scoping for reads/mutations: exact-email rows, plus pre-multi-user
-// '' rows which belong to the OWNER (single-user-era legacy).
-function scopeClause(email: string): { clause: string; params: string[] } {
-  return isOwner(email)
-    ? { clause: "user_email IN (?, '')", params: [email] }
-    : { clause: "user_email = ?", params: [email] };
-}
-
+import { scopeClause } from "./userScope";
 import { SavedItem } from "./types";
 
 interface SavedRow extends RowDataPacket {

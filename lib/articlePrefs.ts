@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
+import { pickUserRow } from "./userScope";
 import { NewsItem } from "./types";
 
 export interface ArticlePrefs {
@@ -46,9 +46,13 @@ function asNumRecord(v: unknown): Record<string, number> {
   return {};
 }
 
-// Serialize updates within a single Node process to keep counter math correct.
-// Different containers can race; for a single-user dashboard that's acceptable.
-let writeQueue: Promise<void> = Promise.resolve();
+// Serialize updates PER USER within a single Node process to keep counter math
+// correct — one user's burst of feedback must not block (or be blocked by)
+// another user's. Different containers can still race; for a small-crew
+// dashboard that's acceptable.
+const writeQueues = new Map<string, Promise<unknown>>();
+const queueFor = (email: string): Promise<unknown> =>
+  writeQueues.get(email) ?? Promise.resolve();
 
 const MAX_DICT_ENTRIES = 500;
 
@@ -66,8 +70,7 @@ async function readPrefsRaw(email: string): Promise<ArticlePrefs> {
     "SELECT keywords, sources, last_updated, user_email FROM article_prefs WHERE user_email IN (?, '')",
     [email]
   );
-  const row = rows.find((r) => r.user_email === email)
-    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  const row = pickUserRow(rows, email);
   if (!row) {
     return { keywords: {}, sources: {}, lastUpdated: new Date(0).toISOString() };
   }
@@ -79,7 +82,7 @@ async function readPrefsRaw(email: string): Promise<ArticlePrefs> {
 }
 
 export async function readPrefs(email: string): Promise<ArticlePrefs> {
-  await writeQueue;
+  await queueFor(email);
   return readPrefsRaw(email);
 }
 
@@ -97,7 +100,7 @@ async function writePrefs(email: string, prefs: ArticlePrefs): Promise<void> {
 }
 
 async function updatePrefs(email: string, updater: (prefs: ArticlePrefs) => ArticlePrefs): Promise<void> {
-  const next = writeQueue.then(async () => {
+  const next = queueFor(email).then(async () => {
     const current = await readPrefsRaw(email);
     const raw = updater(current);
     const updated: ArticlePrefs = {
@@ -108,9 +111,9 @@ async function updatePrefs(email: string, updater: (prefs: ArticlePrefs) => Arti
     };
     await writePrefs(email, updated);
   });
-  writeQueue = next.catch((err) => {
+  writeQueues.set(email, next.catch((err) => {
     console.error("Failed to persist article preferences:", err);
-  });
+  }));
   return next;
 }
 

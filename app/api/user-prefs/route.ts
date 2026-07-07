@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getUserPrefs, saveUserPrefs, savePersonalPrefs, sanitizeSitrepBases } from "@/lib/userPrefs";
+import { getUserPrefs, saveUserPrefs, savePersonalPrefs, sanitizeSitrepBases, APP_THEMES } from "@/lib/userPrefs";
 import { clearBriefingCache, clearBriefingCacheFor } from "@/lib/briefingCache";
 import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature } from "@/lib/types";
 import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
@@ -8,7 +8,7 @@ import { classifyAor } from "@/lib/aor";
 import { isOwner } from "@/lib/currentUser";
 import { normEmail } from "@/lib/allowlist";
 
-const VALID_THEMES = new Set<AppTheme>(["nightwatch", "amber", "arctic", "mission"]);
+const VALID_THEMES = new Set<AppTheme>(APP_THEMES);
 const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
 const NL_BADGE_COLORS = new Set(["blue", "emerald", "violet", "amber", "sky", "rose", "teal", "orange"]);
 

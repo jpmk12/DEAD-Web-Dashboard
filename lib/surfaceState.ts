@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
+import { pickUserRow } from "./userScope";
 
 // "Surfaces" are top-level views the user scans for new content. The dashboard
 // records when they last visited each so the next visit can dim items older
@@ -26,14 +26,10 @@ export async function getAllLastSeen(email: string): Promise<Record<Surface, num
     [email]
   );
   const result: Record<Surface, number> = { email: 0, news: 0, newsletters: 0, osint: 0 };
-  // Exact-email rows win; '' legacy rows count only for the owner.
-  const legacyOk = isOwner(email);
-  for (const pass of ["", email]) {
-    for (const r of rows) {
-      if (r.user_email !== pass) continue;
-      if (pass === "" && !legacyOk) continue;
-      if (isValidSurface(r.surface)) result[r.surface] = Number(r.last_seen_at) || 0;
-    }
+  // Per surface: exact-email row wins; '' legacy row counts only for the owner.
+  for (const surface of VALID_SURFACES) {
+    const row = pickUserRow(rows.filter((r) => r.surface === surface), email);
+    if (row) result[surface] = Number(row.last_seen_at) || 0;
   }
   return result;
 }

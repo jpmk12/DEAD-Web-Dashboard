@@ -1,14 +1,7 @@
 import type { RowDataPacket } from "mysql2";
 import { randomUUID } from "crypto";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
-// Email scoping: exact-email rows + pre-split '' rows for the owner.
-function scopeClause(email: string): { clause: string; params: string[] } {
-  return isOwner(email)
-    ? { clause: "user_email IN (?, '')", params: [email] }
-    : { clause: "user_email = ?", params: [email] };
-}
-
+import { scopeClause } from "./userScope";
 
 // Keep-in-touch / relationship cadence. A roster of important people, each with
 // a check-in cadence (days). "lastContacted" is set manually (mark-contacted),

@@ -5,7 +5,7 @@ import { ChatMessage } from "./types";
 import { isFeatureEnabled } from "./aiFeatures";
 import { logCall } from "./anthropicLog";
 import { getUserPrefs } from "./userPrefs";
-import { isOwner } from "./allowlist";
+import { pickUserRow, scopeClause } from "./userScope";
 
 const MAX_MEMORY_CHARS = 12_000; // ~3k tokens; safety cap before storage
 
@@ -41,8 +41,7 @@ export async function getMemory(email: string): Promise<UserMemory> {
     "SELECT content, last_updated, user_email FROM user_memory WHERE user_email IN (?, '')",
     [email]
   );
-  const row = rows.find((r) => r.user_email === email)
-    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  const row = pickUserRow(rows, email);
   if (!row) {
     return { content: "", lastUpdated: new Date(0).toISOString() };
   }
@@ -58,8 +57,7 @@ async function getPendingExchanges(email: string): Promise<PendingExchange[]> {
     "SELECT pending_exchanges, user_email FROM user_memory WHERE user_email IN (?, '')",
     [email]
   );
-  const row = rows.find((r) => r.user_email === email)
-    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  const row = pickUserRow(rows, email);
   const raw = row?.pending_exchanges;
   return Array.isArray(raw) ? raw : [];
 }
@@ -92,12 +90,9 @@ export async function saveMemory(email: string, content: string): Promise<void> 
 
 export async function clearMemory(email: string): Promise<void> {
   const pool = await getDb();
-  // The owner's clear also removes any pre-split legacy row.
-  if (isOwner(email)) {
-    await pool.execute("DELETE FROM user_memory WHERE user_email IN (?, '')", [email]);
-  } else {
-    await pool.execute("DELETE FROM user_memory WHERE user_email = ?", [email]);
-  }
+  // The owner's clear also removes any pre-split legacy row (scopeClause).
+  const sc = scopeClause(email);
+  await pool.execute(`DELETE FROM user_memory WHERE ${sc.clause}`, sc.params);
 }
 
 // Inject into AI system prompts. Returns an empty string when memory is empty

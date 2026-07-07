@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
+import { pickUserRow } from "./userScope";
 
 // One row per (local-date, user_email). Pre-multi-user rows carry
 // user_email = '' and are honoured as the OWNER's legacy rows: reads prefer
@@ -30,8 +30,7 @@ export async function getCachedBriefing(date: string, tz: string, email: string)
     "SELECT briefing, generated_at, tz, user_email FROM briefing_cache WHERE date = ? AND user_email IN (?, '')",
     [date, email]
   );
-  const row = rows.find((r) => r.user_email === email)
-    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  const row = pickUserRow(rows, email);
   if (!row) return null;
   if (row.tz && row.tz !== tz) return null;
   return {

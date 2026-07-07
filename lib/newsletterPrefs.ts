@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
+import { pickUserRow } from "./userScope";
 
 export interface NewsletterPrefs {
   openCounts: Record<string, number>;
@@ -63,16 +63,19 @@ function asFeedback(v: unknown): Record<string, "useful" | "not_useful"> {
   return {};
 }
 
-let writeQueue: Promise<void> = Promise.resolve();
+// Per-user write serialization within a single Node process (see
+// articlePrefs.ts) — one user's updates never block another user's.
+const writeQueues = new Map<string, Promise<unknown>>();
+const queueFor = (email: string): Promise<unknown> =>
+  writeQueues.get(email) ?? Promise.resolve();
 
 async function readPrefsRaw(email: string): Promise<NewsletterPrefs> {
   const pool = await getDb();
-  const [rows] = await pool.query<PrefsRow[]>(
+  const [rows] = await pool.query<(PrefsRow & { user_email: string })[]>(
     "SELECT open_counts, feedback, dismissed, kept, last_updated, user_email FROM newsletter_prefs WHERE user_email IN (?, '')",
     [email]
   );
-  const row = (rows as (typeof rows[number] & { user_email?: string })[]).find((r) => r.user_email === email)
-    ?? (isOwner(email) ? (rows as (typeof rows[number] & { user_email?: string })[]).find((r) => r.user_email === "") : undefined);
+  const row = pickUserRow(rows, email);
   if (!row) {
     return { openCounts: {}, feedback: {}, dismissed: [], kept: [], lastUpdated: new Date(0).toISOString() };
   }
@@ -86,7 +89,7 @@ async function readPrefsRaw(email: string): Promise<NewsletterPrefs> {
 }
 
 export async function readPrefs(email: string): Promise<NewsletterPrefs> {
-  await writeQueue;
+  await queueFor(email);
   return readPrefsRaw(email);
 }
 
@@ -109,14 +112,14 @@ async function updatePrefs(
   email: string,
   updater: (prefs: NewsletterPrefs) => NewsletterPrefs
 ): Promise<void> {
-  const next = writeQueue.then(async () => {
+  const next = queueFor(email).then(async () => {
     const current = await readPrefsRaw(email);
     const updated = { ...updater(current), lastUpdated: new Date().toISOString() };
     await writePrefs(email, updated);
   });
-  writeQueue = next.catch((err) => {
+  writeQueues.set(email, next.catch((err) => {
     console.error("Failed to persist newsletter preferences:", err);
-  });
+  }));
   return next;
 }
 

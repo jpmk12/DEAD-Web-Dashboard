@@ -1,7 +1,7 @@
 import type { RowDataPacket } from "mysql2";
 import { randomUUID } from "crypto";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
+import { scopeClause } from "./userScope";
 import { haversineKm } from "./disasters";
 
 // TDY / travel trips. A trip is a labelled, geocoded place with a date range.
@@ -96,15 +96,6 @@ function rowToTrip(r: TripRow): Trip {
   };
 }
 const TRIP_COLS = "id, label, location, lat, lon, start_date, end_date, tz, feed_key, notes, source, event_id, created_at";
-
-// Email scoping for reads/mutations: exact-email rows, plus pre-multi-user
-// '' rows which belong to the OWNER (single-user-era legacy).
-function scopeClause(email: string): { clause: string; params: string[] } {
-  return isOwner(email)
-    ? { clause: "user_email IN (?, '')", params: [email] }
-    : { clause: "user_email = ?", params: [email] };
-}
-
 
 export async function listTrips(email: string): Promise<Trip[]> {
   const pool = await getDb();

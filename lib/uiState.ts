@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { isOwner } from "./allowlist";
+import { pickUserRow } from "./userScope";
 
 // Cross-device UI state — a shallow-merged JSON blob keyed by namespaced
 // strings (e.g. "osint.dismissed", "crisisMap.layers"). Deliberately separate
@@ -20,8 +20,7 @@ export async function getUiState(email: string): Promise<UiState> {
     "SELECT state, user_email FROM app_ui_state WHERE user_email IN (?, '')",
     [email]
   );
-  const row = rows.find((r) => r.user_email === email)
-    ?? (isOwner(email) ? rows.find((r) => r.user_email === "") : undefined);
+  const row = pickUserRow(rows, email);
   const s = row?.state;
   return s && typeof s === "object" && !Array.isArray(s) ? s : {};
 }
