@@ -82,7 +82,7 @@ function eventDayLabel(start: string, tz: string, todayYmd: string, isAllDay?: b
 const SYSTEM_PROMPT = `You are a senior national security briefer preparing a morning brief for a military professional. Be concise, direct, and actionable. Return ONLY a JSON object with no markdown fences and no explanation:
 {
   "headline": "One sentence capturing today's most important development",
-  "schedule": ["time-sensitive item 1", "time-sensitive item 2"],
+  "schedule": ["today item with time", "another today item", "Tomorrow (Wed): item with time"],
   "keyDevelopments": ["top development 1", "top development 2", "top development 3"],
   "topStories": ["story 1 with brief context", "story 2 with brief context"],
   "trends": ["trend callout 1", "trend callout 2"],
@@ -296,7 +296,7 @@ export async function POST(request: Request) {
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
     newsletterBullets && `NEWSLETTER HIGHLIGHTS:\n${newsletterBullets}`,
     osintSignals && `OSINT SIGNALS (flagged from the user's monitored feeds):\n${osintSignals}`,
-    calendarItems && `CALENDAR (today is ${cacheKey} in ${tz}; each line is pre-labeled with its day relative to today). For the "schedule" field include ONLY items labeled TODAY. For any other day, state the day explicitly (e.g. "Mon Jun 15") and NEVER describe it as today / tonight / this evening:\n${calendarItems}`,
+    calendarItems && `CALENDAR (today is ${cacheKey} in ${tz}; each line is pre-labeled with its day relative to today). For the "schedule" field include items labeled TODAY first (with their times), then items labeled TOMORROW — each tomorrow entry MUST start with "Tomorrow (weekday): " so the two days can't be confused. Skip days beyond tomorrow in "schedule". For any other day mentioned elsewhere, state the day explicitly (e.g. "Mon Jun 15") and NEVER describe it as today / tonight / this evening:\n${calendarItems}`,
   ].filter(Boolean).join("\n\n");
 
   if (!userContent) {
