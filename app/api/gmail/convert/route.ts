@@ -92,7 +92,7 @@ export async function POST(request: Request) {
   if (!prefs || !isFeatureEnabled("email_convert", prefs)) {
     return NextResponse.json({ error: "Email→task/event is disabled in Preferences → AI Controls", disabled: true }, { status: 503 });
   }
-  if (!checkRateLimit("email_convert", 3_000)) {
+  if (!checkRateLimit(`email_convert:${normEmail(session.user?.email)}`, 3_000)) {
     return NextResponse.json({ error: "Rate limited — wait a moment" }, { status: 429 });
   }
 

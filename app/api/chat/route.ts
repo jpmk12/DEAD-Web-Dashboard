@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  if (!checkRateLimit("chat", 2_000)) {
+  if (!checkRateLimit(`chat:${normEmail(session.user?.email)}`, 2_000)) {
     return new Response("Rate limited — wait 2 s between messages", { status: 429 });
   }
 

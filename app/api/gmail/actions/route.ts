@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!checkRateLimit("gmail-actions", 10_000)) {
+  if (!checkRateLimit(`gmail-actions:${normEmail(session.user?.email)}`, 10_000)) {
     return NextResponse.json({ actions: [] }); // silent fallback — return empty rather than error
   }
 

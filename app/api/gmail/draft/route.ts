@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  if (!checkRateLimit("email_draft", 5_000)) {
+  if (!checkRateLimit(`email_draft:${normEmail(session.user?.email)}`, 5_000)) {
     return NextResponse.json({ error: "Rate limited — wait a few seconds" }, { status: 429 });
   }
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { createEvent, updateEvent, deleteEvent } from "@/lib/calendar";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -20,7 +21,7 @@ function writeError(err: unknown): NextResponse {
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!checkRateLimit("calendar-write", 500)) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
+  if (!checkRateLimit(`calendar-write:${normEmail(session.user?.email)}`, 500)) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!checkRateLimit("calendar-write", 500)) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
+  if (!checkRateLimit(`calendar-write:${normEmail(session.user?.email)}`, 500)) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -96,7 +97,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!checkRateLimit("calendar-write", 500)) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
+  if (!checkRateLimit(`calendar-write:${normEmail(session.user?.email)}`, 500)) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }

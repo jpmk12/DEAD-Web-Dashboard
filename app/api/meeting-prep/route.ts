@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail } from "@/lib/allowlist";
 import { gmail as gmailApi } from "@googleapis/gmail";
 import { OAuth2Client } from "google-auth-library";
 import { auth } from "@/lib/auth";
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!checkRateLimit("meeting-prep", 2_000)) {
+  if (!checkRateLimit(`meeting-prep:${normEmail(session.user?.email)}`, 2_000)) {
     return NextResponse.json({ error: "Slow down" }, { status: 429 });
   }
 

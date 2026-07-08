@@ -89,7 +89,7 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!checkRateLimit("quick-capture", 1_500)) {
+  if (!checkRateLimit(`quick-capture:${normEmail(session.user?.email)}`, 1_500)) {
     return NextResponse.json({ error: "Rate limited — try again in a moment" }, { status: 429 });
   }
 

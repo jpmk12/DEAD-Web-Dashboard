@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { normEmail } from "@/lib/allowlist";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
   if (!session?.accessToken) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   // Light global guard against accidental double-fire; the cache covers repeats.
-  if (!checkRateLimit("news-thesis", 700)) {
+  if (!checkRateLimit(`news-thesis:${normEmail(session.user?.email)}`, 700)) {
     return Response.json({ error: "One moment — try that again." }, { status: 429 });
   }
 

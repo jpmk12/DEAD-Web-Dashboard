@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  if (!checkRateLimit("news-chat", 2_000)) return new Response("Rate limited", { status: 429 });
+  if (!checkRateLimit(`news-chat:${normEmail(session.user?.email)}`, 2_000)) return new Response("Rate limited", { status: 429 });
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (contentLength > 400_000) return new Response("Payload too large", { status: 413 });

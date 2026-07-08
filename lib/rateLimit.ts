@@ -1,5 +1,9 @@
-// Simple in-memory rate limiter for expensive API endpoints.
-// Single-user app — no Redis needed; module-level Map persists across requests within a process.
+// Simple in-memory rate limiter for expensive API endpoints. Module-level Map
+// persists across requests within a process (no Redis needed at this scale).
+// MULTI-USER: personal-action routes MUST scope the key per user
+// (e.g. `chat:${email}`) so one crew member's action never rate-limits
+// another's. Only genuinely shared/team routes that gate a single shared cache
+// (news_overview, markets_brief, osint_situation, threads) keep a global key.
 
 const lastCall = new Map<string, number>();
 
