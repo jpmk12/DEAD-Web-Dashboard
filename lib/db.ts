@@ -56,6 +56,29 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_x_items_imported (imported_at)
   ) ENGINE=InnoDB`,
 
+  // Commander-entered LIMFACs for the SITREP mission-impact layer. SHARED per
+  // base (the whole crew sees the same airfield LIMFACs), attributed to the
+  // entering user. Auto-derived LIMFACs are computed from signals and NOT
+  // stored — only human-known ones live here.
+  `CREATE TABLE IF NOT EXISTS sitrep_limfacs (
+    id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    icao        VARCHAR(4)   NOT NULL,
+    fn          VARCHAR(32)  NOT NULL,
+    capability  VARCHAR(8)   NOT NULL,
+    driver      VARCHAR(300) NOT NULL,
+    impact      VARCHAR(500) NOT NULL,
+    mitigation  VARCHAR(500) NULL,
+    ask         VARCHAR(500) NULL,
+    ccir        TINYINT(1)   NOT NULL DEFAULT 0,
+    from_iso    VARCHAR(32)  NULL,
+    to_iso      VARCHAR(32)  NULL,
+    status      VARCHAR(12)  NOT NULL DEFAULT 'new',
+    entered_by  VARCHAR(255) NULL,
+    created_at  DATETIME(3)  NOT NULL,
+    updated_at  DATETIME(3)  NOT NULL,
+    INDEX idx_limfac_icao (icao, status)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS saved_items (
     id          VARCHAR(255) NOT NULL,
     user_email  VARCHAR(255) NOT NULL DEFAULT '',

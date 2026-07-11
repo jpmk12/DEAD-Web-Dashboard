@@ -26,6 +26,8 @@ import { astroData, type AstroData } from "./astro";
 import { recordSitrepDay, getSitrepHistory, type SitrepDay } from "./sitrepHistory";
 import { getInfraSources, type SitrepInfra } from "./infra";
 import { splitInfraNews, infraLed, nasLed } from "./infraSignals";
+import { deriveMissionImpact, type MissionImpact } from "./limfac";
+import { listLimfacs } from "./limfacStore";
 
 export interface SitrepAlert {
   event: string;
@@ -89,6 +91,9 @@ export interface SitrepPayload {
     news: { title: string; link: string; matched: string[] }[];
     newsScanned: number;
   };
+  // Leadership-facing mission-capability rollup: per-function FMC/PMC/NMC, the
+  // ranked LIMFAC register (auto-derived + commander-entered), and CCIR flags.
+  mission: MissionImpact;
 }
 
 // Compact per-base rollup for the multi-base tile strip and the Morning Brief
@@ -253,10 +258,11 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       getInfraSources(base).catch((): SitrepInfra => ({ internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null })),
     ]);
 
-  const [runways, fuelRes, historyRows] = await Promise.all([
+  const [runways, fuelRes, historyRows, manualLimfacs] = await Promise.all([
     airfieldRunways(icao).catch(() => []),
     getFuelNotams().catch(() => null),
     getSitrepHistory(icao, 7).catch(() => [] as SitrepDay[]),
+    listLimfacs(icao).catch(() => []),
   ]);
 
   // Center (ARTCC) enroute NOTAMs — the "what's between us and everywhere
@@ -367,7 +373,11 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       news: impactNews,
       newsScanned: newsRaw.length,
     },
+    // Placeholder — filled right after the payload exists (deriveMissionImpact
+    // reads the assembled ops/weather/threats/infra + the manual LIMFACs).
+    mission: { state: "fmc", functions: [], limfacs: [], ccir: [] },
   };
+  payload.mission = deriveMissionImpact(payload, manualLimfacs);
 
   // Persist today's worst-per-axis LEDs (fire-and-forget) and reflect today
   // in the history strip immediately.

@@ -1130,6 +1130,34 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   and offered but deliberately NOT built — it punches a hole in the
   single-user auth wall; revisit only on explicit request.
 
+### SITREP LIMFAC / Mission-Impact layer (leadership lens)
+On top of the raw signals, the SITREP synthesizes a **mission-capability +
+LIMFAC** picture for briefing leadership. Pure derivation in `lib/limfac.ts`
+(`deriveMissionImpact(payload, manualLimfacs)`, client-safe, unit-tested):
+translates the assembled signals into per-function capability (FMC/PMC/NMC/
+UNKNOWN) across 7 airfield functions (launch/recovery, all-weather/night,
+throughput, fuel, ARFF, C2/comms, force protection), a ranked **LIMFAC
+register**, and **CCIR** flags. Discipline: CONSERVATIVE — only field-closed
+and the **NAVAID×forecast-weather fusion** ("no usable precision approach in
+forecast IFR" — the app already holds both inputs) auto-produce NMC; everything
+else caps at PMC. A dead feed → the function is **UNKNOWN, never FMC**.
+- **Commander-entered LIMFACs** (human-known: ARFF cat, MHE, manning/crew rest,
+  barriers, MOG, contract fuel) live in `sitrep_limfacs` (SHARED per icao,
+  attributed to `entered_by`; the whole crew maintains one list). CRUD via
+  `/api/sitrep/limfac` (GET list · POST create/status · DELETE); each write
+  calls `resetSitrepCache()`. `lib/limfacStore.ts` is server-only; auto LIMFACs
+  are NOT stored (recomputed each assembly).
+- Wired into `assembleSitrep` → `payload.mission` (derived after the payload
+  exists, merging the stored manual LIMFACs). The **Commander's Read** prompt
+  is reframed for leadership (mission-capability BLUF → greatest impact →
+  projected recovery → **asks**, returns `{bluf,watch,asks}`); fingerprint
+  includes `mission.state`.
+- UI: `components/osint/SitrepMissionImpact.tsx` renders at the TOP of the pane
+  (MC state → CCIR → Commander's Read → capability matrix → LIMFAC register +
+  add/resolve form); the raw Weather/Ops/Threats/Infra cards remain below under
+  "Supporting detail". The **Export HTML** leads with the same mission block.
+  Additive — no existing SITREP feature removed. No new npm dep (esbuild `0`).
+
 ### Ground Truth (OSINT "Ground" sub-pane — per-country situation room)
 A **sub-pane of OSINT** (not a top-level tab), rendered when the OSINT pane is
 `"ground"` (`components/ground/GroundTruthTab.tsx`). A country rail + detail panel

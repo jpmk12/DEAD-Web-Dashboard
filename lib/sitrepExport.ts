@@ -35,9 +35,44 @@ function row(sev: Led | "b", body: string, src: string): string {
 }
 
 // One HTML document. `read` is the Commander's Read if the pane has it.
-export function renderSitrepHtml(p: SitrepPayload, read: { bluf: string[]; watch: string[] } | null): string {
+const CAP_HTML: Record<string, { cls: string; label: string }> = {
+  fmc: { cls: "fmc", label: "FMC" },
+  pmc: { cls: "pmc", label: "PMC" },
+  nmc: { cls: "nmc", label: "NMC" },
+  unknown: { cls: "ukn", label: "UNK" },
+};
+
+export function renderSitrepHtml(p: SitrepPayload, read: { bluf: string[]; watch: string[]; asks?: string[] } | null): string {
   const nowMs = Date.parse(p.generatedAt);
   const stamp = `${p.generatedAt.slice(0, 10)} ${p.generatedAt.slice(11, 16)}Z`;
+  const mi = p.mission;
+  const miState = CAP_HTML[mi.state] ?? CAP_HTML.unknown;
+
+  // Mission-impact block — leads the leadership product.
+  const ccirHtml = mi.ccir.length > 0
+    ? `<div class="ccir">${mi.ccir.map((c) => `<div class="ccir-row"><b>CCIR</b> ${esc(c.text)}</div>`).join("")}</div>`
+    : "";
+  const capHtml = mi.functions.map((f) => {
+    const cap = CAP_HTML[f.capability] ?? CAP_HTML.unknown;
+    return `<div class="caprow"><span class="cappill ${cap.cls}">${cap.label}</span><span class="capname">${esc(f.label)}</span><span class="capdrv">${esc(f.driver)}${f.window ? ` · ${esc(f.window)}` : ""}${f.derived ? ' <span class="fus">◆ derived</span>' : ""}</span></div>`;
+  }).join("");
+  const limfacHtml = mi.limfacs.map((l) => {
+    const cap = CAP_HTML[l.capability] ?? CAP_HTML.unknown;
+    return `<div class="lf lf-${cap.cls}"><div class="lf-h"><span class="lf-id">${esc(l.id)}</span> <b>${esc(l.fnLabel)} — ${cap.label}</b> <span class="lf-src">${l.source === "manual" ? "commander" : "auto"}${l.ccir ? " · CCIR" : ""}</span>${l.window ? `<span class="lf-win">${esc(l.window)}</span>` : ""}</div>`
+      + `<div class="lf-b"><b>Driver:</b> ${esc(l.driver)}</div>`
+      + `<div class="lf-b"><b>Impact:</b> ${esc(l.impact)}</div>`
+      + (l.mitigation ? `<div class="lf-b"><b>Mitigation:</b> ${esc(l.mitigation)}</div>` : "")
+      + (l.ask ? `<div class="lf-b lf-ask"><b>Ask:</b> ${esc(l.ask)}</div>` : "")
+      + `</div>`;
+  }).join("");
+  const missionHtml = `<div class="mi">
+<div class="mi-top"><span class="mc ${miState.cls}">${miState.label} · ${esc(({fmc:"Fully",pmc:"Partially",nmc:"Non-",unknown:"Status"} as Record<string,string>)[mi.state] ?? "")} Mission Capable</span>
+<span class="mi-sub">${mi.limfacs.length} active LIMFAC${mi.limfacs.length === 1 ? "" : "s"}</span></div>
+${ccirHtml}
+<div class="mi-sh">Mission capability by function</div>
+<div class="capgrid">${capHtml}</div>
+${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
+</div>`;
 
   // ── masthead LED texts (same derivations as the pane's status strip) ──
   const wxText = p.weather.now
@@ -63,9 +98,11 @@ export function renderSitrepHtml(p: SitrepPayload, read: { bluf: string[]; watch
     .map(([k, l, v]) => `<div class="ledbox">${ledDot(l)}<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div></div>`)
     .join("");
 
-  // ── BLUF ──
+  // ── BLUF ── (now also carries the leadership "asks")
   const blufHtml = read && read.bluf.length > 0
     ? `<div class="bluf"><div class="t">Commander's Read — BLUF</div><ul>${read.bluf.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>${
+        (read.asks && read.asks.length > 0) ? `<p class="w ask"><b>Asks to leadership:</b> ${read.asks.map(esc).join(" · ")}</p>` : ""
+      }${
         read.watch.length > 0 ? `<p class="w"><b>Watch:</b> ${read.watch.map(esc).join(" · ")}</p>` : ""
       }</div>`
     : "";
@@ -241,7 +278,36 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 .conflict{margin-top:8px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.06);border-radius:8px;padding:7px 10px;font-size:11px;color:#fca5a5}
 .foot{font:10px ui-monospace,Menlo,monospace;color:#475569;line-height:1.7;border-top:1px solid #1e293b;padding-top:12px;margin-top:18px}
 .foot b{color:#94a3b8}
-@media print{body{background:#fff;color:#111}.card,.mast,.bluf{border-color:#bbb;background:#fff}}
+.mi{border:1px solid #1e293b;background:rgba(15,23,42,.5);border-radius:14px;padding:13px 15px;margin-bottom:12px}
+.mi-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mc{font:800 12px ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 11px;border-radius:8px}
+.mc.fmc,.cappill.fmc{background:rgba(52,211,153,.15);color:#6ee7b7;border:1px solid rgba(52,211,153,.5)}
+.mc.pmc,.cappill.pmc{background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.55)}
+.mc.nmc,.cappill.nmc{background:rgba(239,68,68,.16);color:#fca5a5;border:1px solid rgba(239,68,68,.55)}
+.mc.ukn,.cappill.ukn{background:rgba(71,85,105,.2);color:#94a3b8;border:1px solid #334155}
+.mi-sub{font:600 10px ui-monospace,Menlo,monospace;color:#64748b}
+.ccir{display:flex;flex-direction:column;gap:5px;margin:10px 0 4px}
+.ccir-row{display:flex;align-items:center;gap:8px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);border-radius:8px;padding:6px 10px;font-size:11.5px;color:#fecaca}
+.ccir-row b{color:#fee2e2;font:800 8px ui-monospace,Menlo,monospace;letter-spacing:.05em;border:1px solid rgba(239,68,68,.5);border-radius:4px;padding:1px 5px}
+.mi-sh{font:800 9px ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;margin:12px 0 6px}
+.capgrid{display:flex;flex-direction:column;gap:4px}
+.caprow{display:flex;align-items:center;gap:9px;font-size:11.5px}
+.cappill{font:800 8px ui-monospace,Menlo,monospace;padding:2px 6px;border-radius:5px;flex-shrink:0;width:38px;text-align:center}
+.capname{font-weight:700;color:#e2e8f0;flex-shrink:0;width:180px}
+.capdrv{color:#94a3b8}
+.fus{color:#c4b5fd;font-weight:700}
+.lf{border:1px solid #1e293b;border-radius:10px;padding:9px 11px;margin-bottom:7px}
+.lf-nmc{border-left:3px solid #ef4444}.lf-pmc{border-left:3px solid #fbbf24}.lf-ukn{border-left:3px solid #475569}
+.lf-h{font-size:12px;color:#f1f5f9;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.lf-id{font:800 10px ui-monospace,Menlo,monospace;color:#64748b}
+.lf-src{font:700 8px ui-monospace,Menlo,monospace;color:#7dd3fc;text-transform:uppercase;border:1px solid #334155;border-radius:4px;padding:1px 5px}
+.lf-win{margin-left:auto;font:600 9.5px ui-monospace,Menlo,monospace;color:#94a3b8}
+.lf-b{font-size:11.5px;color:#cbd5e1;line-height:1.5;margin-top:3px}
+.lf-b b{color:#64748b;font-weight:700}
+.lf-ask b,.lf-ask{color:#fcd34d}
+.bluf .ask{color:#fcd34d;margin-top:5px}
+.supp{font:800 9px ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:#475569;margin:16px 0 8px;border-top:1px solid #1e293b;padding-top:12px}
+@media print{body{background:#fff;color:#111}.card,.mast,.bluf,.mi,.lf{border-color:#bbb;background:#fff}}
 </style>
 </head>
 <body>
@@ -253,6 +319,8 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 <div class="leds">${mastLeds}</div>
 </div>
 ${blufHtml}
+${missionHtml}
+<div class="supp">Supporting detail</div>
 ${card(p.status.wx, "Weather", "AWC METAR/TAF · NWS · Open-Meteo", `${p.weather.metarRaw ? `<div class="metar">${esc(p.weather.metarRaw)}</div>` : ""}${tafBar}${weatherRows.join("")}`)}
 ${card(p.status.ops, "Ops / Airfield", "DAIP NOTAMs · OurAirports", `${opsRows.join("")}${windChips}${timelineHtml}`)}
 ${card(p.status.threat, "Threats", "Force Protection · GDACS/USGS · GDELT", threatRows.join(""))}

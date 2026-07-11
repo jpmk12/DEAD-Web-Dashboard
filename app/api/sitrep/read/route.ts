@@ -15,15 +15,15 @@ export const dynamic = "force-dynamic";
 // cache the pane reads, so this costs one model call, not a re-fetch fan-out).
 // Gated on the chat AI feature; cached 15 min per base + status fingerprint.
 const TTL = 15 * 60 * 1000;
-const cache = new Map<string, { bluf: string[]; watch: string[]; expires: number }>();
+const cache = new Map<string, { bluf: string[]; watch: string[]; asks: string[]; expires: number }>();
 
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ bluf: [], watch: [], disabled: true });
+  if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ bluf: [], watch: [], asks: [], disabled: true });
 
   const prefs = await getUserPrefs().catch(() => null);
-  if (prefs && !isFeatureEnabled("chat", prefs)) return NextResponse.json({ bluf: [], watch: [], disabled: true });
+  if (prefs && !isFeatureEnabled("chat", prefs)) return NextResponse.json({ bluf: [], watch: [], asks: [], disabled: true });
 
   let body: { icao?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -34,15 +34,24 @@ export async function POST(req: Request) {
   const s = await assembleSitrep(base);
   const fingerprint = [
     s.status.wx, s.status.ops, s.status.threat, s.status.infra,
+    s.mission.state, s.mission.limfacs.length, s.mission.ccir.length,
     s.weather.tafWorst?.worst ?? "-",
     s.ops.notamCount, s.threats.news.length, s.threats.disasters.length,
   ].join("|");
   const cacheKey = `${icao}|${fingerprint}`;
   const hit = cache.get(cacheKey);
-  if (hit && hit.expires > Date.now()) return NextResponse.json({ bluf: hit.bluf, watch: hit.watch, cached: true });
+  if (hit && hit.expires > Date.now()) return NextResponse.json({ bluf: hit.bluf, watch: hit.watch, asks: hit.asks, cached: true });
 
   const lines: string[] = [];
   lines.push(`BASE: ${base.icao} — ${base.label}`);
+  // Mission-impact picture leads — the read is FOR LEADERSHIP.
+  const mi = s.mission;
+  lines.push(`AIRFIELD MISSION CAPABILITY: ${mi.state.toUpperCase()}`);
+  for (const c of mi.ccir) lines.push(`CCIR: ${c.text}`);
+  for (const f of mi.functions) if (f.capability !== "fmc") lines.push(`FUNCTION ${f.label}: ${f.capability.toUpperCase()} — ${f.driver}${f.window ? ` (${f.window})` : ""}`);
+  for (const l of mi.limfacs) {
+    lines.push(`LIMFAC ${l.id} [${l.capability.toUpperCase()}/${l.source}] ${l.fnLabel}${l.window ? ` (${l.window})` : ""}: ${l.driver}. IMPACT: ${l.impact}${l.mitigation ? ` MITIGATION: ${l.mitigation}` : ""}${l.ask ? ` ASK: ${l.ask}` : ""}`);
+  }
   const w = s.weather;
   lines.push(`WEATHER NOW: ${w.now ? `${w.now.flightCategory}, wind ${w.now.windKt ?? "?"}kt${w.now.gustKt ? `G${w.now.gustKt}` : ""}, vis ${w.now.visMi ?? "?"}mi, ceiling ${w.now.ceilingFt ?? "none"}` : "UNKNOWN"}`);
   if (w.metarRaw) lines.push(`METAR: ${w.metarRaw}`);
@@ -77,12 +86,14 @@ export async function POST(req: Request) {
   for (const n of s.threats.news) lines.push(`LOCAL NEWS (${n.matched.join(",")}): ${n.title.slice(0, 140)}`);
 
   const prompt =
-    `You are writing the BLUF of a situation report for a mobility squadron commander about ${base.label} (${base.icao}). ` +
-    `Below is the assembled picture. Return ONLY JSON: {"bluf":["...","...","..."],"watch":["...","..."]}. ` +
-    `bluf = exactly 3 short bullets: (1) can the airfield support operations right now and through the next 24h, with the specific window/limitation if any; ` +
-    `(2) the single most operationally significant issue and what to do about it; (3) anything else the commander must know today. ` +
-    `watch = 0-3 items to re-check later. Be concrete (times in Z, runway numbers). No hedging boilerplate; if the picture is clean say so plainly. ` +
-    `Data marked UNKNOWN means the source was unreachable — say "unknown", never assume clear.\n\n${lines.join("\n")}`;
+    `You are writing the leadership BLUF of a mobility squadron airfield SITREP about ${base.label} (${base.icao}). ` +
+    `The audience is the commander briefing UP the chain. Frame everything as MISSION IMPACT and LIMITING FACTORS (LIMFACs), not raw data. ` +
+    `Return ONLY JSON: {"bluf":["...","...","..."],"watch":["...","..."],"asks":["..."]}. ` +
+    `bluf = exactly 3 short bullets: (1) the airfield mission-capability call (FMC/PMC/NMC) and whether it supports operations now and through the next 24h, naming the driving LIMFAC(s) and window; ` +
+    `(2) the single greatest mission impact and the recommended action; (3) projected recovery — when the LIMFACs clear and capability is restored. ` +
+    `asks = 0-3 explicit requests for leadership decision/resources, each with a deadline in Z if time-sensitive (pull from the LIMFAC ASK fields; omit if none). ` +
+    `watch = 0-3 items to re-check later. Be concrete: times in Z, runway numbers, capability terms (FMC/PMC/NMC). No hedging boilerplate; if the airfield is FMC say so plainly. ` +
+    `Data marked UNKNOWN means the source was unreachable — say "unknown", never assume clear or FMC.\n\n${lines.join("\n")}`;
 
   try {
     const modelStart = Date.now();
@@ -92,14 +103,16 @@ export async function POST(req: Request) {
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
     let bluf: string[] = [];
     let watch: string[] = [];
+    let asks: string[] = [];
     try {
-      const p = JSON.parse(extractJsonObject(raw)) as { bluf?: unknown[]; watch?: unknown[] };
+      const p = JSON.parse(extractJsonObject(raw)) as { bluf?: unknown[]; watch?: unknown[]; asks?: unknown[] };
       bluf = Array.isArray(p.bluf) ? p.bluf.map((x) => String(x).slice(0, 300)).slice(0, 3) : [];
       watch = Array.isArray(p.watch) ? p.watch.map((x) => String(x).slice(0, 200)).slice(0, 3) : [];
+      asks = Array.isArray(p.asks) ? p.asks.map((x) => String(x).slice(0, 250)).slice(0, 3) : [];
     } catch { /* fall through to empty */ }
     if (bluf.length === 0) return NextResponse.json({ error: "Read generation failed" }, { status: 502 });
-    cache.set(cacheKey, { bluf, watch, expires: Date.now() + TTL });
-    return NextResponse.json({ bluf, watch });
+    cache.set(cacheKey, { bluf, watch, asks, expires: Date.now() + TTL });
+    return NextResponse.json({ bluf, watch, asks });
   } catch (err) {
     console.error("sitrep read failed:", err);
     return NextResponse.json({ error: "Read generation failed" }, { status: 500 });

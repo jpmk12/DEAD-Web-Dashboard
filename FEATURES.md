@@ -58,6 +58,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 | `signal_daily_counts` | Trend layer: per-day term counts (topic/category/watch/region/aor/label), 180-day retention |
 | `signal_seen` | Trend layer dedup ledger (sha1 of item id), 14-day retention |
 | `x_items` | Imported X posts from dead-x-capture files (post id PK; pruned 14 days / newest 1000) |
+| `sitrep_limfacs` | Commander-entered SITREP LIMFACs (shared per base icao, attributed) |
 
 ---
 
@@ -245,6 +246,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **Infrastructure card** (contracts pinned from a live prod diag): IODA internet drop% per measurement source (state/country level, epoch-second windows), FAA NAS national program counts + nearby (≤250 km) ground stops/closures, USGS gauge stages (informational — flood posture stays with NWS alerts), power/comms strictly news-derived and labeled. Fail-safe: dead source → UNKNOWN, never implied-clear.
 - **Commander's Read** (`POST /api/sitrep/read`): AI BLUF (3 bullets) + watch items, chat-gated, cached 15 min.
 - **⧉ Save to Docs**: dated SITREP doc tagged `sitrep` + icao.
+- **LIMFAC / Mission-Impact layer** (`lib/limfac.ts`, pure + tested): translates the raw signals into airfield mission capability (FMC/PMC/NMC per function), a ranked LIMFAC register (auto-derived + commander-entered via `/api/sitrep/limfac`, shared per base), and CCIR flags — the leadership lens. Conservative: only field-closed and the NAVAID×forecast-IFR fusion auto-yield NMC; dead feed → UNKNOWN, never FMC. Renders at the top of the pane (state → CCIR → Commander's Read → capability matrix → register); raw cards remain below as supporting detail; Export leads with it.
 - **⇩ Export HTML**: one-click self-contained HTML snapshot (`lib/sitrepExport.ts`, pure + tested) for sharing with people who have no dashboard access — zero scripts/external resources, opens offline in any browser, prominent "SNAPSHOT — NOT LIVE" stamp, all external text HTML-escaped.
 - **v2**: astro strip (sunrise/sunset/civil twilight Z + moon % illumination, pure math), per-runway-end crosswind/headwind chips from the live METAR (advisory thresholds), fuel NOTAMs filtered to the field, bird/BASH group + dawn-dusk elevated windows, a last-7-days LED history strip (`sitrep_status_daily`) with worse-than-yesterday markers, and the live Infrastructure card above.
 - **v3**: **multi-base LED tile strip** (every configured base: 4 LEDs + driver line + worse-than-yesterday; worst axis colours the border; fed by `GET /api/sitrep/summary` — deterministic rollups over the cached assemblies), **Morning Brief "⚑ Base SITREP" block** (same summary route fetched live on brief open — bases needing attention get full LED blocks, quiet ones collapse to one "all green" line; never baked into the cached brief), and the **closure-window timeline** in the Ops card (NOTAM B)/C) times → 48-h bars per asset with the TAF category strip on the same axis + runway-closure × forecast-IFR conflict call-outs; unparseable windows stay text rows).

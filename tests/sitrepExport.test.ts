@@ -53,6 +53,7 @@ function fakePayload(overrides: Partial<SitrepPayload> = {}): SitrepPayload {
       powerNews: [], waterNews: [], commsNews: [],
     },
     threats: { fp: { composite: "green", topDriver: "no elevated drivers", axes: [] }, disasters: [], news: [], newsScanned: 41 },
+    mission: { state: "fmc", functions: [{ key: "launch_recovery", label: "Launch & Recovery", capability: "fmc", driver: "VFR; runway open", window: null, limfacIds: [] }], limfacs: [], ccir: [] },
     ...overrides,
   } as SitrepPayload;
 }

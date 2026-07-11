@@ -5,6 +5,7 @@ import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
 import { closureWindows, windowConflicts, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
 import { renderSitrepHtml } from "@/lib/sitrepExport";
+import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
 
 const LED_CLASS: Record<Led, string> = {
   g: "bg-emerald-400 shadow-[0_0_8px] shadow-emerald-400/70",
@@ -112,7 +113,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
   const [payload, setPayload] = useState<SitrepPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [read, setRead] = useState<{ bluf: string[]; watch: string[]; disabled?: boolean } | null>(null);
+  const [read, setRead] = useState<{ bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean } | null>(null);
   const [readLoading, setReadLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addInput, setAddInput] = useState("");
@@ -278,7 +279,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
   // offline from a desktop / share drive / email attachment.
   const exportHtml = () => {
     if (!payload) return;
-    const html = renderSitrepHtml(payload, read && read.bluf.length > 0 ? { bluf: read.bluf, watch: read.watch } : null);
+    const html = renderSitrepHtml(payload, read && read.bluf.length > 0 ? { bluf: read.bluf, watch: read.watch, asks: read.asks } : null);
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -419,6 +420,8 @@ export default function SitrepPanel({ active }: { active: boolean }) {
 
       {payload && currentBase && (
         <>
+          <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} onChanged={() => icao && loadSitrep(icao)} />
+
           {/* Status strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
             {([
@@ -466,30 +469,12 @@ export default function SitrepPanel({ active }: { active: boolean }) {
             </div>
           )}
 
-          {/* Commander's read */}
-          {(readLoading || read) && (
-            <div className="border border-amber-500/30 bg-amber-500/[0.04] rounded-xl px-4 py-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300/90 mb-2">
-                ✦ Commander&apos;s Read {readLoading ? <span className="font-normal normal-case text-slate-500">— generating…</span> : read?.disabled ? <span className="font-normal normal-case text-slate-500">— AI is off (Preferences → AI Controls)</span> : null}
-              </p>
-              {read && !read.disabled && (
-                <>
-                  <ul className="space-y-1.5">
-                    {read.bluf.map((b, i) => (
-                      <li key={i} className="text-xs text-slate-200 leading-relaxed pl-4 relative">
-                        <span className="absolute left-0 text-amber-400">▸</span>{b}
-                      </li>
-                    ))}
-                  </ul>
-                  {read.watch.length > 0 && (
-                    <p className="text-[10.5px] text-slate-400 mt-2">
-                      <span className="font-bold text-slate-500 uppercase tracking-wider text-[9px]">Watch:</span> {read.watch.join(" · ")}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+          {/* Supporting detail — the raw signal cards the mission-impact
+              layer is derived from. Kept in full below the leadership picture. */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600">Supporting detail</span>
+            <div className="flex-1 h-px bg-slate-800/70" />
+          </div>
 
           <div className="grid lg:grid-cols-2 gap-3">
             {/* WEATHER */}
