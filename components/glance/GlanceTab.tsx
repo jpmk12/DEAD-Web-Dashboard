@@ -140,8 +140,8 @@ function ScheduleRow({ e, onNavigate }: { e: CalendarEvent; onNavigate: (tab: Ta
   );
 }
 
-function greeting(): string {
-  const h = new Date().getHours();
+function greeting(d: Date): string {
+  const h = d.getHours();
   if (h < 5) return "Late night";
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
@@ -282,6 +282,14 @@ export default function GlanceTab({
   const [reachGroupsOpen, setReachGroupsOpen] = useState<Set<ReachCat>>(new Set());
   // Force Protection Watch — RED/AMBER locations surface in needs-you-now.
   const [forceWatch, setForceWatch] = useState<ForceWatchItem[]>([]);
+
+  // Header greeting + date are LOCAL-time derived. Rendering them during SSR
+  // computes them in the server's (UTC) zone/locale, then the client recomputes
+  // in the browser's local zone — a mismatch across a greeting-hour or midnight
+  // boundary throws React hydration error #418. Compute on the client only:
+  // null until mounted, so server and first client render agree on the fallback.
+  const [nowLocal, setNowLocal] = useState<Date | null>(null);
+  useEffect(() => { setNowLocal(new Date()); }, []);
 
   // Last-seen "On your radar" values, persisted so rises since your last look
   // can be highlighted. Frozen for this session (read once on mount).
@@ -737,14 +745,12 @@ export default function GlanceTab({
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold tracking-wide text-slate-100">
-            {greeting()}, DEAD
+            {nowLocal ? greeting(nowLocal) : "Welcome"}, DEAD
           </h2>
-          <p className="text-xs uppercase tracking-widest text-slate-500 mt-0.5">
-            {new Date().toLocaleDateString([], {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
+          <p className="text-xs uppercase tracking-widest text-slate-500 mt-0.5" suppressHydrationWarning>
+            {nowLocal
+              ? nowLocal.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })
+              : " "}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
