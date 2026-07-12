@@ -103,10 +103,10 @@ export default function SitrepMissionImpact({
         <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1.5">Mission capability by function</p>
         <div className="grid sm:grid-cols-2 gap-1.5">
           {mi.functions.map((f) => (
-            <div key={f.key} className="flex items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5">
+            <div key={f.key} className="flex items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5 overflow-hidden">
               <span className={`text-[8px] font-extrabold font-mono px-1.5 py-0.5 rounded border w-10 text-center flex-shrink-0 ${CAP_PILL[f.capability]}`}>{CAP_TXT[f.capability]}</span>
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold text-slate-200 leading-tight">{f.label}{f.derived && <span className="ml-1 text-[8px] text-violet-300 font-bold">◆ derived</span>}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-semibold text-slate-200 leading-tight truncate">{f.label}{f.derived && <span className="ml-1 text-[8px] text-violet-300 font-bold">◆ derived</span>}</p>
                 <p className="text-[9.5px] text-slate-500 truncate" title={f.driver}>{f.driver}{f.window ? ` · ${f.window}` : ""}</p>
               </div>
             </div>
@@ -136,7 +136,7 @@ export default function SitrepMissionImpact({
                 {l.ccir && <span className="text-[8px] font-bold uppercase tracking-wider text-red-300 border border-red-500/50 rounded px-1.5 py-[1px]">CCIR</span>}
                 {l.window && <span className="ml-auto text-[9.5px] font-mono text-slate-400">{l.window}</span>}
               </div>
-              <div className="mt-1.5 text-[11px] text-slate-300 leading-relaxed space-y-0.5">
+              <div className="mt-1.5 text-[11px] text-slate-300 leading-relaxed space-y-0.5 break-words">
                 <p><span className="text-slate-500 font-semibold text-[9px] uppercase tracking-wider">Driver:</span> {l.driver}</p>
                 <p><span className="text-slate-500 font-semibold text-[9px] uppercase tracking-wider">Impact:</span> <span className="text-slate-200">{l.impact}</span></p>
                 {l.mitigation && <p><span className="text-slate-500 font-semibold text-[9px] uppercase tracking-wider">Mitigation:</span> {l.mitigation}</p>}
