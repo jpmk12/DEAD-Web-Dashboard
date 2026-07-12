@@ -55,7 +55,13 @@ const nextConfig: NextConfig = {
           },
           { key: "X-Content-Type-Options",     value: "nosniff" },
           { key: "Referrer-Policy",            value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy",         value: "camera=(), microphone=(), geolocation=(), payment=()" },
+          // geolocation is delegated ONLY to the Windy radar iframe (which
+          // carries allow="geolocation" for its "locate me" control). Our own
+          // top document is NOT in the allowlist, so first-party code still
+          // can't read location; camera/mic/payment stay fully blocked. Without
+          // this the iframe's allow attr is a no-op and Windy trips a
+          // "Permissions policy violation: Geolocation" console error on load.
+          { key: "Permissions-Policy",         value: "camera=(), microphone=(), geolocation=(\"https://embed.windy.com\"), payment=()" },
           { key: "Strict-Transport-Security",  value: "max-age=63072000; includeSubDomains; preload" },
         ],
       },
