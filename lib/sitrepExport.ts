@@ -168,7 +168,7 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
           const left = ((w.fromMs - nowMs) / span48) * 100;
           const width = Math.max(1.5, ((w.toMs - w.fromMs) / span48) * 100);
           const cls = w.kind === "closure" ? "red" : w.kind === "unserviceable" ? "amb" : "sky";
-          const lbl = `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}`;
+          const lbl = `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "→" : zhm(w.toMs)}`;
           return `<span class="bar ${cls}" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%" title="${esc(w.text)}">${width > 12 ? esc(lbl) : ""}</span>`;
         }).join("")}</div></div>`
       ).join("") +

@@ -652,7 +652,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                             return (
                               <span
                                 key={i}
-                                title={`${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}`}
+                                title={`${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "continues past +48h" : zhm(w.toMs)}`}
                                 className={`absolute top-[2px] bottom-[2px] rounded-[3px] border px-1 text-[7.5px] font-bold flex items-center overflow-hidden whitespace-nowrap ${
                                   w.kind === "closure" ? "bg-red-500/20 border-red-500/55 text-red-300"
                                   : w.kind === "unserviceable" ? "bg-amber-500/20 border-amber-500/55 text-amber-300"
@@ -660,7 +660,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                                 }`}
                                 style={{ left: `${left}%`, width: `${width}%` }}
                               >
-                                {width > 12 ? `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}` : ""}
+                                {width > 12 ? `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "→" : zhm(w.toMs)}` : ""}
                               </span>
                             );
                           })}
@@ -675,7 +675,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                               : "border-sky-500/40 bg-sky-500/[.06]"
                             }`}>
                               <p className="text-[9px] font-mono text-slate-500">
-                                {zhm(w.fromMs)}–{w.openEnded ? "UFN" : zhm(w.toMs)} · {w.kind === "closure" ? "CLOSED" : w.kind === "unserviceable" ? "U/S" : "LIMITED"}
+                                {zhm(w.fromMs)}–{w.openEnded ? "UFN" : w.beyondHorizon ? "→ beyond +48h" : zhm(w.toMs)} · {w.kind === "closure" ? "CLOSED" : w.kind === "unserviceable" ? "U/S" : "LIMITED"}
                               </p>
                               <p className="text-[10.5px] text-slate-300 leading-snug break-words">{w.text}</p>
                             </div>
@@ -708,7 +708,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                     </div>
                   ))}
                   <p className="text-[8.5px] text-slate-600 mt-1.5">
-                    Tap a row to read the NOTAM behind it. Bars come only from NOTAMs with parseable B)/C) times — anything unparseable stays a text row above, never a guessed bar. Open-ended windows run to the edge (UFN).
+                    Tap a row to read the NOTAM behind it. Bars come only from NOTAMs with parseable B)/C) times — anything unparseable stays a text row above, never a guessed bar. Open-ended windows run to the edge (UFN); “→” means the window continues past the 48 h horizon.
                   </p>
                 </div>
               )}

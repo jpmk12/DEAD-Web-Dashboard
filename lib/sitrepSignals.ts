@@ -223,7 +223,8 @@ export interface ClosureWindow {
   kind: WindowKind;
   fromMs: number;        // clamped to [now, now+horizon]
   toMs: number;
-  openEnded: boolean;    // no C) end time — bar runs to the horizon edge
+  openEnded: boolean;    // no C) end time — bar runs to the horizon edge (→ UFN)
+  beyondHorizon: boolean; // has a C) end, but it falls past the horizon (→ continues)
   text: string;          // source NOTAM snippet (tooltip)
 }
 
@@ -294,6 +295,7 @@ export function closureWindows(notams: SitrepNotam[], nowMs: number, horizonH = 
       fromMs: Math.max(from, nowMs),
       toMs: Math.min(to, horizonEnd),
       openEnded: !hasEnd,
+      beyondHorizon: hasEnd && endMs > horizonEnd,
       text: n.text.slice(0, 160),
     });
   }

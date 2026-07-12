@@ -30,6 +30,18 @@ describe("closureWindows", () => {
     expect(closureWindows([notam("RWY 18/36 CLSD")], NOW)).toHaveLength(0);
   });
 
+  it("flags a bounded window whose end falls past the horizon as beyondHorizon (not openEnded)", () => {
+    const w = closureWindows([notam("RWY 06/24 CLSD", "runway", NOW - 1 * H, NOW + 200 * H)], NOW, 48);
+    expect(w).toHaveLength(1);
+    expect(w[0].openEnded).toBe(false);        // it HAS a C) end…
+    expect(w[0].beyondHorizon).toBe(true);     // …but it's past +48h
+    expect(w[0].toMs).toBe(NOW + 48 * H);       // clamped to the edge
+    // A window ending inside the horizon is neither.
+    const inside = closureWindows([notam("RWY 06/24 CLSD", "runway", NOW, NOW + 6 * H)], NOW, 48);
+    expect(inside[0].beyondHorizon).toBe(false);
+    expect(inside[0].openEnded).toBe(false);
+  });
+
   it("skips expired, beyond-horizon, and non-window NOTAMs", () => {
     const w = closureWindows([
       notam("RWY 06/24 CLSD", "runway", NOW - 10 * H, NOW - 2 * H),          // expired
@@ -101,7 +113,7 @@ describe("windowConflicts", () => {
   const seg = (cat: TafSegment["cat"], fromH: number, toH: number): TafSegment =>
     ({ cat, fromMs: NOW + fromH * H, toMs: NOW + toH * H, label: "" });
   const win = (label: string, kind: ClosureWindow["kind"], fromH: number, toH: number): ClosureWindow =>
-    ({ label, kind, fromMs: NOW + fromH * H, toMs: NOW + toH * H, openEnded: false, text: "" });
+    ({ label, kind, fromMs: NOW + fromH * H, toMs: NOW + toH * H, openEnded: false, beyondHorizon: false, text: "" });
 
   it("flags a runway closure overlapping forecast IFR, ignores non-overlap and non-runway", () => {
     const conflicts = windowConflicts(
