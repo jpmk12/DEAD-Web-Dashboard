@@ -39,6 +39,24 @@ describe("closureWindows", () => {
     expect(w).toHaveLength(0);
   });
 
+  it("does NOT bar lighting-component outages (covert/RAI/edge lights U/S) — they stay text rows", () => {
+    const w = closureWindows([
+      notam("RWY 06/24 COVERT LGTS OTS", "lighting", NOW - 1 * H, NOW + 40 * H),
+      notam("RWY 24 RWY ALIGNMENT INDICATOR LGT UNSERVICEABLE", "lighting", NOW - 1 * H, NOW + 40 * H),
+      notam("PAPI RWY 06 U/S", "lighting", NOW, NOW + 6 * H),
+    ], NOW, 48);
+    expect(w).toHaveLength(0);
+  });
+
+  it("still bars an electronic NAVAID or whole-surface U/S (not lighting)", () => {
+    const w = closureWindows([
+      notam("ILS RWY 24 U/S", "navaid", NOW + 1 * H, NOW + 6 * H),
+      notam("RWY 06/24 U/S DUE STANDING WATER", "runway", NOW + 1 * H, NOW + 6 * H),
+    ], NOW, 48);
+    expect(w).toHaveLength(2);
+    expect(w.every((x) => x.kind === "unserviceable")).toBe(true);
+  });
+
   it("classifies unserviceable and fuel-limited kinds; closures sort first", () => {
     const w = closureWindows([
       notam("ILS RWY 24 U/S", "navaid", NOW + 19 * H, NOW + 31 * H),

@@ -230,11 +230,16 @@ export interface ClosureWindow {
 const CLSD_RE = /\bCLSD\b|\bCLOSED\b/i;
 const US_RE = /\bU\/S\b|\bUNSERVICEABLE\b|\bOTS\b|\bOUT OF SERVICE\b|\bINOP(?:ERATIVE)?\b/i;
 const FUEL_LIM_RE = /\bFUEL\b.*(\bNOT\s+AVBL\b|\bUNAVBL\b|\bLIMITED\b|\bU\/S\b)|(\bNOT\s+AVBL\b|\bUNAVBL\b|\bLIMITED\b).*\bFUEL\b/i;
+// A lighting-COMPONENT outage (covert / edge / centreline / RAI / REIL / PAPI /
+// approach lights U/S) is advisory — it does NOT close the runway or an approach
+// aid, so it must not become a closure-window bar (it stays a NOTAM text row).
+// Electronic NAVAIDs (ILS/VOR/TACAN/DME/GS) are NOT lighting and still bar.
+const LIGHTING_RE = /\b(LGT|LGTS|LGTD|LIGHT|LIGHTS|LIGHTING|REIL|RAIL|RAI|PAPI|VASI|VGSI|APAPI|PLASI|ALSF?|MALSR?|SSAL[RF]|ODALS|RCLL|RCLS|RTIL|TDZL|HIRL|MIRL|LIRL)\b|RWY\s+ALIGNMENT\s+INDICATOR/i;
 
 function windowKind(text: string): WindowKind | null {
   if (FUEL_LIM_RE.test(text)) return "limited";
   if (CLSD_RE.test(text)) return "closure";
-  if (US_RE.test(text)) return "unserviceable";
+  if (US_RE.test(text)) return LIGHTING_RE.test(text) ? null : "unserviceable";
   return null;
 }
 
