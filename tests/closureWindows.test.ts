@@ -57,7 +57,25 @@ describe("windowLabel", () => {
     expect(windowLabel("RWY 08L/26R CLSD", "runway")).toBe("RWY 08L/26R");
     expect(windowLabel("TWY A3 CLSD BTN TWY A AND APRON", "taxiway")).toBe("TWY A3");
     expect(windowLabel("VOR U/S", "navaid")).toBe("VOR");
-    expect(windowLabel("SOMETHING ELSE CLSD", "hours")).toBe("Hours");
+  });
+
+  it("labels common non-runway subjects instead of the bucket name", () => {
+    expect(windowLabel("GPS RAIM OUTAGE PREDICTED", "other")).toBe("GPS / RAIM");
+    expect(windowLabel("OBST CRANE ERECTED 1.2NM SW", "other")).toBe("Obstacle");
+    expect(windowLabel("PJE WI 5NM RADIUS", "other")).toBe("Parachute (PJE)");
+    expect(windowLabel("UAS ACT WI 3NM", "other")).toBe("UAS / drone");
+    expect(windowLabel("TFR ACT", "airspace")).toBe("Airspace");
+    expect(windowLabel("ACFT PARKING STANDS 1-4 CLSD", "other")).toBe("Parking");
+  });
+
+  it("falls back to a text snippet — never the useless bucket word 'Other'", () => {
+    const label = windowLabel("SFC MARKINGS OBSCURED DUE SNOW COVERAGE", "other");
+    expect(label).not.toBe("Other");
+    expect(label.startsWith("SFC MARKINGS")).toBe(true);
+    expect(label.endsWith("…")).toBe(true);
+    expect(label.endsWith(" …")).toBe(false); // trailing space trimmed before the ellipsis
+    // Short subjects render whole, without an ellipsis.
+    expect(windowLabel("DECLARED DIST AMENDED", "other")).toBe("DECLARED DIST AMENDED");
   });
 });
 

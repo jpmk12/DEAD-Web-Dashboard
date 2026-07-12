@@ -115,6 +115,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [read, setRead] = useState<{ bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean } | null>(null);
   const [readLoading, setReadLoading] = useState(false);
+  const [readError, setReadError] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addInput, setAddInput] = useState("");
   const [addBusy, setAddBusy] = useState(false);
@@ -122,6 +123,9 @@ export default function SitrepPanel({ active }: { active: boolean }) {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   // Multi-base LED strip: compact status for every configured base.
   const [summaries, setSummaries] = useState<Record<string, SitrepSummary>>({});
+  // Closure-timeline row the user tapped open (reveals the NOTAM text — the only
+  // way to see the cause on mobile, where the bar's hover tooltip doesn't exist).
+  const [tlOpenLabel, setTlOpenLabel] = useState<string | null>(null);
 
   const loadSummaries = useCallback(() => {
     fetch("/api/sitrep/summary")
@@ -153,33 +157,45 @@ export default function SitrepPanel({ active }: { active: boolean }) {
       .catch(() => setBases([]));
   }, [active, bases]);
 
+  // Kick the Commander's Read for a base. A transient AI/JSON failure returns an
+  // error → keep the block visible in an error state (Retry) instead of letting
+  // it silently vanish, which reads as "it loaded then disappeared".
+  const loadRead = useCallback((target: string) => {
+    setReadLoading(true);
+    setReadError(false);
+    fetch("/api/sitrep/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ icao: target }),
+    })
+      .then((r) => r.json())
+      .then((rd) => {
+        if (rd && !rd.error) { setRead(rd); setReadError(false); }
+        else { setRead(null); setReadError(true); }
+      })
+      .catch(() => { setRead(null); setReadError(true); })
+      .finally(() => setReadLoading(false));
+  }, []);
+
   const loadSitrep = useCallback((target: string) => {
     setLoading(true);
     setError(null);
     setRead(null);
+    setReadError(false);
     fetch(`/api/sitrep?icao=${target}`)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
         setPayload(d);
         // Kick the Commander's Read once the picture exists; server caches it.
-        setReadLoading(true);
-        fetch("/api/sitrep/read", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ icao: target }),
-        })
-          .then((r) => r.json())
-          .then((rd) => setRead(rd.error ? null : rd))
-          .catch(() => setRead(null))
-          .finally(() => setReadLoading(false));
+        loadRead(target);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "SITREP failed"))
       .finally(() => setLoading(false));
     // The freshly assembled payload may have moved this base's LEDs — keep the
     // tile strip in step (server-side cache makes this cheap).
     loadSummaries();
-  }, [loadSummaries]);
+  }, [loadSummaries, loadRead]);
 
   useEffect(() => {
     if (!active || !icao) return;
@@ -420,7 +436,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
 
       {payload && currentBase && (
         <>
-          <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} onChanged={() => icao && loadSitrep(icao)} />
+          <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} readError={readError} onRetryRead={() => icao && loadRead(icao)} onChanged={() => icao && loadSitrep(icao)} />
 
           {/* Status strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -610,35 +626,65 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                       ))}
                     </div>
                   </div>
-                  {tlRows.map(([label, ws]) => (
-                    <div key={label} className="flex items-center gap-2 mb-1">
-                      <span className="w-24 flex-shrink-0 text-right text-[9px] text-slate-400 truncate" title={label}>{label}</span>
-                      <div className="relative flex-1 h-4 bg-slate-800/30 rounded overflow-hidden">
-                        <div className="absolute inset-0 grid grid-cols-8">
-                          {Array.from({ length: 8 }, (_, i) => <i key={i} className="border-l border-slate-800/70" />)}
+                  {tlRows.map(([label, ws]) => {
+                    const open = tlOpenLabel === label;
+                    const zhm = (ms: number) => new Date(ms).toISOString().slice(11, 16) + "Z";
+                    return (
+                    <div key={label} className="mb-1">
+                      <button
+                        type="button"
+                        onClick={() => setTlOpenLabel(open ? null : label)}
+                        className="w-full flex items-center gap-2 text-left"
+                        aria-expanded={open}
+                        title="Tap to show the NOTAM(s) behind this row"
+                      >
+                        <span className="w-24 flex-shrink-0 text-right text-[9px] text-slate-400 truncate flex items-center justify-end gap-0.5">
+                          <span className={`text-slate-600 transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+                          <span className="truncate" title={label}>{label}</span>
+                        </span>
+                        <div className="relative flex-1 h-4 bg-slate-800/30 rounded overflow-hidden">
+                          <div className="absolute inset-0 grid grid-cols-8">
+                            {Array.from({ length: 8 }, (_, i) => <i key={i} className="border-l border-slate-800/70" />)}
+                          </div>
+                          {ws.map((w, i) => {
+                            const left = ((w.fromMs - tlNowMs) / (48 * 3600_000)) * 100;
+                            const width = Math.max(1.5, ((w.toMs - w.fromMs) / (48 * 3600_000)) * 100);
+                            return (
+                              <span
+                                key={i}
+                                title={`${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}`}
+                                className={`absolute top-[2px] bottom-[2px] rounded-[3px] border px-1 text-[7.5px] font-bold flex items-center overflow-hidden whitespace-nowrap ${
+                                  w.kind === "closure" ? "bg-red-500/20 border-red-500/55 text-red-300"
+                                  : w.kind === "unserviceable" ? "bg-amber-500/20 border-amber-500/55 text-amber-300"
+                                  : "bg-sky-500/15 border-sky-500/45 text-sky-300"
+                                }`}
+                                style={{ left: `${left}%`, width: `${width}%` }}
+                              >
+                                {width > 12 ? `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}` : ""}
+                              </span>
+                            );
+                          })}
                         </div>
-                        {ws.map((w, i) => {
-                          const left = ((w.fromMs - tlNowMs) / (48 * 3600_000)) * 100;
-                          const width = Math.max(1.5, ((w.toMs - w.fromMs) / (48 * 3600_000)) * 100);
-                          const zhm = (ms: number) => new Date(ms).toISOString().slice(11, 16) + "Z";
-                          return (
-                            <span
-                              key={i}
-                              title={`${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}`}
-                              className={`absolute top-[2px] bottom-[2px] rounded-[3px] border px-1 text-[7.5px] font-bold flex items-center overflow-hidden whitespace-nowrap ${
-                                w.kind === "closure" ? "bg-red-500/20 border-red-500/55 text-red-300"
-                                : w.kind === "unserviceable" ? "bg-amber-500/20 border-amber-500/55 text-amber-300"
-                                : "bg-sky-500/15 border-sky-500/45 text-sky-300"
-                              }`}
-                              style={{ left: `${left}%`, width: `${width}%` }}
-                            >
-                              {width > 12 ? `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : zhm(w.toMs)}` : ""}
-                            </span>
-                          );
-                        })}
-                      </div>
+                      </button>
+                      {open && (
+                        <div className="ml-[104px] mt-1 mb-1.5 space-y-1">
+                          {ws.map((w, i) => (
+                            <div key={i} className={`rounded-md border px-2 py-1 ${
+                              w.kind === "closure" ? "border-red-500/40 bg-red-500/[.06]"
+                              : w.kind === "unserviceable" ? "border-amber-500/40 bg-amber-500/[.06]"
+                              : "border-sky-500/40 bg-sky-500/[.06]"
+                            }`}>
+                              <p className="text-[9px] font-mono text-slate-500">
+                                {zhm(w.fromMs)}–{w.openEnded ? "UFN" : zhm(w.toMs)} · {w.kind === "closure" ? "CLOSED" : w.kind === "unserviceable" ? "U/S" : "LIMITED"}
+                              </p>
+                              <p className="text-[10.5px] text-slate-300 leading-snug break-words">{w.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {/* TAF categories on the same axis (24-h forecast → half the track) */}
                   {payload.weather.tafSegments.length > 0 && (
                     <div className="flex items-center gap-2 mb-1">
@@ -662,7 +708,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
                     </div>
                   ))}
                   <p className="text-[8.5px] text-slate-600 mt-1.5">
-                    Bars come only from NOTAMs with parseable B)/C) times — anything unparseable stays a text row above, never a guessed bar. Open-ended windows run to the edge (UFN).
+                    Tap a row to read the NOTAM behind it. Bars come only from NOTAMs with parseable B)/C) times — anything unparseable stays a text row above, never a guessed bar. Open-ended windows run to the edge (UFN).
                   </p>
                 </div>
               )}

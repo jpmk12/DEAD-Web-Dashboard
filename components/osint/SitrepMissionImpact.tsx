@@ -17,11 +17,13 @@ const CAP_BAR: Record<Capability, string> = { fmc: "border-emerald-500/40", pmc:
 interface ReadState { bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean }
 
 export default function SitrepMissionImpact({
-  payload, read, readLoading, onChanged,
+  payload, read, readLoading, readError, onRetryRead, onChanged,
 }: {
   payload: SitrepPayload;
   read: ReadState | null;
   readLoading: boolean;
+  readError?: boolean;
+  onRetryRead?: () => void;
   onChanged: () => void;
 }) {
   const mi = payload.mission;
@@ -81,11 +83,17 @@ export default function SitrepMissionImpact({
       )}
 
       {/* Commander's Read — moved up under the top-line */}
-      {(readLoading || read) && (
+      {(readLoading || read || readError) && (
         <div className="border border-amber-500/30 bg-amber-500/[0.04] rounded-xl px-3.5 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300/90 mb-1.5">
-            ✦ Commander&apos;s Read — for leadership {readLoading ? <span className="font-normal normal-case text-slate-500">— generating…</span> : read?.disabled ? <span className="font-normal normal-case text-slate-500">— AI is off</span> : null}
+            ✦ Commander&apos;s Read — for leadership {readLoading ? <span className="font-normal normal-case text-slate-500">— generating…</span> : read?.disabled ? <span className="font-normal normal-case text-slate-500">— AI is off</span> : readError ? <span className="font-normal normal-case text-slate-500">— unavailable</span> : null}
           </p>
+          {readError && !readLoading && (
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] text-slate-400">The read couldn&apos;t be generated (transient error). The signals below are unaffected.</p>
+              {onRetryRead && <button onClick={onRetryRead} className="ml-auto flex-shrink-0 text-[9px] font-bold uppercase tracking-wider text-amber-300 border border-amber-500/40 rounded px-2 py-0.5 hover:bg-amber-500/10">↻ Retry</button>}
+            </div>
+          )}
           {read && !read.disabled && (
             <>
               <ul className="space-y-1.5">

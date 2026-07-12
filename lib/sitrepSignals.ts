@@ -242,14 +242,29 @@ export function windowLabel(text: string, category: string): string {
   const up = text.toUpperCase();
   if (/\bAD\s+CLSD|AERODROME\s+CLSD/.test(up)) return "Airfield";
   const rwy = up.match(/RWY\s*([0-9]{2}[LRC]?(?:\/[0-9]{2}[LRC]?)?)/);
-  const navaid = up.match(/\b(ILS|LOC|VOR|TACAN|NDB|RNAV|PAPI|VASI|ALS|GLIDESLOPE|GS)\b/);
+  const navaid = up.match(/\b(ILS|LOC|VOR|TACAN|NDB|RNAV|PAPI|VASI|ALS|GLIDESLOPE|GS|DME)\b/);
   if (navaid) return rwy ? `${navaid[1]} RWY ${rwy[1]}` : navaid[1];
   if (rwy) return `RWY ${rwy[1]}`;
   const twy = up.match(/TWY\s*([A-Z]{1,2}\d{0,2}\b)/);
   if (twy) return `TWY ${twy[1]}`;
   if (/\bFUEL\b/.test(up)) return "Fuel";
-  if (/\bAPRON|RAMP\b/.test(up)) return "Apron";
-  return category.charAt(0).toUpperCase() + category.slice(1);
+  if (/\bAPRON|RAMP\b/.test(up)) return "Ramp / apron";
+  if (/\bPARKING|PRKG|STAND\b/.test(up)) return "Parking";
+  if (/\b(GPS|RAIM|WAAS)\b/.test(up)) return "GPS / RAIM";
+  if (/\bOBST|OBSTACLE|CRANE|TOWER\b/.test(up)) return "Obstacle";
+  if (/\b(PJE|PARACHUTE|PARA\s+JUMP|JUMP)\b/.test(up)) return "Parachute (PJE)";
+  if (/\b(UAS|UAV|DRONE|UNMANNED|RPA)\b/.test(up)) return "UAS / drone";
+  if (/\b(TFR|RESTRICTED|PROHIBITED|MOA|AIRSPACE)\b/.test(up)) return "Airspace";
+  if (/\b(REIL|PAPI|VASI|ALS|EDGE\s+LIGHT|RWY\s+LIGHT|TWY\s+LIGHT|LGT|LIGHTING)\b/.test(up)) return "Lighting";
+  if (/\b(DEICE|DE-ICE|ANTI-ICE)\b/.test(up)) return "De-ice";
+  if (/\b(HEL|HELIPAD|HELO|PAD)\b/.test(up)) return "Helipad";
+  if (/\b(TWR|CTL|CONTROL|ATC|CLNC)\b/.test(up)) return "ATC / tower";
+  // Last resort — a short snippet of the NOTAM subject beats the bucket word
+  // "Other", which tells the reader nothing about what actually closed.
+  const clean = text.trim().replace(/\s+/g, " ");
+  const snippet = clean.slice(0, 22).trimEnd();
+  if (!snippet) return category.charAt(0).toUpperCase() + category.slice(1);
+  return snippet.length < clean.length ? `${snippet}…` : snippet;
 }
 
 const KIND_ORDER: Record<WindowKind, number> = { closure: 0, unserviceable: 1, limited: 2 };
