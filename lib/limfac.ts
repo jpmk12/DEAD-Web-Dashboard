@@ -305,3 +305,42 @@ function windowFromClose(windows: ClosureWindow[], nowMs: number): string | null
   const w = windows.find((x) => /^Airfield|^RWY/.test(x.label) && x.kind === "closure");
   return w ? windowLabelFor(w, nowMs) : null;
 }
+
+// Deterministic Commander's Read built PURELY from the mission picture — the
+// non-AI fallback so leadership never sees a blank card when the model call
+// fails or AI is disabled. No synthesis beyond what the signals already state;
+// clearly flagged as auto (ai:false) at the call site so it's not mistaken for
+// the AI leadership read. Client-safe + unit-tested.
+export function fallbackCommanderRead(
+  mi: MissionImpact,
+  icao: string,
+): { bluf: string[]; watch: string[]; asks: string[] } {
+  const limiting = mi.limfacs.filter(
+    (l) => l.capability === "nmc" || l.capability === "pmc" || l.capability === "unknown",
+  );
+  const drivers = limiting.slice(0, 2).map((l) => `${l.fnLabel}${l.window ? ` (${l.window})` : ""}`).join("; ");
+  const bluf: string[] = [];
+
+  const tail = drivers
+    ? ` — driven by ${drivers}.`
+    : mi.state === "fmc"
+      ? " — no limiting factors reported."
+      : ".";
+  bluf.push(`${icao} is ${CAP_LONG[mi.state]}${tail}`);
+
+  const worst = limiting[0];
+  bluf.push(worst
+    ? `Greatest impact: ${worst.driver} — ${worst.impact}.`
+    : "Airfield operating within normal parameters; watch weather and NOTAM changes.");
+
+  const timed = limiting.find((l) => l.window);
+  bluf.push(timed
+    ? `Projected recovery when the ${timed.fnLabel} window clears (${timed.window}).`
+    : mi.state === "fmc"
+      ? "No time-bound limiting factors."
+      : "Recovery time not established — LIMFAC window(s) open-ended.");
+
+  const asks = mi.limfacs.map((l) => l.ask).filter((a): a is string => Boolean(a && a.trim())).slice(0, 3);
+  const watch = mi.ccir.map((c) => c.text).slice(0, 3);
+  return { bluf, watch, asks };
+}

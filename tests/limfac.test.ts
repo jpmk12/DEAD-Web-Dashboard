@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveMissionImpact, type ManualLimfac } from "../lib/limfac";
+import { deriveMissionImpact, fallbackCommanderRead, type ManualLimfac } from "../lib/limfac";
 import type { SitrepPayload } from "../lib/sitrep";
 
 const NOW = Date.UTC(2026, 6, 14, 14, 32);
@@ -154,5 +154,32 @@ describe("deriveMissionImpact — manual LIMFACs", () => {
     p.ops.groups = [group("runway", "Runway / surface", [notam("services", "AD CLSD", true, NOW, NOW + 2 * H)])];
     const m = deriveMissionImpact(p, [manual()]);
     expect(m.limfacs[0].capability).toBe("nmc");
+  });
+});
+
+describe("fallbackCommanderRead — deterministic non-AI read", () => {
+  const manual = (over: Partial<ManualLimfac> = {}): ManualLimfac => ({
+    id: "m-1", icao: "KWRI", fn: "arff", capability: "pmc",
+    driver: "ARFF Cat 7 → Cat 5", impact: "Recovery limited to C-130 class",
+    status: "new", createdAt: iso(NOW), toISO: iso(NOW + 3 * H), ...over,
+  });
+
+  it("FMC airfield → a plain green BLUF, no asks/watch", () => {
+    const r = fallbackCommanderRead(deriveMissionImpact(payload()), "KWRI");
+    expect(r.bluf).toHaveLength(3);
+    expect(r.bluf[0]).toContain("KWRI");
+    expect(r.bluf[0]).toContain("Fully Mission Capable");
+    expect(r.bluf[0]).toContain("no limiting factors");
+    expect(r.asks).toHaveLength(0);
+    expect(r.watch).toHaveLength(0);
+  });
+
+  it("surfaces a limiting LIMFAC's driver/impact, ask, and CCIR watch", () => {
+    const mi = deriveMissionImpact(payload(), [manual({ ask: "Approve ARFF contract truck by 1800Z", ccir: true })]);
+    const r = fallbackCommanderRead(mi, "KWRI");
+    expect(r.bluf[0]).toContain("Partially Mission Capable");
+    expect(r.bluf[1]).toContain("ARFF Cat 7");
+    expect(r.asks).toContain("Approve ARFF contract truck by 1800Z");
+    expect(r.watch.length).toBeGreaterThan(0);
   });
 });

@@ -14,7 +14,7 @@ const CAP_TXT: Record<Capability, string> = { fmc: "FMC", pmc: "PMC", nmc: "NMC"
 const CAP_LONG: Record<Capability, string> = { fmc: "Fully", pmc: "Partially", nmc: "Non-", unknown: "Status" };
 const CAP_BAR: Record<Capability, string> = { fmc: "border-emerald-500/40", pmc: "border-l-amber-400", nmc: "border-l-red-500", unknown: "border-l-slate-600" };
 
-interface ReadState { bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean }
+interface ReadState { bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean; ai?: boolean; reason?: string; detail?: string }
 
 export default function SitrepMissionImpact({
   payload, read, readLoading, readError, onRetryRead, onChanged,
@@ -82,35 +82,44 @@ export default function SitrepMissionImpact({
         </div>
       )}
 
-      {/* Commander's Read — moved up under the top-line */}
-      {(readLoading || read || readError) && (
+      {/* Commander's Read — moved up under the top-line. Never blank: when the
+          AI model is off or erroring, the server returns a deterministic
+          mission-derived read (ai:false) and we badge it as auto + offer Retry. */}
+      {(readLoading || read || readError) && (() => {
+        const isAuto = Boolean(read && read.ai === false);
+        const showRetry = Boolean(onRetryRead && !readLoading && (readError || isAuto));
+        return (
         <div className="border border-amber-500/30 bg-amber-500/[0.04] rounded-xl px-3.5 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300/90 mb-1.5">
-            ✦ Commander&apos;s Read — for leadership {readLoading ? <span className="font-normal normal-case text-slate-500">— generating…</span> : read?.disabled ? <span className="font-normal normal-case text-slate-500">— AI is off</span> : readError ? <span className="font-normal normal-case text-slate-500">— unavailable</span> : null}
-          </p>
-          {readError && !readLoading && (
-            <div className="flex items-center gap-2">
-              <p className="text-[11px] text-slate-400">The read couldn&apos;t be generated (transient error). The signals below are unaffected.</p>
-              {onRetryRead && <button onClick={onRetryRead} className="ml-auto flex-shrink-0 text-[9px] font-bold uppercase tracking-wider text-amber-300 border border-amber-500/40 rounded px-2 py-0.5 hover:bg-amber-500/10">↻ Retry</button>}
-            </div>
+          <div className="flex items-start gap-2 mb-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300/90">
+              ✦ Commander&apos;s Read — for leadership {readLoading ? <span className="font-normal normal-case text-slate-500">— generating…</span> : isAuto ? <span className="font-normal normal-case text-slate-500">— auto summary (AI unavailable)</span> : readError ? <span className="font-normal normal-case text-slate-500">— unavailable</span> : null}
+            </p>
+            {showRetry && <button onClick={onRetryRead} className="ml-auto flex-shrink-0 text-[9px] font-bold uppercase tracking-wider text-amber-300 border border-amber-500/40 rounded px-2 py-0.5 hover:bg-amber-500/10">↻ Retry AI</button>}
+          </div>
+          {readError && !readLoading && !read && (
+            <p className="text-[11px] text-slate-400">The read couldn&apos;t be generated. The signals below are unaffected.</p>
           )}
-          {read && !read.disabled && (
+          {read && read.bluf.length > 0 && (
             <>
               <ul className="space-y-1.5">
                 {read.bluf.map((b, i) => (
-                  <li key={i} className="text-xs text-slate-200 leading-relaxed pl-4 relative"><span className="absolute left-0 text-amber-400">▸</span>{b}</li>
+                  <li key={i} className="text-xs text-slate-200 leading-relaxed pl-4 relative break-words"><span className="absolute left-0 text-amber-400">▸</span>{b}</li>
                 ))}
               </ul>
               {read.asks && read.asks.length > 0 && (
-                <p className="text-[10.5px] mt-2 text-amber-300"><span className="font-bold uppercase tracking-wider text-[9px]">Asks to leadership:</span> {read.asks.join(" · ")}</p>
+                <p className="text-[10.5px] mt-2 text-amber-300 break-words"><span className="font-bold uppercase tracking-wider text-[9px]">Asks to leadership:</span> {read.asks.join(" · ")}</p>
               )}
               {read.watch.length > 0 && (
-                <p className="text-[10.5px] text-slate-400 mt-1"><span className="font-bold text-slate-500 uppercase tracking-wider text-[9px]">Watch:</span> {read.watch.join(" · ")}</p>
+                <p className="text-[10.5px] text-slate-400 mt-1 break-words"><span className="font-bold text-slate-500 uppercase tracking-wider text-[9px]">Watch:</span> {read.watch.join(" · ")}</p>
+              )}
+              {isAuto && (
+                <p className="text-[9px] text-slate-600 mt-2 leading-snug">Built from the mission signals below without the AI model — the model call {read.reason === "no-key" || read.reason === "feature-off" ? "is disabled" : "failed"}. Tap “Retry AI” for the synthesized version.</p>
               )}
             </>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* Mission capability by function */}
       <div>

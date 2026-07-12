@@ -6,6 +6,7 @@ import { normEmail } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { assembleSitrep } from "@/lib/sitrep";
+import { fallbackCommanderRead } from "@/lib/limfac";
 import { extractJsonObject } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
@@ -14,16 +15,20 @@ export const dynamic = "force-dynamic";
 // the assembled SITREP (server-side — the payload comes from the same 10-min
 // cache the pane reads, so this costs one model call, not a re-fetch fan-out).
 // Gated on the chat AI feature; cached 15 min per base + status fingerprint.
+//
+// NEVER blank: if AI is off or the model call fails, we return a DETERMINISTIC
+// read built from the mission picture (ai:false), so leadership always sees a
+// BLUF. Only a failure to assemble the SITREP itself is a hard error.
 const TTL = 15 * 60 * 1000;
 const cache = new Map<string, { bluf: string[]; watch: string[]; asks: string[]; expires: number }>();
 
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ bluf: [], watch: [], asks: [], disabled: true });
 
   const prefs = await getUserPrefs().catch(() => null);
-  if (prefs && !isFeatureEnabled("chat", prefs)) return NextResponse.json({ bluf: [], watch: [], asks: [], disabled: true });
+  const aiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+  const featureOn = !prefs || isFeatureEnabled("chat", prefs);
 
   let body: { icao?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -31,7 +36,17 @@ export async function POST(req: Request) {
   const base = prefs?.sitrepBases.find((b) => b.icao === icao);
   if (!base) return NextResponse.json({ error: "Base not configured" }, { status: 404 });
 
-  const s = await assembleSitrep(base);
+  let s;
+  try { s = await assembleSitrep(base); }
+  catch (err) {
+    console.error("sitrep read — assembly failed:", err);
+    return NextResponse.json({ error: "SITREP assembly failed", detail: String(err instanceof Error ? err.message : err) }, { status: 500 });
+  }
+
+  // AI off (no key or feature disabled) → deterministic read, never a blank card.
+  if (!aiKey || !featureOn) {
+    return NextResponse.json({ ...fallbackCommanderRead(s.mission, base.icao), ai: false, reason: aiKey ? "feature-off" : "no-key" });
+  }
   const fingerprint = [
     s.status.wx, s.status.ops, s.status.threat, s.status.infra,
     s.mission.state, s.mission.limfacs.length, s.mission.ccir.length,
@@ -40,7 +55,7 @@ export async function POST(req: Request) {
   ].join("|");
   const cacheKey = `${icao}|${fingerprint}`;
   const hit = cache.get(cacheKey);
-  if (hit && hit.expires > Date.now()) return NextResponse.json({ bluf: hit.bluf, watch: hit.watch, asks: hit.asks, cached: true });
+  if (hit && hit.expires > Date.now()) return NextResponse.json({ bluf: hit.bluf, watch: hit.watch, asks: hit.asks, ai: true, cached: true });
 
   const lines: string[] = [];
   lines.push(`BASE: ${base.icao} — ${base.label}`);
@@ -110,11 +125,16 @@ export async function POST(req: Request) {
       watch = Array.isArray(p.watch) ? p.watch.map((x) => String(x).slice(0, 200)).slice(0, 3) : [];
       asks = Array.isArray(p.asks) ? p.asks.map((x) => String(x).slice(0, 250)).slice(0, 3) : [];
     } catch { /* fall through to empty */ }
-    if (bluf.length === 0) return NextResponse.json({ error: "Read generation failed" }, { status: 502 });
+    // Model returned nothing parseable → deterministic fallback, not a blank card.
+    if (bluf.length === 0) {
+      console.error("sitrep read — model returned no usable JSON:", raw.slice(0, 300));
+      return NextResponse.json({ ...fallbackCommanderRead(s.mission, base.icao), ai: false, reason: "model-empty" });
+    }
     cache.set(cacheKey, { bluf, watch, asks, expires: Date.now() + TTL });
-    return NextResponse.json({ bluf, watch, asks });
+    return NextResponse.json({ bluf, watch, asks, ai: true });
   } catch (err) {
-    console.error("sitrep read failed:", err);
-    return NextResponse.json({ error: "Read generation failed" }, { status: 500 });
+    console.error("sitrep read — model call failed:", err);
+    // The model is unreachable/erroring — fall back so leadership still gets a read.
+    return NextResponse.json({ ...fallbackCommanderRead(s.mission, base.icao), ai: false, reason: "model-error", detail: String(err instanceof Error ? err.message : err) });
   }
 }

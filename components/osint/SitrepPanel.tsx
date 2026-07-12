@@ -113,7 +113,7 @@ export default function SitrepPanel({ active }: { active: boolean }) {
   const [payload, setPayload] = useState<SitrepPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [read, setRead] = useState<{ bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean } | null>(null);
+  const [read, setRead] = useState<{ bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean; ai?: boolean; reason?: string; detail?: string } | null>(null);
   const [readLoading, setReadLoading] = useState(false);
   const [readError, setReadError] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
