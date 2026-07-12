@@ -107,9 +107,9 @@ export default function SitrepMissionImpact({
       {/* Mission capability by function */}
       <div>
         <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1.5">Mission capability by function</p>
-        <div className="grid sm:grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
           {mi.functions.map((f) => (
-            <div key={f.key} className="flex items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5 overflow-hidden">
+            <div key={f.key} className="flex items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5 overflow-hidden min-w-0">
               <span className={`text-[8px] font-extrabold font-mono px-1.5 py-0.5 rounded border w-10 text-center flex-shrink-0 ${CAP_PILL[f.capability]}`}>{CAP_TXT[f.capability]}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-[11px] font-semibold text-slate-200 leading-tight truncate">{f.label}{f.derived && <span className="ml-1 text-[8px] text-violet-300 font-bold">◆ derived</span>}</p>
