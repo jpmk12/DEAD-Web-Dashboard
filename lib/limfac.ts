@@ -42,6 +42,7 @@ export interface Limfac {
   ask?: string;
   ccir?: boolean;
   enteredBy?: string;     // manual attribution (display name/email)
+  stale?: boolean;        // manual LIMFAC whose window has passed but still active
 }
 
 export interface CcirFlag { key: string; text: string }
@@ -262,12 +263,17 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
   // ── Merge commander-entered LIMFACs ────────────────────────────────────────
   for (const m of manual) {
     if (m.status === "resolved") continue;
+    // A commander LIMFAC whose end window is in the past but which hasn't been
+    // resolved — prompt the entrant to confirm or clear it so leadership never
+    // sees a stale limitation. (Auto LIMFACs self-clear as their NOTAM expires.)
+    const endMs = m.toISO ? Date.parse(m.toISO) : NaN;
+    const stale = Number.isFinite(endMs) && endMs < nowMs;
     const lf: Limfac = {
       id: m.id, fn: m.fn, fnLabel: functionLabel(m.fn), capability: m.capability,
       source: "manual", status: m.status, window: isoWindow(m.fromISO, m.toISO),
       driver: m.driver, impact: m.impact,
       mitigation: m.mitigation ?? undefined, ask: m.ask ?? undefined,
-      ccir: m.ccir, enteredBy: m.enteredBy ?? undefined,
+      ccir: m.ccir, enteredBy: m.enteredBy ?? undefined, stale,
     };
     limfacs.push(lf);
     if (m.ccir) ccir.push({ key: `manual_${m.id}`, text: `${functionLabel(m.fn)}: ${m.driver}` });

@@ -133,6 +133,15 @@ describe("deriveMissionImpact — manual LIMFACs", () => {
     expect(m.ccir.some((c) => c.key === "manual_m-1")).toBe(true);
   });
 
+  it("flags a manual LIMFAC whose end window has passed as stale", () => {
+    const past = deriveMissionImpact(payload(), [manual({ toISO: iso(NOW - 2 * H) })]);
+    expect(past.limfacs[0].stale).toBe(true);
+    const future = deriveMissionImpact(payload(), [manual({ toISO: iso(NOW + 2 * H) })]);
+    expect(future.limfacs[0].stale).toBe(false);
+    const openEnded = deriveMissionImpact(payload(), [manual({ toISO: null })]);
+    expect(openEnded.limfacs[0].stale).toBe(false);
+  });
+
   it("resolved manual entries are ignored", () => {
     const m = deriveMissionImpact(payload(), [manual({ status: "resolved" })]);
     expect(m.limfacs).toHaveLength(0);

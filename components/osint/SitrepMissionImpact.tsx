@@ -51,6 +51,12 @@ export default function SitrepMissionImpact({
     onChanged();
   };
 
+  // "Keep active" — drop the passed end window so the stale nudge clears.
+  const keepActive = async (id: string) => {
+    await fetch("/api/sitrep/limfac", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "extend", id }) }).catch(() => {});
+    onChanged();
+  };
+
   return (
     <div className="border border-slate-800 bg-slate-900/50 rounded-2xl p-3.5 space-y-3">
       {/* Mission-capability state */}
@@ -142,10 +148,16 @@ export default function SitrepMissionImpact({
                 {l.mitigation && <p><span className="text-slate-500 font-semibold text-[9px] uppercase tracking-wider">Mitigation:</span> {l.mitigation}</p>}
                 {l.ask && <p className="text-amber-300"><span className="font-semibold text-[9px] uppercase tracking-wider">Ask:</span> {l.ask}</p>}
               </div>
+              {l.stale && (
+                <div className="mt-1.5 flex items-center gap-2 border border-amber-500/40 bg-amber-500/[0.08] rounded px-2 py-1">
+                  <span className="text-[10px] text-amber-300">⏳ Window passed{l.window ? ` (${l.window})` : ""} — still active? Resolve or update.</span>
+                </div>
+              )}
               {l.source === "manual" && (
                 <div className="flex items-center gap-2 mt-1.5">
                   {l.enteredBy && <span className="text-[8.5px] text-slate-600 font-mono">— {l.enteredBy}</span>}
-                  <button onClick={() => setStatus(l.id, "resolved")} className="ml-auto text-[9px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-0.5 hover:bg-emerald-500/10">✓ Resolve</button>
+                  {l.stale && <button onClick={() => keepActive(l.id)} className="ml-auto text-[9px] font-bold uppercase tracking-wider text-slate-400 border border-slate-600 rounded px-2 py-0.5 hover:bg-slate-700/30">Keep active</button>}
+                  <button onClick={() => setStatus(l.id, "resolved")} className={`${l.stale ? "" : "ml-auto"} text-[9px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-0.5 hover:bg-emerald-500/10`}>✓ Resolve</button>
                 </div>
               )}
             </div>

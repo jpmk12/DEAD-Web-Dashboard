@@ -98,6 +98,17 @@ export async function updateLimfacStatus(id: string, status: LimfacStatus): Prom
   return res.affectedRows > 0;
 }
 
+// "Keep active" on a stale LIMFAC: drop the (passed) end window so it reads as
+// open-ended (UFN) and stops nagging, while staying on the register.
+export async function openEndLimfac(id: string): Promise<boolean> {
+  const pool = await getDb();
+  const [res] = await pool.execute(
+    "UPDATE sitrep_limfacs SET to_iso = NULL, status = 'ongoing', updated_at = NOW(3) WHERE id = ?",
+    [id]
+  ) as unknown as [{ affectedRows: number }];
+  return res.affectedRows > 0;
+}
+
 export async function deleteLimfac(id: string): Promise<void> {
   const pool = await getDb();
   await pool.execute("DELETE FROM sitrep_limfacs WHERE id = ?", [id]);

@@ -58,7 +58,7 @@ export function renderSitrepHtml(p: SitrepPayload, read: { bluf: string[]; watch
   }).join("");
   const limfacHtml = mi.limfacs.map((l) => {
     const cap = CAP_HTML[l.capability] ?? CAP_HTML.unknown;
-    return `<div class="lf lf-${cap.cls}"><div class="lf-h"><span class="lf-id">${esc(l.id)}</span> <b>${esc(l.fnLabel)} — ${cap.label}</b> <span class="lf-src">${l.source === "manual" ? "commander" : "auto"}${l.ccir ? " · CCIR" : ""}</span>${l.window ? `<span class="lf-win">${esc(l.window)}</span>` : ""}</div>`
+    return `<div class="lf lf-${cap.cls}"><div class="lf-h"><span class="lf-id">${esc(l.id)}</span> <b>${esc(l.fnLabel)} — ${cap.label}</b> <span class="lf-src">${l.source === "manual" ? "commander" : "auto"}${l.ccir ? " · CCIR" : ""}</span>${l.window ? `<span class="lf-win">${esc(l.window)}${l.stale ? " ⏳ window passed" : ""}</span>` : ""}</div>`
       + `<div class="lf-b"><b>Driver:</b> ${esc(l.driver)}</div>`
       + `<div class="lf-b"><b>Impact:</b> ${esc(l.impact)}</div>`
       + (l.mitigation ? `<div class="lf-b"><b>Mitigation:</b> ${esc(l.mitigation)}</div>` : "")

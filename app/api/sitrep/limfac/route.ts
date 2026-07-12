@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { normEmail } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { resetSitrepCache } from "@/lib/sitrep";
-import { listLimfacs, createLimfac, updateLimfacStatus, deleteLimfac, type LimfacInput } from "@/lib/limfacStore";
+import { listLimfacs, createLimfac, updateLimfacStatus, openEndLimfac, deleteLimfac, type LimfacInput } from "@/lib/limfacStore";
 import type { Capability, LimfacStatus } from "@/lib/limfac";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +41,16 @@ export async function POST(req: Request) {
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     const ok = await updateLimfacStatus(id, status);
     if (!ok) return NextResponse.json({ error: "Invalid status or id" }, { status: 400 });
+    resetSitrepCache();
+    return NextResponse.json({ ok: true });
+  }
+
+  // "Keep active" on a stale LIMFAC — drop the passed end window (→ UFN).
+  if (body.op === "extend") {
+    const id = String(body.id ?? "");
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const ok = await openEndLimfac(id);
+    if (!ok) return NextResponse.json({ error: "id not found" }, { status: 400 });
     resetSitrepCache();
     return NextResponse.json({ ok: true });
   }
