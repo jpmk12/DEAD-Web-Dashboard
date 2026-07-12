@@ -22,6 +22,20 @@ export const dynamic = "force-dynamic";
 const TTL = 15 * 60 * 1000;
 const cache = new Map<string, { bluf: string[]; watch: string[]; asks: string[]; expires: number }>();
 
+// Fast model for the structured BLUF — this route must return well inside the
+// platform gateway timeout, and haiku completes in seconds.
+const READ_MODEL = "claude-haiku-4-5";
+
+// Reject if `p` hasn't settled within `ms` — a hard ceiling on the model call so
+// a hung request can't idle the origin into a gateway 502.
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`model deadline ${ms}ms exceeded`)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -112,8 +126,21 @@ export async function POST(req: Request) {
 
   try {
     const modelStart = Date.now();
-    const resp = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 500, messages: [{ role: "user", content: prompt }] });
-    logCall({ route: "sitrep_read", model: "claude-sonnet-4-6", usage: resp.usage, durationMs: Date.now() - modelStart , user: normEmail(session.user?.email) }).catch(() => {});
+    // Hard-bound the model call. This route is a SINGLE non-streaming request, so
+    // the platform gateway (Cloudflare → GoDaddy airo) sees no bytes until the
+    // model finishes; a slow call — or the SDK's default 2 backoff retries — lets
+    // the origin idle past the gateway timeout and surfaces as a 502, before our
+    // catch/fallback can run. maxRetries:0 + an explicit SDK timeout + a hard
+    // race deadline guarantee we return (fallback if needed) inside the window.
+    // claude-haiku-4-5 keeps the structured BLUF fast (seconds, not tens).
+    const resp = await withDeadline(
+      anthropic.messages.create(
+        { model: READ_MODEL, max_tokens: 500, messages: [{ role: "user", content: prompt }] },
+        { timeout: 12_000, maxRetries: 0 },
+      ),
+      14_000,
+    );
+    logCall({ route: "sitrep_read", model: READ_MODEL, usage: resp.usage, durationMs: Date.now() - modelStart , user: normEmail(session.user?.email) }).catch(() => {});
     const textBlock = resp.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
     let bluf: string[] = [];
