@@ -40,7 +40,7 @@ export const CENTCOM_IRAN: WarningProblemDef = {
       warningProblem: "centcom_iran",
       description:
         "Escalatory strike / rhetoric news signal — airstrike, missile, invasion, mobilization phrasing geolocated to the CENTCOM AOR, corroborated across sources.",
-      sourceFeed: "conflictNews.scoreConflictNews (GDELT DOC + OSINT feeds)",
+      sourceFeed: "GDELT DOC, corroborated by your imported X + newsletters + OSINT feeds (own-source only caps at watch)",
       weight: 0.6,
       falsifier: "No escalation-phrase reporting corroborated by ≥2 independent sources in a rolling 72h window.",
       provenance: "CSIS/ISW open reporting cadence; Grabo 'communications & rhetoric' indicator class.",
@@ -81,7 +81,7 @@ export const CENTCOM_IRAN: WarningProblemDef = {
       warningProblem: "centcom_iran",
       description:
         "Strait of Hormuz interdiction signal — closure declarations, mining, tanker seizure or harassment reporting.",
-      sourceFeed: "conflictNews keyword layer (Hormuz closure/mining/seizure) [+ AIS anomaly when keyed]",
+      sourceFeed: "GDELT DOC Hormuz + interdiction scan, corroborated by your X/newsletters/OSINT feeds [+ AIS anomaly when keyed]",
       weight: 0.7,
       falsifier: "No Hormuz closure / seizure / mining reporting corroborated by ≥2 sources in a rolling 72h window.",
       provenance: "Open maritime-security reporting; historical Iran Hormuz-threat pattern.",

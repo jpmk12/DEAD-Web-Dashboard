@@ -8,11 +8,15 @@
 import type { IndicatorObservation, ObservedState } from "./warning";
 import { getConflictPoints } from "./conflictEvents";
 import { getDisasters, haversineKm } from "./disasters";
-import { getConflictNewsByCountry } from "./conflictNews";
+import { getConflictNewsByCountry, scoreConflictNews } from "./conflictNews";
 import { gdeltLocalNews } from "./localNews";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { getFirNotams } from "./airspace";
 import { isMobilityType, isTankerType } from "./aircraftTypes";
+import { getXItems } from "./xStore";
+import { getAllCachedSummaries } from "./newsletterCache";
+import { fetchFeed } from "./rss";
+import { getUserPrefs } from "./userPrefs";
 import type { NewsItem } from "./types";
 
 // ── AOR definition (Gulf / Iran / Levant approaches) ─────────────────────────
@@ -44,6 +48,43 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout>;
   const to = new Promise<null>((res) => { timer = setTimeout(() => res(null), ms); });
   return Promise.race([p.catch(() => null), to]).finally(() => clearTimeout(timer)) as Promise<T | null>;
+}
+
+// AOR relevance for free-text (X posts, newsletters, OSINT feeds aren't geo-
+// tagged) — a mention gate so only Gulf/Iran-relevant items feed the score.
+const AOR_TERMS = /\b(iran|iranian|tehran|irgc|iraq|iraqi|israel|israeli|\bidf\b|yemen|houthi|hormuz|persian gulf|arabian gulf|strait of hormuz|red sea|bab.?el.?mandeb|saudi|riyadh|qatar|doha|bahrain|manama|kuwait|\buae\b|emirates|abu dhabi|dubai|oman|muscat|syria|lebanon|hezbollah|hizbollah|centcom)\b/i;
+const aorRelevant = (n: NewsItem): boolean => AOR_TERMS.test(`${n.title} ${n.summary ?? ""}`);
+
+// The user's OWN curated sources — imported X captures, newsletters, and the
+// configured OSINT RSS/Telegram feeds. These often break a warning indicator
+// before wire news does, but they're single-source: they raise confidence and
+// can trip a WATCH, but only CORROBORATE (never alone confirm) — the scoring
+// blends them so a social-only signal caps at watching. All fail-safe; the
+// `sources` set drives provenance. Bounded so the fan-out can't hang the request.
+async function gatherUserSourceNews(): Promise<{ items: NewsItem[]; sources: Set<string> }> {
+  const sources = new Set<string>();
+  const items: NewsItem[] = [];
+
+  const xs = await withTimeout(getXItems(), 6000);
+  if (xs) for (const x of xs) items.push({ id: `x-${x.id}`, title: x.text, source: `𝕏 @${x.handle}`, category: "social", pubDate: x.postedAt ?? x.importedAt, summary: "", link: x.url });
+
+  const nls = await withTimeout(getAllCachedSummaries(), 6000);
+  if (nls) for (const s of nls) items.push({ id: `nl-${s.id}`, title: s.subject, source: `✉ ${s.source}`, category: "newsletter", pubDate: s.date, summary: s.bullets.join(" · "), link: "" });
+
+  const prefs = await withTimeout(getUserPrefs(), 6000);
+  const feeds = (prefs?.osintFeeds ?? []).slice(0, 12);
+  if (feeds.length) {
+    const results = await Promise.all(feeds.map((f) => withTimeout(fetchFeed(f.url, f.label, f.kind), 8000)));
+    for (const r of results) if (r?.items) for (const it of r.items) items.push(it);
+  }
+
+  const relevant = items.filter(aorRelevant);
+  for (const n of relevant) {
+    if (n.source.startsWith("𝕏")) sources.add("X");
+    else if (n.source.startsWith("✉")) sources.add("newsletters");
+    else sources.add("OSINT feeds");
+  }
+  return { items: relevant, sources };
 }
 
 const nowIso = () => new Date().toISOString();
@@ -92,7 +133,7 @@ async function fetchMilAircraft(): Promise<MilAc[] | null> {
 
 // ── Gather all observations for CENTCOM/Iran ─────────────────────────────────
 export async function gatherObservations(): Promise<GatherResult> {
-  const [conflictPts, disasters, newsByCountry, hormuzNewsRaw, advisories, milAc, firRes] = await Promise.all([
+  const [conflictPts, disasters, newsByCountry, hormuzNewsRaw, advisories, milAc, firRes, userSrc] = await Promise.all([
     withTimeout(getConflictPoints(), 10_000),
     withTimeout(getDisasters(), 10_000),
     withTimeout(getConflictNewsByCountry(GULF_COUNTRIES), 12_000),
@@ -100,8 +141,12 @@ export async function gatherObservations(): Promise<GatherResult> {
     withTimeout(getAllStateAdvisories(), 10_000),
     withTimeout(fetchMilAircraft(), 10_000),
     withTimeout(getFirNotams(AOR_FIRS), 12_000),
+    gatherUserSourceNews().catch(() => ({ items: [] as NewsItem[], sources: new Set<string>() })),
   ]);
   const hormuzNews = hormuzNewsRaw ?? [];
+  const userNews = userSrc?.items ?? [];
+  const userSources = userSrc?.sources ?? new Set<string>();
+  const userSrcLabel = userSources.size ? ` + your ${[...userSources].join("/")}` : "";
 
   const observations: IndicatorObservation[] = [];
   const health: SensorHealth[] = [];
@@ -117,16 +162,27 @@ export async function gatherObservations(): Promise<GatherResult> {
     health.push({ indicatorId: "conflict_intensity_gulf", live: false, note: "conflict-event feed unreachable" });
   }
 
-  // 2) escalatory_strike_signal ← conflict-news escalation across AOR states.
-  if (newsByCountry) {
-    const signals = GULF_COUNTRIES.map((c) => newsByCountry[c.toLowerCase()]).filter(Boolean);
-    const escalatingCountries = signals.filter((s) => s?.escalation).length;
-    const total = signals.reduce((s, sig) => s + (sig?.count || 0), 0);
-    const state: ObservedState = escalatingCountries >= 2 ? "confirmed" : escalatingCountries === 1 ? "active" : total > 0 ? "watching" : "dormant";
-    observations.push(obs("escalatory_strike_signal", "conflictNews", state, state === "dormant" ? 0 : 0.7, "GDELT DOC + OSINT feeds, escalation-phrase scan across AOR states", total));
+  // 2) escalatory_strike_signal ← GDELT escalation across AOR states, CORROBORATED
+  // by the user's own X/newsletters/OSINT feeds. Discipline: wire+own-source
+  // agreement confirms; GDELT-only follows its own scale; own-source-ONLY (e.g. a
+  // single X capture) caps at WATCH — social raises confidence, never confirms alone.
+  const userEsc = scoreConflictNews(userNews);
+  if (newsByCountry || userNews.length) {
+    const signals = newsByCountry ? GULF_COUNTRIES.map((c) => newsByCountry[c.toLowerCase()]).filter(Boolean) : [];
+    const gdeltEsc = signals.filter((s) => s?.escalation).length;
+    const gdeltTotal = signals.reduce((s, sig) => s + (sig?.count || 0), 0);
+    const total = gdeltTotal + userEsc.count;
+    let state: ObservedState; let conf: number;
+    if (gdeltEsc >= 1 && userEsc.escalation) { state = "confirmed"; conf = 0.85; }  // corroborated wire + own sources
+    else if (gdeltEsc >= 2) { state = "confirmed"; conf = 0.75; }
+    else if (gdeltEsc === 1) { state = "active"; conf = 0.7; }
+    else if (userEsc.escalation) { state = "watching"; conf = 0.5; }                // own-source only → don't confirm
+    else if (total > 0) { state = "watching"; conf = 0.55; }
+    else { state = "dormant"; conf = 0; }
+    observations.push(obs("escalatory_strike_signal", "conflictNews", state, conf, `GDELT DOC escalation scan across AOR states${userSrcLabel}`, total));
     health.push({ indicatorId: "escalatory_strike_signal", live: true });
   } else {
-    health.push({ indicatorId: "escalatory_strike_signal", live: false, note: "conflict-news feed unreachable" });
+    health.push({ indicatorId: "escalatory_strike_signal", live: false, note: "conflict-news + your-source feeds unreachable" });
   }
 
   // Implied demand (for the divergence) = any high-signal trigger present.
@@ -146,10 +202,10 @@ export async function gatherObservations(): Promise<GatherResult> {
     else { quadrant = "quiet"; state = "dormant"; }
     observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs) × implied demand`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true });
-    return finalize(observations, health, { impliedHigh, observedHigh, observedCount, quadrant }, advisories, neoTriggers, hormuzNews, firRes);
+    return finalize(observations, health, { impliedHigh, observedHigh, observedCount, quadrant }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
   } else {
     health.push({ indicatorId: "mobility_divergence", live: false, note: "community ADS-B mirrors unreachable" });
-    return finalize(observations, health, { impliedHigh, observedHigh: false, observedCount: 0, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, hormuzNews, firRes);
+    return finalize(observations, health, { impliedHigh, observedHigh: false, observedCount: 0, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
   }
 }
 
@@ -161,6 +217,8 @@ function finalize(
   neoTriggers: { orderedDeparture: boolean; authorizedDeparture: boolean; level: number | null }[],
   hormuzNews: NewsItem[],
   firRes: Awaited<ReturnType<typeof getFirNotams>> | null,
+  userNews: NewsItem[],
+  userSrcLabel: string,
 ): GatherResult {
   // 4) neo_departure_posture ← State Dept ordered/authorized departure or Level-4.
   if (advisories) {
@@ -174,15 +232,23 @@ function finalize(
     health.push({ indicatorId: "neo_departure_posture", live: false, note: "State advisory feed unreachable" });
   }
 
-  // 5) hormuz_interdiction_signal ← Hormuz closure/mining/seizure reporting.
+  // 5) hormuz_interdiction_signal ← Hormuz closure/mining/seizure reporting, from
+  // GDELT AND the user's own sources (corroboration; own-source-only caps at watch).
   const HORMUZ_TERMS = ["hormuz", "strait"];
   const INTERDICT = ["clos", "mine", "mining", "seiz", "seized", "block", "impound", "attack", "harass"];
-  const hits = (hormuzNews ?? []).filter((a) => {
+  const scan = (arr: NewsItem[]): number => arr.filter((a) => {
     const h = `${a.title} ${a.summary ?? ""}`.toLowerCase();
     return HORMUZ_TERMS.some((t) => h.includes(t)) && INTERDICT.some((t) => h.includes(t));
-  });
-  const hState: ObservedState = hits.length >= 2 ? "active" : hits.length === 1 ? "watching" : "dormant";
-  observations.push(obs("hormuz_interdiction_signal", "conflictNews", hState, hState === "dormant" ? 0 : 0.6, "GDELT DOC 'Strait of Hormuz' + interdiction-term scan", hits.length));
+  }).length;
+  const gdeltHits = scan(hormuzNews ?? []);
+  const userHits = scan(userNews);
+  let hState: ObservedState; let hConf: number;
+  if (gdeltHits >= 1 && userHits >= 1) { hState = "active"; hConf = 0.75; }   // corroborated
+  else if (gdeltHits >= 2) { hState = "active"; hConf = 0.6; }
+  else if (gdeltHits === 1) { hState = "watching"; hConf = 0.55; }
+  else if (userHits >= 1) { hState = "watching"; hConf = 0.45; }              // own-source only
+  else { hState = "dormant"; hConf = 0; }
+  observations.push(obs("hormuz_interdiction_signal", "conflictNews", hState, hConf, `GDELT DOC 'Strait of Hormuz' + interdiction scan${userSrcLabel}`, gdeltHits + userHits));
   health.push({ indicatorId: "hormuz_interdiction_signal", live: true });
 
   // 6) airspace_gps_disruption ← Gulf FIR closure/overflight NOTAMs (best-effort).

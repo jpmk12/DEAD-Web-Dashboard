@@ -1337,6 +1337,16 @@ the marquee sensor, not a peer board.
   advisories, DAIP FIR NOTAMs, disasters. Every feed is `withTimeout`-bounded (the
   SITREP-read 502 lesson — a slow feed degrades to "unreachable", never a hang);
   UNKNOWN ≠ clear (unreachable sensor → dormant + flagged in `sensorHealth`).
+- **User-source corroboration** (`gatherUserSourceNews`): the escalation + Hormuz
+  indicators also read the user's OWN curated sources — imported **X** captures
+  (`getXItems`), **newsletters** (`getAllCachedSummaries`), and configured **OSINT
+  RSS/Telegram feeds** (`fetchFeed` over `prefs.osintFeeds`) — AOR-mention-gated
+  and scored with the same `scoreConflictNews` vocabulary. Anti-noise discipline:
+  wire+own-source agreement → **confirmed**; GDELT alone follows its own scale;
+  **own-source-ONLY (e.g. a single X post) caps at WATCH** — social raises
+  confidence and can trip a watch, never alone confirms. Provenance names which of
+  your sources corroborated. Bounded + fail-safe (no new dep; esbuild `0`). NOT
+  wired: the configured News-tab RSS sites (redundant with the GDELT base for now).
 - **Store** `lib/warningStore.ts` + `warning_daily` table (additive): one daily
   rollup row per problem; **baseline = trailing-mean raw_score over prior days**,
   same lazy day-rollup pattern as `sitrep_status_daily`. NO GitHub-Actions cron
