@@ -36,6 +36,20 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (day, icao)
   ) ENGINE=InnoDB`,
 
+  // Daily Indications & Warning rollup — one row per warning problem per UTC day
+  // (latest computed score wins). Powers the baseline (trailing-mean raw_score,
+  // so the board scores ANOMALY not level) and the trajectory series. Same
+  // lazy-on-request, day-rollup pattern as sitrep_status_daily / force_posture_daily.
+  `CREATE TABLE IF NOT EXISTS warning_daily (
+    problem_id VARCHAR(64) NOT NULL,
+    day        VARCHAR(10) NOT NULL,
+    raw_score  DOUBLE      NOT NULL,
+    anomaly    DOUBLE      NOT NULL,
+    level      VARCHAR(16) NOT NULL,
+    updated_at DATETIME(3) NOT NULL,
+    PRIMARY KEY (problem_id, day)
+  ) ENGINE=InnoDB`,
+
   // Imported X (Twitter) posts from dead-x-capture bookmarklet files. Post id
   // is the PK so re-importing the same capture is idempotent. Pruned on every
   // import: rows older than 14 days (by import time) and beyond the newest

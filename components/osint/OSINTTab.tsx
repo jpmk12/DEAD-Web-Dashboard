@@ -7,6 +7,7 @@ import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import GroundTruthTab from "@/components/ground/GroundTruthTab";
 import SitrepPanel from "@/components/osint/SitrepPanel";
+import WarningBoard from "@/components/osint/WarningBoard";
 import XImportCard from "@/components/osint/XImportCard";
 
 // Leaflet uses window/document at import time, so we have to load the map
@@ -41,7 +42,7 @@ interface FeedSummary {
   fetchedAt?: number;
 }
 
-type Pane = "all" | "social" | "telegram" | "news" | "crisis" | "ground" | "sitrep";
+type Pane = "all" | "social" | "telegram" | "news" | "crisis" | "ground" | "sitrep" | "iw";
 type Priority = "High" | "Medium" | "Low";
 
 const PRIORITY_PILL: Record<Priority, string> = {
@@ -91,7 +92,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   useEffect(() => {
     const onSetPane = (e: Event) => {
       const p = (e as CustomEvent<string>).detail;
-      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "ground" || p === "sitrep") setPane(p as Pane);
+      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "ground" || p === "sitrep" || p === "iw") setPane(p as Pane);
     };
     window.addEventListener("osint:set-pane", onSetPane);
     return () => window.removeEventListener("osint:set-pane", onSetPane);
@@ -141,7 +142,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const filtered = useMemo(() => {
     let base: OsintItem[];
     if (pane === "all") base = items;
-    else if (pane === "crisis" || pane === "ground" || pane === "sitrep") base = [];
+    else if (pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw") base = [];
     else base = items.filter((i) => i.feedKind === pane);
 
     if (timeWindow === "all") return base;
@@ -475,7 +476,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // here too (no token cost — these are the same free endpoints the maps use).
   const [contacts, setContacts] = useState<{ mil: number; vessels: number; watched: string[] }>({ mil: 0, vessels: 0, watched: [] });
   useEffect(() => {
-    if (!active || pane === "crisis" || pane === "ground" || pane === "sitrep") return;
+    if (!active || pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw") return;
     if (!Number.isFinite(homeLat) || !Number.isFinite(homeLon)) return;
     let cancelled = false;
     const poll = async () => {
@@ -676,6 +677,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           { id: "crisis",    label: "Crisis",   n: null             },
           { id: "ground",    label: "Regional", n: null             },
           { id: "sitrep",    label: "SITREP",   n: null             },
+          { id: "iw",        label: "I&W",      n: null             },
         ] as const).map((p) => (
           <button
             key={p.id}
@@ -696,7 +698,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
 
       {/* Time-window filter — only meaningful for the feed-list panes, hidden
           on the map panes where there are no items to filter. */}
-      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && (
+      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && (
         <div className="flex items-center gap-1.5 -mt-2 text-[10px]">
           <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Window</span>
           {(["all", "4h", "24h", "7d"] as const).map((w) => (
@@ -724,9 +726,10 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       {/* Ground Truth — per-country situation room for the Force Protection watch */}
       {pane === "ground" && <GroundTruthTab active={active} />}
       {pane === "sitrep" && <SitrepPanel active={active && pane === "sitrep"} />}
+      {pane === "iw" && <WarningBoard active={active && pane === "iw"} />}
 
       {/* Feed list pane */}
-      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && (
+      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && (
         <>
           {/* X capture import — upload dead-x-capture JSON files (bookmarklet
               output); imported posts ride the feed as kind "social". */}

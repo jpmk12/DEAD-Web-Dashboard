@@ -1309,6 +1309,48 @@ trends affecting **access, basing, and overflight***. The TradingView widgets +
 - UI (`MarketsTab` + `EconomicAccessPanel`): energy strip, the AI read, a
   chokepoint watch, and a sanctions/overflight/basing news filter. No new dep.
 
+### Indications & Warning (OSINT "I&W" sub-pane — the sensor→fusion→display spine)
+A doctrine-grounded I&W board: warning is about **anomaly & trajectory, not
+level** (Grabo). Color is EARNED by the anomaly crossing a pre-registered
+threshold — calm by default (anti-"Christmas tree"). It is ONE pipeline
+(sensors → scoring → display), not two features; the airlift-demand divergence is
+the marquee sensor, not a peer board.
+- **Pure engine** `lib/warning.ts` (client-safe, tested): common
+  `IndicatorObservation` format → weight-of-evidence `rawScore` → **anomaly =
+  rawScore − baseline** (the hero number) → `levelFor` (calm/watch/warning/alert;
+  **learning-mode caps at watch** until a real baseline exists, §9.4) +
+  `trajectoryFor` + **drivers[]** (top 2-3 movers — the board proposes, the
+  analyst disposes; a score with no visible drivers is not shippable). Sensor-
+  agnostic: adding a sensor never touches scoring.
+- **Taxonomy / provenance register** `lib/warningTaxonomy.ts` (pure data): the
+  first watch problem is **CENTCOM · Iran** — 6 indicators (conflict intensity,
+  escalatory strike/rhetoric, **airlift mobility divergence**, NEO/departure
+  posture, airspace/GPS, Hormuz interdiction). EVERY indicator carries a
+  pre-registered **falsifier** and **open-doctrine provenance** (ISW/CSIS/RAND/
+  Grabo) + the required **decision-linkage**. Deliberately built from OPEN sources
+  — the *structure* of the board, not just the data, is the classification concern
+  (§6.1); the dashboard being auth-gated (allowlist) lowers but doesn't remove it.
+- **Sensors** `lib/warningSensors.ts` (server-only): normalize feeds THIS REPO
+  ALREADY HAS into observations — `conflictEvents`, `conflictNews`/`localNews`
+  (GDELT DOC), keyless community mil ADS-B (airplanes.live/adsb.lol, mobility/
+  tanker filter × implied-demand → the **divergence** off-diagonal), State Dept
+  advisories, DAIP FIR NOTAMs, disasters. Every feed is `withTimeout`-bounded (the
+  SITREP-read 502 lesson — a slow feed degrades to "unreachable", never a hang);
+  UNKNOWN ≠ clear (unreachable sensor → dormant + flagged in `sensorHealth`).
+- **Store** `lib/warningStore.ts` + `warning_daily` table (additive): one daily
+  rollup row per problem; **baseline = trailing-mean raw_score over prior days**,
+  same lazy day-rollup pattern as `sitrep_status_daily`. NO GitHub-Actions cron
+  and NO in-repo JSON snapshots (both fight the GoDaddy deploy model) — ingestion
+  is lazy-on-request. Cold start: baseline needs ~14 daily samples before it
+  trusts itself (learning mode until then).
+- **Assembler** `lib/warningAssess.ts` (server-only, 10-min cache) →
+  `/api/warning` GET → **`WarningBoard.tsx`** (OSINT pane chip "I&W"). App-native
+  slate/amber/red palette, **red reserved strictly for ALERT**. Unofficial-posture
+  + ACLED/source attribution footer. No new npm dep (esbuild stays `0`).
+- **NOT built (later phases):** additional watch problems; ACLED (uses the
+  existing cookie-login lib, NOT OAuth) / OpenSky corroboration / gpsjam cell
+  density as first-class sensors; analyst annotation / decision-log surface.
+
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
 embeds, GDELT (DOC, local news), U.S. State Dept (`travel.state.gov` — the
