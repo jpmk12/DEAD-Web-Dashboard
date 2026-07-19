@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
 import { getXItems, type StoredXItem } from "@/lib/xStore";
+import { getCapturedArticles, type StoredArticle } from "@/lib/articleStore";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +230,21 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
 // Imported X posts (dead-x-capture files, lib/xStore) ride the feed as kind
 // "social" so they inherit clustering / triage / watchlist / trends for free.
 // Best-effort: no DB (or an empty store) just contributes nothing.
+// Captured analysis articles (reader-capture, lib/articleStore) ride the feed as
+// kind "news" so they're visible alongside everything else.
+function articleToOsint(a: { id: string; url: string; title: string; source: string; byline: string | null; publishedAt: string | null; text: string; capturedAt: string }): OsintItem {
+  return {
+    id: `cap:${a.id}`,
+    title: a.title.slice(0, 200),
+    link: a.url,
+    pubDate: a.publishedAt ?? a.capturedAt,
+    summary: `${a.byline ? `${a.byline} — ` : ""}${a.text}`.slice(0, 400),
+    feedId: "article-capture",
+    feedLabel: `📄 ${a.source}`,
+    feedKind: "news",
+  };
+}
+
 function xToOsint(x: StoredXItem): OsintItem {
   const quoted = x.quoted?.text
     ? ` ⟪quoting ${x.quoted.handle ? `@${x.quoted.handle}` : x.quoted.author || "post"}: ${x.quoted.text.slice(0, 140)}⟫`
@@ -252,7 +268,8 @@ export async function GET() {
   const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const feeds = prefs?.osintFeeds ?? [];
   const xItems = await getXItems().catch(() => [] as StoredXItem[]);
-  if (feeds.length === 0 && xItems.length === 0) return NextResponse.json({ feeds: [], items: [] });
+  const articles = await getCapturedArticles(200).catch(() => [] as StoredArticle[]);
+  if (feeds.length === 0 && xItems.length === 0 && articles.length === 0) return NextResponse.json({ feeds: [], items: [] });
 
   // Per-feed cache so a single broken feed doesn't burn the whole batch.
   // Race the whole batch against an overall budget so a wedged feed can't
@@ -284,8 +301,8 @@ export async function GET() {
   );
   const results = await Promise.race([fetchAll, budget]);
 
-  // Flat merge sorted by pubDate desc — live feeds plus imported X posts.
-  const flat = [...results.flatMap((r) => r.items), ...xItems.map(xToOsint)];
+  // Flat merge sorted by pubDate desc — live feeds, imported X posts, captured articles.
+  const flat = [...results.flatMap((r) => r.items), ...xItems.map(xToOsint), ...articles.map(articleToOsint)];
   flat.sort((a, b) => {
     const ta = new Date(a.pubDate).getTime();
     const tb = new Date(b.pubDate).getTime();
@@ -324,6 +341,9 @@ export async function GET() {
       // populated card but no row here means a stale server bundle).
       ...(xItems.length > 0
         ? [{ id: "x-import", label: "𝕏 Capture import", kind: "social", count: xItems.length, fetchedAt: Date.now(), ok: true }]
+        : []),
+      ...(articles.length > 0
+        ? [{ id: "article-capture", label: "📄 Article capture", kind: "news", count: articles.length, fetchedAt: Date.now(), ok: true }]
         : []),
     ],
     items: flat,

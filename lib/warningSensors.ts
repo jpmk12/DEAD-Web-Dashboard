@@ -15,6 +15,7 @@ import { getFirNotams } from "./airspace";
 import { isMobilityType, isTankerType } from "./aircraftTypes";
 import { getXItems } from "./xStore";
 import { getAllCachedSummaries } from "./newsletterCache";
+import { getCapturedArticles, articleToNewsItem } from "./articleStore";
 import { fetchFeed } from "./rss";
 import { getUserPrefs } from "./userPrefs";
 import {
@@ -75,6 +76,11 @@ async function gatherUserSourceNews(): Promise<{ items: NewsItem[]; sources: Set
   const nls = await withTimeout(getAllCachedSummaries(), 6000);
   if (nls) for (const s of nls) items.push({ id: `nl-${s.id}`, title: s.subject, source: `✉ ${s.source}`, category: "newsletter", pubDate: s.date, summary: s.bullets.join(" · "), link: "" });
 
+  // Captured analysis articles (reader-capture, e.g. WSJ via DoD MWR). A bigger
+  // body slice so escalation phrasing deeper in the piece still scores.
+  const arts = await withTimeout(getCapturedArticles(200), 6000);
+  if (arts) for (const a of arts) items.push({ ...articleToNewsItem(a, 2000), source: `📄 ${a.source}` });
+
   const prefs = await withTimeout(getUserPrefs(), 6000);
   const feeds = (prefs?.osintFeeds ?? []).slice(0, 12);
   if (feeds.length) {
@@ -86,6 +92,7 @@ async function gatherUserSourceNews(): Promise<{ items: NewsItem[]; sources: Set
   for (const n of relevant) {
     if (n.source.startsWith("𝕏")) sources.add("X");
     else if (n.source.startsWith("✉")) sources.add("newsletters");
+    else if (n.source.startsWith("📄")) sources.add("analysis");
     else sources.add("OSINT feeds");
   }
   return { items: relevant, sources };

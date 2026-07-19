@@ -39,6 +39,23 @@ collected posts → your own dashboard, authorized by a per-user token.
    uploads, and closes; the status line shows the result. Check the Social pane —
    the posts should appear in the feed.
 
+## Reader capture (articles you're reading)
+
+Separate from the scheduled X sweep: **click the toolbar icon while reading an
+article** (e.g. WSJ via DoD MWR Libraries) to capture *that* piece. The extension
+extracts the title/byline/date/body from the page you're on and uploads it to
+`<dashboard>/api/capture/article`. A green ✓ badge = captured; the article shows
+up in OSINT → feed (kind "news") and feeds the I&W corroboration layer.
+
+This is **manual, one article at a time** — the piece you chose to read — not a
+harvester. It runs in your own authenticated session; nothing is sent to the
+source. It's the same fair-use logic as the X capture: your access, your view,
+personal use in your private dashboard.
+
+If a page comes back with a thin/empty body, the source's DOM needs a selector
+tweak — they live at the top of `article.js`. Save the page (Ctrl/Cmd-S) and hand
+it to Claude to tune.
+
 ## How it works
 
 - `background.js` sets a `chrome.alarms` daily trigger. On fire it opens a

@@ -336,6 +336,23 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_xtok_user (user_email)
   ) ENGINE=InnoDB`,
 
+  // Captured analysis articles (the reader-capture flow) — single articles the
+  // user manually captures from content they're reading via their own access
+  // (e.g. DoD MWR Libraries WSJ). Rolling working set, not an archive.
+  `CREATE TABLE IF NOT EXISTS captured_articles (
+    id           VARCHAR(40)  NOT NULL,
+    url          VARCHAR(600) NOT NULL DEFAULT '',
+    title        VARCHAR(400) NOT NULL,
+    byline       VARCHAR(160) NULL,
+    published_at VARCHAR(32)  NULL,
+    source       VARCHAR(80)  NOT NULL DEFAULT 'Analysis',
+    text         MEDIUMTEXT   NOT NULL,
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    captured_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_capart_time (captured_at)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS signal_seen (
     id   VARCHAR(40) NOT NULL PRIMARY KEY,
     date VARCHAR(10) NOT NULL,

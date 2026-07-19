@@ -7,5 +7,5 @@
   "host_permissions": ["https://x.com/*", "https://twitter.com/*", "https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "options_page": "options.html",
-  "action": { "default_title": "DEAD X Auto-Capture — open options" }
+  "action": { "default_title": "DEAD Capture — click to capture the article you're reading (right-click → Options to configure)" }
 }

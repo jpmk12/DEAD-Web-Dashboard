@@ -7,6 +7,7 @@
 // X and never touches credentials — the token only authorizes the upload.
 
 import { collectXPosts } from "./collector.js";
+import { extractArticle } from "./article.js";
 
 const DEFAULTS = {
   dashboardUrl: "",
@@ -59,6 +60,46 @@ chrome.runtime.onMessage.addListener((m, _sender, send) => {
   if (type === "reschedule") { scheduleAlarm().then(() => send({ ok: true })); return true; }
   return false;
 });
+
+// Toolbar-icon click = "capture THIS article" (the piece you're reading). Manual,
+// on-demand — the reader-capture flow, separate from the scheduled list sweep.
+chrome.action.onClicked.addListener((tab) => { if (tab && tab.id != null) captureArticle(tab); });
+
+function badge(text, ok) {
+  chrome.action.setBadgeBackgroundColor({ color: ok ? "#10b981" : "#ef4444" });
+  chrome.action.setBadgeText({ text });
+  setTimeout(() => chrome.action.setBadgeText({ text: "" }), 4000);
+}
+
+async function captureArticle(tab) {
+  const c = await cfg();
+  if (!c.dashboardUrl || !c.token) { badge("SET", false); chrome.storage.local.set({ lastArticle: { at: new Date().toISOString(), ok: false, error: "Set dashboard URL + token in options first." } }); return; }
+  try {
+    const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractArticle });
+    const art = results && results[0] && results[0].result;
+    if (!art || !art.title || !art.text || art.text.length < 40) {
+      badge("?", false);
+      chrome.storage.local.set({ lastArticle: { at: new Date().toISOString(), ok: false, error: "Couldn't extract an article from this page." } });
+      return;
+    }
+    const up = await fetch(c.dashboardUrl.replace(/\/+$/, "") + "/api/capture/article", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + c.token },
+      body: JSON.stringify(art),
+    });
+    const d = await up.json().catch(() => ({}));
+    if (up.ok && d.ok) {
+      badge("✓", true);
+      chrome.storage.local.set({ lastArticle: { at: new Date().toISOString(), ok: true, title: d.title, source: d.source, total: d.total } });
+    } else {
+      badge("✗", false);
+      chrome.storage.local.set({ lastArticle: { at: new Date().toISOString(), ok: false, error: (d && d.error) || ("HTTP " + up.status) } });
+    }
+  } catch (e) {
+    badge("✗", false);
+    chrome.storage.local.set({ lastArticle: { at: new Date().toISOString(), ok: false, error: String((e && e.message) || e) } });
+  }
+}
 
 function waitForTabLoad(tabId, timeoutMs) {
   return new Promise((resolve) => {

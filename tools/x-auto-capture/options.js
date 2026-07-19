@@ -21,12 +21,16 @@ async function load() {
   $("durationSec").value = c.durationSec;
   $("maxPosts").value = c.maxPosts;
   $("enabled").checked = !!c.enabled;
-  renderStatus(raw.lastRun);
+  renderStatus(raw.lastRun, raw.lastArticle);
 }
 
-function renderStatus(lastRun) {
+function renderStatus(lastRun, lastArticle) {
   const el = $("status");
-  if (!lastRun) { el.textContent = "No run yet. Save your settings, then use “Run now” to test."; return; }
+  const art = lastArticle
+    ? `\n\nLast article capture ${new Date(lastArticle.at).toLocaleString()}: ` +
+      (lastArticle.ok ? `✓ “${escapeHtml(lastArticle.title || "captured")}” (${escapeHtml(lastArticle.source || "")}, ${lastArticle.total} total)` : `✗ ${escapeHtml(lastArticle.error || "failed")}`)
+    : "\n\nTip: click the toolbar icon while reading an article to capture it.";
+  if (!lastRun) { el.innerHTML = "No list run yet. Save your settings, then use “Run now” to test." + art; return; }
   const when = new Date(lastRun.at).toLocaleString();
   const perList = Array.isArray(lastRun.results) && lastRun.results.length > 1
     ? "\n" + lastRun.results.map((r) => `  • ${r.source || r.url}: ${r.ok ? `${r.collected} collected` : "✗ " + (r.error || "failed")}`).join("\n")
@@ -34,9 +38,9 @@ function renderStatus(lastRun) {
   if (lastRun.ok) {
     el.innerHTML = `<span class="ok">✓ Last run ${when}</span>\n${lastRun.lists || 1} list(s) · collected ${lastRun.collected} · imported ${lastRun.imported} new` +
       (lastRun.updated ? ` · ${lastRun.updated} updated` : "") + (lastRun.total != null ? ` · ${lastRun.total} total on dashboard` : "") +
-      escapeHtml(perList);
+      escapeHtml(perList) + art;
   } else {
-    el.innerHTML = `<span class="err">✗ Last run ${when}</span>\n${lastRun.error || "unknown error"}` + escapeHtml(perList);
+    el.innerHTML = `<span class="err">✗ Last run ${when}</span>\n${lastRun.error || "unknown error"}` + escapeHtml(perList) + art;
   }
 }
 function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
