@@ -44,6 +44,12 @@ export default function XImportCard({ onImported }: Props) {
     fetch("/api/settings/x-token").then((r) => r.json()).then((d) => setTok(d)).catch(() => {});
   };
   useEffect(() => { refresh(); refreshToken(); }, []);
+  // Keep the freshness pill honest while the pane is open (token last-used bumps
+  // on every unattended upload). Cheap GET; the server value only moves daily.
+  useEffect(() => {
+    const id = setInterval(refreshToken, 3 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const generateToken = async () => {
     setTokBusy(true);
@@ -134,6 +140,31 @@ export default function XImportCard({ onImported }: Props) {
             ? "no posts loaded"
             : `${status.count} posts loaded${status.newest ? ` · newest ${formatDistanceToNow(new Date(status.newest), { addSuffix: true })}` : ""}`}
         </span>
+        {tok?.configured && (() => {
+          // Freshness of the UNATTENDED pipeline: when the extension last posted
+          // (token last-used). Daily cadence → green <28h, amber <72h, red older.
+          const lastMs = tok.lastUsedAt ? new Date(tok.lastUsedAt).getTime() : null;
+          const ageH = lastMs ? (Date.now() - lastMs) / 3_600_000 : null;
+          const tier = ageH == null ? "idle" : ageH < 28 ? "fresh" : ageH < 72 ? "stale" : "cold";
+          const cls = {
+            fresh: "border-emerald-500/40 text-emerald-300 bg-emerald-500/10",
+            stale: "border-amber-500/40 text-amber-300 bg-amber-500/10",
+            cold: "border-red-500/40 text-red-300 bg-red-500/10",
+            idle: "border-slate-700 text-slate-500",
+          }[tier];
+          const title = {
+            fresh: "Automated capture is current.",
+            stale: "No automated upload in over a day — is your browser opening daily?",
+            cold: "No automated upload in 3+ days — check the extension (chrome://extensions → options → Run now).",
+            idle: "Token generated, but no automated upload received yet.",
+          }[tier];
+          const txt = lastMs ? `auto ${formatDistanceToNow(new Date(tok.lastUsedAt as string), { addSuffix: true })}` : "auto: not yet run";
+          return (
+            <span title={title} className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${cls}`}>
+              {tier === "idle" ? "○" : "●"} {txt}
+            </span>
+          );
+        })()}
         <div className="flex-1" />
         <button
           type="button"
