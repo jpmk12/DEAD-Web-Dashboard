@@ -8,8 +8,7 @@ import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import GroundTruthTab from "@/components/ground/GroundTruthTab";
 import SitrepPanel from "@/components/osint/SitrepPanel";
 import WarningBoard from "@/components/osint/WarningBoard";
-import XImportCard from "@/components/osint/XImportCard";
-import CaptureStatusCard from "@/components/osint/CaptureStatusCard";
+import SourcesPane from "@/components/osint/SourcesPane";
 
 // Leaflet uses window/document at import time, so we have to load the map
 // component client-only. Without ssr: false the build fails with a
@@ -43,7 +42,7 @@ interface FeedSummary {
   fetchedAt?: number;
 }
 
-type Pane = "all" | "social" | "telegram" | "news" | "crisis" | "ground" | "sitrep" | "iw";
+type Pane = "all" | "social" | "telegram" | "news" | "crisis" | "ground" | "sitrep" | "iw" | "sources";
 type Priority = "High" | "Medium" | "Low";
 
 const PRIORITY_PILL: Record<Priority, string> = {
@@ -87,13 +86,16 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
   const [pane, setPane] = useState<Pane>("all");
   const [loading, setLoading] = useState(true);
+  // Capture-pipeline freshness for the Sources chip dot: null = no auto-capture
+  // token set, true = uploading on schedule, false = stale/never-run.
+  const [tokenFresh, setTokenFresh] = useState<boolean | null>(null);
 
   // Deep-link: other surfaces (e.g. the Glance Force Protection alert) can jump
   // straight to a specific pane via window event after switching to this tab.
   useEffect(() => {
     const onSetPane = (e: Event) => {
       const p = (e as CustomEvent<string>).detail;
-      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "ground" || p === "sitrep" || p === "iw") setPane(p as Pane);
+      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "ground" || p === "sitrep" || p === "iw" || p === "sources") setPane(p as Pane);
     };
     window.addEventListener("osint:set-pane", onSetPane);
     return () => window.removeEventListener("osint:set-pane", onSetPane);
@@ -140,10 +142,33 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
     return () => { clearInterval(id); window.removeEventListener("focus", onFocus); };
   }, [loadFeed]);
 
+  // Poll the auto-capture token freshness so the Sources chip can warn when the
+  // unattended pipeline goes quiet — same signal as the Social pane's pill.
+  useEffect(() => {
+    const check = () => fetch("/api/settings/x-token").then((r) => r.json()).then((d) => {
+      if (!d?.configured) { setTokenFresh(null); return; }
+      if (!d.lastUsedAt) { setTokenFresh(false); return; }        // configured but never used
+      const ageH = (Date.now() - new Date(d.lastUsedAt).getTime()) / 3_600_000;
+      const iv = d.expectedIntervalHours;
+      setTokenFresh(ageH < (iv ? iv * 4 : 72));
+    }).catch(() => {});
+    check();
+    const id = setInterval(check, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Sources chip health: warn if the capture pipeline is stale or a live feed is
+  // down; green if anything's healthy; no dot if nothing's set up.
+  const anyFeedDown = feeds.some((f) => !["x-import", "article-capture", "event-capture"].includes(f.id) && f.ok === false);
+  const sourcesDot: "ok" | "warn" | null =
+    (tokenFresh === false || anyFeedDown) ? "warn"
+    : (tokenFresh === true || feeds.length > 0) ? "ok"
+    : null;
+
   const filtered = useMemo(() => {
     let base: OsintItem[];
     if (pane === "all") base = items;
-    else if (pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw") base = [];
+    else if (pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw" || pane === "sources") base = [];
     else base = items.filter((i) => i.feedKind === pane);
 
     if (timeWindow === "all") return base;
@@ -477,7 +502,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // here too (no token cost — these are the same free endpoints the maps use).
   const [contacts, setContacts] = useState<{ mil: number; vessels: number; watched: string[] }>({ mil: 0, vessels: 0, watched: [] });
   useEffect(() => {
-    if (!active || pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw") return;
+    if (!active || pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw" || pane === "sources") return;
     if (!Number.isFinite(homeLat) || !Number.isFinite(homeLon)) return;
     let cancelled = false;
     const poll = async () => {
@@ -679,6 +704,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           { id: "ground",    label: "Regional", n: null             },
           { id: "sitrep",    label: "SITREP",   n: null             },
           { id: "iw",        label: "I&W",      n: null             },
+          { id: "sources",   label: "Sources",  n: null             },
         ] as const).map((p) => (
           <button
             key={p.id}
@@ -693,13 +719,16 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             {p.n !== null && (
               <span className="ml-1.5 text-[9px] font-mono opacity-70">{p.n}</span>
             )}
+            {p.id === "sources" && sourcesDot && (
+              <span className={`ml-1.5 inline-block w-1.5 h-1.5 rounded-full align-middle ${sourcesDot === "warn" ? "bg-amber-400" : "bg-emerald-500"}`} title={sourcesDot === "warn" ? "A capture stream is stale or a feed is down" : "Sources healthy"} />
+            )}
           </button>
         ))}
       </div>
 
       {/* Time-window filter — only meaningful for the feed-list panes, hidden
           on the map panes where there are no items to filter. */}
-      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && (
+      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && pane !== "sources" && (
         <div className="flex items-center gap-1.5 -mt-2 text-[10px]">
           <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Window</span>
           {(["all", "4h", "24h", "7d"] as const).map((w) => (
@@ -729,13 +758,13 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       {pane === "sitrep" && <SitrepPanel active={active && pane === "sitrep"} />}
       {pane === "iw" && <WarningBoard active={active && pane === "iw"} />}
 
+      {/* Sources — the ingestion control room (X / analysis / events captures +
+          live feed health). Capture cards moved here from the Social pane. */}
+      {pane === "sources" && <SourcesPane active={active && pane === "sources"} feeds={feeds} onChanged={loadFeed} />}
+
       {/* Feed list pane */}
-      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && (
+      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && pane !== "sources" && (
         <>
-          {/* X capture import — upload dead-x-capture JSON files (bookmarklet
-              output); imported posts ride the feed as kind "social". */}
-          {pane === "social" && <XImportCard onImported={loadFeed} />}
-          {pane === "social" && <CaptureStatusCard onChanged={loadFeed} />}
 
           {loading && (
             <div className="space-y-2">
