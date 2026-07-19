@@ -7,9 +7,9 @@ import { ALL_AI_FEATURES } from "@/lib/aiFeatures";
 import { classifyAor } from "@/lib/aor";
 import { isOwner } from "@/lib/currentUser";
 import { normEmail } from "@/lib/allowlist";
+import { sanitizeOsintFeeds } from "@/lib/osintFeeds";
 
 const VALID_THEMES = new Set<AppTheme>(APP_THEMES);
-const OSINT_KINDS = new Set<OsintFeed["kind"]>(["social", "telegram", "news", "other"]);
 const NL_BADGE_COLORS = new Set(["blue", "emerald", "violet", "amber", "sky", "rose", "teal", "orange"]);
 
 function sanitizeTrackedLocations(v: unknown): TrackedLocation[] {
@@ -86,22 +86,6 @@ function sanitizeMarketsWatchlist(v: unknown): TickerEntry[] {
   }).slice(0, 30);
 }
 
-// Block obvious SSRF targets when the OSINT feeds are later fetched
-// server-side. Public IP ranges + arbitrary HTTPS URLs are allowed; loopback,
-// link-local, and RFC-1918 private space are not.
-function isSafeHostname(h: string): boolean {
-  if (!h) return false;
-  if (h === "localhost" || h === "broadcasthost" || h === "ip6-localhost") return false;
-  if (/^127\./.test(h)) return false;
-  if (/^10\./.test(h)) return false;
-  if (/^192\.168\./.test(h)) return false;
-  if (/^169\.254\./.test(h)) return false;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
-  if (/^(::1|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i.test(h)) return false;
-  if (/^0\.0\.0\.0$/.test(h)) return false;
-  return true;
-}
-
 function sanitizeAiFeatureToggles(v: unknown): Partial<Record<AiFeature, boolean>> {
   if (!v || typeof v !== "object") return {};
   const out: Partial<Record<AiFeature, boolean>> = {};
@@ -112,25 +96,6 @@ function sanitizeAiFeatureToggles(v: unknown): Partial<Record<AiFeature, boolean
     }
   }
   return out;
-}
-
-function sanitizeOsintFeeds(v: unknown): OsintFeed[] {
-  if (!Array.isArray(v)) return [];
-  return v.flatMap((x): OsintFeed[] => {
-    if (!x || typeof x !== "object") return [];
-    const r = x as Record<string, unknown>;
-    const urlRaw = String(r.url ?? "").trim();
-    const label = String(r.label ?? "").trim().slice(0, 60);
-    if (!urlRaw || !label) return [];
-    let parsed: URL;
-    try { parsed = new URL(urlRaw); } catch { return []; }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return [];
-    if (parsed.username || parsed.password) return [];
-    if (!isSafeHostname(parsed.hostname.toLowerCase())) return [];
-    const id = String(r.id ?? "").slice(0, 60) || Buffer.from(urlRaw).toString("base64").slice(0, 16);
-    const kind = OSINT_KINDS.has(r.kind as OsintFeed["kind"]) ? (r.kind as OsintFeed["kind"]) : "other";
-    return [{ id, label, url: urlRaw.slice(0, 500), kind }];
-  }).slice(0, 20);
 }
 
 function sanitizeNewsletterSources(v: unknown): NewsletterSourceRule[] {

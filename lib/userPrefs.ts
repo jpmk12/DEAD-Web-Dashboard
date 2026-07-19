@@ -384,6 +384,17 @@ export async function getUserPrefs(email?: string): Promise<UserPrefs> {
   return { ...team, ...pickPersonal(DEFAULT_PREFS), ...overlay };
 }
 
+// Targeted save of ONLY the shared osint_feeds column — used by the
+// /api/osint/feeds PUT (inline feed editing) so it can't clobber the rest of the
+// shared prefs the way the full saveUserPrefs would. Owner-gated at the route.
+export async function saveOsintFeeds(feeds: OsintFeed[]): Promise<void> {
+  const pool = await getDb();
+  await pool.execute(
+    "UPDATE user_prefs SET osint_feeds = ?, last_updated = NOW() WHERE id = 1",
+    [JSON.stringify(feeds)],
+  );
+}
+
 export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Promise<void> {
   const pool = await getDb();
   const now = new Date();
