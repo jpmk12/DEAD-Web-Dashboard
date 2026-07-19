@@ -9,6 +9,7 @@ import GroundTruthTab from "@/components/ground/GroundTruthTab";
 import SitrepPanel from "@/components/osint/SitrepPanel";
 import WarningBoard from "@/components/osint/WarningBoard";
 import XImportCard from "@/components/osint/XImportCard";
+import CaptureStatusCard from "@/components/osint/CaptureStatusCard";
 
 // Leaflet uses window/document at import time, so we have to load the map
 // component client-only. Without ssr: false the build fails with a
@@ -734,6 +735,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           {/* X capture import — upload dead-x-capture JSON files (bookmarklet
               output); imported posts ride the feed as kind "social". */}
           {pane === "social" && <XImportCard onImported={loadFeed} />}
+          {pane === "social" && <CaptureStatusCard onChanged={loadFeed} />}
 
           {loading && (
             <div className="space-y-2">
