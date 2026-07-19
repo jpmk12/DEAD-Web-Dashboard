@@ -26,9 +26,15 @@ collected posts → your own dashboard, authorized by a per-user token.
    toolbar icon) and fill in:
    - **Dashboard URL** — your site root (e.g. `https://your-dashboard.com`).
    - **Upload token** — the `xcap_…` value from step 1.
-   - **X list / view URL** — open the exact list/bookmarks/search in X and paste
-     its URL (e.g. `https://x.com/i/lists/1234567890` or `https://x.com/i/bookmarks`).
-   - **Daily run hour**, **collect seconds**, **max posts** — defaults are fine.
+   - **X list / view URLs** — one per line. Open each list/bookmarks/search in X
+     and paste its URL (e.g. `https://x.com/i/lists/1234567890`,
+     `https://x.com/i/bookmarks`, `https://x.com/search?q=hormuz&f=live`). Every
+     URL is swept each run, one background tab at a time.
+   - **Capture every (hours)** — how often to run. `6` is a good cadence for
+     active threat-watching; `24` = once daily. Floor is 3h (more often is
+     diminishing returns and more automation footprint).
+   - **Preferred hour** — used only when the interval is 24 (the daily run time).
+   - **Collect seconds / Max per list** — defaults are fine.
 4. Click **Save**, then **Run now** to test. A background X tab opens, collects,
    uploads, and closes; the status line shows the result. Check the Social pane —
    the posts should appear in the feed.
@@ -45,11 +51,15 @@ collected posts → your own dashboard, authorized by a per-user token.
 
 ## Scheduling reality
 
-The daily run only fires while the **browser is running** (that's how
-`chrome.alarms` works). For a browser you open every day, it'll catch up on the
-next launch after the scheduled time. If you want it to run even when the browser
-is closed, use a local OS-scheduled script instead (ask Claude to build the
-Playwright variant against your Chrome profile).
+The run only fires while the **browser is running** (that's how `chrome.alarms`
+works). For a browser you open every day, it'll catch up on the next launch after
+a missed slot. If you want it to run even when the browser is closed, use a local
+OS-scheduled script instead (ask Claude to build the Playwright variant against
+your Chrome profile).
+
+The dashboard's freshness pill (OSINT → Social) learns your interval from the
+uploads and turns amber/red if it stops hearing from the extension on schedule —
+so you can tell at a glance whether the pipeline is healthy.
 
 ## When captures come back empty
 

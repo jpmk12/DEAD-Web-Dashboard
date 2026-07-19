@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseXCapture } from "@/lib/xImport";
 import { importXCapture, getXStatus, clearXItems } from "@/lib/xStore";
-import { verifyXUploadToken } from "@/lib/xUploadToken";
+import { verifyXUploadToken, setXTokenCadence } from "@/lib/xUploadToken";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,14 @@ export async function POST(req: Request) {
   let authed = Boolean(session?.accessToken);
   if (!authed) {
     const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
-    if (m) authed = Boolean(await verifyXUploadToken(m[1].trim()).catch(() => null));
+    if (m) {
+      const email = await verifyXUploadToken(m[1].trim()).catch(() => null);
+      authed = Boolean(email);
+      // The extension reports its schedule so the freshness pill judges staleness
+      // against the real cadence, not a daily assumption.
+      const iv = Number(req.headers.get("x-capture-interval-hours"));
+      if (email && Number.isFinite(iv)) setXTokenCadence(email, iv).catch(() => {});
+    }
   }
   if (!authed) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

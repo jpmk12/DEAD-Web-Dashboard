@@ -2,38 +2,52 @@
 // and renders the last-run status the background worker records.
 
 const DEFAULTS = {
-  dashboardUrl: "", token: "", listUrl: "https://x.com/i/bookmarks",
-  durationSec: 25, maxPosts: 200, hour: 6, enabled: true,
+  dashboardUrl: "", token: "", listUrls: ["https://x.com/i/bookmarks"],
+  durationSec: 25, maxPosts: 200, intervalHours: 24, hour: 6, enabled: true,
 };
-const FIELDS = ["dashboardUrl", "token", "listUrl", "durationSec", "maxPosts", "hour"];
 const $ = (id) => document.getElementById(id);
 
 async function load() {
-  const c = { ...DEFAULTS, ...(await chrome.storage.local.get(DEFAULTS)) };
-  for (const f of FIELDS) $(f).value = c[f];
+  const raw = await chrome.storage.local.get(null);
+  const c = { ...DEFAULTS, ...raw };
+  if (!Array.isArray(c.listUrls) || !c.listUrls.length) {
+    c.listUrls = (typeof raw.listUrl === "string" && raw.listUrl) ? [raw.listUrl] : DEFAULTS.listUrls;
+  }
+  $("dashboardUrl").value = c.dashboardUrl;
+  $("token").value = c.token;
+  $("listUrls").value = c.listUrls.join("\n");
+  $("intervalHours").value = c.intervalHours;
+  $("hour").value = c.hour;
+  $("durationSec").value = c.durationSec;
+  $("maxPosts").value = c.maxPosts;
   $("enabled").checked = !!c.enabled;
-  renderStatus(c.lastRun);
+  renderStatus(raw.lastRun);
 }
 
 function renderStatus(lastRun) {
   const el = $("status");
   if (!lastRun) { el.textContent = "No run yet. Save your settings, then use “Run now” to test."; return; }
   const when = new Date(lastRun.at).toLocaleString();
+  const perList = Array.isArray(lastRun.results) && lastRun.results.length > 1
+    ? "\n" + lastRun.results.map((r) => `  • ${r.source || r.url}: ${r.ok ? `${r.collected} collected` : "✗ " + (r.error || "failed")}`).join("\n")
+    : "";
   if (lastRun.ok) {
-    el.innerHTML = `<span class="ok">✓ Last run ${when}</span>\ncollected ${lastRun.collected} · imported ${lastRun.imported} new` +
-      (lastRun.updated ? ` · ${lastRun.updated} updated` : "") + ` · ${lastRun.total} total on dashboard` +
-      (lastRun.source ? `\nsource: ${lastRun.source}` : "");
+    el.innerHTML = `<span class="ok">✓ Last run ${when}</span>\n${lastRun.lists || 1} list(s) · collected ${lastRun.collected} · imported ${lastRun.imported} new` +
+      (lastRun.updated ? ` · ${lastRun.updated} updated` : "") + (lastRun.total != null ? ` · ${lastRun.total} total on dashboard` : "") +
+      escapeHtml(perList);
   } else {
-    el.innerHTML = `<span class="err">✗ Last run ${when}</span>\n${lastRun.error || "unknown error"}` +
-      (lastRun.collected != null ? `\n(collected ${lastRun.collected} before failing)` : "");
+    el.innerHTML = `<span class="err">✗ Last run ${when}</span>\n${lastRun.error || "unknown error"}` + escapeHtml(perList);
   }
 }
+function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
 async function save() {
+  const listUrls = $("listUrls").value.split("\n").map((s) => s.trim()).filter(Boolean);
   const patch = {
     dashboardUrl: $("dashboardUrl").value.trim(),
     token: $("token").value.trim(),
-    listUrl: $("listUrl").value.trim() || DEFAULTS.listUrl,
+    listUrls: listUrls.length ? listUrls : DEFAULTS.listUrls,
+    intervalHours: Math.max(3, Math.min(24, Number($("intervalHours").value) || 24)),
     durationSec: Math.max(5, Math.min(120, Number($("durationSec").value) || 25)),
     maxPosts: Math.max(10, Math.min(200, Number($("maxPosts").value) || 200)),
     hour: Math.max(0, Math.min(23, Number($("hour").value) || 6)),
@@ -41,13 +55,13 @@ async function save() {
   };
   await chrome.storage.local.set(patch);
   await chrome.runtime.sendMessage("reschedule");
-  const el = $("status");
-  el.innerHTML = `<span class="ok">Saved.</span> Daily run ${patch.enabled ? `at ${patch.hour}:00 local` : "disabled"}.`;
+  const cadence = patch.intervalHours >= 24 ? `daily at ${patch.hour}:00 local` : `every ${patch.intervalHours}h`;
+  $("status").innerHTML = `<span class="ok">Saved.</span> ${patch.enabled ? `Runs ${cadence} across ${patch.listUrls.length} list(s).` : "Scheduling disabled."}`;
 }
 
 async function runNow() {
   await save();
-  $("status").textContent = "Running… (a background X tab will open, collect, and close — this can take ~30s)";
+  $("status").textContent = "Running… (a background X tab opens per list, collects, and closes — this can take ~30s each)";
   const r = await chrome.runtime.sendMessage("run-now");
   renderStatus({ at: new Date().toISOString(), ...r });
 }

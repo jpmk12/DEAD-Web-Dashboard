@@ -26,10 +26,11 @@ export interface XTokenStatus {
   label: string | null;
   createdAt: string | null;
   lastUsedAt: string | null;
+  expectedIntervalHours: number | null;  // self-reported by the extension → the pill's cadence
 }
 
 interface TokRow extends RowDataPacket {
-  user_email: string; label: string; created_at: Date; last_used_at: Date | null;
+  user_email: string; label: string; created_at: Date; last_used_at: Date | null; expected_interval_hours: number | null;
 }
 
 // One active token per user — regenerating rotates (drops the old hash).
@@ -47,17 +48,28 @@ export async function generateXUploadToken(userEmail: string, label = "browser e
 export async function getXUploadTokenStatus(userEmail: string): Promise<XTokenStatus> {
   const pool = await getDb();
   const [rows] = await pool.query<TokRow[]>(
-    "SELECT user_email, label, created_at, last_used_at FROM x_upload_tokens WHERE user_email = ? LIMIT 1",
+    "SELECT user_email, label, created_at, last_used_at, expected_interval_hours FROM x_upload_tokens WHERE user_email = ? LIMIT 1",
     [userEmail],
   );
   const r = rows[0];
-  if (!r) return { configured: false, label: null, createdAt: null, lastUsedAt: null };
+  if (!r) return { configured: false, label: null, createdAt: null, lastUsedAt: null, expectedIntervalHours: null };
   return {
     configured: true,
     label: r.label,
     createdAt: r.created_at.toISOString(),
     lastUsedAt: r.last_used_at ? r.last_used_at.toISOString() : null,
+    expectedIntervalHours: r.expected_interval_hours ?? null,
   };
+}
+
+// The extension self-reports its capture cadence on each upload (a header), so
+// the dashboard's freshness pill can judge staleness against the ACTUAL schedule
+// instead of a hardcoded daily assumption.
+export async function setXTokenCadence(userEmail: string, hours: number): Promise<void> {
+  const h = Math.round(hours);
+  if (!Number.isFinite(h) || h < 1 || h > 168) return;
+  const pool = await getDb();
+  await pool.execute("UPDATE x_upload_tokens SET expected_interval_hours = ? WHERE user_email = ?", [h, userEmail]);
 }
 
 // Verify a presented token → the email it belongs to, or null. Bumps last_used.

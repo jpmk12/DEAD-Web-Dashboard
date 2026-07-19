@@ -29,7 +29,7 @@ export default function XImportCard({ onImported }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   // Auto-capture (browser-extension) token management.
   const [showAuto, setShowAuto] = useState(false);
-  const [tok, setTok] = useState<{ configured: boolean; label: string | null; lastUsedAt: string | null } | null>(null);
+  const [tok, setTok] = useState<{ configured: boolean; label: string | null; lastUsedAt: string | null; expectedIntervalHours: number | null } | null>(null);
   const [newTok, setNewTok] = useState<string | null>(null);
   const [tokBusy, setTokBusy] = useState(false);
   const [tokCopied, setTokCopied] = useState(false);
@@ -142,20 +142,26 @@ export default function XImportCard({ onImported }: Props) {
         </span>
         {tok?.configured && (() => {
           // Freshness of the UNATTENDED pipeline: when the extension last posted
-          // (token last-used). Daily cadence → green <28h, amber <72h, red older.
+          // (token last-used), judged against its self-reported cadence — green
+          // under ~2× the interval, amber under ~4×, red beyond. Falls back to a
+          // daily assumption (28h/72h) until the extension reports its schedule.
           const lastMs = tok.lastUsedAt ? new Date(tok.lastUsedAt).getTime() : null;
           const ageH = lastMs ? (Date.now() - lastMs) / 3_600_000 : null;
-          const tier = ageH == null ? "idle" : ageH < 28 ? "fresh" : ageH < 72 ? "stale" : "cold";
+          const iv = tok.expectedIntervalHours;
+          const greenH = iv ? iv * 2 : 28;
+          const amberH = iv ? iv * 4 : 72;
+          const tier = ageH == null ? "idle" : ageH < greenH ? "fresh" : ageH < amberH ? "stale" : "cold";
           const cls = {
             fresh: "border-emerald-500/40 text-emerald-300 bg-emerald-500/10",
             stale: "border-amber-500/40 text-amber-300 bg-amber-500/10",
             cold: "border-red-500/40 text-red-300 bg-red-500/10",
             idle: "border-slate-700 text-slate-500",
           }[tier];
+          const cadence = iv ? ` (expected every ~${iv}h)` : "";
           const title = {
-            fresh: "Automated capture is current.",
-            stale: "No automated upload in over a day — is your browser opening daily?",
-            cold: "No automated upload in 3+ days — check the extension (chrome://extensions → options → Run now).",
+            fresh: `Automated capture is current${cadence}.`,
+            stale: `No automated upload in a while${cadence} — is your browser open on schedule?`,
+            cold: "No automated upload well past schedule — check the extension (chrome://extensions → options → Run now).",
             idle: "Token generated, but no automated upload received yet.",
           }[tier];
           const txt = lastMs ? `auto ${formatDistanceToNow(new Date(tok.lastUsedAt as string), { addSuffix: true })}` : "auto: not yet run";
