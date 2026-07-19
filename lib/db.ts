@@ -41,12 +41,13 @@ const SCHEMA_STATEMENTS = [
   // so the board scores ANOMALY not level) and the trajectory series. Same
   // lazy-on-request, day-rollup pattern as sitrep_status_daily / force_posture_daily.
   `CREATE TABLE IF NOT EXISTS warning_daily (
-    problem_id VARCHAR(64) NOT NULL,
-    day        VARCHAR(10) NOT NULL,
-    raw_score  DOUBLE      NOT NULL,
-    anomaly    DOUBLE      NOT NULL,
-    level      VARCHAR(16) NOT NULL,
-    updated_at DATETIME(3) NOT NULL,
+    problem_id     VARCHAR(64) NOT NULL,
+    day            VARCHAR(10) NOT NULL,
+    raw_score      DOUBLE      NOT NULL,
+    anomaly        DOUBLE      NOT NULL,
+    level          VARCHAR(16) NOT NULL,
+    mobility_count INT         NULL,
+    updated_at     DATETIME(3) NOT NULL,
     PRIMARY KEY (problem_id, day)
   ) ENGINE=InnoDB`,
 
@@ -410,6 +411,7 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "ai_enabled",                ddl: "ALTER TABLE user_prefs ADD COLUMN ai_enabled TINYINT(1) NOT NULL DEFAULT 1" },
   { table: "user_prefs",  column: "ai_feature_toggles",        ddl: "ALTER TABLE user_prefs ADD COLUMN ai_feature_toggles JSON NULL" },
   { table: "user_prefs",  column: "disabled_news_sources",     ddl: "ALTER TABLE user_prefs ADD COLUMN disabled_news_sources JSON NULL" },
+  { table: "warning_daily", column: "mobility_count",          ddl: "ALTER TABLE warning_daily ADD COLUMN mobility_count INT NULL" },
   { table: "user_prefs",  column: "newsletter_sources",        ddl: "ALTER TABLE user_prefs ADD COLUMN newsletter_sources JSON NULL" },
   { table: "user_prefs",  column: "metar_stations",            ddl: "ALTER TABLE user_prefs ADD COLUMN metar_stations JSON NULL" },
   { table: "user_prefs",  column: "force_locations",           ddl: "ALTER TABLE user_prefs ADD COLUMN force_locations JSON NULL" },

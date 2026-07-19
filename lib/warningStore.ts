@@ -13,14 +13,40 @@ export async function recordWarningDay(
   rawScore: number,
   anomaly: number,
   level: WarningLevel,
+  mobilityCount: number | null = null,
 ): Promise<void> {
   const pool = await getDb();
+  // mobility_count keeps the DAY'S PEAK (GREATEST) — a surge at 0900 that
+  // recedes by 1500 is still that day's mobility fact for baseline purposes.
   await pool.execute(
-    `INSERT INTO warning_daily (problem_id, day, raw_score, anomaly, level, updated_at)
-     VALUES (?, ?, ?, ?, ?, NOW(3))
-     ON DUPLICATE KEY UPDATE raw_score = VALUES(raw_score), anomaly = VALUES(anomaly), level = VALUES(level), updated_at = NOW(3)`,
-    [problemId, day, rawScore, anomaly, level],
+    `INSERT INTO warning_daily (problem_id, day, raw_score, anomaly, level, mobility_count, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, NOW(3))
+     ON DUPLICATE KEY UPDATE raw_score = VALUES(raw_score), anomaly = VALUES(anomaly), level = VALUES(level),
+       mobility_count = GREATEST(COALESCE(mobility_count, 0), COALESCE(VALUES(mobility_count), 0)), updated_at = NOW(3)`,
+    [problemId, day, rawScore, anomaly, level, mobilityCount],
   );
+}
+
+interface MobilityRow extends RowDataPacket { mobility_count: number | null }
+
+// Trailing mobility baseline: mean of prior days' peak mobility counts. What
+// "normal lift near the AOR hubs" looks like — the observed half of the
+// divergence is scored against THIS, not a static threshold.
+export async function getMobilityBaseline(
+  problemId: string,
+  today: string,
+  days = 30,
+): Promise<{ mean: number | null; samples: number }> {
+  const pool = await getDb();
+  const [rows] = await pool.query<MobilityRow[]>(
+    `SELECT mobility_count FROM warning_daily
+     WHERE problem_id = ? AND day < ? AND mobility_count IS NOT NULL
+     ORDER BY day DESC LIMIT ?`,
+    [problemId, today, days],
+  );
+  if (!rows.length) return { mean: null, samples: 0 };
+  const mean = rows.reduce((s, r) => s + Number(r.mobility_count), 0) / rows.length;
+  return { mean, samples: rows.length };
 }
 
 interface ScoreRow extends RowDataPacket { raw_score: number; anomaly: number }

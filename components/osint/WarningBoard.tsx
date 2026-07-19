@@ -132,7 +132,10 @@ function ProblemCard({ p }: { p: WarningAssessmentPlus }) {
           <DivCell active={p.divergence.quadrant === "quiet"} title="Quiet" sub="Nothing implied, nothing moving." />
           <DivCell active={p.divergence.quadrant === "anomaly"} loud title="Anomaly — sit up" sub="Lift moving, no public trigger." />
         </div>
-        <p className="text-[10px] text-slate-500 mt-1.5 font-mono">{p.divergence.observedCount} mobility/tanker near AOR hubs · {QUADRANT_LABEL[p.divergence.quadrant]}</p>
+        <p className="text-[10px] text-slate-500 mt-1.5 font-mono">
+          {p.divergence.observedCount} mobility/tanker near AOR hubs
+          {p.divergence.baselineMean != null ? ` (baseline ~${p.divergence.baselineMean.toFixed(0)}/day)` : " (baseline forming — surge bar conservative)"} · {QUADRANT_LABEL[p.divergence.quadrant]}
+        </p>
       </div>
 
       {/* Indicators */}

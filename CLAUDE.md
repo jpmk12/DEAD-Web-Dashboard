@@ -1347,9 +1347,25 @@ the marquee sensor, not a peer board.
   confidence and can trip a watch, never alone confirms. Provenance names which of
   your sources corroborated. Bounded + fail-safe (no new dep; esbuild `0`). NOT
   wired: the configured News-tab RSS sites (redundant with the GDELT base for now).
+- **Calibration rules** `lib/warningRules.ts` (PURE, tested): the tunable
+  judgments live here, not inline in the sensors. The through-line: **both halves
+  of every signal must be baseline- or recency-relative — a permanent condition
+  is posture, not warning.** Concretely: (a) Level-4 advisories only signal when
+  **NEW** (14-day pubDate gate, same as Glance) — Iran/Iraq/Syria/Yemen are
+  permanently L4 and used to pin the NEO indicator + `impliedHigh` true forever;
+  (b) conflict intensity bands on a **trailing-90-day** slice (undated ReliefWeb
+  situations count as current; 90d not 30d because UCDP candidates lag 1-2mo) —
+  the feed's 365-day window saturated the bands; (c) mobility "surge" =
+  today's count > **this AOR's own trailing mean ×1.4** (floor mean+2), with a
+  deliberately HIGH static fallback (25) while that baseline is forming — Gulf
+  hubs always have >4 mobility aircraft, so the old static ≥4 read "surge" on
+  ordinary days and pinned the divergence 2×2.
 - **Store** `lib/warningStore.ts` + `warning_daily` table (additive): one daily
   rollup row per problem; **baseline = trailing-mean raw_score over prior days**,
-  same lazy day-rollup pattern as `sitrep_status_daily`. NO GitHub-Actions cron
+  same lazy day-rollup pattern as `sitrep_status_daily`. `mobility_count` column
+  (additive migration) keeps the **day-peak** observed mobility count
+  (`GREATEST` on dup) → `getMobilityBaseline` feeds rule (c); a dead ADS-B feed
+  records NULL, never a fake 0. NO GitHub-Actions cron
   and NO in-repo JSON snapshots (both fight the GoDaddy deploy model) — ingestion
   is lazy-on-request. Cold start: baseline needs ~14 daily samples before it
   trusts itself (learning mode until then).

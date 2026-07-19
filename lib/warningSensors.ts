@@ -17,6 +17,10 @@ import { getXItems } from "./xStore";
 import { getAllCachedSummaries } from "./newsletterCache";
 import { fetchFeed } from "./rss";
 import { getUserPrefs } from "./userPrefs";
+import {
+  isRecentLevel4, recentConflictCount, bandConflictIntensity, conflictImpliesDemand,
+  mobilityObservedHigh, CONFLICT_WINDOW_DAYS, type MobilityBaseline,
+} from "./warningRules";
 import type { NewsItem } from "./types";
 
 // ── AOR definition (Gulf / Iran / Levant approaches) ─────────────────────────
@@ -97,6 +101,8 @@ export interface DivergenceState {
   impliedHigh: boolean;
   observedHigh: boolean;
   observedCount: number;
+  baselineMean: number | null;   // trailing mean of daily peak mobility counts
+  baselineSamples: number;
   quadrant: "early_warning" | "anomaly" | "corroboration" | "quiet";
 }
 export interface GatherResult {
@@ -132,7 +138,11 @@ async function fetchMilAircraft(): Promise<MilAc[] | null> {
 }
 
 // ── Gather all observations for CENTCOM/Iran ─────────────────────────────────
-export async function gatherObservations(): Promise<GatherResult> {
+// `mobilityBaseline` comes from the store (trailing mean of daily peak counts) —
+// the sensors stay DB-free; the assembler owns persistence.
+export async function gatherObservations(
+  mobilityBaseline: MobilityBaseline = { mean: null, samples: 0 },
+): Promise<GatherResult> {
   const [conflictPts, disasters, newsByCountry, hormuzNewsRaw, advisories, milAc, firRes, userSrc] = await Promise.all([
     withTimeout(getConflictPoints(), 10_000),
     withTimeout(getDisasters(), 10_000),
@@ -151,12 +161,17 @@ export async function gatherObservations(): Promise<GatherResult> {
   const observations: IndicatorObservation[] = [];
   const health: SensorHealth[] = [];
 
-  // 1) conflict_intensity_gulf ← UCDP/ACLED/ReliefWeb event density in the AOR.
-  let conflictCount = 0;
+  // 1) conflict_intensity_gulf ← UCDP/ACLED/ReliefWeb event density in the AOR,
+  // banded on a ~90-day slice (warningRules) — the feed's 365-day window
+  // saturates any threshold and a pinned indicator can't warn. UCDP candidates
+  // lag 1-2 months (honest-SA caveat carried in provenance); undated ReliefWeb
+  // situations count as current.
+  let recent90 = 0;
   if (conflictPts) {
-    conflictCount = conflictPts.filter((p) => inBbox(p.lat, p.lon)).reduce((s, p) => s + (p.count || 1), 0);
-    const state: ObservedState = conflictCount === 0 ? "dormant" : conflictCount <= 3 ? "watching" : conflictCount <= 10 ? "active" : "confirmed";
-    observations.push(obs("conflict_intensity_gulf", "conflictEvents", state, state === "dormant" ? 0 : 0.85, "UCDP/ACLED/ReliefWeb georeferenced events (AOR bbox)", conflictCount));
+    const nowMs = Date.now();
+    recent90 = recentConflictCount(conflictPts.filter((p) => inBbox(p.lat, p.lon)), nowMs);
+    const state = bandConflictIntensity(recent90);
+    observations.push(obs("conflict_intensity_gulf", "conflictEvents", state, state === "dormant" ? 0 : 0.85, `UCDP/ACLED/ReliefWeb events in AOR bbox, trailing ${CONFLICT_WINDOW_DAYS}d (UCDP lags 1-2mo)`, recent90));
     health.push({ indicatorId: "conflict_intensity_gulf", live: true });
   } else {
     health.push({ indicatorId: "conflict_intensity_gulf", live: false, note: "conflict-event feed unreachable" });
@@ -185,27 +200,36 @@ export async function gatherObservations(): Promise<GatherResult> {
     health.push({ indicatorId: "escalatory_strike_signal", live: false, note: "conflict-news + your-source feeds unreachable" });
   }
 
-  // Implied demand (for the divergence) = any high-signal trigger present.
-  const neoTriggers = (advisories ?? []).filter((a) => GULF_COUNTRIES.includes(a.country) && (a.orderedDeparture || a.authorizedDeparture || a.level === 4));
+  // Implied demand (for the divergence) = a CHANGE-signal trigger, never a
+  // permanent condition: an in-effect departure order, a NEW Level-4 (14-day
+  // recency gate — Iran/Iraq/Syria/Yemen are permanently L4 and used to pin
+  // this true forever), confirmed-band 90d conflict intensity, or an AOR disaster.
+  const nowMs = Date.now();
+  const neoTriggers = (advisories ?? []).filter((a) =>
+    GULF_COUNTRIES.includes(a.country) && (a.orderedDeparture || a.authorizedDeparture || isRecentLevel4(a, nowMs)));
   const aorDisasters = (disasters ?? []).filter((d) => typeof d.lat === "number" && typeof d.lon === "number" && inBbox(d.lat as number, d.lon as number));
-  const impliedHigh = conflictCount > 10 || neoTriggers.length > 0 || aorDisasters.length > 0;
+  const impliedHigh = conflictImpliesDemand(recent90) || neoTriggers.length > 0 || aorDisasters.length > 0;
 
-  // 3) mobility_divergence ← observed mil mobility/tanker near hubs × implied demand.
+  // 3) mobility_divergence ← observed mil mobility/tanker near hubs × implied
+  // demand. "Surge" is relative to THIS AOR's own trailing baseline
+  // (mobilityObservedHigh) — Gulf hubs always have lift, so a static bar read
+  // "surge" on ordinary days and pinned the 2×2.
   if (milAc) {
     const observedCount = milAc.filter((a) => nearHub(a.lat, a.lon) && (isMobilityType(a.type) || isTankerType(a.type))).length;
-    const observedHigh = observedCount >= 4;
+    const observedHigh = mobilityObservedHigh(observedCount, mobilityBaseline);
     let quadrant: DivergenceState["quadrant"];
     let state: ObservedState;
     if (impliedHigh && !observedHigh) { quadrant = "early_warning"; state = "active"; }       // demand, no lift → warning
     else if (!impliedHigh && observedHigh) { quadrant = "anomaly"; state = "active"; }         // lift, no trigger → warning
     else if (impliedHigh && observedHigh) { quadrant = "corroboration"; state = "watching"; }  // expected, low novelty
     else { quadrant = "quiet"; state = "dormant"; }
-    observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs) × implied demand`, observedCount));
+    const baseNote = mobilityBaseline.mean != null ? `, baseline ~${mobilityBaseline.mean.toFixed(0)}/day over ${mobilityBaseline.samples}d` : ", baseline forming";
+    observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}) × implied demand`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true });
-    return finalize(observations, health, { impliedHigh, observedHigh, observedCount, quadrant }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
+    return finalize(observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
   } else {
     health.push({ indicatorId: "mobility_divergence", live: false, note: "community ADS-B mirrors unreachable" });
-    return finalize(observations, health, { impliedHigh, observedHigh: false, observedCount: 0, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
+    return finalize(observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
   }
 }
 
@@ -220,13 +244,15 @@ function finalize(
   userNews: NewsItem[],
   userSrcLabel: string,
 ): GatherResult {
-  // 4) neo_departure_posture ← State Dept ordered/authorized departure or Level-4.
+  // 4) neo_departure_posture ← in-effect ordered/authorized departure, or a NEW
+  // Level-4 (neoTriggers is already 14-day recency-gated upstream — a standing
+  // L4 like Iran's is posture, not warning).
   if (advisories) {
     const ordered = neoTriggers.some((a) => a.orderedDeparture);
     const authorized = neoTriggers.some((a) => a.authorizedDeparture);
-    const level4 = neoTriggers.some((a) => a.level === 4);
-    const state: ObservedState = ordered ? "confirmed" : authorized ? "active" : level4 ? "watching" : "dormant";
-    observations.push(obs("neo_departure_posture", "stateAdvisories", state, state === "dormant" ? 0 : 0.9, "State Dept Travel Advisory RSS (ordered/authorized departure, Level-4)", neoTriggers.length));
+    const newLevel4 = neoTriggers.some((a) => !a.orderedDeparture && !a.authorizedDeparture);
+    const state: ObservedState = ordered ? "confirmed" : authorized ? "active" : newLevel4 ? "watching" : "dormant";
+    observations.push(obs("neo_departure_posture", "stateAdvisories", state, state === "dormant" ? 0 : 0.9, "State Dept Travel Advisory RSS (ordered/authorized departure; NEW Level-4 within 14d)", neoTriggers.length));
     health.push({ indicatorId: "neo_departure_posture", live: true });
   } else {
     health.push({ indicatorId: "neo_departure_posture", live: false, note: "State advisory feed unreachable" });
