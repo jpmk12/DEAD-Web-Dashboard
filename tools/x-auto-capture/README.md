@@ -26,10 +26,16 @@ collected posts → your own dashboard, authorized by a per-user token.
    toolbar icon) and fill in:
    - **Dashboard URL** — your site root (e.g. `https://your-dashboard.com`).
    - **Upload token** — the `xcap_…` value from step 1.
-   - **X list / view URLs** — one per line. Open each list/bookmarks/search in X
-     and paste its URL (e.g. `https://x.com/i/lists/1234567890`,
-     `https://x.com/i/bookmarks`, `https://x.com/search?q=hormuz&f=live`). Every
-     URL is swept each run, one background tab at a time.
+   - **Capture targets** — one URL per line, swept each run. Two kinds, auto-
+     detected by host:
+     - **X** lists/bookmarks/searches (`https://x.com/i/lists/…`,
+       `https://x.com/i/bookmarks`, `https://x.com/search?q=hormuz&f=live`) →
+       collected as posts.
+     - **LiveUAMap** region maps (`https://iran.liveuamap.com`,
+       `https://israelpalestine.liveuamap.com`, also syria/yemen/isis/emirates
+       .liveuamap.com) → geolocated conflict/incident events. LiveUAMap blocks
+       datacenter IPs, so it can only be captured from your own browser — no
+       login needed, it's a public site.
    - **Capture every (hours)** — how often to run. `6` is a good cadence for
      active threat-watching; `24` = once daily. Floor is 3h (more often is
      diminishing returns and more automation footprint).

@@ -353,6 +353,22 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_capart_time (captured_at)
   ) ENGINE=InnoDB`,
 
+  // Captured map events (reader-capture from a public conflict map like
+  // LiveUAMap that blocks datacenter IPs). Short, time-sensitive items — rolling
+  // working set (14 days / newest 1000), same as x_items.
+  `CREATE TABLE IF NOT EXISTS captured_events (
+    id           VARCHAR(40)  NOT NULL,
+    url          VARCHAR(600) NOT NULL,
+    title        VARCHAR(300) NOT NULL,
+    source_url   VARCHAR(600) NULL,
+    published_at VARCHAR(32)  NULL,
+    source       VARCHAR(80)  NOT NULL DEFAULT 'events',
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    captured_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_capev_time (captured_at)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS signal_seen (
     id   VARCHAR(40) NOT NULL PRIMARY KEY,
     date VARCHAR(10) NOT NULL,

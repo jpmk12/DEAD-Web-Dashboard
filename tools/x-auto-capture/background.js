@@ -8,6 +8,7 @@
 
 import { collectXPosts } from "./collector.js";
 import { extractArticle } from "./article.js";
+import { collectLiveuamap } from "./liveuamap.js";
 
 const DEFAULTS = {
   dashboardUrl: "",
@@ -116,26 +117,35 @@ function waitForTabLoad(tabId, timeoutMs) {
   });
 }
 
-// Capture + upload ONE list URL. Returns a per-list result.
+// Route a capture target by host: LiveUAMap region maps use the event collector
+// + the events ingest; everything else is treated as an X list.
+function targetKind(url) {
+  try { return /(^|\.)liveuamap\.com$/.test(new URL(url).hostname) ? "liveuamap" : "x"; }
+  catch (e) { return "x"; }
+}
+
+// Capture + upload ONE target URL. Returns a per-target result.
 async function captureOne(url, c) {
+  const kind = targetKind(url);
   let tab = null, created = false;
   try {
     tab = await chrome.tabs.create({ url, active: false });
     created = true;
     await waitForTabLoad(tab.id, 20000);
-    await new Promise((r) => setTimeout(r, 3500)); // let X's SPA render posts
+    await new Promise((r) => setTimeout(r, 3500)); // let the SPA render
 
+    const dur = Math.max(5, Number(c.durationSec) || 25) * 1000;
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: collectXPosts,
-      args: [Math.max(5, Number(c.durationSec) || 25) * 1000, Number(c.maxPosts) || 200],
+      func: kind === "liveuamap" ? collectLiveuamap : collectXPosts,
+      args: [dur, Number(c.maxPosts) || (kind === "liveuamap" ? 300 : 200)],
     });
     const capture = results && results[0] && results[0].result;
     if (!capture || !capture.items || capture.items.length === 0) {
-      return { ok: false, error: "No posts collected — check the URL and that you're logged into X.", url };
+      return { ok: false, error: kind === "liveuamap" ? "No events collected — is this a LiveUAMap region page?" : "No posts collected — check the URL and that you're logged into X.", url };
     }
 
-    const endpoint = c.dashboardUrl.replace(/\/+$/, "") + "/api/osint/x-import";
+    const endpoint = c.dashboardUrl.replace(/\/+$/, "") + (kind === "liveuamap" ? "/api/capture/events" : "/api/osint/x-import");
     const up = await fetch(endpoint, {
       method: "POST",
       headers: {

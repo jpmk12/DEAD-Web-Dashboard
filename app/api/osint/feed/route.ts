@@ -5,6 +5,7 @@ import { getUserPrefs } from "@/lib/userPrefs";
 import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
 import { getXItems, type StoredXItem } from "@/lib/xStore";
 import { getCapturedArticles, type StoredArticle } from "@/lib/articleStore";
+import { getCapturedEvents, type StoredEvent } from "@/lib/eventStore";
 
 export const dynamic = "force-dynamic";
 
@@ -245,6 +246,22 @@ function articleToOsint(a: { id: string; url: string; title: string; source: str
   };
 }
 
+// Captured map events (reader-capture, lib/eventStore) ride the feed as kind
+// "news". The event's headline links to its map permalink; the original source
+// (tweet/article) is appended.
+function eventToOsint(e: StoredEvent): OsintItem {
+  return {
+    id: `ev:${e.id}`,
+    title: e.title.slice(0, 200),
+    link: e.url,
+    pubDate: e.publishedAt ?? e.capturedAt,
+    summary: `🗺 ${e.source} — ${e.title}${e.sourceUrl ? ` · source: ${e.sourceUrl}` : ""}`.slice(0, 400),
+    feedId: "event-capture",
+    feedLabel: `🗺 ${e.source}`,
+    feedKind: "news",
+  };
+}
+
 function xToOsint(x: StoredXItem): OsintItem {
   const quoted = x.quoted?.text
     ? ` ⟪quoting ${x.quoted.handle ? `@${x.quoted.handle}` : x.quoted.author || "post"}: ${x.quoted.text.slice(0, 140)}⟫`
@@ -269,7 +286,8 @@ export async function GET() {
   const feeds = prefs?.osintFeeds ?? [];
   const xItems = await getXItems().catch(() => [] as StoredXItem[]);
   const articles = await getCapturedArticles(200).catch(() => [] as StoredArticle[]);
-  if (feeds.length === 0 && xItems.length === 0 && articles.length === 0) return NextResponse.json({ feeds: [], items: [] });
+  const events = await getCapturedEvents(300).catch(() => [] as StoredEvent[]);
+  if (feeds.length === 0 && xItems.length === 0 && articles.length === 0 && events.length === 0) return NextResponse.json({ feeds: [], items: [] });
 
   // Per-feed cache so a single broken feed doesn't burn the whole batch.
   // Race the whole batch against an overall budget so a wedged feed can't
@@ -302,7 +320,7 @@ export async function GET() {
   const results = await Promise.race([fetchAll, budget]);
 
   // Flat merge sorted by pubDate desc — live feeds, imported X posts, captured articles.
-  const flat = [...results.flatMap((r) => r.items), ...xItems.map(xToOsint), ...articles.map(articleToOsint)];
+  const flat = [...results.flatMap((r) => r.items), ...xItems.map(xToOsint), ...articles.map(articleToOsint), ...events.map(eventToOsint)];
   flat.sort((a, b) => {
     const ta = new Date(a.pubDate).getTime();
     const tb = new Date(b.pubDate).getTime();
@@ -344,6 +362,9 @@ export async function GET() {
         : []),
       ...(articles.length > 0
         ? [{ id: "article-capture", label: "📄 Article capture", kind: "news", count: articles.length, fetchedAt: Date.now(), ok: true }]
+        : []),
+      ...(events.length > 0
+        ? [{ id: "event-capture", label: "🗺 Event capture", kind: "news", count: events.length, fetchedAt: Date.now(), ok: true }]
         : []),
     ],
     items: flat,

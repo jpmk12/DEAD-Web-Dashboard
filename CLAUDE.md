@@ -1282,6 +1282,32 @@ Phase 2 (pending real captures): selector fixes against saved x.com HTML the
 user uploads — same capture-then-build pattern as DAIP/state.gov. No new npm
 dep anywhere (esbuild stays `0`).
 
+**Reader / event capture (generalized browser-capture, same extension).** The
+`tools/x-auto-capture/` extension now captures three kinds, all in the user's own
+browser (the only place with the session + residential IP):
+- **X posts** (the scheduled list sweep, above).
+- **Analysis articles** — toolbar-icon click = "capture THIS article" (WSJ/FP/
+  Economist etc. the user subscribes to; `article.js` Readability-lite extractor
+  → `dead-article` → `/api/capture/article` → `captured_articles`). PURE parser
+  `lib/articleCapture.ts` (tested) + `lib/articleStore.ts`. Manual, one-article-
+  at-a-time (personal-use, respects paywalled-DB terms — NOT a harvester). WIRED
+  INTO I&W corroboration (`gatherUserSourceNews`, 2000-char body slice, source
+  "📄") — curated analysis strengthens the escalation/Hormuz indicators.
+- **LiveUAMap events** — region maps (iran/israelpalestine/syria/yemen/isis/
+  emirates .liveuamap.com) are PUBLIC but block datacenter IPs, so the app can't
+  fetch their RSS server-side (403 confirmed). Captured in-browser: `liveuamap.js`
+  keys off the event-permalink pattern (`/en/20YY/…`, robust to class churn),
+  auto-scrolls the feed → `dead-events` → `/api/capture/events` → `captured_events`
+  (14d/1000 rolling). PURE parser `lib/eventCapture.ts` (tested) + `lib/eventStore.ts`.
+  The scheduled sweep auto-routes targets by host (x.com → posts, liveuamap.com →
+  events). Merged into the OSINT feed (kind "news", label "🗺 region"). DELIBERATELY
+  NOT wired into I&W corroboration — LiveUAMap is a firehose of ALL AOR events and
+  would re-pin the escalation indicator (the saturation problem `warningRules`
+  fixed); revisit only with a strict recency+escalation gate.
+
+All three ingests accept the same per-user bearer token as x-import. No new npm
+dep (esbuild stays 0).
+
 **Unattended auto-capture** (`tools/x-auto-capture/`, a Chrome/Edge MV3
 extension): the same capture, on a daily `chrome.alarms` schedule, still IN THE
 USER'S OWN LOGGED-IN BROWSER — decision unchanged (no server-side X access; the
