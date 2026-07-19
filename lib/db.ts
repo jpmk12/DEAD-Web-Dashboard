@@ -322,6 +322,20 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_sdc_term (kind, term, date)
   ) ENGINE=InnoDB`,
 
+  // Per-user upload tokens for UNATTENDED X capture (the browser extension /
+  // local script posts to /api/osint/x-import with a bearer token instead of an
+  // interactive session). Only the SHA-256 hash is stored — the plaintext is
+  // shown once at generation and never recoverable (same discipline as ACLED).
+  `CREATE TABLE IF NOT EXISTS x_upload_tokens (
+    token_hash   VARCHAR(64)  NOT NULL,
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    label        VARCHAR(80)  NOT NULL DEFAULT '',
+    created_at   DATETIME(3)  NOT NULL,
+    last_used_at DATETIME(3)  NULL,
+    PRIMARY KEY (token_hash),
+    INDEX idx_xtok_user (user_email)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS signal_seen (
     id   VARCHAR(40) NOT NULL PRIMARY KEY,
     date VARCHAR(10) NOT NULL,

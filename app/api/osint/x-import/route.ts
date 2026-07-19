@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseXCapture } from "@/lib/xImport";
 import { importXCapture, getXStatus, clearXItems } from "@/lib/xStore";
+import { verifyXUploadToken } from "@/lib/xUploadToken";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,17 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // a 200-post capture is ~100-300 KB
 
 export async function POST(req: Request) {
+  // Two ways in: an interactive session (the Social-pane upload), OR a per-user
+  // bearer token (the unattended browser-extension / script upload). The token
+  // path lets the automation post without a login while keeping the same
+  // capture-in-your-own-browser model — the token only authorizes the upload.
   const session = await auth();
-  if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let authed = Boolean(session?.accessToken);
+  if (!authed) {
+    const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+    if (m) authed = Boolean(await verifyXUploadToken(m[1].trim()).catch(() => null));
+  }
+  if (!authed) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const raw = await req.text();
   if (raw.length > MAX_BODY_BYTES) {

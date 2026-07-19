@@ -1282,6 +1282,25 @@ Phase 2 (pending real captures): selector fixes against saved x.com HTML the
 user uploads — same capture-then-build pattern as DAIP/state.gov. No new npm
 dep anywhere (esbuild stays `0`).
 
+**Unattended auto-capture** (`tools/x-auto-capture/`, a Chrome/Edge MV3
+extension): the same capture, on a daily `chrome.alarms` schedule, still IN THE
+USER'S OWN LOGGED-IN BROWSER — decision unchanged (no server-side X access; the
+runner must hold the user's session + residential IP, which Claude/Cowork's cloud
+can't). `collector.js` is the bookmarklet logic adapted to auto-scroll and
+RETURN the `dead-x-capture` object (injected via `chrome.scripting.executeScript`
+`func`, so it must stay self-contained); `background.js` opens a background x.com
+tab, injects it, then POSTs to `/api/osint/x-import`. Unattended upload is
+authorized by a **per-user bearer token** (NOT a session): `x_upload_tokens`
+table stores only the **SHA-256 hash** (plaintext shown once, same discipline as
+ACLED creds), managed via `/api/settings/x-token` (GET status · POST generate/
+rotate · DELETE revoke) and the `lib/xUploadToken.ts` accessors; the x-import
+POST accepts `Authorization: Bearer xcap_…` as an alternative to the interactive
+session (the manual Social-pane upload is untouched). UI to generate/copy/revoke
+the token lives in the Social pane's `XImportCard` "Auto-capture" panel. Scheduling
+only fires while the browser is open (`chrome.alarms` reality); a machine-cron
+Playwright-against-your-own-profile variant was offered for always-on. Extension
+files are static under `tools/` — outside the Next build, no esbuild.
+
 ### Strategic Economics tab (the retooled "Markets" → label "Economy")
 The old **Markets** tab (TradingView ticker/overview/econ-calendar + DoD contracts)
 was **retooled**, NOT retired, into a mobility-economics board: *global economic

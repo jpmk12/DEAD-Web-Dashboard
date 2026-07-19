@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>DEAD X Auto-Capture — options</title>
+<style>
+  body { font: 13px/1.5 system-ui, -apple-system, sans-serif; background: #0b1220; color: #e2e8f0; margin: 0; padding: 20px; }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 15px; letter-spacing: .04em; }
+  .sub { color: #94a3b8; font-size: 12px; margin-top: -6px; }
+  label { display: block; margin: 14px 0 4px; font-weight: 600; font-size: 12px; }
+  input[type=text], input[type=password], input[type=number] { width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font: inherit; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .chk { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; align-items: center; }
+  button { background: #10b981; color: #022c22; border: 0; border-radius: 8px; padding: 9px 16px; font-weight: 700; cursor: pointer; }
+  button.secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+  .status { margin-top: 16px; padding: 10px 12px; border-radius: 8px; background: #0f172a; border: 1px solid #1e293b; font-size: 12px; color: #94a3b8; white-space: pre-wrap; }
+  .ok { color: #34d399; } .err { color: #f87171; }
+  .hint { color: #64748b; font-size: 11px; margin-top: 3px; }
+  code { background: #020617; padding: 1px 5px; border-radius: 4px; color: #93c5fd; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>◆ DEAD X Auto-Capture</h1>
+  <p class="sub">Captures your X list in <b>this</b> logged-in browser on a daily schedule and uploads it to your dashboard. Nothing is sent to X.</p>
+
+  <label>Dashboard URL</label>
+  <input id="dashboardUrl" type="text" placeholder="https://your-dashboard.com" />
+  <div class="hint">The site root — the extension posts to <code>/api/osint/x-import</code>.</div>
+
+  <label>Upload token</label>
+  <input id="token" type="password" placeholder="xcap_…" />
+  <div class="hint">Generate it on the dashboard: OSINT → Social → 𝕏 Capture → <b>Auto-capture</b>. Stored only in this browser.</div>
+
+  <label>X list / view URL to capture</label>
+  <input id="listUrl" type="text" placeholder="https://x.com/i/lists/1234567890 (or /i/bookmarks)" />
+  <div class="hint">Open the exact list/bookmarks/search you want in X, copy its URL here.</div>
+
+  <div class="row">
+    <div>
+      <label>Daily run hour (local, 0–23)</label>
+      <input id="hour" type="number" min="0" max="23" />
+    </div>
+    <div>
+      <label>Collect seconds</label>
+      <input id="durationSec" type="number" min="5" max="120" />
+    </div>
+    <div>
+      <label>Max posts</label>
+      <input id="maxPosts" type="number" min="10" max="200" />
+    </div>
+  </div>
+
+  <div class="chk"><input id="enabled" type="checkbox" /> <label style="margin:0" for="enabled">Enabled (run daily)</label></div>
+
+  <div class="actions">
+    <button id="save">Save</button>
+    <button id="run" class="secondary">Run now</button>
+  </div>
+
+  <div id="status" class="status">Loading…</div>
+</div>
+<script src="options.js"></script>
+</body>
+</html>

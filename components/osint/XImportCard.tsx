@@ -27,6 +27,12 @@ export default function XImportCard({ onImported }: Props) {
   const [showHelp, setShowHelp] = useState(false);
   const [copied, setCopied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Auto-capture (browser-extension) token management.
+  const [showAuto, setShowAuto] = useState(false);
+  const [tok, setTok] = useState<{ configured: boolean; label: string | null; lastUsedAt: string | null } | null>(null);
+  const [newTok, setNewTok] = useState<string | null>(null);
+  const [tokBusy, setTokBusy] = useState(false);
+  const [tokCopied, setTokCopied] = useState(false);
 
   const refresh = () => {
     fetch("/api/osint/x-import")
@@ -34,7 +40,29 @@ export default function XImportCard({ onImported }: Props) {
       .then((d) => { if (typeof d?.count === "number") setStatus(d); })
       .catch(() => {});
   };
-  useEffect(() => { refresh(); }, []);
+  const refreshToken = () => {
+    fetch("/api/settings/x-token").then((r) => r.json()).then((d) => setTok(d)).catch(() => {});
+  };
+  useEffect(() => { refresh(); refreshToken(); }, []);
+
+  const generateToken = async () => {
+    setTokBusy(true);
+    try {
+      const res = await fetch("/api/settings/x-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: "browser extension" }) });
+      const d = await res.json();
+      if (res.ok && d.token) { setNewTok(d.token); refreshToken(); }
+    } finally { setTokBusy(false); }
+  };
+  const revokeToken = async () => {
+    if (!window.confirm("Revoke the upload token? The extension will stop uploading until you generate a new one.")) return;
+    setTokBusy(true);
+    try { await fetch("/api/settings/x-token", { method: "DELETE" }); setNewTok(null); refreshToken(); }
+    finally { setTokBusy(false); }
+  };
+  const copyToken = () => {
+    if (!newTok) return;
+    navigator.clipboard?.writeText(newTok).then(() => { setTokCopied(true); setTimeout(() => setTokCopied(false), 2000); }).catch(() => {});
+  };
 
   const importText = async (text: string) => {
     setBusy(true);
@@ -122,6 +150,13 @@ export default function XImportCard({ onImported }: Props) {
         >
           Bookmarklet {showHelp ? "▴" : "▾"}
         </button>
+        <button
+          type="button"
+          onClick={() => setShowAuto((v) => !v)}
+          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border transition-all ${showAuto ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10" : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"}`}
+        >
+          Auto-capture {tok?.configured ? "●" : ""} {showAuto ? "▴" : "▾"}
+        </button>
         {status !== null && status.count > 0 && (
           <button
             type="button"
@@ -184,6 +219,45 @@ export default function XImportCard({ onImported }: Props) {
             If a capture comes back with missing authors/text, X likely changed its page structure — save the x.com page
             (Ctrl/Cmd-S, HTML only) and upload it in chat so the selectors can be fixed against the real markup.
           </p>
+        </div>
+      )}
+
+      {showAuto && (
+        <div className="border-t border-slate-800 pt-2 space-y-2 text-[11px] text-slate-400 leading-relaxed">
+          <p>
+            Unattended daily capture via a <span className="text-slate-200">browser extension</span> that runs in your own
+            logged-in browser (same safety model — nothing goes to X). Generate a token below, then load the extension from
+            <span className="font-mono text-slate-300"> tools/x-auto-capture/</span> and paste the token into its options.
+          </p>
+
+          {newTok ? (
+            <div className="space-y-1.5">
+              <p className="text-amber-300">Copy this token now — it&apos;s shown only once:</p>
+              <div className="flex items-center gap-2">
+                <input readOnly value={newTok} onFocus={(e) => e.target.select()} className="flex-1 bg-slate-950/60 border border-emerald-500/40 rounded-md px-2 py-1.5 text-[11px] font-mono text-emerald-300" />
+                <button type="button" onClick={copyToken} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-emerald-500/40 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20">{tokCopied ? "✓" : "⧉ Copy"}</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" disabled={tokBusy} onClick={generateToken} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-emerald-500/40 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50">
+                {tok?.configured ? "↻ Regenerate token" : "＋ Generate token"}
+              </button>
+              {tok?.configured && (
+                <>
+                  <span className="text-[10px] text-slate-500 font-mono">token active{tok.lastUsedAt ? ` · last used ${formatDistanceToNow(new Date(tok.lastUsedAt), { addSuffix: true })}` : " · not used yet"}</span>
+                  <button type="button" disabled={tokBusy} onClick={revokeToken} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-700 text-slate-500 hover:border-red-500/40 hover:text-red-400 disabled:opacity-50">Revoke</button>
+                </>
+              )}
+            </div>
+          )}
+
+          <ol className="list-decimal list-inside space-y-0.5 text-slate-400">
+            <li><span className="text-slate-200">Generate a token</span> above and copy it.</li>
+            <li>In Chrome/Edge → <span className="font-mono text-slate-300">chrome://extensions</span> → Developer mode → <span className="text-slate-200">Load unpacked</span> → pick <span className="font-mono text-slate-300">tools/x-auto-capture/</span>.</li>
+            <li>Open the extension&apos;s <span className="text-slate-200">options</span>, paste your dashboard URL, the token, and the X list URL to capture. Save, then <span className="text-emerald-400">Run now</span> to test.</li>
+          </ol>
+          <p className="text-slate-600">Runs daily while your browser is open. Regenerating rotates the token (the old one stops working); the manual file upload above always keeps working.</p>
         </div>
       )}
     </div>
