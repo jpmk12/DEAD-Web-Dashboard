@@ -18,15 +18,18 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 export async function POST(req: Request) {
   const session = await auth();
   let email = session?.accessToken ? normEmail(session.user?.email) : "";
-  if (!session?.accessToken) {
-    const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
-    if (m) {
-      email = (await verifyXUploadToken(m[1].trim()).catch(() => null)) ?? "";
+  // Always verify the token when present (stamps last_used + records cadence for
+  // the freshness pill, even when a browser session cookie also authenticated).
+  const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+  if (m) {
+    const tokEmail = await verifyXUploadToken(m[1].trim()).catch(() => null);
+    if (tokEmail) {
+      if (!email) email = tokEmail;
       const iv = Number(req.headers.get("x-capture-interval-hours"));
-      if (email && Number.isFinite(iv)) setXTokenCadence(email, iv).catch(() => {});
+      if (Number.isFinite(iv)) setXTokenCadence(tokEmail, iv).catch(() => {});
     }
-    if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!session?.accessToken && !email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const raw = await req.text();
   if (raw.length > MAX_BODY_BYTES) return NextResponse.json({ error: "Capture too large (2 MB max)." }, { status: 413 });

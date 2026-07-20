@@ -21,11 +21,14 @@ const MAX_BODY_BYTES = 1 * 1024 * 1024;
 export async function POST(req: Request) {
   const session = await auth();
   let email = session?.accessToken ? normEmail(session.user?.email) : "";
-  if (!session?.accessToken) {
-    const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
-    if (m) email = (await verifyXUploadToken(m[1].trim()).catch(() => null)) ?? "";
-    if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Always verify the token when present (stamps last_used for the freshness pill,
+  // even when a browser session cookie also authenticated the upload).
+  const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+  if (m) {
+    const tokEmail = await verifyXUploadToken(m[1].trim()).catch(() => null);
+    if (tokEmail && !email) email = tokEmail;
   }
+  if (!session?.accessToken && !email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const raw = await req.text();
   if (raw.length > MAX_BODY_BYTES) return NextResponse.json({ error: "Article too large (1 MB max)." }, { status: 413 });

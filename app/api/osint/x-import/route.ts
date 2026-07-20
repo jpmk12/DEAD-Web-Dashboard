@@ -24,15 +24,18 @@ export async function POST(req: Request) {
   // capture-in-your-own-browser model — the token only authorizes the upload.
   const session = await auth();
   let authed = Boolean(session?.accessToken);
-  if (!authed) {
-    const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
-    if (m) {
-      const email = await verifyXUploadToken(m[1].trim()).catch(() => null);
-      authed = Boolean(email);
-      // The extension reports its schedule so the freshness pill judges staleness
-      // against the real cadence, not a daily assumption.
+  // ALWAYS check the bearer token when present — even if a browser session cookie
+  // also authenticated this request. The extension posts from a logged-in browser,
+  // so its upload carries both; if we only checked the token when the session was
+  // ABSENT, verifyXUploadToken (which stamps last_used) never ran and the freshness
+  // pill read "not yet run" despite working uploads.
+  const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+  if (m) {
+    const email = await verifyXUploadToken(m[1].trim()).catch(() => null); // stamps last_used
+    if (email) {
+      authed = true;
       const iv = Number(req.headers.get("x-capture-interval-hours"));
-      if (email && Number.isFinite(iv)) setXTokenCadence(email, iv).catch(() => {});
+      if (Number.isFinite(iv)) setXTokenCadence(email, iv).catch(() => {});
     }
   }
   if (!authed) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
