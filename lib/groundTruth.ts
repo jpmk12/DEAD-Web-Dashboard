@@ -17,6 +17,9 @@ import { getAdvisoryDetail, type AdvisoryRiskArea } from "./stateAdvisoryDetail"
 import { getHealthEvents } from "./health";
 import { getHostNationHealth, type HealthIndicator } from "./whoHealth";
 import { scoreConflictNews, type ConflictNewsSignal } from "./conflictNews";
+import { getXItems } from "./xStore";
+import { getCapturedArticles, articleToNewsItem } from "./articleStore";
+import { getCapturedEvents } from "./eventStore";
 import type { NewsItem, OsintFeed, DisasterEvent } from "./types";
 
 export interface Incident {
@@ -124,13 +127,59 @@ async function osintCountryNews(country: string, feeds: OsintFeed[]): Promise<Ne
   return results.flat().filter((it) => rx.test(it.title) || rx.test(it.summary ?? "")).slice(0, 8);
 }
 
+// The user's browser-captured sources (𝕏 posts, 📄 analysis articles, 🗺 LiveUAMap
+// events), country-filtered → NewsItem. Gives captured material a real analytical
+// home: opening the Iran room shows the FP article + live LiveUAMap Iran events
+// alongside GDELT/RSS. This is a DISPLAY surface (also fed into the active-conflict
+// scorer), NOT an I&W scored indicator, so there's no saturation risk from the
+// LiveUAMap firehose here. Best-effort: any store miss degrades to [].
+async function captureCountryNews(country: string): Promise<NewsItem[]> {
+  const rx = new RegExp(`\\b${escapeRx(country)}\\b`, "i");
+  const [xItems, articles, events] = await Promise.all([
+    getXItems().catch(() => []),
+    getCapturedArticles(200).catch(() => []),
+    getCapturedEvents(300).catch(() => []),
+  ]);
+  const out: NewsItem[] = [];
+  for (const x of xItems) {
+    if (!rx.test(x.text)) continue;
+    out.push({
+      id: `x-${x.id}`,
+      title: x.text.replace(/\s+/g, " ").trim().slice(0, 200),
+      source: `𝕏 @${x.handle}`,
+      category: "social",
+      pubDate: x.postedAt ?? x.importedAt,
+      summary: x.text.slice(0, 400),
+      link: x.url,
+    });
+  }
+  for (const a of articles) {
+    if (!(rx.test(a.title) || rx.test(a.text))) continue;
+    out.push(articleToNewsItem(a, 600));
+  }
+  for (const e of events) {
+    if (!(rx.test(e.title) || countryMatch(e.source, country))) continue;
+    out.push({
+      id: `ev-${e.id}`,
+      title: e.title,
+      source: `🗺 ${e.source}`,
+      category: "local",
+      pubDate: e.publishedAt ?? e.capturedAt,
+      summary: e.title,
+      link: e.url,
+    });
+  }
+  return out.slice(0, 20);
+}
+
 export async function getCountryDossier(country: string, osintFeeds: OsintFeed[] = []): Promise<CountryDossier> {
   const cen = countryCentroid(country);
-  const [acled, conflict, gdelt, osint, advisories, disasterEvents, holidays, detail, healthEvents, hostHealth] = await Promise.all([
+  const [acled, conflict, gdelt, osint, captures, advisories, disasterEvents, holidays, detail, healthEvents, hostHealth] = await Promise.all([
     getAcledEvents().catch(() => []),
     getConflictPoints().catch(() => []),
     gdeltLocalNews(country).catch(() => [] as NewsItem[]),
     osintCountryNews(country, osintFeeds).catch(() => [] as NewsItem[]),
+    captureCountryNews(country).catch(() => [] as NewsItem[]),
     getAllStateAdvisories().catch(() => []),
     getDisasters().catch(() => [] as DisasterEvent[]),
     getCountryHolidays(country).catch(() => [] as UpcomingHoliday[]),
@@ -200,9 +249,10 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     (a.km ?? 0) - (b.km ?? 0),
   );
 
-  // Merge GDELT + OSINT news: dedupe by link, newest first.
+  // Merge GDELT + OSINT feeds + browser captures (𝕏/📄/🗺): dedupe by link, newest
+  // first. Captures flow into both the displayed news AND the active-conflict scorer.
   const seen = new Set<string>();
-  const merged = [...gdelt, ...osint]
+  const merged = [...gdelt, ...osint, ...captures]
     .filter((n) => n.link && !seen.has(n.link) && seen.add(n.link))
     .sort((a, b) => Date.parse(b.pubDate || "0") - Date.parse(a.pubDate || "0"));
   // Score the full merged pool for active-conflict signal before slicing for display.
