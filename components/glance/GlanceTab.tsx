@@ -276,6 +276,7 @@ export default function GlanceTab({
   useCacheTick(active);
 
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
+  const [completingTasks, setCompletingTasks] = useState<Set<string>>(new Set());
   const [threats, setThreats] = useState<WeatherThreats | null>(null);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
   const [reachFilter, setReachFilter] = useState<"all" | ReachCat>("all");
@@ -388,6 +389,29 @@ export default function GlanceTab({
     .map((t) => ({ t, state: taskDueState(t.due) }))
     .filter((x) => x.state === "overdue" || x.state === "today")
     .sort((a, b) => (a.t.due ?? "").localeCompare(b.t.due ?? ""));
+  const overdueTaskCount = dueTasks.filter((x) => x.state === "overdue").length;
+
+  // Complete a task inline from the pinned "Your actions" group — optimistic
+  // (drops it from the list immediately + updates the shared cache the Calendar
+  // rail reads), reverting if the PATCH fails so a task never silently "un-does".
+  const completeTask = (id: string) => {
+    setCompletingTasks((prev) => new Set(prev).add(id));
+    const flip = (status: GoogleTask["status"]) =>
+      setTasks((prev) => {
+        const next = prev.map((t) => (t.id === id ? { ...t, status } : t));
+        clientCache.set("tasks:items", next, 5 * 60 * 1000);
+        return next;
+      });
+    flip("completed");
+    fetch("/api/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status: "completed" }),
+    })
+      .then((r) => { if (!r.ok) throw new Error("patch failed"); })
+      .catch(() => flip("needsAction"))
+      .finally(() => setCompletingTasks((prev) => { const n = new Set(prev); n.delete(id); return n; }));
+  };
 
   type Urgent = {
     id: string;
@@ -456,19 +480,10 @@ export default function GlanceTab({
     });
   }
 
-  for (const { t, state } of dueTasks) {
-    const overdue = state === "overdue";
-    urgent.push({
-      id: `task-${t.id}`,
-      rank: overdue ? 0 : 1,
-      tone: overdue ? "red" : "amber",
-      icon: "✓",
-      label: t.title,
-      sub: overdue ? "Task overdue" : "Task due today",
-      meta: overdue ? "Overdue" : "Today",
-      onClick: () => onNavigate("calendar"),
-    });
-  }
+  // NOTE: due/overdue tasks are deliberately NOT merged into this world-state
+  // list — they render in their own pinned "Your actions" group at the top of
+  // the panel (see below) so personal action items never get sorted below, or
+  // sliced off behind, a busy news/alert day.
 
   for (const e of emails.filter((e) => e.priority === "High").slice(0, 5)) {
     const unseen = ms(e.date) > previousSeen.email;
@@ -876,31 +891,107 @@ export default function GlanceTab({
         {/* Main column */}
         <div className="lg:col-span-2 space-y-6">
           {/* Needs you now */}
-          <Panel title="Needs you now" accent onJump={urgentTop.length ? () => onNavigate("email") : undefined}>
-            {urgentTop.length === 0 ? (
+          <Panel
+            title="Needs you now"
+            accent
+            badge={
+              dueTasks.length > 0 ? (
+                <span
+                  title={`${overdueTaskCount} overdue · ${dueTasks.length - overdueTaskCount} due today`}
+                  className={`text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border ${
+                    overdueTaskCount > 0
+                      ? "text-red-300 bg-red-500/15 border-red-500/30"
+                      : "text-violet-300 bg-violet-500/15 border-violet-500/30"
+                  }`}
+                >
+                  {dueTasks.length} task{dueTasks.length === 1 ? "" : "s"}
+                </span>
+              ) : undefined
+            }
+            onJump={urgentTop.length ? () => onNavigate("email") : undefined}
+          >
+            {dueTasks.length === 0 && urgentTop.length === 0 ? (
               <Empty>Nothing demanding action right now.</Empty>
             ) : (
-              <ul className="divide-y divide-slate-800/60">
-                {urgentTop.map((u) => (
-                  <li key={u.id}>
-                    <button
-                      onClick={u.onClick}
-                      className={`group w-full text-left flex items-start gap-3 px-3 py-2.5 border-l-2 ${toneBorder[u.tone]} hover:bg-slate-800/40 transition-colors`}
-                    >
-                      <span className={`mt-0.5 text-sm flex-shrink-0 ${toneText[u.tone]}`}>{u.icon}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium text-slate-200 truncate group-hover:text-slate-100">
-                          {u.label}
-                        </span>
-                        <span className="block text-xs text-slate-500 truncate">{u.sub}</span>
-                      </span>
-                      <span className={`text-[10px] font-semibold uppercase tracking-wider flex-shrink-0 ${toneText[u.tone]}`}>
-                        {u.meta}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <>
+                {/* Your actions — personal to-dos, pinned above world-state so they
+                    never sort below or get sliced off behind a busy alert day.
+                    Distinct violet "ownership" accent + an inline complete box. */}
+                {dueTasks.length > 0 && (
+                  <div className="bg-violet-500/[0.06] border-b border-violet-500/20">
+                    <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-violet-300">Your actions</span>
+                      <span className="text-[10px] text-slate-600 truncate">tasks with your name on them</span>
+                      <button
+                        onClick={() => onNavigate("calendar")}
+                        className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-violet-300 transition-colors flex-shrink-0"
+                      >
+                        Tasks →
+                      </button>
+                    </div>
+                    <ul>
+                      {dueTasks.map(({ t, state }) => {
+                        const overdue = state === "overdue";
+                        const busy = completingTasks.has(t.id);
+                        return (
+                          <li key={`task-${t.id}`}>
+                            <div className="group flex items-center gap-3 px-3 py-2.5 border-l-2 border-l-violet-500/70 hover:bg-violet-500/[0.08] transition-colors">
+                              <button
+                                onClick={() => completeTask(t.id)}
+                                disabled={busy}
+                                title="Mark complete"
+                                aria-label={`Mark "${t.title}" complete`}
+                                className="flex-shrink-0 w-4 h-4 rounded border border-violet-400/60 hover:border-violet-300 hover:bg-violet-500/20 flex items-center justify-center text-violet-200 disabled:opacity-40"
+                              >
+                                {busy ? (
+                                  <span className="text-[9px] leading-none animate-pulse">•</span>
+                                ) : (
+                                  <span className="opacity-0 group-hover:opacity-100 text-[10px] leading-none transition-opacity">✓</span>
+                                )}
+                              </button>
+                              <button onClick={() => onNavigate("calendar")} className="min-w-0 flex-1 text-left">
+                                <span className="block text-sm font-medium text-slate-200 truncate group-hover:text-slate-100">
+                                  {t.title}
+                                </span>
+                                <span className="block text-xs text-slate-500 truncate">{overdue ? "Overdue" : "Due today"}</span>
+                              </button>
+                              <span className={`text-[10px] font-semibold uppercase tracking-wider flex-shrink-0 ${overdue ? "text-red-400" : "text-violet-300"}`}>
+                                {overdue ? "Overdue" : "Today"}
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
+                {/* World-state alerts (weather / disasters / force protection /
+                    email / OSINT) — tasks intentionally excluded above. */}
+                {urgentTop.length > 0 && (
+                  <ul className="divide-y divide-slate-800/60">
+                    {urgentTop.map((u) => (
+                      <li key={u.id}>
+                        <button
+                          onClick={u.onClick}
+                          className={`group w-full text-left flex items-start gap-3 px-3 py-2.5 border-l-2 ${toneBorder[u.tone]} hover:bg-slate-800/40 transition-colors`}
+                        >
+                          <span className={`mt-0.5 text-sm flex-shrink-0 ${toneText[u.tone]}`}>{u.icon}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium text-slate-200 truncate group-hover:text-slate-100">
+                              {u.label}
+                            </span>
+                            <span className="block text-xs text-slate-500 truncate">{u.sub}</span>
+                          </span>
+                          <span className={`text-[10px] font-semibold uppercase tracking-wider flex-shrink-0 ${toneText[u.tone]}`}>
+                            {u.meta}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </Panel>
 
