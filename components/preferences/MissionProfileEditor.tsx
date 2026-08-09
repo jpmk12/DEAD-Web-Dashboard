@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   deriveTracking, suggestChokepoints, slugify, EMPTY_PROFILE, SITREP_MAX,
-  type MissionProfile, type MissionAoi,
+  type MissionProfile, type MissionAoi, type MissionSpoke,
 } from "@/lib/missionProfile";
 import { CHOKEPOINTS } from "@/lib/chokepoints";
 import type { Aor } from "@/lib/aor";
@@ -103,17 +103,8 @@ export default function MissionProfileEditor() {
         {!canEdit && <span className="text-amber-400"> Shared team config — editable by the owner.</span>}
       </p>
 
-      {/* Home station */}
-      <div>
-        <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">Home station (ICAO)</label>
-        <input
-          value={profile.homeIcao}
-          onChange={(e) => patch({ homeIcao: e.target.value.toUpperCase().slice(0, 4) })}
-          disabled={!canEdit}
-          placeholder="KWRI"
-          className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono text-slate-200 placeholder-slate-600 disabled:opacity-50"
-        />
-      </div>
+      {/* Own force airfields — hub & spoke */}
+      <OwnForceEditor profile={profile} canEdit={canEdit} patch={patch} />
 
       {/* Theaters */}
       <div>
@@ -168,7 +159,7 @@ export default function MissionProfileEditor() {
               className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-40">
               Save declaration
             </button>
-            <button type="button" onClick={apply} disabled={busy || profile.aois.length === 0}
+            <button type="button" onClick={apply} disabled={busy || (profile.aois.length === 0 && profile.spokes.length === 0 && !profile.homeIcao)}
               className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-40">
               {busy ? "…" : "Apply — materialize tracking"}
             </button>
@@ -229,6 +220,95 @@ export default function MissionProfileEditor() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Hub-and-spoke own-force airfields. ICAOs are resolved to labeled points at
+// entry time (/api/airfields/resolve → curated sets → OurAirports) so the
+// profile stores full coordinates and the derivation stays pure client-side.
+function OwnForceEditor({ profile, canEdit, patch }: {
+  profile: MissionProfile; canEdit: boolean; patch: (p: Partial<MissionProfile>) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const resolve = async (icao: string): Promise<MissionSpoke | null> => {
+    const r = await fetch(`/api/airfields/resolve?icao=${encodeURIComponent(icao)}`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return { icao: d.icao, label: d.label, lat: d.lat, lon: d.lon, country: d.country ?? "" };
+  };
+
+  const addSpoke = async () => {
+    const icao = input.trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(icao) || busy) return;
+    if (icao === profile.homeIcao || profile.spokes.some((s) => s.icao === icao)) { setInput(""); return; }
+    setBusy(true); setErr(null);
+    const sp = await resolve(icao);
+    setBusy(false);
+    if (!sp) { setErr(`Couldn't resolve ${icao} — check the ICAO.`); return; }
+    patch({ spokes: [...profile.spokes, sp].slice(0, 8) });
+    setInput("");
+  };
+
+  const setHome = async (raw: string) => {
+    const icao = raw.toUpperCase().slice(0, 4);
+    patch({ homeIcao: icao, home: null });
+    if (/^[A-Z0-9]{4}$/.test(icao)) {
+      const sp = await resolve(icao);
+      if (sp) patch({ home: sp });
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+        Own force airfields — hub &amp; spokes
+      </label>
+      <p className="text-[10px] text-slate-600 mb-1.5">
+        Where your crews and aircraft live. Every field here gets weather, METAR, force-protection watch, and SITREP candidacy.
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5 border border-emerald-500/40 bg-emerald-500/10 rounded-full pl-2 pr-1 py-0.5">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">Hub</span>
+          <input
+            value={profile.homeIcao}
+            onChange={(e) => void setHome(e.target.value)}
+            disabled={!canEdit}
+            placeholder="KWRI"
+            className="w-14 bg-transparent text-sm font-mono text-slate-200 placeholder-slate-600 focus:outline-none disabled:opacity-50"
+          />
+          {profile.home && <span className="text-[10px] text-slate-500 max-w-[160px] truncate">{profile.home.label}</span>}
+        </span>
+        {profile.spokes.map((sp) => (
+          <span key={sp.icao} className="inline-flex items-center gap-1.5 border border-slate-700 rounded-full px-2 py-0.5">
+            <span className="text-[11px] font-mono font-bold text-slate-200">{sp.icao}</span>
+            <span className="text-[10px] text-slate-500 max-w-[150px] truncate">{sp.label}</span>
+            {canEdit && (
+              <button type="button" onClick={() => patch({ spokes: profile.spokes.filter((x) => x.icao !== sp.icao) })}
+                className="text-slate-600 hover:text-red-400 text-xs" title="Remove spoke">✕</button>
+            )}
+          </span>
+        ))}
+        {canEdit && profile.spokes.length < 8 && (
+          <span className="inline-flex items-center gap-1">
+            <input
+              value={input}
+              onChange={(e) => { setInput(e.target.value.toUpperCase().slice(0, 4)); setErr(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addSpoke(); } }}
+              placeholder="+ spoke ICAO"
+              className="w-24 bg-slate-950 border border-dashed border-slate-700 rounded-full px-2 py-0.5 text-[11px] font-mono text-slate-300 placeholder-slate-600"
+            />
+            <button type="button" onClick={() => void addSpoke()} disabled={busy || input.length !== 4}
+              className="text-[10px] font-bold text-slate-500 hover:text-emerald-400 disabled:opacity-40">
+              {busy ? "…" : "add"}
+            </button>
+          </span>
+        )}
+      </div>
+      {err && <p className="text-[10px] text-red-400 mt-1">{err}</p>}
     </div>
   );
 }

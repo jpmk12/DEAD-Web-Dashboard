@@ -28,8 +28,21 @@ export interface MissionAoi {
   chokepointIds: string[];          // from CHOKEPOINTS; auto-suggested, editable
 }
 
+// An own-force airfield — the hub or a spoke where crews/aircraft live.
+// Stored RESOLVED (the editor resolves ICAO → label/coords via
+// /api/airfields/resolve at entry time) so derivation stays pure.
+export interface MissionSpoke {
+  icao: string;
+  label: string;
+  lat: number;
+  lon: number;
+  country: string;
+}
+
 export interface MissionProfile {
-  homeIcao: string;                 // "" = unset
+  homeIcao: string;                 // "" = unset (the HUB)
+  home?: MissionSpoke | null;       // resolved hub, when the editor resolved it
+  spokes: MissionSpoke[];           // hub-and-spoke: other own-force airfields
   theaters: Aor[];                  // COCOMs the user owns
   aois: MissionAoi[];
   excludedIds: string[];            // derived ids the user removed — never re-materialize
@@ -38,7 +51,7 @@ export interface MissionProfile {
 }
 
 export const EMPTY_PROFILE: MissionProfile = {
-  homeIcao: "", theaters: [], aois: [], excludedIds: [], materializedIds: [],
+  homeIcao: "", spokes: [], theaters: [], aois: [], excludedIds: [], materializedIds: [],
 };
 
 // Everything one apply writes, grouped for the review screen.
@@ -57,6 +70,7 @@ const VALID_AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM"
 const MAX_AOIS = 8;
 const MAX_AOI_COUNTRIES = 25;
 const BASES_PER_AOI = 6;
+const MAX_SPOKES = 8;
 const NEAR_BASE_KM = 1800;          // "supports this AOI" radius for theater hubs
 const NEAR_CHOKE_KM = 2500;         // chokepoint relevance radius
 export const SITREP_MAX = 4;
@@ -107,8 +121,33 @@ export function sanitizeMissionProfile(raw: unknown): MissionProfile {
     while (seen.has(id)) id = `${a.id}-${n++}`;
     a.id = id; seen.add(id);
   }
+  const asSpoke = (v: unknown): MissionSpoke | null => {
+    if (!v || typeof v !== "object") return null;
+    const o = v as Record<string, unknown>;
+    const icao = typeof o.icao === "string" ? o.icao.trim().toUpperCase().slice(0, 4) : "";
+    if (!/^[A-Z0-9]{4}$/.test(icao)) return null;
+    const lat = typeof o.lat === "number" && isFinite(o.lat) ? o.lat : null;
+    const lon = typeof o.lon === "number" && isFinite(o.lon) ? o.lon : null;
+    if (lat == null || lon == null) return null;
+    return {
+      icao, lat, lon,
+      label: (typeof o.label === "string" ? o.label.trim() : "").slice(0, 80) || icao,
+      country: (typeof o.country === "string" ? o.country.trim() : "").slice(0, 60),
+    };
+  };
+  const spokes: MissionSpoke[] = [];
+  if (Array.isArray(r.spokes)) {
+    const seenIcao = new Set<string>();
+    for (const v of r.spokes.slice(0, MAX_SPOKES * 2)) {
+      const sp = asSpoke(v);
+      if (sp && !seenIcao.has(sp.icao) && spokes.length < MAX_SPOKES) { seenIcao.add(sp.icao); spokes.push(sp); }
+    }
+  }
+  const home = asSpoke(r.home);
   return {
     homeIcao: typeof r.homeIcao === "string" ? r.homeIcao.trim().toUpperCase().slice(0, 4) : "",
+    ...(home ? { home } : {}),
+    spokes,
     theaters: strArr(r.theaters, 6, 12).filter((t): t is Aor => VALID_AORS.includes(t as Aor)),
     aois,
     excludedIds: strArr(r.excludedIds, 400, 60),
@@ -138,6 +177,33 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
   const seenBase = new Set<string>();
   const watchlistSeeds: string[] = [];
   const warningProblems: DerivedTracking["warningProblems"] = [];
+
+  // ── Own-force airfields (hub & spoke) come FIRST: crews and aircraft LIVE
+  // here, so they outrank AOI theater picks for every capped list. The hub is
+  // the resolved `home` object, else a curated lookup of homeIcao.
+  const hub: MissionSpoke | null =
+    profile.home ??
+    (profile.homeIcao
+      ? (() => {
+          const a = ALL_AIRFIELDS.find((x) => x.icao === profile.homeIcao);
+          return a ? { icao: a.icao, label: a.name, lat: a.lat, lon: a.lon, country: a.country ?? "United States" } : null;
+        })()
+      : null);
+  const ownForce: { sp: MissionSpoke; role: "hub" | "spoke" }[] = [
+    ...(hub ? [{ sp: hub, role: "hub" as const }] : []),
+    ...profile.spokes.filter((s) => s.icao !== hub?.icao).map((sp) => ({ sp, role: "spoke" as const })),
+  ];
+  for (const { sp, role } of ownForce) {
+    if (seenBase.has(sp.icao)) continue;
+    seenBase.add(sp.icao);
+    const id = `mp-b-${sp.icao}`;
+    if (excluded.has(id)) continue;
+    bases.push({
+      id, label: sp.label, icao: sp.icao, lat: sp.lat, lon: sp.lon,
+      country: sp.country, cocom: classifyAor({ lat: sp.lat, lon: sp.lon }),
+      kind: "base", note: role === "hub" ? "Own force — hub" : "Own force — spoke",
+    });
+  }
 
   for (const aoi of profile.aois) {
     // Countries → posture watch.
@@ -193,24 +259,25 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
   }
 
   // Weather points + METAR stations follow the derived bases.
-  const weatherPoints: TrackedLocation[] = bases.slice(0, 8)
+  const weatherPoints: TrackedLocation[] = bases.slice(0, 10)
     .map((b) => ({ id: `mp-w-${b.icao}`, label: b.label, lat: b.lat, lon: b.lon }))
     .filter((w) => !excluded.has(w.id));
   const metarStations: MetarStation[] = bases
     .filter((b) => !!b.icao)
     .map((b) => ({ icao: b.icao as string, label: b.label }));
 
-  // SITREP candidates: home station first, then per-primary-AOI best hubs.
+  // SITREP candidates: hub first, then spokes (crews live there — "can my
+  // spoke launch today" is the point), then per-primary-AOI theater hubs.
   const sitrepCandidates: SitrepBase[] = [];
   const sitSeen = new Set<string>();
-  const home = profile.homeIcao ? ALL_AIRFIELDS.find((a) => a.icao === profile.homeIcao) : undefined;
-  if (home) {
-    sitSeen.add(home.icao);
-    sitrepCandidates.push({ icao: home.icao, label: home.name, lat: home.lat, lon: home.lon, country: home.country ?? "United States", place: home.name });
+  for (const { sp } of ownForce) {
+    if (sitSeen.has(sp.icao)) continue;
+    sitSeen.add(sp.icao);
+    sitrepCandidates.push({ icao: sp.icao, label: sp.label, lat: sp.lat, lon: sp.lon, country: sp.country || "United States", place: sp.label });
   }
   for (const aoi of profile.aois.filter((a) => a.intensity === "primary")) {
     for (const b of bases.filter((x) => x.note === `AOI: ${aoi.name}`).slice(0, 2)) {
-      if (!b.icao || sitSeen.has(b.icao) || sitrepCandidates.length >= SITREP_MAX + 2) continue;
+      if (!b.icao || sitSeen.has(b.icao) || sitrepCandidates.length >= SITREP_MAX + 6) continue;
       sitSeen.add(b.icao);
       sitrepCandidates.push({ icao: b.icao, label: b.label, lat: b.lat, lon: b.lon, country: b.country, place: b.label });
     }

@@ -7,6 +7,7 @@ import {
 
 const IRAN_HORMUZ: MissionProfile = {
   homeIcao: "KWRI",
+  spokes: [],
   theaters: ["CENTCOM"],
   aois: [{
     id: "iran-hormuz", name: "Iran & Hormuz", aor: "CENTCOM",
@@ -14,6 +15,15 @@ const IRAN_HORMUZ: MissionProfile = {
     intensity: "primary", iw: true, chokepointIds: ["hormuz"],
   }],
   excludedIds: [], materializedIds: [],
+};
+
+// Hub-and-spoke: crews/aircraft live at the hub AND at spoke fields.
+const HUB_AND_SPOKE: MissionProfile = {
+  ...IRAN_HORMUZ,
+  spokes: [
+    { icao: "KCHS", label: "JB Charleston, SC", lat: 32.8986, lon: -80.0405, country: "United States" },
+    { icao: "KADW", label: "JB Andrews, MD", lat: 38.8108, lon: -76.867, country: "United States" },
+  ],
 };
 
 describe("sanitizeMissionProfile", () => {
@@ -62,14 +72,16 @@ describe("deriveTracking", () => {
     expect(d.countries.every((c) => isDerivedId(c.id))).toBe(true);
   });
 
-  it("derives in-theater bases, AMC hubs first", () => {
+  it("derives in-theater bases, AMC hubs first (own-force hub leads)", () => {
     const d = deriveTracking(IRAN_HORMUZ);
     expect(d.bases.length).toBeGreaterThan(0);
+    // The declared home station is itself a watched base now (own force).
+    expect(d.bases[0]).toMatchObject({ icao: "KWRI", note: "Own force — hub" });
     // Al Udeid (Qatar, curated CENTCOM hub) must be in the set for a Gulf AOI.
     expect(d.bases.some((b) => b.icao === "OTBH")).toBe(true);
-    // Hubs outrank gateways in the ranking.
-    expect(d.bases[0].id.startsWith("mp-b-")).toBe(true);
-    expect(d.bases.every((b) => b.cocom === "CENTCOM")).toBe(true);
+    expect(d.bases.every((b) => b.id.startsWith("mp-b-"))).toBe(true);
+    // Theater picks (non-own-force) all sit in the AOI's COCOM.
+    expect(d.bases.filter((b) => !b.note?.startsWith("Own force")).every((b) => b.cocom === "CENTCOM")).toBe(true);
   });
 
   it("weather points and METAR stations follow the bases", () => {
@@ -128,6 +140,70 @@ describe("deriveTracking", () => {
     const ids = derivedIds(d);
     expect(ids.length).toBe(d.countries.length + d.bases.length + d.weatherPoints.length);
     expect(ids.every(isDerivedId)).toBe(true);
+  });
+});
+
+describe("hub-and-spoke own-force airfields", () => {
+  it("hub + spokes become watched bases FIRST, ahead of AOI theater picks", () => {
+    const d = deriveTracking(HUB_AND_SPOKE);
+    const icaos = d.bases.map((b) => b.icao);
+    // Own-force fields lead the list (they outrank theater picks for caps).
+    expect(icaos.slice(0, 3)).toEqual(["KWRI", "KCHS", "KADW"]);
+    expect(d.bases[0].note).toBe("Own force — hub");
+    expect(d.bases[1].note).toBe("Own force — spoke");
+    // Theater bases still follow.
+    expect(icaos).toContain("OTBH");
+  });
+
+  it("spokes get weather points and METAR stations", () => {
+    const d = deriveTracking(HUB_AND_SPOKE);
+    expect(d.weatherPoints.some((w) => w.id === "mp-w-KCHS")).toBe(true);
+    expect(d.metarStations.map((m) => m.icao)).toContain("KADW");
+  });
+
+  it("SITREP candidates order: hub, spokes, then theater", () => {
+    const d = deriveTracking(HUB_AND_SPOKE);
+    expect(d.sitrepCandidates.slice(0, 3).map((s) => s.icao)).toEqual(["KWRI", "KCHS", "KADW"]);
+    expect(d.sitrepCandidates.length).toBeGreaterThan(3); // theater picks follow
+  });
+
+  it("a spoke can be excluded like any derived item", () => {
+    const d = deriveTracking({ ...HUB_AND_SPOKE, excludedIds: ["mp-b-KCHS"] });
+    expect(d.bases.some((b) => b.icao === "KCHS")).toBe(false);
+    expect(d.bases.some((b) => b.icao === "KADW")).toBe(true);
+  });
+
+  it("sanitize validates spokes (bad coords/icao drop, dedupe, cap) and resolved home", () => {
+    const p = sanitizeMissionProfile({
+      homeIcao: "kwri",
+      home: { icao: "KWRI", label: "JB MDL", lat: 40.0155, lon: -74.5917, country: "United States" },
+      spokes: [
+        { icao: "KCHS", label: "Charleston", lat: 32.9, lon: -80.04, country: "United States" },
+        { icao: "KCHS", label: "dupe", lat: 32.9, lon: -80.04, country: "" },
+        { icao: "XX", label: "bad icao", lat: 1, lon: 1, country: "" },
+        { icao: "KTIK", label: "no coords" },
+      ],
+    });
+    expect(p.spokes.map((s) => s.icao)).toEqual(["KCHS"]);
+    expect(p.home?.icao).toBe("KWRI");
+  });
+
+  it("uncurated spokes derive from their stored coordinates (no lookup needed)", () => {
+    const p = sanitizeMissionProfile({
+      spokes: [{ icao: "KTIK", label: "Tinker AFB, OK", lat: 35.4147, lon: -97.3866, country: "United States" }],
+    });
+    const d = deriveTracking(p);
+    expect(d.bases[0]).toMatchObject({ icao: "KTIK", cocom: "NORTHCOM", note: "Own force — spoke" });
+    expect(d.sitrepCandidates[0]?.icao).toBe("KTIK");
+  });
+
+  it("hub listed as a spoke too is not duplicated", () => {
+    const p = sanitizeMissionProfile({
+      homeIcao: "KWRI",
+      spokes: [{ icao: "KWRI", label: "JB MDL", lat: 40.0155, lon: -74.5917, country: "United States" }],
+    });
+    const d = deriveTracking(p);
+    expect(d.bases.filter((b) => b.icao === "KWRI")).toHaveLength(1);
   });
 });
 

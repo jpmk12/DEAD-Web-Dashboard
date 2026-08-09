@@ -1,40 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
-import { ALL_AIRFIELDS } from "@/lib/airfields";
-import { AMC_HUBS } from "@/lib/amcHubs";
-import { airportByIdent } from "@/lib/ourAirports";
+import { resolveAirfield } from "@/lib/resolveAirfield";
 import type { SitrepBase } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const MAX_BASES = 4;
 
-// Resolve an ICAO to a SitrepBase: curated sets first (AMC hubs, gateways —
-// they carry good display names), then the OurAirports global CSV.
+// Resolve an ICAO to a SitrepBase via the shared resolver (curated sets →
+// OurAirports). Extracted to lib/resolveAirfield so the Mission Profile spoke
+// editor uses the same door.
 async function resolveIcao(icaoRaw: string): Promise<SitrepBase | null> {
-  const icao = icaoRaw.trim().toUpperCase();
-  if (!/^[A-Z0-9]{4}$/.test(icao)) return null;
-
-  for (const region of AMC_HUBS) {
-    const hub = region.hubs.find((h) => h.icao === icao);
-    if (hub) {
-      const country = /^K|^P[AHG]/.test(icao) ? "United States" : "";
-      return { icao, label: hub.name, lat: hub.lat, lon: hub.lon, country, place: hub.name };
-    }
-  }
-  const gw = ALL_AIRFIELDS.find((a) => a.icao === icao);
-  if (gw) {
-    return { icao, label: gw.name, lat: gw.lat, lon: gw.lon, country: gw.country ?? "", place: gw.name };
-  }
-  const oa = await airportByIdent(icao).catch(() => null);
-  if (oa) {
-    // OurAirports carries an ISO2 country code; "US" is the one worth
-    // expanding (State-advisory matching), the rest pass through as-is.
-    const country = oa.country === "US" ? "United States" : oa.country;
-    return { icao, label: oa.name.slice(0, 80), lat: oa.lat, lon: oa.lon, country, place: oa.name.slice(0, 120) };
-  }
-  return null;
+  return resolveAirfield(icaoRaw);
 }
 
 // GET → the configured SITREP bases.
