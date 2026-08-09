@@ -151,7 +151,6 @@ export interface UserPrefs {
   aiEnabled: boolean;
   aiFeatureToggles: Partial<Record<AiFeature, boolean>>;
   localFeedKey: string;   // determines which RSS feeds show in "local" tab
-  localZipcode: string;   // raw zipcode entered by user (5-digit US or OCONUS key)
   localCity: string;      // resolved display name e.g. "Colorado Springs, CO"
   localLat: number | null;
   localLon: number | null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import TabBar, { Tab } from "./TabBar";
 import MobileNavDrawer from "./MobileNavDrawer";
 import SessionExpiredBanner from "@/components/SessionExpiredBanner";
@@ -60,6 +60,13 @@ export default function TabShell() {
   // OSINT nav badge. Reported up by OSINTTab (which polls in the background
   // even while hidden).
   const [osintSignals, setOsintSignals] = useState(0);
+  // High-priority unread email count, reported up by EmailTab — drives the
+  // Email nav badge (decays naturally as mail is marked read).
+  const [emailHigh, setEmailHigh] = useState(0);
+  // Local watermark for the News badge. previousSeen stays frozen for the
+  // session (it drives dimming and must not shift mid-scroll), so the badge
+  // keeps its own watermark that advances when the user dwells on News.
+  const [newsSeenLocal, setNewsSeenLocal] = useState(0);
   // Top OSINT signals, fed into the morning brief so it reflects monitored feeds.
   const [osintTop, setOsintTop] = useState<{ title: string; priority: string; reason: string; sources: number }[]>([]);
 
@@ -88,9 +95,20 @@ export default function TabShell() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ surface }),
       }).catch(() => {});
+      if (surface === "news") setNewsSeenLocal(Date.now());
     }, 5_000);
     return () => clearTimeout(t);
   }, [activeTab]);
+
+  // "New since you last looked" story count for the News tab badge.
+  const newsNew = useMemo(() => {
+    const seen = Math.max(previousSeen.news, newsSeenLocal);
+    if (!seen) return 0;
+    return articles.filter((a) => {
+      const t = Date.parse(a.pubDate || "");
+      return Number.isFinite(t) && t > seen;
+    }).length;
+  }, [articles, previousSeen.news, newsSeenLocal]);
 
   // Global ⌘K / Ctrl+K opens quick capture from anywhere.
   useEffect(() => {
@@ -151,16 +169,18 @@ export default function TabShell() {
     return () => clearTimeout(t);
   }, []);
 
-  // Start brief generation in background once articles, newsletters, AND the
-  // calendar have loaded. Gating on calendarReady (not just article/newsletter
-  // counts) is what stops the brief from racing the calendar fetch and caching
-  // an empty "schedule" for the whole day. prefetchBriefing guards against
-  // duplicates internally (isFresh + inflight). Re-fires on cache-cleared.
+  // Start brief generation in background once articles AND the calendar have
+  // loaded. Gating on calendarReady (not just article counts) is what stops
+  // the brief from racing the calendar fetch and caching an empty "schedule"
+  // for the whole day. Newsletters are deliberately NOT a gate — a
+  // newsletter-less morning (unsubscribed, Gmail hiccup) must still generate
+  // the brief, or the Glance hero sits at "being generated…" forever.
+  // prefetchBriefing guards against duplicates internally (isFresh + inflight).
   useEffect(() => {
-    if (articles.length === 0 || newsletters.length === 0 || !calendarReady) return;
+    if (articles.length === 0 || !calendarReady) return;
     prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
     const reprime = () => {
-      if (articles.length > 0 && newsletters.length > 0) {
+      if (articles.length > 0) {
         prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
       }
     };
@@ -253,7 +273,7 @@ export default function TabShell() {
 
         {/* Desktop tab row; phones use the hamburger drawer instead */}
         <div className="hidden lg:block">
-          <TabBar activeTab={activeTab} onTabChange={setActiveTab} badges={{ osint: osintSignals }} />
+          <TabBar activeTab={activeTab} onTabChange={setActiveTab} badges={{ osint: osintSignals, email: emailHigh, news: newsNew }} />
         </div>
       </header>
 
@@ -262,7 +282,7 @@ export default function TabShell() {
         onClose={() => setMobileNavOpen(false)}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        badges={{ osint: osintSignals }}
+        badges={{ osint: osintSignals, email: emailHigh, news: newsNew }}
         onBrief={openBriefing}
         onDigest={openDigest}
         onCapture={() => setCaptureOpen(true)}
@@ -311,7 +331,7 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "email" ? "hidden" : ""}>
-          <EmailTab previousSeen={previousSeen.email} />
+          <EmailTab previousSeen={previousSeen.email} onPriorityCount={setEmailHigh} />
         </div>
 
         <div className={activeTab !== "docs" ? "hidden" : ""}>

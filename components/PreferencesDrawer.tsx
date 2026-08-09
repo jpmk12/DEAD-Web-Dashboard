@@ -2764,7 +2764,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
           localFeedKey,
-          localZipcode: "", localCity,
+          localCity,
           localLat, localLon,
           theme, timezone, timezoneMode,
         }),

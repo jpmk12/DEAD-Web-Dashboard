@@ -189,7 +189,6 @@ export async function POST(request: Request) {
     aiEnabled: typeof raw.aiEnabled === "boolean" ? raw.aiEnabled : true,
     aiFeatureToggles: sanitizeAiFeatureToggles(raw.aiFeatureToggles),
     localFeedKey: VALID_FEED_KEYS.has(String(raw.localFeedKey ?? "")) ? String(raw.localFeedKey) : "colorado",
-    localZipcode: String(raw.localZipcode ?? "").replace(/[^0-9a-zA-Z]/g, "").slice(0, 10),
     localCity: String(raw.localCity ?? "").slice(0, 100),
     // Coords of 0,0 are valid (Gulf of Guinea). Track presence with the raw
     // body field — null/undefined = unset, anything else = use the parsed number.

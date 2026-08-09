@@ -4,10 +4,6 @@
 
 export const UI_KEYS = {
   osintDismissed: "osint.dismissed",
-  osintAircraftProvider: "osint.aircraftProvider",
-  osintMaritimeProvider: "osint.maritimeProvider",
-  osintAircraftSource: "osint.aircraftSource",
-  osintMaritimeSource: "osint.maritimeSource",
   crisisLayers: "crisisMap.layers",
   newsletterQuietDismissed: "newsletter.quietDismissed",
 } as const;

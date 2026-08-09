@@ -413,6 +413,32 @@ export default function GlanceTab({
       .finally(() => setCompletingTasks((prev) => { const n = new Set(prev); n.delete(id); return n; }));
   };
 
+  // Defer a task to tomorrow, one click — the "not today" affordance. Optimistic
+  // (the row leaves the due list immediately since it's no longer due today),
+  // reverting to the original due date if the PATCH fails.
+  const deferTask = (id: string) => {
+    const orig = tasks.find((t) => t.id === id)?.due;
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const tomorrow = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T00:00:00.000Z`;
+    setCompletingTasks((prev) => new Set(prev).add(id));
+    const setDue = (due: string | undefined) =>
+      setTasks((prev) => {
+        const next = prev.map((t) => (t.id === id ? { ...t, due } : t));
+        clientCache.set("tasks:items", next, 5 * 60 * 1000);
+        return next;
+      });
+    setDue(tomorrow);
+    fetch("/api/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, due: tomorrow }),
+    })
+      .then((r) => { if (!r.ok) throw new Error("patch failed"); })
+      .catch(() => setDue(orig))
+      .finally(() => setCompletingTasks((prev) => { const n = new Set(prev); n.delete(id); return n; }));
+  };
+
   type Urgent = {
     id: string;
     rank: number; // lower = more urgent (drives sort)
@@ -514,6 +540,25 @@ export default function GlanceTab({
 
   urgent.sort((a, b) => a.rank - b.rank);
   const urgentTop = urgent.slice(0, 6);
+
+  // "View all →" follows the DOMINANT source of the current rows (it used to
+  // hard-code Email, misrouting a weather- or force-heavy day). Row id prefixes
+  // carry the source; ties break toward the topmost (most urgent) row.
+  const urgentJumpTarget = ((): Parameters<typeof onNavigate>[0] | null => {
+    if (urgentTop.length === 0) return null;
+    const destOf = (id: string): Parameters<typeof onNavigate>[0] =>
+      id.startsWith("email-") ? "email"
+      : id.startsWith("wx-") || id.startsWith("disaster-") ? "weather"
+      : "osint"; // force-* and osint-* both live on the OSINT tab
+    const counts = new Map<string, number>();
+    for (const u of urgentTop) counts.set(destOf(u.id), (counts.get(destOf(u.id)) ?? 0) + 1);
+    let best = destOf(urgentTop[0].id), bestN = 0;
+    for (const u of urgentTop) {
+      const d = destOf(u.id), n = counts.get(d) ?? 0;
+      if (n > bestN) { best = d; bestN = n; }
+    }
+    return best;
+  })();
 
   // ── Global Reach Watch: AMC-relevance fusion of base weather hazards (could
   //    impede airlift) + the AOR disaster watch (could pull HADR/NEO airlift),
@@ -908,7 +953,7 @@ export default function GlanceTab({
                 </span>
               ) : undefined
             }
-            onJump={urgentTop.length ? () => onNavigate("email") : undefined}
+            onJump={urgentJumpTarget ? () => onNavigate(urgentJumpTarget) : undefined}
           >
             {dueTasks.length === 0 && urgentTop.length === 0 ? (
               <Empty>Nothing demanding action right now.</Empty>
@@ -954,6 +999,15 @@ export default function GlanceTab({
                                   {t.title}
                                 </span>
                                 <span className="block text-xs text-slate-500 truncate">{overdue ? "Overdue" : "Due today"}</span>
+                              </button>
+                              <button
+                                onClick={() => deferTask(t.id)}
+                                disabled={busy}
+                                title="Defer to tomorrow"
+                                aria-label={`Defer "${t.title}" to tomorrow`}
+                                className="opacity-0 group-hover:opacity-100 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-violet-300 border border-slate-700 hover:border-violet-400/50 rounded px-1.5 py-0.5 flex-shrink-0 transition-all disabled:opacity-30"
+                              >
+                                ⏭ tmrw
                               </button>
                               <span className={`text-[10px] font-semibold uppercase tracking-wider flex-shrink-0 ${overdue ? "text-red-400" : "text-violet-300"}`}>
                                 {overdue ? "Overdue" : "Today"}

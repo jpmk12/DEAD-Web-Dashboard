@@ -31,9 +31,13 @@ interface TaskRowProps {
   task: GoogleTask;
   onToggle: (t: GoogleTask) => void;
   onDelete: (t: GoogleTask) => void;
+  onReschedule: (t: GoogleTask, due: string | null) => void;
 }
 
-function TaskRow({ task, onToggle, onDelete }: TaskRowProps) {
+function TaskRow({ task, onToggle, onDelete, onReschedule }: TaskRowProps) {
+  // Inline due-date editing — click the date (or "+ date") to open a native
+  // picker. The PATCH API always supported this; the UI finally exposes it.
+  const [editingDue, setEditingDue] = useState(false);
   return (
     <div className="flex items-start gap-2 group py-1.5 px-2 rounded-lg hover:bg-slate-800/60 transition-colors">
       <button
@@ -47,8 +51,28 @@ function TaskRow({ task, onToggle, onDelete }: TaskRowProps) {
       </button>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-slate-200 leading-snug">{task.title}</p>
-        {task.due && (
-          <span className="text-[10px] text-slate-500 font-mono">{formatDue(task.due)}</span>
+        {editingDue ? (
+          <input
+            type="date"
+            autoFocus
+            defaultValue={task.due ? task.due.substring(0, 10) : ""}
+            onBlur={() => setEditingDue(false)}
+            onKeyDown={(e) => { if (e.key === "Escape") setEditingDue(false); }}
+            onChange={(e) => {
+              const v = e.target.value; // "" = clear the date
+              setEditingDue(false);
+              onReschedule(task, v ? `${v}T00:00:00.000Z` : null);
+            }}
+            className="mt-0.5 bg-slate-800/60 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500/60"
+          />
+        ) : (
+          <button
+            onClick={() => setEditingDue(true)}
+            title="Change due date"
+            className={`text-[10px] font-mono transition-colors ${task.due ? "text-slate-500 hover:text-emerald-400" : "text-slate-700 hover:text-emerald-400 opacity-0 group-hover:opacity-100"}`}
+          >
+            {task.due ? formatDue(task.due) : "+ date"}
+          </button>
         )}
         {task.notes && (
           <p className="text-[11px] text-slate-500 mt-0.5 leading-snug truncate">{task.notes}</p>
@@ -71,15 +95,16 @@ interface GroupProps {
   accent?: string;
   onToggle: (t: GoogleTask) => void;
   onDelete: (t: GoogleTask) => void;
+  onReschedule: (t: GoogleTask, due: string | null) => void;
 }
 
-function TaskGroup({ label, tasks, accent = "text-slate-500", onToggle, onDelete }: GroupProps) {
+function TaskGroup({ label, tasks, accent = "text-slate-500", onToggle, onDelete, onReschedule }: GroupProps) {
   if (tasks.length === 0) return null;
   return (
     <div className="mb-3">
       <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 px-2 ${accent}`}>{label}</p>
       {tasks.map((t) => (
-        <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} />
+        <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} onReschedule={onReschedule} />
       ))}
     </div>
   );
@@ -157,6 +182,24 @@ export default function TasksPanel({ refreshKey = 0, onTasksLoaded }: TasksPanel
       await fetch(`/api/tasks?id=${encodeURIComponent(task.id)}`, { method: "DELETE" });
     } catch {
       setTasks((prev) => [...prev, task]);
+    }
+  };
+
+  // Optimistic due-date change (null clears the date); the task jumps to its
+  // new group immediately and reverts if the PATCH fails.
+  const rescheduleTask = async (task: GoogleTask, due: string | null) => {
+    const apply = (d: string | undefined) =>
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, due: d } : t)));
+    apply(due ?? undefined);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, due }),
+      });
+      if (!res.ok) throw new Error("failed");
+    } catch {
+      apply(task.due);
     }
   };
 
@@ -239,11 +282,11 @@ export default function TasksPanel({ refreshKey = 0, onTasksLoaded }: TasksPanel
 
         {!loading && !error && (
           <>
-            <TaskGroup label="Overdue" tasks={overdue} accent="text-red-400" onToggle={toggleTask} onDelete={deleteTask} />
-            <TaskGroup label="Today" tasks={today} accent="text-emerald-500" onToggle={toggleTask} onDelete={deleteTask} />
-            <TaskGroup label="This Week" tasks={week} accent="text-blue-400" onToggle={toggleTask} onDelete={deleteTask} />
-            <TaskGroup label="Later" tasks={later} accent="text-slate-500" onToggle={toggleTask} onDelete={deleteTask} />
-            <TaskGroup label="No Date" tasks={none} accent="text-slate-600" onToggle={toggleTask} onDelete={deleteTask} />
+            <TaskGroup label="Overdue" tasks={overdue} accent="text-red-400" onToggle={toggleTask} onDelete={deleteTask} onReschedule={rescheduleTask} />
+            <TaskGroup label="Today" tasks={today} accent="text-emerald-500" onToggle={toggleTask} onDelete={deleteTask} onReschedule={rescheduleTask} />
+            <TaskGroup label="This Week" tasks={week} accent="text-blue-400" onToggle={toggleTask} onDelete={deleteTask} onReschedule={rescheduleTask} />
+            <TaskGroup label="Later" tasks={later} accent="text-slate-500" onToggle={toggleTask} onDelete={deleteTask} onReschedule={rescheduleTask} />
+            <TaskGroup label="No Date" tasks={none} accent="text-slate-600" onToggle={toggleTask} onDelete={deleteTask} onReschedule={rescheduleTask} />
           </>
         )}
       </div>

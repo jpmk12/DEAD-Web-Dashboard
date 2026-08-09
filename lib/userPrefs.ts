@@ -58,7 +58,6 @@ const DEFAULT_PREFS: UserPrefs = {
   aiEnabled: true,
   aiFeatureToggles: {},
   localFeedKey: "colorado",
-  localZipcode: "",
   localCity: "",
   localLat: null,
   localLon: null,
@@ -88,7 +87,6 @@ interface PrefsRow extends RowDataPacket {
   ai_enabled: number | null;
   ai_feature_toggles: Partial<Record<AiFeature, boolean>> | null;
   local_feed_key: string;
-  local_zipcode: string;
   local_city: string;
   local_lat: number | null;
   local_lon: number | null;
@@ -242,7 +240,7 @@ function asMetarStations(v: unknown): MetarStation[] {
 async function getTeamPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_zipcode, local_city, local_lat, local_lon, theme, timezone, timezone_mode, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_city, local_lat, local_lon, theme, timezone, timezone_mode, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -275,7 +273,6 @@ async function getTeamPrefs(): Promise<UserPrefs> {
     aiEnabled: r.ai_enabled == null ? true : Boolean(r.ai_enabled),
     aiFeatureToggles: asAiFeatureToggles(r.ai_feature_toggles),
     localFeedKey: r.local_feed_key,
-    localZipcode: r.local_zipcode,
     localCity: r.local_city,
     localLat: typeof r.local_lat === "number" ? r.local_lat : null,
     localLon: typeof r.local_lon === "number" ? r.local_lon : null,
@@ -298,7 +295,7 @@ export const PERSONAL_PREF_KEYS = [
   "role", "priorityTopics", "deprioritizeTopics", "watchlist",
   "vipSenders", "muteSenders", "dismissedVipSuggestions",
   "newsletterSources", "disabledNewsSources",
-  "localFeedKey", "localZipcode", "localCity", "localLat", "localLon",
+  "localFeedKey", "localCity", "localLat", "localLon",
   "theme", "timezone", "timezoneMode",
 ] as const;
 export type PersonalPrefKey = (typeof PERSONAL_PREF_KEYS)[number];
@@ -329,7 +326,6 @@ function sanitizeOverlay(raw: unknown): Partial<UserPrefs> {
   }
   if (r.newsletterSources !== undefined) out.newsletterSources = asNewsletterSources(r.newsletterSources);
   if (typeof r.localFeedKey === "string") out.localFeedKey = r.localFeedKey.slice(0, 64);
-  if (typeof r.localZipcode === "string") out.localZipcode = r.localZipcode.slice(0, 16);
   if (typeof r.localCity === "string") out.localCity = r.localCity.slice(0, 255);
   // null is a VALID value ("no home set") and must survive as null — Number(null)
   // is 0, which would pin the user to 0°N 0°E. Malformed values DROP the key.
@@ -404,13 +400,13 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
         vip_senders, mute_senders, dismissed_vip_suggestions,
         tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
         ai_enabled, ai_feature_toggles,
-        local_feed_key, local_zipcode, local_city, local_lat, local_lon,
+        local_feed_key, local_city, local_lat, local_lon,
         theme, timezone, timezone_mode, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, CAST(? AS JSON),
-             ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        role                       = VALUES(role),
        priority_topics            = VALUES(priority_topics),
@@ -431,7 +427,6 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        ai_enabled                 = VALUES(ai_enabled),
        ai_feature_toggles         = VALUES(ai_feature_toggles),
        local_feed_key             = VALUES(local_feed_key),
-       local_zipcode              = VALUES(local_zipcode),
        local_city                 = VALUES(local_city),
        local_lat                  = VALUES(local_lat),
        local_lon                  = VALUES(local_lon),
@@ -459,7 +454,6 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       prefs.aiEnabled ? 1 : 0,
       JSON.stringify(prefs.aiFeatureToggles ?? {}),
       prefs.localFeedKey,
-      prefs.localZipcode,
       prefs.localCity,
       prefs.localLat,
       prefs.localLon,

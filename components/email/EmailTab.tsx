@@ -22,9 +22,12 @@ function formatUpdated(d: Date): string {
 
 interface EmailTabProps {
   previousSeen?: number;
+  // Reports the current high-priority unread count up to the shell for the
+  // Email nav badge. Decays naturally as mail is marked read.
+  onPriorityCount?: (n: number) => void;
 }
 
-export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
+export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTabProps) {
   const { status } = useSession();
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -101,6 +104,12 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
     }
   }, [status]);
 
+  // Report the high-priority count up for the Email nav badge.
+  useEffect(() => {
+    onPriorityCount?.(emails.filter((e) => e.priority === "High").length);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emails]);
+
   // Stable hash of the unread email-id set. Lets us re-fire the action-item
   // extraction only when the set genuinely changes — tab switches and
   // re-renders no longer pay for a redundant Claude call.
@@ -109,11 +118,24 @@ export default function EmailTab({ previousSeen = 0 }: EmailTabProps) {
     [emails]
   );
   const lastActionsKey = useRef<string>("");
+  // Ids covered by the last extraction. When the set only SHRINKS (mark-read),
+  // we prune the existing action items locally instead of paying for a fresh
+  // Claude extraction over the surviving mail — also fixes orphaned rows that
+  // used to linger after their source email was marked read.
+  const lastExtractedIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (emails.length === 0) return;
     if (emailIdsKey === lastActionsKey.current) return;
+    const ids = new Set(emails.map((e) => e.id));
+    const isSubset = lastExtractedIds.current.size > 0 && [...ids].every((id) => lastExtractedIds.current.has(id));
     lastActionsKey.current = emailIdsKey;
+    if (isSubset) {
+      lastExtractedIds.current = ids;
+      setActions((prev) => prev.filter((a) => ids.has(a.emailId)));
+      return;
+    }
+    lastExtractedIds.current = ids;
     setActionsLoading(true);
     fetch("/api/gmail/actions", {
       method: "POST",
