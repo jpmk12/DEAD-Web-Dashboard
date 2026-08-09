@@ -62,6 +62,12 @@
 
   <div class="chk"><input id="enabled" type="checkbox" /> <label style="margin:0" for="enabled">Enabled (run daily)</label></div>
 
+  <div class="chk"><input id="alertsEnabled" type="checkbox" /> <label style="margin:0" for="alertsEnabled">Dashboard alert notifications</label>
+    <span class="hint" style="margin:0">every</span>
+    <input id="alertIntervalMin" type="number" min="5" max="120" style="width:64px" />
+    <span class="hint" style="margin:0">min — force-protection RED, severe weather at tracked points, ordered departures, I&amp;W warnings</span>
+  </div>
+
   <div class="actions">
     <button id="save">Save</button>
     <button id="run" class="secondary">Run now</button>

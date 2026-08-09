@@ -19,6 +19,8 @@ const DEFAULTS = {
   intervalHours: 24,                        // how often to capture; 6 = active watching
   hour: 6,                                  // preferred local hour, honored only when intervalHours >= 24
   enabled: true,
+  alertsEnabled: true,                      // poll /api/alerts/check and raise OS notifications
+  alertIntervalMin: 15,
 };
 
 async function cfg() {
@@ -36,6 +38,11 @@ async function scheduleAlarm() {
   const c = await cfg();
   await chrome.alarms.clear("capture");
   await chrome.alarms.clear("daily-capture"); // legacy name
+  await chrome.alarms.clear("alerts");
+  if (c.alertsEnabled !== false) {
+    const mins = Math.max(5, Math.min(120, Number(c.alertIntervalMin) || 15));
+    chrome.alarms.create("alerts", { delayInMinutes: 1, periodInMinutes: mins });
+  }
   if (!c.enabled) return;
   const hours = clampInterval(c.intervalHours);
   if (hours >= 24) {
@@ -53,7 +60,7 @@ async function scheduleAlarm() {
 
 chrome.runtime.onInstalled.addListener(scheduleAlarm);
 chrome.runtime.onStartup.addListener(scheduleAlarm);
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === "capture") runCapture(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === "capture") runCapture(); else if (a.name === "alerts") checkAlerts(); });
 
 chrome.runtime.onMessage.addListener((m, _sender, send) => {
   const type = typeof m === "string" ? m : m && m.type;
@@ -186,4 +193,40 @@ async function runCapture() {
     ? { ok: true, lists: c.listUrls.length, collected, imported, updated, total, results }
     : { ok: false, error: firstErr || "all captures failed", lists: c.listUrls.length, results };
   log(summary); return summary;
+}
+
+// ── Dashboard alert notifications ────────────────────────────────────────────
+// Polls /api/alerts/check (stable-id current conditions) and raises an OS
+// notification for ids not seen before — so a force-protection RED, severe
+// weather at a tracked point, an ordered departure, or an I&W warning reaches
+// you while the dashboard tab is closed. The seen-set lives in
+// chrome.storage.local (capped); clearing it re-notifies current conditions.
+async function checkAlerts() {
+  const c = await cfg();
+  if (c.alertsEnabled === false || !c.dashboardUrl || !c.token) return;
+  try {
+    const r = await fetch(c.dashboardUrl.replace(/\/+$/, "") + "/api/alerts/check", {
+      headers: { "Authorization": "Bearer " + c.token },
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const alerts = Array.isArray(d && d.alerts) ? d.alerts : [];
+    const stored = await chrome.storage.local.get("alertsSeen");
+    const seen = new Set(Array.isArray(stored.alertsSeen) ? stored.alertsSeen : []);
+    const fresh = alerts.filter((a) => a && a.id && !seen.has(a.id));
+    for (const a of fresh.slice(0, 3)) { // cap a burst — the dashboard has the full list
+      chrome.notifications.create("dead-" + a.id, {
+        type: "basic",
+        iconUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        title: (a.severity === "red" ? "🔴 " : "🟠 ") + (a.title || "Dashboard alert"),
+        message: a.sub || "",
+        priority: a.severity === "red" ? 2 : 1,
+      });
+    }
+    if (fresh.length) {
+      for (const a of fresh) seen.add(a.id);
+      chrome.storage.local.set({ alertsSeen: [...seen].slice(-200) });
+      chrome.storage.local.set({ lastAlerts: { at: new Date().toISOString(), count: alerts.length, newCount: fresh.length } });
+    }
+  } catch (e) { /* transient — next poll retries */ }
 }
