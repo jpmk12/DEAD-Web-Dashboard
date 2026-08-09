@@ -37,6 +37,15 @@ const CURATED_CACHE_KEY = "news:curated";      // set by NewsFeed overview → {
 const RADAR_BASELINE_KEY = "glance:radar:baseline"; // last-seen "On your radar" values
 
 // Mirror of the Briefing shape rendered by BriefingModal (not exported there).
+// Local mirror of lib/sitrep's SitrepSummary (same pattern as Briefing below).
+interface GlanceSitrep {
+  icao: string;
+  label: string;
+  status: { wx: string; ops: string; threat: string; infra: string };
+  driver: string;
+  worse: string[];
+}
+
 interface Briefing {
   headline: string;
   schedule: string[];
@@ -67,6 +76,7 @@ interface GlanceTabProps {
   onNavigate: (tab: Tab) => void;
   onOpenBrief: () => void;
   onOpenDigest: () => void;
+  onOpenCapture?: () => void;
 }
 
 // ───────────────────────── time helpers ─────────────────────────
@@ -271,6 +281,7 @@ export default function GlanceTab({
   onNavigate,
   onOpenBrief,
   onOpenDigest,
+  onOpenCapture,
 }: GlanceTabProps) {
   const { status } = useSession();
   useCacheTick(active);
@@ -325,6 +336,24 @@ export default function GlanceTab({
       .then((d: { advisories?: TravelAdvisory[] } | null) => { if (!cancelled && d?.advisories) setAdvisories(d.advisories); })
       .catch(() => {});
     return () => { cancelled = true; };
+  }, [active, status]);
+
+  // Base SITREP LED strip — the same deterministic per-base rollup the Brief
+  // modal shows, finally on the surface you actually start the day on. The
+  // summary endpoint reads the 10-min-cached assembly, so poll slowly.
+  const [sitreps, setSitreps] = useState<GlanceSitrep[]>([]);
+  useEffect(() => {
+    if (!active || status !== "authenticated") return;
+    let cancelled = false;
+    const load = () => {
+      fetch("/api/sitrep/summary")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { bases?: GlanceSitrep[] } | null) => { if (!cancelled && Array.isArray(d?.bases)) setSitreps(d.bases); })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [active, status]);
 
   // Force Protection Watch — fused per-base posture. Cached 10 min server-side,
@@ -820,6 +849,15 @@ export default function GlanceTab({
           {newStories + newEmails + osintSignals === 0 && (
             <span className="text-slate-500">You&apos;re all caught up</span>
           )}
+          {onOpenCapture && (
+            <button
+              onClick={onOpenCapture}
+              title="Quick capture (⌘K) — task, event, doc, or note"
+              className="flex items-center gap-1 px-2 py-1 rounded-md border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors"
+            >
+              ＋ Capture
+            </button>
+          )}
         </div>
       </div>
 
@@ -870,6 +908,40 @@ export default function GlanceTab({
           </div>
         </div>
       </section>
+
+      {/* ── Base SITREP LED strip (deterministic; full detail on OSINT → SITREP) ── */}
+      {sitreps.length > 0 && (
+        <section className="mb-6">
+          <div className="flex flex-wrap gap-2">
+            {sitreps.map((s) => {
+              const LED: Record<string, string> = { g: "bg-emerald-500", a: "bg-amber-500", r: "bg-red-500", u: "bg-slate-600" };
+              const worstRed = Object.values(s.status).includes("r");
+              const worstAmber = Object.values(s.status).includes("a");
+              return (
+                <button
+                  key={s.icao}
+                  onClick={() => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "sitrep" })); }}
+                  title={`${s.label} — Wx/Ops/Threat/Infra · ${s.driver || "all green"}${s.worse.length ? ` · worse than yesterday: ${s.worse.join(", ")}` : ""}`}
+                  className={`group flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors hover:bg-slate-800/50 ${
+                    worstRed ? "border-red-500/50" : worstAmber ? "border-amber-500/40" : "border-slate-800"
+                  }`}
+                >
+                  <span className="text-[11px] font-mono font-bold text-slate-200">{s.icao}</span>
+                  <span className="flex gap-1">
+                    {(["wx", "ops", "threat", "infra"] as const).map((k) => (
+                      <span key={k} className={`w-1.5 h-1.5 rounded-full ${LED[s.status[k]] ?? LED.u}`} title={k} />
+                    ))}
+                  </span>
+                  {s.worse.length > 0 && <span title="Worse than yesterday" className="text-[9px] font-bold text-amber-400">↑</span>}
+                  {(worstRed || worstAmber) && (
+                    <span className="hidden sm:block text-[10px] text-slate-500 max-w-[180px] truncate">{s.driver}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ── Global Reach Watch: NEO / disasters / weather, de-crowded ── */}
       {reach.length > 0 && (

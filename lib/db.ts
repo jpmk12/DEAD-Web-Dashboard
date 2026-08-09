@@ -252,9 +252,10 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS briefing_cache (
     date         VARCHAR(10)  NOT NULL,               -- YYYY-MM-DD in user's tz
     user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    tz           VARCHAR(64)  NOT NULL DEFAULT 'UTC', -- zone-briefs coexist per day
     briefing     JSON         NOT NULL,
     generated_at BIGINT       NOT NULL,
-    PRIMARY KEY (date, user_email)
+    PRIMARY KEY (date, user_email, tz)
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS news_overview_cache (
@@ -509,14 +510,19 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
 // index doesn't yet include user_email (fresh installs create the composite
 // PK directly, so these are no-ops there). Runs AFTER COLUMN_MIGRATIONS so
 // the column is guaranteed to exist.
-const KEY_MIGRATIONS: { table: string; ddl: string }[] = [
-  { table: "briefing_cache", ddl: "ALTER TABLE briefing_cache DROP PRIMARY KEY, ADD PRIMARY KEY (date, user_email)" },
-  { table: "surface_state",  ddl: "ALTER TABLE surface_state  DROP PRIMARY KEY, ADD PRIMARY KEY (surface, user_email)" },
-  { table: "app_ui_state",   ddl: "ALTER TABLE app_ui_state   DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
-  { table: "user_memory",    ddl: "ALTER TABLE user_memory    DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
-  { table: "saved_items",      ddl: "ALTER TABLE saved_items      DROP PRIMARY KEY, ADD PRIMARY KEY (id, user_email)" },
-  { table: "article_prefs",    ddl: "ALTER TABLE article_prefs    DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
-  { table: "newsletter_prefs", ddl: "ALTER TABLE newsletter_prefs DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+// Each entry runs its DDL when the table's PRIMARY KEY does not yet include
+// `column` — the column IS the marker for "this rebuild already happened".
+const KEY_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
+  { table: "briefing_cache", column: "user_email", ddl: "ALTER TABLE briefing_cache DROP PRIMARY KEY, ADD PRIMARY KEY (date, user_email)" },
+  { table: "surface_state",  column: "user_email", ddl: "ALTER TABLE surface_state  DROP PRIMARY KEY, ADD PRIMARY KEY (surface, user_email)" },
+  { table: "app_ui_state",   column: "user_email", ddl: "ALTER TABLE app_ui_state   DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+  { table: "user_memory",    column: "user_email", ddl: "ALTER TABLE user_memory    DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+  { table: "saved_items",      column: "user_email", ddl: "ALTER TABLE saved_items      DROP PRIMARY KEY, ADD PRIMARY KEY (id, user_email)" },
+  { table: "article_prefs",    column: "user_email", ddl: "ALTER TABLE article_prefs    DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+  { table: "newsletter_prefs", column: "user_email", ddl: "ALTER TABLE newsletter_prefs DROP PRIMARY KEY, ADD PRIMARY KEY (user_email)" },
+  // Cross-device brief: one row per zone so two devices in different timezones
+  // (Auto mode, traveling) stop ping-pong regenerating over each other.
+  { table: "briefing_cache", column: "tz", ddl: "ALTER TABLE briefing_cache DROP PRIMARY KEY, ADD PRIMARY KEY (date, user_email, tz)" },
 ];
 
 interface ColumnRow extends RowDataPacket { cnt: number }
@@ -556,8 +562,8 @@ async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
       if (code !== "ER_DUP_FIELDNAME") throw err;
     }
   }
-  for (const { table, ddl } of KEY_MIGRATIONS) {
-    if (await pkIncludes(pool, table, "user_email")) continue;
+  for (const { table, column, ddl } of KEY_MIGRATIONS) {
+    if (await pkIncludes(pool, table, column)) continue;
     await pool.query(ddl);
   }
   // One-time legacy backfill: stamp pre-multi-user rows (user_email = '')

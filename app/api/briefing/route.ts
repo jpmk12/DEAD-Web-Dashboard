@@ -397,6 +397,10 @@ export async function POST(request: Request) {
       weather: Array.isArray(p.weather) ? (p.weather as unknown[]).map((s) => String(s).slice(0, 220)).slice(0, 4) : [],
       connections: String(p.connections ?? "").slice(0, 1500),
       suggestedFocus: Array.isArray(p.suggestedFocus) ? (p.suggestedFocus as unknown[]).map((s) => String(s).slice(0, 400)) : [],
+      // Stamped INTO the cached object so every path (fresh, cached, prefetch)
+      // carries "when was this generated, in which zone" to the modal.
+      generatedAtMs: Date.now(),
+      generatedTz: tz,
     };
     // Don't trust the model to round-trip data we already computed. When we have
     // real day forecasts but the model dropped the "weather" field (it's buried

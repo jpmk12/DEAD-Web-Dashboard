@@ -9,6 +9,7 @@ import { getMemory, saveMemory } from "@/lib/userMemory";
 import { normEmail } from "@/lib/allowlist";
 import { geocodePlace } from "@/lib/geocode";
 import { createTrip } from "@/lib/trips";
+import { createDocument, listDocuments, getDocument, updateDocument } from "@/lib/documents";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
@@ -21,6 +22,7 @@ type Captured =
   | { kind: "task"; title: string; due?: string; notes?: string }
   | { kind: "event"; summary: string; start: string; end: string; description?: string; location?: string }
   | { kind: "note"; content: string }
+  | { kind: "doc"; title: string; content: string }
   | { kind: "trip"; location: string; startDate: string; endDate: string; label?: string };
 
 function buildSystem(today: string, tz: string): string {
@@ -30,7 +32,8 @@ Categorise the input as exactly one of:
   - "task"  — a thing the user needs to DO (todo, reminder, follow-up). Use this for "remind me to…", "I need to…", "follow up with…".
   - "event" — something happening at a specific time on a specific day (meeting, call, flight, deadline-as-calendar-block). Use this when the input names a concrete time/date or clearly belongs on a calendar.
   - "trip"  — the user telling you WHERE THEY ARE or WILL BE for a span of days (travel / TDY). Use this for "I'm in <place> this week", "TDY to <place> Mon–Thu", "flying to <place> until the 16th", "I'll be in <place> next week". The key signal is a PLACE + a multi-day or open-ended stay about the user's own location.
-  - "note"  — durable context to remember about the user themselves (a person, a project, a preference, a fact). Use this for "save that…", "remember that…", or when there's no actionable verb.
+  - "doc"   — a THOUGHT, idea, observation, or draft the user wants written down to read later. Use this for "jot down…", "note down this idea…", "write up…", or any substantive thought that is about the WORLD/work rather than a fact about the user.
+  - "note"  — durable context to remember about the user themselves (a person, a project, a preference, a fact). Use this for "save that…", "remember that…", or when there's no actionable verb and it's a fact about the user.
 
 Return ONLY a JSON object — no markdown fence, no preamble.
 
@@ -38,6 +41,7 @@ Shapes:
   task  → {"kind":"task","title":"…","due":"YYYY-MM-DD" (optional, only if explicit),"notes":"…" (optional)}
   event → {"kind":"event","summary":"…","start":"YYYY-MM-DDTHH:mm:ss","end":"YYYY-MM-DDTHH:mm:ss","description":"…" (optional),"location":"…" (optional)}
   trip  → {"kind":"trip","location":"City, State/Country (geocodable)","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","label":"short display name (optional)"}
+  doc   → {"kind":"doc","title":"short doc title (3-8 words)","content":"the thought, cleaned up, in markdown"}
   note  → {"kind":"note","content":"a single concise sentence to append to long-term memory"}
 
 Rules:
@@ -176,6 +180,9 @@ function normalisePlan(raw: unknown): Captured | null {
       location: typeof r.location === "string" ? r.location.slice(0, 200) : undefined,
     };
   }
+  if (r.kind === "doc" && typeof r.title === "string" && r.title.trim() && typeof r.content === "string" && r.content.trim()) {
+    return { kind: "doc", title: r.title.slice(0, 120), content: r.content.slice(0, 10_000) };
+  }
   if (r.kind === "note" && typeof r.content === "string" && r.content.trim()) {
     return { kind: "note", content: r.content.slice(0, 2000) };
   }
@@ -243,12 +250,30 @@ async function executePlan(plan: Captured, accessToken: string, userEmail: strin
       return NextResponse.json({ kind: "trip", label: trip.label, startDate: trip.startDate, endDate: trip.endDate });
     }
 
-    // note → append to memory under a single "## Notes" section
+    if (plan.kind === "doc") {
+      // A captured thought becomes a real, findable document (tagged capture).
+      const doc = await createDocument({ title: plan.title, content: plan.content, tags: ["capture"] });
+      return NextResponse.json({ kind: "doc", title: doc.title, id: doc.id });
+    }
+
+    // note → append to memory under a single "## Notes" section, AND mirror it
+    // into the "Capture Inbox" doc so captured context is findable/linkable in
+    // Docs instead of vanishing into the memory blob (best-effort mirror).
     const memory = await getMemory(userEmail);
     const dateStr = format(new Date(), "yyyy-MM-dd");
     const noteBullet = `- (${dateStr}) ${plan.content.trim()}`;
     const updated = appendNoteToMemory(memory.content ?? "", noteBullet);
     await saveMemory(userEmail, updated);
+    try {
+      const INBOX = "Capture Inbox";
+      const existing = (await listDocuments({ search: INBOX, limit: 10 })).find((d) => d.title === INBOX);
+      if (existing) {
+        const full = await getDocument(existing.id);
+        if (full) await updateDocument(existing.id, { content: `${full.content.trimEnd()}\n${noteBullet}\n` });
+      } else {
+        await createDocument({ title: INBOX, content: `Quick-capture notes land here (and in AI memory).\n\n${noteBullet}\n`, tags: ["capture"] });
+      }
+    } catch { /* memory write already succeeded — the mirror is best-effort */ }
     return NextResponse.json({ kind: "note", content: plan.content.trim() });
   } catch (err) {
     console.error("Quick-capture execute failed:", err);

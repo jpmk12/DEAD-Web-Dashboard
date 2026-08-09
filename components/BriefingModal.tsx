@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
+import { NewsItem, NewsletterSummary, CalendarEvent, GoogleTask } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 import type { TrendMover } from "@/lib/trends";
 import { suggestTrip, type TripSuggestion } from "@/lib/tripSuggest";
@@ -20,6 +20,8 @@ interface Briefing {
   weather?: string[];  // travel-aware day forecast: home + today's destinations
   connections: string;
   suggestedFocus: string[];
+  generatedAtMs?: number;  // generation stamp (baked in server-side)
+  generatedTz?: string;
 }
 
 interface Digest {
@@ -36,6 +38,9 @@ interface BriefingModalProps {
   articles?: NewsItem[];
   newsletters?: NewsletterSummary[];
   calendarEvents?: CalendarEvent[];
+  // Pending Google Tasks (from the shell) — renders the deterministic
+  // "Your day" block, never baked into the day-cached AI brief.
+  tasks?: GoogleTask[];
   // surface_state baseline for the news surface (ms epoch) — drives the
   // "since you last looked" delta line. 0 = unknown, line hidden.
   previousSeenNews?: number;
@@ -48,6 +53,7 @@ export default function BriefingModal({
   articles = [],
   newsletters = [],
   calendarEvents = [],
+  tasks = [],
   previousSeenNews = 0,
 }: BriefingModalProps) {
   const [loading, setLoading] = useState(false);
@@ -61,6 +67,9 @@ export default function BriefingModal({
   // day-cached brief text, so the LEDs are always current). Best-effort: no
   // configured bases or a failed fetch just hides the section.
   const [sitreps, setSitreps] = useState<SitrepSummary[]>([]);
+  // Keep-in-touch contacts due/overdue — the other half of the deterministic
+  // "Your day" block. Best-effort, live at open like the SITREP LEDs.
+  const [kitDue, setKitDue] = useState<{ id: string; name: string; status: string }[]>([]);
 
   useEffect(() => {
     if (!open || mode !== "briefing") return;
@@ -68,7 +77,23 @@ export default function BriefingModal({
       .then((r) => r.json())
       .then((d) => setSitreps(Array.isArray(d?.bases) ? d.bases : []))
       .catch(() => setSitreps([]));
+    fetch("/api/contacts")
+      .then((r) => r.json())
+      .then((d: { contacts?: { id: string; name: string; status: string }[] }) =>
+        setKitDue((d.contacts ?? []).filter((c) => c.status === "overdue" || c.status === "due").slice(0, 5)))
+      .catch(() => setKitDue([]));
   }, [open, mode]);
+
+  // Date-only due comparison (same rule as Glance/Calendar so "due today" agrees).
+  const dueTasks = useMemo(() => {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    return tasks
+      .filter((t) => t.status === "needsAction" && t.due)
+      .map((t) => ({ t, state: (t.due as string).substring(0, 10) < today ? "overdue" as const : (t.due as string).substring(0, 10) === today ? "today" as const : "future" as const }))
+      .filter((x) => x.state !== "future")
+      .sort((a, b) => ((a.t.due ?? "") < (b.t.due ?? "") ? -1 : 1));
+  }, [tasks]);
 
   // Calendar trip auto-suggest (commit 4/4): detect a likely TDY from today's
   // events and offer one-tap "set as your location". Client-side, decoupled
@@ -404,7 +429,39 @@ export default function BriefingModal({
 
               <div className="bg-emerald-500/8 border border-emerald-500/20 rounded-xl p-4">
                 <p className="text-sm font-semibold text-slate-100 leading-relaxed">{briefing.headline}</p>
+                {briefing.generatedAtMs ? (
+                  <p className="mt-1.5 text-[10px] font-mono text-slate-500" title="This brief is a once-a-day snapshot shared across your devices — ↻ regenerates it. The Base SITREP block below is always live.">
+                    generated {new Date(briefing.generatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...(briefing.generatedTz ? { timeZone: briefing.generatedTz } : {}) })}
+                    {briefing.generatedTz ? ` · ${briefing.generatedTz.split("/").pop()?.replace(/_/g, " ")}` : ""}
+                  </p>
+                ) : null}
               </div>
+
+              {/* ◎ Your day — deterministic + live at open (like Base SITREP),
+                  never part of the cached AI text: overdue/due tasks and
+                  keep-in-touch contacts that are due. Hidden when clear. */}
+              {(dueTasks.length > 0 || kitDue.length > 0) && (
+                <div className="bg-violet-500/[0.06] border border-violet-500/25 rounded-xl p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-violet-300 mb-2">◎ Your day</p>
+                  <ul className="space-y-1">
+                    {dueTasks.slice(0, 6).map(({ t, state }) => (
+                      <li key={t.id} className="flex items-baseline gap-2 text-sm text-slate-200">
+                        <span className={`text-[9px] font-bold uppercase tracking-wider flex-shrink-0 ${state === "overdue" ? "text-red-400" : "text-violet-300"}`}>
+                          {state === "overdue" ? "overdue" : "today"}
+                        </span>
+                        <span className="min-w-0 truncate">{t.title}</span>
+                      </li>
+                    ))}
+                    {kitDue.map((c) => (
+                      <li key={`kit-${c.id}`} className="flex items-baseline gap-2 text-sm text-slate-300">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-sky-400 flex-shrink-0">reach out</span>
+                        <span className="min-w-0 truncate">{c.name}</span>
+                        {c.status === "overdue" && <span className="text-[10px] text-slate-500">(overdue)</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {briefing.schedule?.length > 0 && (

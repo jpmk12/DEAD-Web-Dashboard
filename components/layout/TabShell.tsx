@@ -305,6 +305,7 @@ export default function TabShell() {
             onNavigate={setActiveTab}
             onOpenBrief={openBriefing}
             onOpenDigest={openDigest}
+            onOpenCapture={() => setCaptureOpen(true)}
           />
         </div>
 
@@ -369,6 +370,7 @@ export default function TabShell() {
         articles={articles}
         newsletters={newsletters}
         calendarEvents={calendarEvents}
+        tasks={tasks}
         previousSeenNews={previousSeen.news}
       />
 

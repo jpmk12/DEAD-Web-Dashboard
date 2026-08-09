@@ -14,6 +14,10 @@ export interface CachedBriefing {
   topStories: string[];
   connections: string;
   suggestedFocus: string[];
+  // Generation stamp, baked into the object so every delivery path (fresh,
+  // cached, prefetched) can show "generated HH:MM zone".
+  generatedAtMs?: number;
+  generatedTz?: string;
 }
 
 interface CacheRow extends RowDataPacket {
@@ -22,17 +26,18 @@ interface CacheRow extends RowDataPacket {
   tz: string;
 }
 
-// Returns the cached briefing for `date` ONLY when its stored tz matches the
-// caller's current pref — changing timezone mid-day should regenerate.
+// Returns the cached briefing for `date` in the caller's effective timezone.
+// tz is part of the PRIMARY KEY (date, user_email, tz): zone-briefs coexist
+// for the day, so two devices in different zones (Auto mode, traveling) each
+// get a correct local brief instead of ping-pong regenerating over one row.
 export async function getCachedBriefing(date: string, tz: string, email: string): Promise<{ briefing: CachedBriefing; generatedAt: number } | null> {
   const pool = await getDb();
   const [rows] = await pool.query<(CacheRow & { user_email: string })[]>(
-    "SELECT briefing, generated_at, tz, user_email FROM briefing_cache WHERE date = ? AND user_email IN (?, '')",
-    [date, email]
+    "SELECT briefing, generated_at, tz, user_email FROM briefing_cache WHERE date = ? AND tz = ? AND user_email IN (?, '')",
+    [date, tz, email]
   );
   const row = pickUserRow(rows, email);
   if (!row) return null;
-  if (row.tz && row.tz !== tz) return null;
   return {
     briefing: row.briefing,
     generatedAt: Number(row.generated_at) || 0,
