@@ -23,6 +23,42 @@ const WELCOME: ChatMessageType = {
     "I'm your scheduling and task assistant. I can see your calendar and tasks — ask me to find free time, add an event, or move, reschedule, or cancel something.",
 };
 
+// ── Thread persistence ──────────────────────────────────────────────────────
+// The slide-over unmounts this panel on close, which used to destroy the
+// conversation. The thread now survives close/reopen (module cache) and a
+// page reload (sessionStorage — per-tab, clears when the browser tab closes).
+// Pending action-confirm cards are deliberately NOT persisted: a stale
+// "Add event?" button firing after a reload is worse than re-asking.
+const THREAD_KEY = "assistant:thread";
+const THREAD_CAP = 40; // messages kept
+let threadCache: ChatMessageType[] | null = null;
+
+function loadThread(): ChatMessageType[] {
+  if (threadCache && threadCache.length) return threadCache;
+  try {
+    const raw = sessionStorage.getItem(THREAD_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as ChatMessageType[];
+      if (Array.isArray(p) && p.length && p.every((m) => m && typeof m.content === "string")) {
+        threadCache = p;
+        return p;
+      }
+    }
+  } catch { /* corrupted → fresh thread */ }
+  return [WELCOME];
+}
+
+function saveThread(messages: ChatMessageType[]): void {
+  const trimmed = messages.slice(-THREAD_CAP);
+  threadCache = trimmed;
+  try { sessionStorage.setItem(THREAD_KEY, JSON.stringify(trimmed)); } catch { /* quota — cache still holds it */ }
+}
+
+function clearThread(): void {
+  threadCache = null;
+  try { sessionStorage.removeItem(THREAD_KEY); } catch { /* ignore */ }
+}
+
 // ── Action block types ──────────────────────────────────────────────────────
 
 interface EventPayload {
@@ -323,7 +359,7 @@ export default function ChatPanel({
   initialInput,
   initialInputNonce,
 }: ChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessageType[]>([WELCOME]);
+  const [messages, setMessages] = useState<ChatMessageType[]>(() => loadThread());
   const [streaming, setStreaming] = useState(false);
   const [streamedIdx, setStreamedIdx] = useState(-1);
   const [actionMap, setActionMap] = useState<Map<number, PendingAction[]>>(new Map());
@@ -343,6 +379,11 @@ export default function ChatPanel({
       el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
+
+  // Persist the thread once a turn settles (not per streamed token).
+  useEffect(() => {
+    if (!streaming && messages.length > 1) saveThread(messages);
+  }, [messages, streaming]);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -554,6 +595,17 @@ export default function ChatPanel({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-4 space-y-1"
       >
+        {messages.length > 1 && !streaming && (
+          <div className="flex justify-end -mt-1 mb-1">
+            <button
+              onClick={() => { clearThread(); setMessages([WELCOME]); setActionMap(new Map()); }}
+              title="Clear this conversation and start fresh"
+              className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-300 transition-colors"
+            >
+              ↺ New chat
+            </button>
+          </div>
+        )}
         {messages.map((msg, i) => {
           const actions = actionMap.get(i) ?? [];
           const displayContent = actions.length > 0

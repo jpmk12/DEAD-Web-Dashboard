@@ -97,6 +97,10 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  // Set when the server auto-committed a high-confidence task — renders an
+  // Undo button (one-call task delete) instead of the confirm step.
+  const [undoTaskId, setUndoTaskId] = useState<string | null>(null);
+  const [undoing, setUndoing] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Focus + reset on open
@@ -129,6 +133,7 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
     setBusy(true);
     setError(null);
     setResult(null);
+    setUndoTaskId(null);
     try {
       const res = await fetch("/api/quick-capture", {
         method: "POST",
@@ -137,12 +142,33 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
+      if (data.committed && data.result) {
+        // Server auto-committed (high-confidence task) — show saved + Undo.
+        setResult(data.result as Result);
+        setUndoTaskId(typeof data.undo?.taskId === "string" ? data.undo.taskId : null);
+        onCaptured?.(data.result.kind);
+        setInput("");
+        return;
+      }
       if (!data.plan) throw new Error("No plan returned");
       setPlan(data.plan as Plan);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const undo = async () => {
+    if (!undoTaskId || undoing) return;
+    setUndoing(true);
+    try {
+      await fetch(`/api/tasks?id=${encodeURIComponent(undoTaskId)}`, { method: "DELETE" });
+      setResult(null);
+      setUndoTaskId(null);
+      onCaptured?.("task"); // refresh the rail again (task removed)
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -308,10 +334,24 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
 
           {result && (
             <div className={`mt-3 border rounded-lg px-3 py-2.5 text-xs ${KIND_COLOR[result.kind]}`}>
-              <p className="font-bold uppercase tracking-wider text-[10px] mb-0.5">
-                ✓ Saved · {KIND_LABEL[result.kind]}
-              </p>
-              <p className="text-slate-200 leading-snug">{summarise(result)}</p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-bold uppercase tracking-wider text-[10px] mb-0.5">
+                    ✓ Saved · {KIND_LABEL[result.kind]}
+                  </p>
+                  <p className="text-slate-200 leading-snug">{summarise(result)}</p>
+                </div>
+                {undoTaskId && (
+                  <button
+                    onClick={() => void undo()}
+                    disabled={undoing}
+                    title="Delete the task that was just created"
+                    className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-slate-600 text-slate-300 hover:border-red-500/50 hover:text-red-300 transition-colors disabled:opacity-40"
+                  >
+                    {undoing ? "…" : "Undo"}
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

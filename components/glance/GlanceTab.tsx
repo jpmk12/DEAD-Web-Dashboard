@@ -1028,7 +1028,7 @@ export default function GlanceTab({
             onJump={urgentJumpTarget ? () => onNavigate(urgentJumpTarget) : undefined}
           >
             {dueTasks.length === 0 && urgentTop.length === 0 ? (
-              <Empty>Nothing demanding action right now.</Empty>
+              warming ? <SkeletonRows n={3} /> : <Empty>Nothing demanding action right now.</Empty>
             ) : (
               <>
                 {/* Your actions — personal to-dos, pinned above world-state so they
@@ -1124,7 +1124,7 @@ export default function GlanceTab({
           {/* Breaking & critical */}
           <Panel title="Breaking & critical" onJump={() => onNavigate("news")}>
             {breaking.length === 0 ? (
-              <Empty>{warming ? "Loading the latest reporting…" : "No critical stories surfaced."}</Empty>
+              warming ? <SkeletonRows n={4} /> : <Empty>No critical stories surfaced.</Empty>
             ) : (
               <ul className="divide-y divide-slate-800/60">
                 {breaking.map((n) => {
@@ -1352,6 +1352,25 @@ function Panel({
       </div>
       {children}
     </section>
+  );
+}
+
+// Cold-load skeletons — a fresh page load renders Glance before the (hidden,
+// already-mounted) Email/News tabs finish their first fetch. Shimmer rows read
+// as "loading" where empty text used to read as "nothing happening".
+function SkeletonRows({ n = 3 }: { n?: number }) {
+  return (
+    <div className="px-3 py-2.5 space-y-2.5" aria-hidden="true">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="flex items-start gap-3 animate-pulse">
+          <div className="mt-1 w-3.5 h-3.5 rounded bg-slate-800" />
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="h-3 rounded bg-slate-800" style={{ width: `${78 - i * 14}%` }} />
+            <div className="h-2 rounded bg-slate-800/70" style={{ width: `${46 - i * 8}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

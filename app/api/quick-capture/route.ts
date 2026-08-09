@@ -35,7 +35,7 @@ Categorise the input as exactly one of:
   - "doc"   — a THOUGHT, idea, observation, or draft the user wants written down to read later. Use this for "jot down…", "note down this idea…", "write up…", or any substantive thought that is about the WORLD/work rather than a fact about the user.
   - "note"  — durable context to remember about the user themselves (a person, a project, a preference, a fact). Use this for "save that…", "remember that…", or when there's no actionable verb and it's a fact about the user.
 
-Return ONLY a JSON object — no markdown fence, no preamble.
+Return ONLY a JSON object — no markdown fence, no preamble. Every shape also carries "confidence": a number 0-1 for how unambiguous BOTH the category and the extracted fields are (a plain "remind me to call maintenance tomorrow" is ~0.95; anything you had to guess about is ≤0.7).
 
 Shapes:
   task  → {"kind":"task","title":"…","due":"YYYY-MM-DD" (optional, only if explicit),"notes":"…" (optional)}
@@ -146,6 +146,30 @@ export async function POST(request: Request) {
   const parsed = parseClaudeJson(text);
   if (!parsed) {
     return NextResponse.json({ error: "Couldn't understand that input" }, { status: 422 });
+  }
+
+  // High-confidence TASKS auto-commit — the "remind me to X" case is the
+  // fastest input path in the app and a confirm round-trip doubled its cost.
+  // Tasks only: they have a clean one-call undo (DELETE /api/tasks?id=).
+  // Events (calendar writes), trips (location changes), docs, and notes keep
+  // the explicit confirm.
+  const confRaw = (parsed as unknown as { confidence?: unknown }).confidence;
+  const conf = typeof confRaw === "number" ? confRaw : 0;
+  const plan = normalisePlan(parsed);
+  if (plan?.kind === "task" && conf >= 0.85) {
+    try {
+      const task = await createTask(
+        session.accessToken as string,
+        plan.title,
+        plan.due || undefined,
+        plan.notes || undefined
+      );
+      return NextResponse.json({
+        committed: true,
+        result: { kind: "task", title: task.title, due: task.due ?? null },
+        undo: { taskId: task.id },
+      });
+    } catch { /* creation failed → fall through to the normal confirm flow */ }
   }
 
   // Return the plan for the client to preview + confirm. No side effects yet.
