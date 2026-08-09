@@ -326,6 +326,12 @@ export default function CrisisMap() {
         if (sv && typeof sv === "object" && !Array.isArray(sv)) {
           setOn((prev) => ({ ...prev, ...(sv as Partial<Record<LayerKey, boolean>>) }));
         }
+        // The higher-level working state — view preset + AOR filter — used to
+        // reset on every reload; restore it alongside the layer booleans.
+        const vw = st[UI_KEYS.crisisView];
+        if (typeof vw === "string" && vw) setViewName(vw);
+        const aor = st[UI_KEYS.crisisAor];
+        if (typeof aor === "string" && (aor === "ALL" || AORS.includes(aor as Aor))) setAorFilter(aor as Aor | "ALL");
       })
       .finally(() => { didHydrate.current = true; });
   }, []);
@@ -333,6 +339,25 @@ export default function CrisisMap() {
     try { localStorage.setItem(TOGGLE_KEY, JSON.stringify(on)); } catch { /* ignore */ }
     if (didHydrate.current) patchUiState({ [UI_KEYS.crisisLayers]: on });
   }, [on]);
+  useEffect(() => { if (didHydrate.current) patchUiState({ [UI_KEYS.crisisView]: viewName }); }, [viewName]);
+  useEffect(() => { if (didHydrate.current) patchUiState({ [UI_KEYS.crisisAor]: aorFilter }); }, [aorFilter]);
+
+  // "My AO" preset target — the Mission Profile's primary theater (first
+  // primary AOI's COCOM, else the first declared theater). Null = no profile,
+  // the preset button doesn't render.
+  const [myAoAor, setMyAoAor] = useState<Aor | null>(null);
+  useEffect(() => {
+    fetch("/api/mission-profile")
+      .then((r) => r.json())
+      .then((d: { profile?: { theaters?: Aor[]; aois?: { aor: Aor; intensity: string }[] } }) => {
+        const p = d?.profile;
+        if (!p) return;
+        const primary = (p.aois ?? []).find((a) => a.intensity === "primary")?.aor;
+        const pick = primary ?? (p.theaters ?? [])[0] ?? null;
+        if (pick && AORS.includes(pick)) setMyAoAor(pick);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -743,6 +768,22 @@ export default function CrisisMap() {
           <button onClick={() => { setViewMenuOpen((v) => !v); setLayersOpen(false); setLegendOpen(false); }} title="Apply a curated layer preset" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 transition-all">{viewName} ▾</button>
           {viewMenuOpen && (
             <div className="absolute left-0 top-full mt-1 z-[55] w-48 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-1 shadow-2xl">
+              {myAoAor && (
+                <button
+                  onClick={() => {
+                    // Mission-Profile view: force-protection lens + the access
+                    // degraders (overflight/GPS), narrowed to your primary theater.
+                    setOn(preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "overflight", "enroute", "crf", "tracked", "labels"]));
+                    setAorFilter(myAoAor);
+                    setViewName("My AO");
+                    setViewMenuOpen(false);
+                  }}
+                  title={`Your Mission Profile theater (${myAoAor}) — forces, conflict, NEO, airspace/GPS access degraders`}
+                  className="block w-full text-left px-2.5 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-100"
+                >
+                  ⌂ My AO<span className="block text-[9px] text-slate-500 normal-case font-normal tracking-normal">Mission Profile · {myAoAor}</span>
+                </button>
+              )}
               {PRESETS.map((pz) => (
                 <button key={pz.name} onClick={() => { setOn(pz.on); setViewName(pz.name); setViewMenuOpen(false); }} title={pz.desc} className="block w-full text-left px-2.5 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:bg-violet-500/15 hover:text-violet-100">
                   {pz.name}<span className="block text-[9px] text-slate-500 normal-case font-normal tracking-normal">{pz.desc.split("—")[0].trim()}</span>

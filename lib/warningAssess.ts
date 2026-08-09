@@ -4,7 +4,7 @@
 // with a 10-min in-process cache (the codebase-native pattern — no cron).
 
 import { deriveWarning, scoreIndicators, type WarningAssessment } from "./warning";
-import { warningProblemById } from "./warningTaxonomy";
+import { resolveWarningProblem } from "./warningProblems";
 import { gatherObservations, type SensorHealth, type DivergenceState } from "./warningSensors";
 import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory, getMobilityBaseline } from "./warningStore";
 
@@ -19,8 +19,9 @@ const cache = new Map<string, { at: number; data: WarningAssessmentPlus }>();
 export function resetWarningCache(): void { cache.clear(); }
 
 export async function assessWarning(problemId: string): Promise<WarningAssessmentPlus | null> {
-  const def = warningProblemById(problemId);
-  if (!def) return null;
+  const resolved = await resolveWarningProblem(problemId);
+  if (!resolved) return null;
+  const { def, geo } = resolved;
 
   const hit = cache.get(problemId);
   if (hit && Date.now() - hit.at < TTL) return hit.data;
@@ -31,7 +32,7 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
   // The observed-mobility baseline feeds the divergence sensor (surge is
   // relative to this AOR's own normal, not a static bar).
   const mobilityBaseline = await getMobilityBaseline(problemId, day, 30).catch(() => ({ mean: null as number | null, samples: 0 }));
-  const { observations, health, divergence } = await gatherObservations(mobilityBaseline);
+  const { observations, health, divergence } = await gatherObservations(mobilityBaseline, geo);
   const { baseline, samples } = await getWarningBaseline(problemId, day, 30).catch(() => ({ baseline: null as number | null, samples: 0 }));
   const priorAnomalies = await getWarningAnomalyHistory(problemId, day, 10).catch(() => [] as number[]);
 

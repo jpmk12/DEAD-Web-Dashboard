@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { WARNING_PROBLEMS } from "@/lib/warningTaxonomy";
+import { activeWarningProblems } from "@/lib/warningProblems";
 import { assessWarning } from "@/lib/warningAssess";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +12,9 @@ export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const active = await activeWarningProblems();
   const problems = (
-    await Promise.all(WARNING_PROBLEMS.map((p) => assessWarning(p.id).catch(() => null)))
+    await Promise.all(active.map((p) => assessWarning(p.def.id).catch(() => null)))
   ).filter(Boolean);
 
   return NextResponse.json({ problems });

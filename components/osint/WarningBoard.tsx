@@ -28,11 +28,13 @@ const TRAJ: Record<Trajectory, { t: string; c: string }> = {
 };
 const IND_LABEL: Record<string, string> = {
   conflict_intensity_gulf: "Conflict intensity — Gulf",
+  conflict_intensity: "Conflict intensity",
   escalatory_strike_signal: "Escalatory strike / rhetoric signal",
   mobility_divergence: "Airlift mobility divergence",
   neo_departure_posture: "NEO / departure posture",
   airspace_gps_disruption: "Airspace / GPS disruption",
   hormuz_interdiction_signal: "Strait of Hormuz interdiction",
+  chokepoint_interdiction: "Chokepoint interdiction",
 };
 const label = (id: string) => IND_LABEL[id] ?? id;
 const fmtAnom = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(2)}`;

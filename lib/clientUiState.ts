@@ -5,6 +5,8 @@
 export const UI_KEYS = {
   osintDismissed: "osint.dismissed",
   crisisLayers: "crisisMap.layers",
+  crisisView: "crisisMap.view",
+  crisisAor: "crisisMap.aor",
   newsletterQuietDismissed: "newsletter.quietDismissed",
 } as const;
 

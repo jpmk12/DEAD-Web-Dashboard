@@ -22,29 +22,19 @@ import {
   isRecentLevel4, recentConflictCount, bandConflictIntensity, conflictImpliesDemand,
   mobilityObservedHigh, CONFLICT_WINDOW_DAYS, type MobilityBaseline,
 } from "./warningRules";
+import { CENTCOM_GEO, type ProblemGeo } from "./warningTaxonomy";
 import type { NewsItem } from "./types";
 
-// ── AOR definition (Gulf / Iran / Levant approaches) ─────────────────────────
-const AOR_BBOX = { latMin: 12, latMax: 40, lonMin: 34, lonMax: 64 };
-const GULF_COUNTRIES = [
-  "Iran", "Iraq", "Israel", "Yemen", "Saudi Arabia", "United Arab Emirates",
-  "Qatar", "Bahrain", "Kuwait", "Oman", "Syria", "Lebanon",
-];
-// AMC / partner hubs the mobility sensor watches for observed lift.
-const AOR_HUBS: { lat: number; lon: number }[] = [
-  { lat: 25.117, lon: 51.315 }, // Al Udeid, Qatar
-  { lat: 24.248, lon: 54.548 }, // Al Dhafra, UAE
-  { lat: 29.347, lon: 47.521 }, // Ali Al Salem, Kuwait
-  { lat: 24.063, lon: 47.580 }, // Prince Sultan, KSA
-  { lat: 26.271, lon: 50.636 }, // Isa, Bahrain
-];
-const AOR_FIRS = ["OBBB", "OTDF", "OMAE", "OIIX", "OKAC", "ORBB", "OEJD", "OYSC"];
+// The AOR definition (bbox / countries / hubs / FIRs / mention-gate terms /
+// chokepoint) is a ProblemGeo parameter — CENTCOM_GEO carries the hand-tuned
+// Gulf values these sensors shipped with; Mission Profile AOIs supply their
+// own via problemFromSeed(). The six indicators are geography-agnostic.
 const HUB_RADIUS_KM = 600;
 
-const inBbox = (lat: number, lon: number): boolean =>
-  lat >= AOR_BBOX.latMin && lat <= AOR_BBOX.latMax && lon >= AOR_BBOX.lonMin && lon <= AOR_BBOX.lonMax;
-const nearHub = (lat: number, lon: number): boolean =>
-  AOR_HUBS.some((h) => haversineKm(lat, lon, h.lat, h.lon) <= HUB_RADIUS_KM);
+const inBbox = (geo: ProblemGeo, lat: number, lon: number): boolean =>
+  lat >= geo.bbox.latMin && lat <= geo.bbox.latMax && lon >= geo.bbox.lonMin && lon <= geo.bbox.lonMax;
+const nearHub = (geo: ProblemGeo, lat: number, lon: number): boolean =>
+  geo.hubs.some((h) => haversineKm(lat, lon, h.lat, h.lon) <= HUB_RADIUS_KM);
 
 // Bound every feed so one slow/hung source can't idle the request past the
 // platform gateway timeout (the SITREP-read 502 lesson). A timeout → null →
@@ -56,9 +46,8 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 }
 
 // AOR relevance for free-text (X posts, newsletters, OSINT feeds aren't geo-
-// tagged) — a mention gate so only Gulf/Iran-relevant items feed the score.
-const AOR_TERMS = /\b(iran|iranian|tehran|irgc|iraq|iraqi|israel|israeli|\bidf\b|yemen|houthi|hormuz|persian gulf|arabian gulf|strait of hormuz|red sea|bab.?el.?mandeb|saudi|riyadh|qatar|doha|bahrain|manama|kuwait|\buae\b|emirates|abu dhabi|dubai|oman|muscat|syria|lebanon|hezbollah|hizbollah|centcom)\b/i;
-const aorRelevant = (n: NewsItem): boolean => AOR_TERMS.test(`${n.title} ${n.summary ?? ""}`);
+// tagged) — a mention gate (geo.terms) so only AOI-relevant items feed the score.
+const aorRelevant = (geo: ProblemGeo, n: NewsItem): boolean => geo.terms.test(`${n.title} ${n.summary ?? ""}`);
 
 // The user's OWN curated sources — imported X captures, newsletters, and the
 // configured OSINT RSS/Telegram feeds. These often break a warning indicator
@@ -66,7 +55,7 @@ const aorRelevant = (n: NewsItem): boolean => AOR_TERMS.test(`${n.title} ${n.sum
 // can trip a WATCH, but only CORROBORATE (never alone confirm) — the scoring
 // blends them so a social-only signal caps at watching. All fail-safe; the
 // `sources` set drives provenance. Bounded so the fan-out can't hang the request.
-async function gatherUserSourceNews(): Promise<{ items: NewsItem[]; sources: Set<string> }> {
+async function gatherUserSourceNews(geo: ProblemGeo): Promise<{ items: NewsItem[]; sources: Set<string> }> {
   const sources = new Set<string>();
   const items: NewsItem[] = [];
 
@@ -88,7 +77,7 @@ async function gatherUserSourceNews(): Promise<{ items: NewsItem[]; sources: Set
     for (const r of results) if (r?.items) for (const it of r.items) items.push(it);
   }
 
-  const relevant = items.filter(aorRelevant);
+  const relevant = items.filter((n) => aorRelevant(geo, n));
   for (const n of relevant) {
     if (n.source.startsWith("𝕏")) sources.add("X");
     else if (n.source.startsWith("✉")) sources.add("newsletters");
@@ -144,23 +133,25 @@ async function fetchMilAircraft(): Promise<MilAc[] | null> {
   return null;
 }
 
-// ── Gather all observations for CENTCOM/Iran ─────────────────────────────────
+// ── Gather all observations for one warning problem ──────────────────────────
 // `mobilityBaseline` comes from the store (trailing mean of daily peak counts) —
-// the sensors stay DB-free; the assembler owns persistence.
+// the sensors stay DB-free; the assembler owns persistence. `geo` points the
+// six indicators at the problem's part of the world (default: the Gulf).
 export async function gatherObservations(
   mobilityBaseline: MobilityBaseline = { mean: null, samples: 0 },
+  geo: ProblemGeo = CENTCOM_GEO,
 ): Promise<GatherResult> {
-  const [conflictPts, disasters, newsByCountry, hormuzNewsRaw, advisories, milAc, firRes, userSrc] = await Promise.all([
+  const [conflictPts, disasters, newsByCountry, chokeNewsRaw, advisories, milAc, firRes, userSrc] = await Promise.all([
     withTimeout(getConflictPoints(), 10_000),
     withTimeout(getDisasters(), 10_000),
-    withTimeout(getConflictNewsByCountry(GULF_COUNTRIES), 12_000),
-    withTimeout(gdeltLocalNews("Strait of Hormuz"), 10_000),
+    withTimeout(getConflictNewsByCountry(geo.countries), 12_000),
+    geo.chokepoint ? withTimeout(gdeltLocalNews(geo.chokepoint.searchTerm), 10_000) : Promise.resolve(null),
     withTimeout(getAllStateAdvisories(), 10_000),
     withTimeout(fetchMilAircraft(), 10_000),
-    withTimeout(getFirNotams(AOR_FIRS), 12_000),
-    gatherUserSourceNews().catch(() => ({ items: [] as NewsItem[], sources: new Set<string>() })),
+    geo.firs.length ? withTimeout(getFirNotams(geo.firs), 12_000) : Promise.resolve(null),
+    gatherUserSourceNews(geo).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>() })),
   ]);
-  const hormuzNews = hormuzNewsRaw ?? [];
+  const chokeNews = chokeNewsRaw ?? [];
   const userNews = userSrc?.items ?? [];
   const userSources = userSrc?.sources ?? new Set<string>();
   const userSrcLabel = userSources.size ? ` + your ${[...userSources].join("/")}` : "";
@@ -176,12 +167,12 @@ export async function gatherObservations(
   let recent90 = 0;
   if (conflictPts) {
     const nowMs = Date.now();
-    recent90 = recentConflictCount(conflictPts.filter((p) => inBbox(p.lat, p.lon)), nowMs);
+    recent90 = recentConflictCount(conflictPts.filter((p) => inBbox(geo, p.lat, p.lon)), nowMs);
     const state = bandConflictIntensity(recent90);
-    observations.push(obs("conflict_intensity_gulf", "conflictEvents", state, state === "dormant" ? 0 : 0.85, `UCDP/ACLED/ReliefWeb events in AOR bbox, trailing ${CONFLICT_WINDOW_DAYS}d (UCDP lags 1-2mo)`, recent90));
-    health.push({ indicatorId: "conflict_intensity_gulf", live: true });
+    observations.push(obs(geo.conflictIndicatorId, "conflictEvents", state, state === "dormant" ? 0 : 0.85, `UCDP/ACLED/ReliefWeb events in AOR bbox, trailing ${CONFLICT_WINDOW_DAYS}d (UCDP lags 1-2mo)`, recent90));
+    health.push({ indicatorId: geo.conflictIndicatorId, live: true });
   } else {
-    health.push({ indicatorId: "conflict_intensity_gulf", live: false, note: "conflict-event feed unreachable" });
+    health.push({ indicatorId: geo.conflictIndicatorId, live: false, note: "conflict-event feed unreachable" });
   }
 
   // 2) escalatory_strike_signal ← GDELT escalation across AOR states, CORROBORATED
@@ -190,7 +181,7 @@ export async function gatherObservations(
   // single X capture) caps at WATCH — social raises confidence, never confirms alone.
   const userEsc = scoreConflictNews(userNews);
   if (newsByCountry || userNews.length) {
-    const signals = newsByCountry ? GULF_COUNTRIES.map((c) => newsByCountry[c.toLowerCase()]).filter(Boolean) : [];
+    const signals = newsByCountry ? geo.countries.map((c) => newsByCountry[c.toLowerCase()]).filter(Boolean) : [];
     const gdeltEsc = signals.filter((s) => s?.escalation).length;
     const gdeltTotal = signals.reduce((s, sig) => s + (sig?.count || 0), 0);
     const total = gdeltTotal + userEsc.count;
@@ -213,8 +204,8 @@ export async function gatherObservations(
   // this true forever), confirmed-band 90d conflict intensity, or an AOR disaster.
   const nowMs = Date.now();
   const neoTriggers = (advisories ?? []).filter((a) =>
-    GULF_COUNTRIES.includes(a.country) && (a.orderedDeparture || a.authorizedDeparture || isRecentLevel4(a, nowMs)));
-  const aorDisasters = (disasters ?? []).filter((d) => typeof d.lat === "number" && typeof d.lon === "number" && inBbox(d.lat as number, d.lon as number));
+    geo.countries.includes(a.country) && (a.orderedDeparture || a.authorizedDeparture || isRecentLevel4(a, nowMs)));
+  const aorDisasters = (disasters ?? []).filter((d) => typeof d.lat === "number" && typeof d.lon === "number" && inBbox(geo, d.lat as number, d.lon as number));
   const impliedHigh = conflictImpliesDemand(recent90) || neoTriggers.length > 0 || aorDisasters.length > 0;
 
   // 3) mobility_divergence ← observed mil mobility/tanker near hubs × implied
@@ -222,7 +213,7 @@ export async function gatherObservations(
   // (mobilityObservedHigh) — Gulf hubs always have lift, so a static bar read
   // "surge" on ordinary days and pinned the 2×2.
   if (milAc) {
-    const observedCount = milAc.filter((a) => nearHub(a.lat, a.lon) && (isMobilityType(a.type) || isTankerType(a.type))).length;
+    const observedCount = milAc.filter((a) => nearHub(geo, a.lat, a.lon) && (isMobilityType(a.type) || isTankerType(a.type))).length;
     const observedHigh = mobilityObservedHigh(observedCount, mobilityBaseline);
     let quadrant: DivergenceState["quadrant"];
     let state: ObservedState;
@@ -233,20 +224,21 @@ export async function gatherObservations(
     const baseNote = mobilityBaseline.mean != null ? `, baseline ~${mobilityBaseline.mean.toFixed(0)}/day over ${mobilityBaseline.samples}d` : ", baseline forming";
     observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}) × implied demand`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true });
-    return finalize(observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
+    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
   } else {
     health.push({ indicatorId: "mobility_divergence", live: false, note: "community ADS-B mirrors unreachable" });
-    return finalize(observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, hormuzNews, firRes, userNews, userSrcLabel);
+    return finalize(geo, observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
   }
 }
 
 function finalize(
+  geo: ProblemGeo,
   observations: IndicatorObservation[],
   health: SensorHealth[],
   divergence: DivergenceState,
   advisories: Awaited<ReturnType<typeof getAllStateAdvisories>> | null,
   neoTriggers: { orderedDeparture: boolean; authorizedDeparture: boolean; level: number | null }[],
-  hormuzNews: NewsItem[],
+  chokeNews: NewsItem[],
   firRes: Awaited<ReturnType<typeof getFirNotams>> | null,
   userNews: NewsItem[],
   userSrcLabel: string,
@@ -265,24 +257,27 @@ function finalize(
     health.push({ indicatorId: "neo_departure_posture", live: false, note: "State advisory feed unreachable" });
   }
 
-  // 5) hormuz_interdiction_signal ← Hormuz closure/mining/seizure reporting, from
-  // GDELT AND the user's own sources (corroboration; own-source-only caps at watch).
-  const HORMUZ_TERMS = ["hormuz", "strait"];
-  const INTERDICT = ["clos", "mine", "mining", "seiz", "seized", "block", "impound", "attack", "harass"];
-  const scan = (arr: NewsItem[]): number => arr.filter((a) => {
-    const h = `${a.title} ${a.summary ?? ""}`.toLowerCase();
-    return HORMUZ_TERMS.some((t) => h.includes(t)) && INTERDICT.some((t) => h.includes(t));
-  }).length;
-  const gdeltHits = scan(hormuzNews ?? []);
-  const userHits = scan(userNews);
-  let hState: ObservedState; let hConf: number;
-  if (gdeltHits >= 1 && userHits >= 1) { hState = "active"; hConf = 0.75; }   // corroborated
-  else if (gdeltHits >= 2) { hState = "active"; hConf = 0.6; }
-  else if (gdeltHits === 1) { hState = "watching"; hConf = 0.55; }
-  else if (userHits >= 1) { hState = "watching"; hConf = 0.45; }              // own-source only
-  else { hState = "dormant"; hConf = 0; }
-  observations.push(obs("hormuz_interdiction_signal", "conflictNews", hState, hConf, `GDELT DOC 'Strait of Hormuz' + interdiction scan${userSrcLabel}`, gdeltHits + userHits));
-  health.push({ indicatorId: "hormuz_interdiction_signal", live: true });
+  // 5) chokepoint interdiction ← closure/mining/seizure reporting for the
+  // problem's chokepoint (skipped entirely when the AOI has none), from GDELT
+  // AND the user's own sources (corroboration; own-source-only caps at watch).
+  if (geo.chokepoint) {
+    const cp = geo.chokepoint;
+    const INTERDICT = ["clos", "mine", "mining", "seiz", "seized", "block", "impound", "attack", "harass"];
+    const scan = (arr: NewsItem[]): number => arr.filter((a) => {
+      const h = `${a.title} ${a.summary ?? ""}`.toLowerCase();
+      return cp.terms.some((t) => h.includes(t)) && INTERDICT.some((t) => h.includes(t));
+    }).length;
+    const gdeltHits = scan(chokeNews ?? []);
+    const userHits = scan(userNews);
+    let hState: ObservedState; let hConf: number;
+    if (gdeltHits >= 1 && userHits >= 1) { hState = "active"; hConf = 0.75; }   // corroborated
+    else if (gdeltHits >= 2) { hState = "active"; hConf = 0.6; }
+    else if (gdeltHits === 1) { hState = "watching"; hConf = 0.55; }
+    else if (userHits >= 1) { hState = "watching"; hConf = 0.45; }              // own-source only
+    else { hState = "dormant"; hConf = 0; }
+    observations.push(obs(cp.indicatorId, "conflictNews", hState, hConf, `GDELT DOC '${cp.name}' + interdiction scan${userSrcLabel}`, gdeltHits + userHits));
+    health.push({ indicatorId: cp.indicatorId, live: true });
+  }
 
   // 6) airspace_gps_disruption ← Gulf FIR closure/overflight NOTAMs (best-effort).
   if (firRes && firRes.configured && firRes.live) {
