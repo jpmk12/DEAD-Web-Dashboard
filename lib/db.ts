@@ -460,6 +460,7 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "disabled_news_sources",     ddl: "ALTER TABLE user_prefs ADD COLUMN disabled_news_sources JSON NULL" },
   { table: "warning_daily", column: "mobility_count",          ddl: "ALTER TABLE warning_daily ADD COLUMN mobility_count INT NULL" },
   { table: "x_upload_tokens", column: "expected_interval_hours", ddl: "ALTER TABLE x_upload_tokens ADD COLUMN expected_interval_hours INT NULL" },
+  { table: "user_prefs",  column: "mission_profile",           ddl: "ALTER TABLE user_prefs ADD COLUMN mission_profile JSON NULL" },
   { table: "user_prefs",  column: "newsletter_sources",        ddl: "ALTER TABLE user_prefs ADD COLUMN newsletter_sources JSON NULL" },
   { table: "user_prefs",  column: "metar_stations",            ddl: "ALTER TABLE user_prefs ADD COLUMN metar_stations JSON NULL" },
   { table: "user_prefs",  column: "force_locations",           ddl: "ALTER TABLE user_prefs ADD COLUMN force_locations JSON NULL" },

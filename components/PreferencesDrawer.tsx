@@ -11,6 +11,7 @@ import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, allKnownNewsSources, type NewsSourc
 import { AMC_HUBS, type AmcHub } from "@/lib/amcHubs";
 import { clientCache } from "@/lib/clientCache";
 import { applyTheme } from "@/components/ThemeApplicator";
+import MissionProfileEditor from "@/components/preferences/MissionProfileEditor";
 
 interface PreferencesDrawerProps {
   open: boolean;
@@ -371,6 +372,9 @@ function CountriesOfInterestEditor({ value, onChange }: { value: CountryWatch[];
             <li key={c.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
               <span className="text-sm">🌐</span>
               <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{c.country}{c.note ? <span className="text-slate-600"> · {c.note}</span> : null}</span>
+              {c.id.startsWith("mp-") && (
+                <span title="Derived from your Mission Profile — removing it records a permanent exclusion" className="text-[8px] font-mono font-bold text-emerald-400/80 bg-emerald-500/10 rounded px-1 flex-shrink-0">AUTO</span>
+              )}
               <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border flex-shrink-0 ${COCOM_BADGE[c.cocom] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[c.cocom as Aor] ?? c.cocom}</span>
               <button onClick={() => onChange(value.filter((x) => x.id !== c.id))} className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1 flex-shrink-0" title="Remove">×</button>
             </li>
@@ -494,6 +498,9 @@ function ForceLocationsEditor({ value, onChange }: { value: ForceLocation[]; onC
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-slate-200 truncate">{loc.label}</span>
+                  {loc.id.startsWith("mp-") && (
+                    <span title="Derived from your Mission Profile — removing it records a permanent exclusion" className="text-[8px] font-mono font-bold text-emerald-400/80 bg-emerald-500/10 rounded px-1 flex-shrink-0">AUTO</span>
+                  )}
                   {loc.icao && <span className="text-[9px] font-mono text-slate-400 bg-slate-900/60 px-1 rounded">{loc.icao}</span>}
                   <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border ${COCOM_BADGE[loc.cocom] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[loc.cocom as Aor] ?? loc.cocom}</span>
                 </div>
@@ -2535,9 +2542,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   // Collapsible-group state. Default for first-time users: only "you" is
   // open (gives an entry point). Returning users get whatever they last
   // had open, restored from localStorage in the effect below.
-  type GroupKey = "you" | "connections" | "email" | "sources" | "ai";
+  type GroupKey = "mission" | "you" | "connections" | "email" | "sources" | "ai";
   const [openGroups, setOpenGroups] = useState<Record<GroupKey, boolean>>({
-    you: true, connections: false, email: false, sources: false, ai: false,
+    mission: false, you: true, connections: false, email: false, sources: false, ai: false,
   });
   useEffect(() => {
     try {
@@ -2546,6 +2553,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") {
           setOpenGroups({
+            mission:     parsed.mission === true,
             you:         parsed.you === true,
             connections: parsed.connections === true,
             email:       parsed.email === true,
@@ -2571,6 +2579,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
     }, 80);
   };
   const GROUPS: { key: GroupKey; label: string }[] = [
+    { key: "mission",     label: "Mission Profile" },
     { key: "you",         label: "You" },
     { key: "connections", label: "Connections & appearance" },
     { key: "email",       label: "Email rules" },
@@ -2584,6 +2593,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   // All values derive from existing form state plus the two parent-level
   // fetches above (feedStaleCount, aiSpendTodayMicros); no extra requests.
   const groupSubtitle = (key: GroupKey) => {
+    if (key === "mission") {
+      return "declare your AO — the app derives the tracking";
+    }
     if (key === "you") {
       const parts: string[] = [];
       if (role.trim()) parts.push("role set");
@@ -2862,6 +2874,24 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             linearly inside; the existing section forms haven't changed,
             they've just moved into their categorical home. */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+
+          {/* ─── Mission Profile ─────────────────────────────────── */}
+          <section id="prefs-group-mission" className="border border-slate-800 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleGroup("mission")}
+              className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
+            >
+              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.mission ? "▾" : "▸"}</span>
+              <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Mission Profile</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("mission")}</span>
+            </button>
+            {openGroups.mission && (
+              <div className="px-4 py-4 border-t border-slate-800">
+                <MissionProfileEditor />
+              </div>
+            )}
+          </section>
 
           {/* ─── You ─────────────────────────────────────────────── */}
           <section id="prefs-group-you" className="border border-slate-800 rounded-lg overflow-hidden">
