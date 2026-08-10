@@ -81,6 +81,36 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
   const [sitrep, setSitrep] = useState<string | null>(null);
   const [sLoading, setSLoading] = useState(false);
 
+  // Mission Profile AOIs — the rail's primary grouping. Each AOI header also
+  // carries its I&W board level so the rail doubles as a table of contents of
+  // the declaration. Countries outside any AOI fall back to own-force / COCOM.
+  const [aois, setAois] = useState<{ id: string; name: string; countries: string[] }[]>([]);
+  const [ownCountries, setOwnCountries] = useState<Set<string>>(new Set());
+  const [iwLevels, setIwLevels] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!active) return;
+    fetch("/api/mission-profile")
+      .then((r) => r.json())
+      .then((d: { profile?: { aois?: { id: string; name: string; countries: string[] }[]; home?: { country?: string } | null; spokes?: { country?: string }[] } }) => {
+        const p = d?.profile;
+        if (!p) return;
+        setAois((p.aois ?? []).map((a) => ({ id: a.id, name: a.name, countries: a.countries ?? [] })));
+        const own = new Set<string>();
+        if (p.home?.country) own.add(p.home.country.toLowerCase());
+        for (const sp of p.spokes ?? []) if (sp.country) own.add(sp.country.toLowerCase());
+        setOwnCountries(own);
+      })
+      .catch(() => {});
+    fetch("/api/warning")
+      .then((r) => r.json())
+      .then((d: { problems?: { problemId: string; level: string }[] }) => {
+        const m: Record<string, string> = {};
+        for (const p of d?.problems ?? []) m[p.problemId] = p.level;
+        setIwLevels(m);
+      })
+      .catch(() => {});
+  }, [active]);
+
   useEffect(() => {
     if (!active) return;
     let cancel = false;
@@ -116,20 +146,38 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
 
   useEffect(() => { if (rows.length && (!selected || !rows.some((r) => r.country === selected))) setSelected(rows[0].country); }, [rows, selected]);
 
-  // Group the rail by Combatant Command: each group carries its worst severity
-  // (so a command with a red country floats up) + count; countries within a
-  // group keep their severity order (rows is already severity-sorted).
-  const cocomGroups = useMemo(() => {
-    const m = new Map<string, typeof rows>();
+  // Group the rail by the DECLARATION: Mission Profile AOIs first (declaration
+  // order, each header carrying its I&W level), then Own force (hub/spoke
+  // countries), then any remaining countries by Combatant Command worst-first.
+  // Countries within a group keep their severity order (rows is severity-sorted).
+  const railGroups = useMemo(() => {
+    const groupOf = (country: string): { key: string; label: string; short: string; order: number; iw?: string } => {
+      const lc = country.trim().toLowerCase();
+      const ai = aois.findIndex((a) => a.countries.some((c) => c.trim().toLowerCase() === lc));
+      if (ai >= 0) {
+        const a = aois[ai];
+        return { key: `aoi:${a.id}`, label: a.name, short: a.name, order: ai, iw: iwLevels[`mp-${a.id}`] };
+      }
+      if (ownCountries.has(lc)) return { key: "own", label: "Own force", short: "Own force", order: 100 };
+      const cc = "UNKNOWN"; // placeholder, replaced below with the row's cocom
+      return { key: `cc:${cc}`, label: cc, short: cc, order: 200 };
+    };
+    const m = new Map<string, { key: string; label: string; short: string; order: number; iw?: string; rows: typeof rows }>();
     for (const r of rows) {
-      const cc = r.primary.cocom || "UNKNOWN";
-      (m.get(cc) ?? m.set(cc, []).get(cc)!).push(r);
+      let g = groupOf(r.country);
+      if (g.key === "cc:UNKNOWN") {
+        const cc = r.primary.cocom || "UNKNOWN";
+        g = { key: `cc:${cc}`, label: COCOM_LABEL[cc] ?? cc, short: (COCOM_LABEL[cc] ?? cc).replace("US", ""), order: 200 };
+      }
+      const cur = m.get(g.key) ?? { ...g, rows: [] as typeof rows };
+      cur.rows.push(r);
+      m.set(g.key, cur);
     }
-    return [...m.entries()]
-      .map(([cc, rs]) => ({ cc, rows: rs, worst: rs.reduce((w, r) => Math.min(w, SEV_RANK[r.primary.composite as Sev]), 99) }))
-      .sort((a, b) => a.worst - b.worst || b.rows.length - a.rows.length || a.cc.localeCompare(b.cc));
-  }, [rows]);
-  const shownGroups = cocomFilter === "ALL" ? cocomGroups : cocomGroups.filter((g) => g.cc === cocomFilter);
+    return [...m.values()]
+      .map((g) => ({ ...g, worst: g.rows.reduce((w, r) => Math.min(w, SEV_RANK[r.primary.composite as Sev]), 99) }))
+      .sort((a, b) => a.order - b.order || a.worst - b.worst || b.rows.length - a.rows.length || a.label.localeCompare(b.label));
+  }, [rows, aois, ownCountries, iwLevels]);
+  const shownGroups = cocomFilter === "ALL" ? railGroups : railGroups.filter((g) => g.key === cocomFilter);
   const shownCount = shownGroups.reduce((n, g) => n + g.rows.length, 0);
 
   const row = rows.find((r) => r.country === selected) ?? null;
@@ -172,31 +220,34 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
         <span className="text-[11px] text-slate-600">country-level picture for your crews — incidents, news, advisories, holidays &amp; anniversaries</span>
       </div>
       <div className="flex flex-col lg:flex-row gap-4">
-        {/* Country rail — grouped & filterable by Combatant Command */}
+        {/* Country rail — grouped by AOI (declaration order) → Own force → COCOM */}
         <div className="lg:w-56 flex-shrink-0 border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden self-start w-full">
           <div className="px-3 py-2 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-            Watched · {cocomFilter === "ALL" ? rows.length : `${shownCount} of ${rows.length} · ${(COCOM_LABEL[cocomFilter] ?? cocomFilter)}`}
+            Watched · {cocomFilter === "ALL" ? rows.length : `${shownCount} of ${rows.length} · ${shownGroups[0]?.label ?? ""}`}
           </div>
           {/* COCOM filter chips */}
           <div className="flex flex-wrap gap-1 px-2 py-2 border-b border-slate-800">
             <button onClick={() => setCocomFilter("ALL")} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors ${cocomFilter === "ALL" ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>All <span className="opacity-60">{rows.length}</span></button>
-            {cocomGroups.map((g) => (
-              <button key={g.cc} onClick={() => setCocomFilter(g.cc)} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors inline-flex items-center gap-1 ${cocomFilter === g.cc ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
-                {(COCOM_LABEL[g.cc] ?? g.cc).replace("US", "")} <span className="opacity-60">{g.rows.length}</span>
+            {railGroups.map((g) => (
+              <button key={g.key} onClick={() => setCocomFilter(g.key)} className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors inline-flex items-center gap-1 ${cocomFilter === g.key ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+                {g.short} <span className="opacity-60">{g.rows.length}</span>
               </button>
             ))}
           </div>
           <div className="max-h-[55vh] overflow-y-auto">
             {shownGroups.map((g) => {
-              const collapsed = collapsedCocoms.has(g.cc);
+              const collapsed = collapsedCocoms.has(g.key);
               return (
-                <div key={g.cc}>
+                <div key={g.key}>
                   <button
-                    onClick={() => setCollapsedCocoms((prev) => { const n = new Set(prev); n.has(g.cc) ? n.delete(g.cc) : n.add(g.cc); return n; })}
+                    onClick={() => setCollapsedCocoms((prev) => { const n = new Set(prev); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n; })}
                     className="w-full flex items-center gap-2 px-3 pt-2 pb-1 bg-slate-950/40 hover:bg-slate-800/40 transition-colors"
                   >
                     <span style={{ color: SEV_DOT[(["red", "amber", "unknown", "green"][g.worst] ?? "unknown") as Sev] }} className="text-[10px]">●</span>
-                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left">{COCOM_LABEL[g.cc] ?? g.cc}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left truncate">{g.label}</span>
+                    {g.iw && g.iw !== "calm" && (
+                      <span className={`text-[7px] font-bold uppercase tracking-wider rounded px-1 py-px border ${g.iw === "alert" ? "text-red-300 border-red-500/50" : g.iw === "warning" ? "text-orange-300 border-orange-500/50" : "text-amber-300 border-amber-500/40"}`} title={`I&W board: ${g.iw}`}>{g.iw}</span>
+                    )}
                     <span className="text-[8px] font-mono text-slate-600">{g.rows.length}</span>
                     <span className="text-[9px] text-slate-600">{collapsed ? "▸" : "▾"}</span>
                   </button>

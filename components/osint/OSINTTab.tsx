@@ -2,25 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import dynamic from "next/dynamic";
 import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import GroundTruthTab from "@/components/ground/GroundTruthTab";
-import SitrepPanel from "@/components/osint/SitrepPanel";
-import WarningBoard from "@/components/osint/WarningBoard";
+import WatchPane from "@/components/osint/WatchPane";
 import SourcesPane from "@/components/osint/SourcesPane";
-
-// Leaflet uses window/document at import time, so we have to load the map
-// component client-only. Without ssr: false the build fails with a
-// "window is not defined" error during static analysis.
-const CrisisMap = dynamic(() => import("./CrisisMap"), {
-  ssr: false,
-  loading: () => (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-center text-slate-600 text-xs font-mono h-[58vh] min-h-[360px] lg:h-[600px]">
-      Loading map…
-    </div>
-  ),
-});
 
 interface OsintItem {
   id: string;
@@ -42,7 +28,12 @@ interface FeedSummary {
   fetchedAt?: number;
 }
 
-type Pane = "all" | "social" | "telegram" | "news" | "crisis" | "ground" | "sitrep" | "iw" | "sources";
+// Four destinations (was nine chips): Watch is the command dashboard (I&W
+// strip + SITREP LEDs + Crisis map), Regional the per-country rooms, Feeds the
+// merged reporting list (All/Social/Telegram/News are a SUBFILTER, not panes),
+// Sources the ingestion control room.
+type Pane = "watch" | "regional" | "feeds" | "sources";
+type FeedKind = "all" | "social" | "telegram" | "news";
 type Priority = "High" | "Medium" | "Low";
 
 const PRIORITY_PILL: Record<Priority, string> = {
@@ -84,7 +75,8 @@ interface OSINTTabProps {
 export default function OSINTTab({ active = true, previousSeen = 0, onSignalCount, onTopSignals }: OSINTTabProps) {
   const [items, setItems] = useState<OsintItem[]>([]);
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
-  const [pane, setPane] = useState<Pane>("all");
+  const [pane, setPane] = useState<Pane>("watch");
+  const [feedKind, setFeedKind] = useState<FeedKind>("all");
   const [loading, setLoading] = useState(true);
   // Capture-pipeline freshness for the Sources chip dot: null = no auto-capture
   // token set, true = uploading on schedule, false = stale/never-run.
@@ -95,11 +87,25 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   useEffect(() => {
     const onSetPane = (e: Event) => {
       const p = (e as CustomEvent<string>).detail;
-      if (p === "crisis" || p === "all" || p === "social" || p === "telegram" || p === "news" || p === "ground" || p === "sitrep" || p === "iw" || p === "sources") setPane(p as Pane);
+      // Legacy pane ids (pre-consolidation dispatchers) map onto the new four.
+      if (p === "watch" || p === "crisis" || p === "sitrep" || p === "iw") setPane("watch");
+      else if (p === "regional" || p === "ground") setPane("regional");
+      else if (p === "sources") setPane("sources");
+      else if (p === "feeds" || p === "all") setPane("feeds");
+      else if (p === "social" || p === "telegram" || p === "news") { setPane("feeds"); setFeedKind(p as FeedKind); }
     };
     window.addEventListener("osint:set-pane", onSetPane);
     return () => window.removeEventListener("osint:set-pane", onSetPane);
   }, []);
+  // The Watch pane (and its Leaflet map) stays hidden-mounted across pane
+  // switches; Leaflet measures a hidden container as 0×0, so nudge it with a
+  // resize event when the pane is revealed.
+  useEffect(() => {
+    if (pane !== "watch") return;
+    const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
+    return () => clearTimeout(t);
+  }, [pane]);
+
   const [homeLat, setHomeLat] = useState<number>(38.85);
   const [homeLon, setHomeLon] = useState<number>(-104.8);
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -166,10 +172,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
     : null;
 
   const filtered = useMemo(() => {
-    let base: OsintItem[];
-    if (pane === "all") base = items;
-    else if (pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw" || pane === "sources") base = [];
-    else base = items.filter((i) => i.feedKind === pane);
+    const base: OsintItem[] = feedKind === "all" ? items : items.filter((i) => i.feedKind === feedKind);
 
     if (timeWindow === "all") return base;
     const windowMs = timeWindow === "4h" ? 4 * 3600_000
@@ -181,7 +184,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       const t = Date.parse(i.pubDate);
       return Number.isFinite(t) && t >= cutoff;
     });
-  }, [items, pane, timeWindow]);
+  }, [items, feedKind, timeWindow]);
 
   // Pre-compile lowercase watchlist terms once per render so the per-item
   // match check is just an indexOf scan.
@@ -502,7 +505,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // here too (no token cost — these are the same free endpoints the maps use).
   const [contacts, setContacts] = useState<{ mil: number; vessels: number; watched: string[] }>({ mil: 0, vessels: 0, watched: [] });
   useEffect(() => {
-    if (!active || pane === "crisis" || pane === "ground" || pane === "sitrep" || pane === "iw" || pane === "sources") return;
+    if (!active || pane !== "feeds") return;
     if (!Number.isFinite(homeLat) || !Number.isFinite(homeLon)) return;
     let cancelled = false;
     const poll = async () => {
@@ -696,15 +699,10 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       {/* Pane selector */}
       <div className="flex flex-wrap gap-1.5">
         {([
-          { id: "all",       label: "All",      n: counts.all       },
-          { id: "social",    label: "Social",   n: counts.social    },
-          { id: "telegram",  label: "Telegram", n: counts.telegram  },
-          { id: "news",      label: "News",     n: counts.news      },
-          { id: "crisis",    label: "Crisis",   n: null             },
-          { id: "ground",    label: "Regional", n: null             },
-          { id: "sitrep",    label: "SITREP",   n: null             },
-          { id: "iw",        label: "I&W",      n: null             },
-          { id: "sources",   label: "Sources",  n: null             },
+          { id: "watch",    label: "◉ Watch",   n: null       },
+          { id: "regional", label: "▤ Regional", n: null      },
+          { id: "feeds",    label: "≣ Feeds",   n: counts.all },
+          { id: "sources",  label: "⇪ Sources", n: null       },
         ] as const).map((p) => (
           <button
             key={p.id}
@@ -726,10 +724,25 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
         ))}
       </div>
 
-      {/* Time-window filter — only meaningful for the feed-list panes, hidden
-          on the map panes where there are no items to filter. */}
-      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && pane !== "sources" && (
-        <div className="flex items-center gap-1.5 -mt-2 text-[10px]">
+      {/* Feed kind + time-window filters — the old All/Social/Telegram/News
+          "panes" were one list with a client filter; they're chips here now. */}
+      {pane === "feeds" && (
+        <div className="flex flex-wrap items-center gap-1.5 -mt-2 text-[10px]">
+          {([["all", "All", counts.all], ["social", "Social", counts.social], ["telegram", "Telegram", counts.telegram], ["news", "News", counts.news]] as const).map(([k, lbl, n]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setFeedKind(k)}
+              className={`px-2 py-0.5 rounded font-bold uppercase tracking-wider border transition-all ${
+                feedKind === k
+                  ? "bg-violet-500/15 text-violet-300 border-violet-500/40"
+                  : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"
+              }`}
+            >
+              {lbl} <span className="font-mono opacity-70">{n}</span>
+            </button>
+          ))}
+          <span className="text-slate-700 mx-1">·</span>
           <span className="text-slate-600 font-mono uppercase tracking-wider mr-1">Window</span>
           {(["all", "4h", "24h", "7d"] as const).map((w) => (
             <button
@@ -748,22 +761,23 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
         </div>
       )}
 
-      {/* Crisis / situation map — disasters + hub weather + tropical + AMC hubs.
-          Live military aircraft (ADS-B) and maritime vessels (AIS) are layers on
-          this map now — the standalone Aircraft/Maritime panes were retired. */}
-      {pane === "crisis" && <CrisisMap />}
+      {/* Watch — the command dashboard (I&W strip → SITREP LEDs → Crisis map).
+          HIDDEN-MOUNTED after first activation so pane-hopping doesn't unmount
+          the map and re-fire its ~15 source fetches; WatchPane arms itself
+          lazily so nothing loads before the user first opens it. */}
+      <div className={pane !== "watch" ? "hidden" : ""}>
+        <WatchPane active={active && pane === "watch"} />
+      </div>
 
-      {/* Ground Truth — per-country situation room for the Force Protection watch */}
-      {pane === "ground" && <GroundTruthTab active={active} />}
-      {pane === "sitrep" && <SitrepPanel active={active && pane === "sitrep"} />}
-      {pane === "iw" && <WarningBoard active={active && pane === "iw"} />}
+      {/* Regional — per-country situation rooms for the declared AO */}
+      {pane === "regional" && <GroundTruthTab active={active} />}
 
       {/* Sources — the ingestion control room (X / analysis / events captures +
-          live feed health). Capture cards moved here from the Social pane. */}
+          live feed health). */}
       {pane === "sources" && <SourcesPane active={active && pane === "sources"} feeds={feeds} onChanged={loadFeed} />}
 
-      {/* Feed list pane */}
-      {pane !== "crisis" && pane !== "ground" && pane !== "sitrep" && pane !== "iw" && pane !== "sources" && (
+      {/* Feeds — the merged reporting list */}
+      {pane === "feeds" && (
         <>
 
           {loading && (
@@ -790,13 +804,13 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           )}
 
           {!loading && feeds.length > 0 && filtered.length === 0 && (() => {
-            const kindFeeds = pane === "all" ? feeds : feeds.filter((f) => f.kind === pane);
+            const kindFeeds = feedKind === "all" ? feeds : feeds.filter((f) => f.kind === feedKind);
             const failing = kindFeeds.filter((f) => f.ok === false);
-            const isBridgeKind = pane === "social" || pane === "telegram";
+            const isBridgeKind = feedKind === "social" || feedKind === "telegram";
             if (kindFeeds.length === 0) {
               return (
                 <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 text-center text-[11px] text-slate-500 font-mono">
-                  No {pane === "all" ? "" : pane + " "}feeds configured. Add them in{" "}
+                  No {feedKind === "all" ? "" : feedKind + " "}feeds configured. Add them in{" "}
                   <span className="text-emerald-400">Preferences → OSINT Feeds</span>.
                 </div>
               );
@@ -804,7 +818,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             return (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 text-[11px] text-slate-400 leading-relaxed">
                 <p className="text-slate-300">
-                  {kindFeeds.length} {pane === "all" ? "" : pane + " "}feed{kindFeeds.length === 1 ? "" : "s"} configured, but nothing came through
+                  {kindFeeds.length} {feedKind === "all" ? "" : feedKind + " "}feed{kindFeeds.length === 1 ? "" : "s"} configured, but nothing came through
                   {failing.length > 0 ? ` — ${failing.length} failed to fetch.` : " right now."}
                 </p>
                 {failing.length > 0 && (
@@ -812,7 +826,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
                     {failing.slice(0, 6).map((f) => <li key={f.id}>✗ {f.label}</li>)}
                   </ul>
                 )}
-                {pane === "social" && (
+                {feedKind === "social" && (
                   <p className="text-slate-500">
                     X / Twitter has no working live feed (X blocks scrapers + datacenter IPs and killed free API access) —
                     use the <span className="text-sky-300">𝕏 Capture import</span> card above to bring in posts from your own browser.
@@ -861,7 +875,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               <span className="flex-1" />
               <button
                 type="button"
-                onClick={() => setPane("crisis")}
+                onClick={() => setPane("watch")}
                 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-emerald-400 transition-colors"
               >
                 View map ↗

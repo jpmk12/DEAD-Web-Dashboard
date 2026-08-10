@@ -88,14 +88,20 @@ close/reopen.
   compose-to-deliverable, split-at-headings, templates, version history, and a
   file repo. Quick capture (⌘K) routes thoughts here (`doc` kind + a findable
   "Capture Inbox"), with high-confidence tasks auto-committed behind an Undo.
-- **OSINT** — feed panes (All / Social / Telegram / News / Crisis / Ground /
-  SITREP / I&W / Sources) over the **Crisis map**: disasters, conflict
+- **OSINT** — four panes: **◉ Watch · ▤ Regional · ≣ Feeds · ⇪ Sources**.
+  **Watch** is the command dashboard, one scroll in decision order — the I&W
+  strip (one card per AOI board, full board expands inline), the Base SITREP
+  LED strip (full per-base report expands inline), then the **Crisis map**:
+  disasters, conflict
   (UCDP/ACLED), weather hazards, GPS interference, FIR/overflight NOTAMs, live
   military ADS-B + AIS, AMC hubs/gateways with runway capability + live flight
   categories, and planning-grade reach rings. The map remembers your view and
-  AOR filter, and a **⌂ My AO** preset opens on your declared theater.
-  **Ground Truth** is a per-country situation room (incidents, advisories,
-  health, holidays, your captured sources, AI SITREP). The **Sources pane** is
+  AOR filter, stays mounted across pane hops, and a **⌂ My AO** preset opens
+  on your declared theater. **Regional** is the per-country situation room
+  (incidents, advisories, health, holidays, your captured sources, AI SITREP),
+  its rail grouped by your AOIs — each header carrying that board's I&W level.
+  **Feeds** merges the reporting list (kind + time-window filters, clustering,
+  triage, the Situation line). The **Sources pane** is
   the ingestion control room — browser-captured X posts / analysis articles /
   LiveUAMap events (captured in *your* logged-in browser, never server-side),
   plus the live RSS/Telegram feed editor with AO-aware suggestions.

@@ -107,7 +107,7 @@ function Row({ sev, children, src }: { sev: "g" | "a" | "r" | "u" | "b"; childre
 // The OSINT SITREP pane: a squadron commander's situation report for 1-4
 // configured bases — weather, airfield ops, threats, and an AI BLUF, every
 // row source-attributed and every gap an explicit UNKNOWN.
-export default function SitrepPanel({ active }: { active: boolean }) {
+export default function SitrepPanel({ active, focusIcao }: { active: boolean; focusIcao?: string }) {
   const [bases, setBases] = useState<SitrepBase[] | null>(null);
   const [icao, setIcao] = useState<string | null>(null);
   const [payload, setPayload] = useState<SitrepPayload | null>(null);
@@ -151,11 +151,20 @@ export default function SitrepPanel({ active }: { active: boolean }) {
       .then((d) => {
         const list: SitrepBase[] = Array.isArray(d.bases) ? d.bases : [];
         setBases(list);
+        // A caller-supplied focus base (e.g. the Watch pane's LED tile) beats
+        // the remembered last-viewed base.
+        const focus = focusIcao && list.some((b) => b.icao === focusIcao) ? focusIcao : null;
         const last = localStorage.getItem(LAST_BASE_KEY);
-        setIcao(list.some((b) => b.icao === last) ? last : list[0]?.icao ?? null);
+        setIcao(focus ?? (list.some((b) => b.icao === last) ? last : list[0]?.icao ?? null));
       })
       .catch(() => setBases([]));
   }, [active, bases]);
+
+  // Follow a changed focus base from the parent (Watch-pane tile clicks).
+  useEffect(() => {
+    if (focusIcao && bases?.some((b) => b.icao === focusIcao)) setIcao(focusIcao);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusIcao]);
 
   // Kick the Commander's Read for a base. A transient AI/JSON failure returns an
   // error → keep the block visible in an error state (Retry) instead of letting

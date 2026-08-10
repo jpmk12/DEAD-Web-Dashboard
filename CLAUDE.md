@@ -1019,8 +1019,7 @@ The standalone **Aircraft and Maritime OSINT panes were retired** — both are n
 layers on this map. Their `AircraftMap.tsx` / `MaritimeMap.tsx` components and the
 iframe-provider lists (adsb.fi / VesselFinder / etc.) were deleted. **Don't
 delete** `/api/osint/aircraft` (OpenSky) or `/api/osint/ships`: they still feed
-the OSINT feed-pane "AOR contacts" strip. OSINT panes are now: **All / Social /
-Telegram / News / Crisis / Ground**.
+the OSINT feed-pane "AOR contacts" strip. OSINT panes are now (post-consolidation): **Watch / Regional / Feeds / Sources** — see the consolidation note below.
 
 ### SITREP (OSINT "SITREP" sub-pane — per-base commander's report)
 The squadron commander's situation report for 1-4 configured bases (KWRI is
@@ -1512,3 +1511,26 @@ HTML in `docs/mockups/` (same design tokens as the app; the README says so).
 Regenerate after UI changes with `sh docs/mockups/render.sh` (needs Chromium;
 `CHROME=<path>` override). Keep shots in sync when a pictured surface changes
 materially. No Playwright/npm involved — plain headless-Chromium screenshots.
+
+### OSINT tab consolidation (9 chips → Watch / Regional / Feeds / Sources)
+`OSINTTab.tsx` pane model: `"watch" | "regional" | "feeds" | "sources"` plus a
+`feedKind` subfilter (`all|social|telegram|news` — the old four feed "panes"
+were always ONE list with a client filter; they are chips INSIDE Feeds now).
+- **Watch** (`WatchPane.tsx`, default pane) = I&W strip (one card per warning
+  problem, `/api/warning`, 10-min poll; full `WarningBoard` expands inline) →
+  SITREP LED strip (`/api/sitrep/summary`, 5-min poll; full `SitrepPanel`
+  expands inline via its `focusIcao` prop) → `CrisisMap`. The pane is
+  **hidden-mounted** in OSINTTab (CSS `hidden`, not conditional render) so
+  pane-hopping doesn't unmount the map and re-fire its ~15 source fetches;
+  WatchPane arms itself lazily on first activation (all tabs mount at app
+  load — the map must not fetch before OSINT is first opened), and OSINTTab
+  dispatches a window `resize` on reveal because Leaflet measures a hidden
+  container as 0×0.
+- **Regional** = `GroundTruthTab`, rail grouped by the DECLARATION: Mission
+  Profile AOIs first (declaration order, headers carry the AOI's I&W level
+  from `/api/warning` via problem id `mp-<aoi.id>`), then Own force (hub/spoke
+  countries), then leftover countries by COCOM. Filter chips carry group keys.
+- Deep-link compat: `osint:set-pane` accepts BOTH the new ids and every legacy
+  id (`crisis`/`sitrep`/`iw` → watch; `ground` → regional;
+  `all`/`social`/`telegram`/`news` → feeds + feedKind). Glance dispatchers
+  unchanged.
