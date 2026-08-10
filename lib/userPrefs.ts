@@ -1,3 +1,4 @@
+import { sanitizeMissionProfile, missionSummaryLine } from "./missionProfile";
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { normEmail, isOwner } from "./allowlist";
@@ -88,6 +89,7 @@ interface PrefsRow extends RowDataPacket {
   ai_feature_toggles: Partial<Record<AiFeature, boolean>> | null;
   local_feed_key: string;
   local_city: string;
+  mission_profile?: unknown;
   local_lat: number | null;
   local_lon: number | null;
   theme: string;
@@ -240,7 +242,7 @@ function asMetarStations(v: unknown): MetarStation[] {
 async function getTeamPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_city, local_lat, local_lon, theme, timezone, timezone_mode, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_city, local_lat, local_lon, theme, timezone, timezone_mode, mission_profile, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -274,6 +276,17 @@ async function getTeamPrefs(): Promise<UserPrefs> {
     aiFeatureToggles: asAiFeatureToggles(r.ai_feature_toggles),
     localFeedKey: r.local_feed_key,
     localCity: r.local_city,
+    // Computed, read-only: the declared-AO summary for buildUserContext. The
+    // mission_profile column is owned by lib/missionProfileApply — this is
+    // just a projection of it into every AI call's context.
+    ...(function () {
+      try {
+        const raw = r.mission_profile;
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        const line = missionSummaryLine(sanitizeMissionProfile(parsed));
+        return line ? { missionSummary: line } : {};
+      } catch { return {}; }
+    })(),
     localLat: typeof r.local_lat === "number" ? r.local_lat : null,
     localLon: typeof r.local_lon === "number" ? r.local_lon : null,
     theme: (validThemes as readonly string[]).includes(r.theme)
@@ -565,5 +578,6 @@ export function buildUserContext(prefs: UserPrefs): string {
     parts.push(`Deprioritise topics: ${prefs.deprioritizeTopics.map(q).join(", ")}`);
   if (prefs.watchlist.length)
     parts.push(`Watchlist terms (flag when mentioned): ${prefs.watchlist.map(q).join(", ")}`);
+  if (prefs.missionSummary) parts.push(prefs.missionSummary);
   return parts.length ? "\n\nUser preferences:\n" + parts.join("\n") : "";
 }

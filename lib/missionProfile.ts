@@ -26,7 +26,7 @@
 import { classifyAor, type Aor } from "./aor";
 import { ALL_AIRFIELDS, type MobilityAirfield } from "./airfields";
 import { CHOKEPOINTS, type Chokepoint } from "./chokepoints";
-import { countryCentroid } from "./countryCentroids";
+import { countryCentroid, centroidCountryNames } from "./countryCentroids";
 import type { CountryWatch, ForceLocation, MetarStation, SitrepBase } from "./types";
 
 export interface MissionAoi {
@@ -316,3 +316,34 @@ export function derivedIds(d: DerivedTracking): string[] {
 }
 
 export const isDerivedId = (id: string): boolean => id.startsWith("mp-");
+
+// Compact deterministic summary of the declaration, injected into every AI
+// call's user-context block (via getUserPrefs → buildUserContext) so the
+// brief, chat, and all the reads reason from the declared AO without the
+// user re-typing it into the role field. "" when nothing is declared.
+export function missionSummaryLine(profile: MissionProfile): string {
+  const parts: string[] = [];
+  const hub = profile.home?.label ?? profile.homeIcao;
+  if (hub) parts.push(`hub ${hub}${profile.homeIcao && profile.home ? ` (${profile.homeIcao})` : ""}`);
+  if (profile.spokes.length) parts.push(`spokes ${profile.spokes.map((s) => s.icao).join("/")}`);
+  if (profile.theaters.length) parts.push(`theaters ${profile.theaters.join("+")}`);
+  for (const a of profile.aois) {
+    const cp = a.chokepointIds.length
+      ? `; chokepoints: ${a.chokepointIds.map((id) => CHOKEPOINTS.find((c) => c.id === id)?.name ?? id).join(", ")}`
+      : "";
+    parts.push(`AOI "${a.name}" (${a.aor}, ${a.intensity}: ${a.countries.slice(0, 8).join(", ")}${a.countries.length > 8 ? "…" : ""}${cp})`);
+  }
+  return parts.length ? `Mobility commander's declared AO — ${parts.join(" · ")}` : "";
+}
+
+// Countries the app proposes for an AOI in the given theater — the catalog's
+// names classified into the AOR, minus what's already picked. The editor
+// renders these as one-tap add chips so declaring an AOI doesn't require
+// typing country names from memory.
+export function suggestAoiCountries(aor: Aor, existing: string[]): string[] {
+  const have = new Set(existing.map((c) => c.trim().toLowerCase()));
+  return centroidCountryNames()
+    .filter((name) => !have.has(name) && classifyAor({ name }) === aor)
+    .map((name) => titleCase(name))
+    .sort();
+}

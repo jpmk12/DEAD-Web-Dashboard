@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import XImportCard from "@/components/osint/XImportCard";
 import CaptureStatusCard from "@/components/osint/CaptureStatusCard";
-import { OSINT_FEED_SUGGESTIONS } from "@/lib/osintSuggestions";
+import { suggestionGroupsForAors } from "@/lib/osintSuggestions";
 import type { OsintFeed } from "@/lib/types";
 
 // The OSINT ingestion control room — one home for everything the dashboard pulls
@@ -72,11 +72,24 @@ function FeedsEditor({ health, onChanged }: { health: Map<string, FeedSummary>; 
   };
   const remove = (id: string) => { if (feeds) save(feeds.filter((f) => f.id !== id)); };
 
-  // A few suggested feeds not already added.
-  const suggestions = useMemo(() => {
+  // Suggested feeds not already added — led by the groups relevant to the
+  // declared AO (Mission Profile theaters + AOI AORs) when one exists.
+  const [aoAors, setAoAors] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/api/mission-profile")
+      .then((r) => r.json())
+      .then((d: { profile?: { theaters?: string[]; aois?: { aor: string }[] } }) => {
+        const p = d?.profile;
+        if (!p) return;
+        setAoAors([...new Set([...(p.theaters ?? []), ...(p.aois ?? []).map((a) => a.aor)])]);
+      })
+      .catch(() => {});
+  }, []);
+  const { suggestions, aoLed } = useMemo(() => {
     const have = new Set((feeds ?? []).map((f) => f.url));
-    return OSINT_FEED_SUGGESTIONS.flatMap((g) => g.feeds).filter((s) => !have.has(s.url)).slice(0, 6);
-  }, [feeds]);
+    const { groups, aoLed } = suggestionGroupsForAors(aoAors);
+    return { suggestions: groups.flatMap((g) => g.feeds).filter((s) => !have.has(s.url)).slice(0, 6), aoLed };
+  }, [feeds, aoAors]);
 
   return (
     <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 space-y-2">
@@ -121,7 +134,7 @@ function FeedsEditor({ health, onChanged }: { health: Map<string, FeedSummary>; 
           </div>
           {suggestions.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[9px] text-slate-600 uppercase tracking-wider">Suggested:</span>
+              <span className="text-[9px] text-slate-600 uppercase tracking-wider">{aoLed ? "Suggested for your AO:" : "Suggested:"}</span>
               {suggestions.map((s) => (
                 <button key={s.url} type="button" onClick={() => add(s.label, s.url, s.kind)} disabled={busy} className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 disabled:opacity-40">+ {s.label}</button>
               ))}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  deriveTracking, suggestChokepoints, slugify, EMPTY_PROFILE, SITREP_MAX,
+  deriveTracking, suggestChokepoints, suggestAoiCountries, slugify, EMPTY_PROFILE, SITREP_MAX,
   type MissionProfile, type MissionAoi, type MissionSpoke,
 } from "@/lib/missionProfile";
 import { CHOKEPOINTS } from "@/lib/chokepoints";
@@ -332,7 +332,12 @@ function AoiCard({ aoi, canEdit, onChange, onRemove }: {
   onChange: (p: Partial<MissionAoi>) => void; onRemove: () => void;
 }) {
   const [countryInput, setCountryInput] = useState("");
+  const [showCountrySuggest, setShowCountrySuggest] = useState(false);
   const suggested = useMemo(() => suggestChokepoints(aoi.countries).slice(0, 3), [aoi.countries]);
+  const countrySuggestions = useMemo(
+    () => (showCountrySuggest ? suggestAoiCountries(aoi.aor, aoi.countries) : []),
+    [showCountrySuggest, aoi.aor, aoi.countries],
+  );
 
   const addCountry = () => {
     const names = countryInput.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
@@ -392,6 +397,26 @@ function AoiCard({ aoi, canEdit, onChange, onRemove }: {
           </span>
         )}
       </div>
+
+      {/* Theater country suggestions — the app proposes, you tap to add */}
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-1">
+          <button type="button" onClick={() => setShowCountrySuggest((v) => !v)}
+            className="text-[9px] uppercase tracking-widest text-slate-600 hover:text-emerald-400 font-bold transition-colors">
+            {showCountrySuggest ? "▾" : "▸"} suggest countries ({aoi.aor})
+          </button>
+          {showCountrySuggest && countrySuggestions.slice(0, 14).map((c) => (
+            <button key={c} type="button"
+              onClick={() => onChange({ countries: [...aoi.countries, c].slice(0, 25) })}
+              className="text-[9px] px-1.5 py-0.5 rounded border border-slate-700 text-slate-500 hover:text-emerald-300 hover:border-emerald-500/40 transition-colors">
+              + {c}
+            </button>
+          ))}
+          {showCountrySuggest && countrySuggestions.length === 0 && (
+            <span className="text-[9px] text-slate-700">every {aoi.aor} country is already in the AOI</span>
+          )}
+        </div>
+      )}
 
       {/* Chokepoints: suggested from the countries, toggleable */}
       <div className="flex flex-wrap items-center gap-1">

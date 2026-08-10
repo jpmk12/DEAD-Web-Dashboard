@@ -155,6 +155,9 @@ export interface UserPrefs {
   localLat: number | null;
   localLon: number | null;
   theme: AppTheme;
+  // COMPUTED server-side from the mission_profile column (read-only — never
+  // written by saveUserPrefs): compact declared-AO summary for AI context.
+  missionSummary?: string;
   timezone: string;  // IANA timezone e.g. "America/Chicago" (the pinned value)
   // "auto" → the morning brief follows whatever device requests it (the device
   // sends its IANA zone); "pinned" → `timezone` above overrides the device.

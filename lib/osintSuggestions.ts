@@ -150,3 +150,27 @@ export const OSINT_FEED_SUGGESTIONS: OsintFeedSuggestionGroup[] = [
     ],
   },
 ];
+
+// Which suggestion groups speak to which theater — so the Sources pane can
+// lead with feeds relevant to the user's declared AO (Mission Profile
+// theaters + AOI AORs) instead of a fixed order. Groups not listed are
+// theater-agnostic and keep their catalog order after the AO groups.
+const AOR_GROUP_AFFINITY: Record<string, string[]> = {
+  CENTCOM: ["Middle East", "OSINT aggregators (English)"],
+  EUCOM: ["Ukraine POV", "Russian milblogger ecosystem"],
+  INDOPACOM: ["OSINT aggregators (English)", "Think tanks / research"],
+  AFRICOM: ["News wires", "OSINT aggregators (English)"],
+};
+
+export function suggestionGroupsForAors(aors: string[]): { groups: OsintFeedSuggestionGroup[]; aoLed: boolean } {
+  const wanted: string[] = [];
+  for (const aor of aors) for (const g of AOR_GROUP_AFFINITY[aor] ?? []) {
+    if (!wanted.includes(g)) wanted.push(g);
+  }
+  if (!wanted.length) return { groups: OSINT_FEED_SUGGESTIONS, aoLed: false };
+  const lead = wanted
+    .map((name) => OSINT_FEED_SUGGESTIONS.find((g) => g.name === name))
+    .filter((g): g is OsintFeedSuggestionGroup => g != null);
+  const rest = OSINT_FEED_SUGGESTIONS.filter((g) => !wanted.includes(g.name));
+  return { groups: [...lead, ...rest], aoLed: true };
+}

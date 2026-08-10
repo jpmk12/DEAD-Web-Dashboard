@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  sanitizeMissionProfile, deriveTracking, suggestChokepoints, derivedIds,
-  isDerivedId, slugify, EMPTY_PROFILE, SITREP_MAX,
+  sanitizeMissionProfile, deriveTracking, suggestChokepoints, suggestAoiCountries,
+  missionSummaryLine, derivedIds, isDerivedId, slugify, EMPTY_PROFILE, SITREP_MAX,
   type MissionProfile,
 } from "@/lib/missionProfile";
 
@@ -226,5 +226,36 @@ describe("slugify", () => {
     expect(slugify("Iran & Hormuz")).toBe("iran-and-hormuz");
     expect(slugify("  Red Sea / Bab-el-Mandeb  ")).toBe("red-sea-bab-el-mandeb");
     expect(slugify("!!!")).toBe("aoi");
+  });
+});
+
+describe("suggestAoiCountries", () => {
+  it("proposes theater countries not already in the AOI, title-cased", () => {
+    const s = suggestAoiCountries("CENTCOM", ["Iran", "Iraq"]);
+    expect(s).toContain("Qatar");
+    expect(s).toContain("Saudi Arabia");
+    expect(s).not.toContain("Iran");
+    expect(s).not.toContain("Poland");
+  });
+  it("excludes case-insensitively", () => {
+    expect(suggestAoiCountries("CENTCOM", ["qatar"])).not.toContain("Qatar");
+  });
+});
+
+describe("missionSummaryLine", () => {
+  it("is empty for an empty profile", () => {
+    expect(missionSummaryLine(EMPTY_PROFILE)).toBe("");
+  });
+  it("summarizes hub, spokes, theaters, and AOIs with chokepoints", () => {
+    const line = missionSummaryLine({
+      ...IRAN_HORMUZ,
+      home: { icao: "KWRI", label: "JB MDL (McGuire), NJ", lat: 40.0155, lon: -74.5917, country: "United States" },
+      spokes: [{ icao: "KCHS", label: "JB Charleston, SC", lat: 32.9, lon: -80.04, country: "United States" }],
+    });
+    expect(line).toContain("hub JB MDL");
+    expect(line).toContain("spokes KCHS");
+    expect(line).toContain("theaters CENTCOM");
+    expect(line).toContain('AOI "Iran & Hormuz"');
+    expect(line).toContain("Strait of Hormuz");
   });
 });

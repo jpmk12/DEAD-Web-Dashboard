@@ -104,3 +104,12 @@ export function countryCentroid(name: string): [number, number] | null {
   }
   return best?.centroid ?? null;
 }
+
+// The centroid catalog's country names (aliases and non-country areas
+// skipped) — the candidate pool for Mission Profile AOI country suggestions.
+const NAME_ALIASES = new Set([
+  "burma", "türkiye", "dr congo", "west bank", "gaza", "congo",
+]);
+export function centroidCountryNames(): string[] {
+  return Object.keys(CENTROIDS).filter((k) => !NAME_ALIASES.has(k));
+}
