@@ -84,11 +84,11 @@ describe("deriveTracking", () => {
     expect(d.bases.filter((b) => !b.note?.startsWith("Own force")).every((b) => b.cocom === "CENTCOM")).toBe(true);
   });
 
-  it("weather points and METAR stations follow the bases", () => {
+  it("METAR stations follow the bases; NO weather points are derived (civil-only list)", () => {
     const d = deriveTracking(IRAN_HORMUZ);
-    expect(d.weatherPoints.length).toBeGreaterThan(0);
-    expect(d.weatherPoints.every((w) => w.id.startsWith("mp-w-"))).toBe(true);
     expect(d.metarStations.map((m) => m.icao)).toContain("OTBH");
+    // One channel per concept: airfields never materialize into trackedLocations.
+    expect("weatherPoints" in d).toBe(false);
   });
 
   it("SITREP candidates lead with home and stay near the cap", () => {
@@ -108,17 +108,19 @@ describe("deriveTracking", () => {
     expect(deriveTracking(watchOnly).warningProblems).toHaveLength(0);
   });
 
-  it("honors exclusions everywhere", () => {
-    const d = deriveTracking({ ...IRAN_HORMUZ, excludedIds: ["mp-c-iran", "mp-b-OTBH", "mp-w-OTBH"] });
+  it("honors exclusions everywhere, including METAR/watchlist pseudo-ids", () => {
+    const d = deriveTracking({ ...IRAN_HORMUZ, excludedIds: ["mp-c-iran", "mp-b-OTBH", "mp-m-OKAS", "mp-t-strait-of-hormuz"] });
     expect(d.countries.some((c) => c.id === "mp-c-iran")).toBe(false);
     expect(d.bases.some((b) => b.icao === "OTBH")).toBe(false);
-    expect(d.weatherPoints.some((w) => w.id === "mp-w-OTBH")).toBe(false);
+    expect(d.metarStations.some((m) => m.icao === "OKAS")).toBe(false);
+    expect(d.watchlistSeeds).not.toContain("Strait of Hormuz");
   });
 
-  it("watchlist seeds carry the AOI name and chokepoint, deduped", () => {
+  it("watchlist seeds are chokepoint names only (headline-matchable), deduped", () => {
     const d = deriveTracking(IRAN_HORMUZ);
-    expect(d.watchlistSeeds).toContain("Iran & Hormuz");
     expect(d.watchlistSeeds).toContain("Strait of Hormuz");
+    // AOI display names never match a headline verbatim — not seeded.
+    expect(d.watchlistSeeds).not.toContain("Iran & Hormuz");
     expect(new Set(d.watchlistSeeds).size).toBe(d.watchlistSeeds.length);
   });
 
@@ -135,11 +137,13 @@ describe("deriveTracking", () => {
     expect(new Set(icaos).size).toBe(icaos.length);
   });
 
-  it("derivedIds covers countries, bases, and weather points", () => {
+  it("derivedIds covers countries, bases, and METAR/watchlist pseudo-ids", () => {
     const d = deriveTracking(IRAN_HORMUZ);
     const ids = derivedIds(d);
-    expect(ids.length).toBe(d.countries.length + d.bases.length + d.weatherPoints.length);
+    expect(ids.length).toBe(d.countries.length + d.bases.length + d.metarStations.length + d.watchlistSeeds.length);
     expect(ids.every(isDerivedId)).toBe(true);
+    expect(ids).toContain("mp-m-OTBH");
+    expect(ids).toContain("mp-t-strait-of-hormuz");
   });
 });
 
@@ -155,10 +159,10 @@ describe("hub-and-spoke own-force airfields", () => {
     expect(icaos).toContain("OTBH");
   });
 
-  it("spokes get weather points and METAR stations", () => {
+  it("spokes get METAR stations (weather stays civil-only)", () => {
     const d = deriveTracking(HUB_AND_SPOKE);
-    expect(d.weatherPoints.some((w) => w.id === "mp-w-KCHS")).toBe(true);
     expect(d.metarStations.map((m) => m.icao)).toContain("KADW");
+    expect(d.metarStations.map((m) => m.icao)).toContain("KCHS");
   });
 
   it("SITREP candidates order: hub, spokes, then theater", () => {

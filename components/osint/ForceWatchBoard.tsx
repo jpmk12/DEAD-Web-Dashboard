@@ -58,7 +58,7 @@ function Card({ a }: { a: ForceAssessment }) {
             </span>
           </div>
           <p className={`text-[11px] mt-0.5 ${SEV_TEXT[a.composite]}`}>{a.topDriver}</p>
-          <p className="text-[10px] text-slate-500 truncate">{a.country || "—"}{a.note ? ` · ${a.note}` : ""}</p>
+          <p className="text-[10px] text-slate-500 truncate" title={`${a.country || "—"}${a.note ? ` · ${a.note}` : ""}`}>{a.country || "—"}{a.note ? ` · ${a.note}` : ""}</p>
         </div>
         {elevated.length > 0 && <span className="text-slate-600 text-[10px] mt-0.5">{open ? "▲" : "▼"}</span>}
       </button>

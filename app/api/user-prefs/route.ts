@@ -177,7 +177,13 @@ export async function POST(request: Request) {
     forceLocations: sanitizeForceLocations(raw.forceLocations),
     countriesOfInterest: sanitizeCountriesOfInterest(raw.countriesOfInterest),
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
-    osintFeeds: sanitizeOsintFeeds(raw.osintFeeds),
+    // Absent = preserve stored (same contract as sitrepBases): the Sources
+    // pane edits this field through its own targeted endpoint, so a drawer
+    // save with a stale in-memory copy must not silently revert those edits.
+    // The drawer only includes osintFeeds when its editor was actually used.
+    osintFeeds: Array.isArray(raw.osintFeeds)
+      ? sanitizeOsintFeeds(raw.osintFeeds)
+      : (await getUserPrefs().catch(() => null))?.osintFeeds ?? [],
     newsletterSources: sanitizeNewsletterSources(raw.newsletterSources),
     metarStations: sanitizeMetarStations(raw.metarStations),
     // Bounded list of source names. Cap at 100 to prevent unbounded growth

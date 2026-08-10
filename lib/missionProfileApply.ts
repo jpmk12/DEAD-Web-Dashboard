@@ -12,12 +12,12 @@ import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { getUserPrefs, saveUserPrefs } from "./userPrefs";
 import {
-  sanitizeMissionProfile, deriveTracking, derivedIds, isDerivedId, SITREP_MAX,
+  sanitizeMissionProfile, deriveTracking, derivedIds, isDerivedId, slugify, SITREP_MAX,
   type MissionProfile, type DerivedTracking,
 } from "./missionProfile";
 import type { UserPrefs } from "./types";
 
-const CAPS = { countries: 40, bases: 30, weather: 10, metar: 12 };
+const CAPS = { countries: 40, bases: 30, metar: 12 };
 
 interface Row extends RowDataPacket { mission_profile: unknown }
 
@@ -40,7 +40,7 @@ export async function saveMissionProfile(profile: MissionProfile): Promise<void>
 export interface ApplyResult {
   profile: MissionProfile;
   derived: DerivedTracking;
-  counts: { countries: number; bases: number; weatherPoints: number; metarStations: number; sitrepBases: number; watchlistAdded: number };
+  counts: { countries: number; bases: number; metarStations: number; sitrepBases: number; watchlistAdded: number };
 }
 
 // sitrepPicks: the ICAOs the user confirmed for full SITREP treatment (≤4).
@@ -50,13 +50,18 @@ export async function applyMissionProfile(rawProfile: unknown, sitrepPicks: stri
   const prefs = await getUserPrefs(); // owner/shared row — apply is owner-gated at the route
 
   // Exclusion drift: anything we materialized last time that is now missing
-  // from the lists was deleted by the user somewhere — keep it excluded.
+  // from its list was deleted by the user somewhere — keep it excluded. METAR
+  // stations and watchlist terms drift via their pseudo-ids (mp-m-* / mp-t-*).
+  // Legacy mp-w-* weather-point ids are ignored: bases are no longer
+  // materialized into trackedLocations at all (one channel per concept).
   const present = new Set<string>([
     ...prefs.countriesOfInterest.map((c) => c.id),
     ...prefs.forceLocations.map((b) => b.id),
-    ...prefs.trackedLocations.map((w) => w.id),
+    ...prefs.metarStations.map((m) => `mp-m-${m.icao.toUpperCase()}`),
+    ...prefs.watchlist.map((t) => `mp-t-${slugify(t)}`),
   ]);
-  const drifted = profile.materializedIds.filter((id) => isDerivedId(id) && !present.has(id));
+  const drifted = profile.materializedIds.filter(
+    (id) => isDerivedId(id) && !id.startsWith("mp-w-") && !present.has(id));
   profile.excludedIds = [...new Set([...profile.excludedIds, ...drifted])];
 
   const derived = deriveTracking(profile);
@@ -78,10 +83,14 @@ export async function applyMissionProfile(rawProfile: unknown, sitrepPicks: stri
     ...derived.bases.filter((b) => !haveIcao.has((b.icao ?? "").toUpperCase())),
   ].slice(0, CAPS.bases);
 
-  const manualWeather = prefs.trackedLocations.filter((w) => !isDerivedId(w.id));
-  const weather = [...manualWeather, ...derived.weatherPoints].slice(0, CAPS.weather);
+  // Tracked locations are CIVIL places — the profile no longer writes them.
+  // Purge any mp-w-* rows a previous apply materialized (legacy cleanup) so
+  // the map stops double-marking airfields and the Weather tab stops showing
+  // blank OCONUS forecast cards.
+  const weather = prefs.trackedLocations.filter((w) => !isDerivedId(w.id));
 
-  // METAR stations have no id — merge by ICAO, existing first.
+  // METAR stations have no id — merge by ICAO, existing first. Exclusions
+  // (recorded above via mp-m-* drift) are already honored by deriveTracking.
   const haveMetar = new Set(prefs.metarStations.map((m) => m.icao.toUpperCase()));
   const metar = [
     ...prefs.metarStations,
@@ -126,7 +135,6 @@ export async function applyMissionProfile(rawProfile: unknown, sitrepPicks: stri
     counts: {
       countries: countries.length,
       bases: bases.length,
-      weatherPoints: weather.length,
       metarStations: metar.length,
       sitrepBases: sitrepBases.length,
       watchlistAdded: newTerms.length,

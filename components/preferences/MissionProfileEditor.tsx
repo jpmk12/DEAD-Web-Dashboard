@@ -21,6 +21,10 @@ export default function MissionProfileEditor() {
   const [loaded, setLoaded] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [sitrepPicks, setSitrepPicks] = useState<string[]>([]);
+  // The live SITREP base set — picks default to it so hitting Apply never
+  // silently replaces what you curated in the SITREP pane, and a base you
+  // removed there is never resurrected by an unrelated Apply.
+  const [currentSitrep, setCurrentSitrep] = useState<{ icao: string; label: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -33,17 +37,20 @@ export default function MissionProfileEditor() {
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
+    fetch("/api/sitrep/bases")
+      .then((r) => r.json())
+      .then((d: { bases?: { icao: string; label: string }[] }) => {
+        const bases = Array.isArray(d?.bases) ? d.bases : [];
+        setCurrentSitrep(bases);
+        setSitrepPicks(bases.map((b) => b.icao));
+      })
+      .catch(() => {});
   }, []);
 
   const preview = useMemo(() => (showPreview ? deriveTracking(profile) : null), [showPreview, profile]);
 
-  // Default SITREP picks: first ≤4 candidates, once per preview open.
-  useEffect(() => {
-    if (preview && sitrepPicks.length === 0 && preview.sitrepCandidates.length > 0) {
-      setSitrepPicks(preview.sitrepCandidates.slice(0, SITREP_MAX).map((s) => s.icao));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preview]);
+  // No auto-defaulting of picks beyond the live set: an Apply must never
+  // change the SITREP bases unless the user deliberately changed the picks.
 
   const patch = (p: Partial<MissionProfile>) => { setProfile((prev) => ({ ...prev, ...p })); setMsg(null); };
   const patchAoi = (id: string, p: Partial<MissionAoi>) =>
@@ -84,7 +91,13 @@ export default function MissionProfileEditor() {
       if (!res.ok) { setMsg({ ok: false, text: d.error || "Apply failed." }); return; }
       if (d.profile) setProfile(d.profile);
       const c = d.counts;
-      setMsg({ ok: true, text: `Applied — ${c.countries} countries · ${c.bases} bases · ${c.sitrepBases} SITREP · ${c.weatherPoints} wx pts · +${c.watchlistAdded} watch terms.` });
+      setMsg({ ok: true, text: `Applied — ${c.countries} countries · ${c.bases} bases · ${c.sitrepBases} SITREP · ${c.metarStations} METAR · +${c.watchlistAdded} watch terms.` });
+      fetch("/api/sitrep/bases").then((r) => r.json())
+        .then((dd: { bases?: { icao: string; label: string }[] }) => {
+          const bases = Array.isArray(dd?.bases) ? dd.bases : [];
+          setCurrentSitrep(bases);
+          setSitrepPicks(bases.map((b) => b.icao));
+        }).catch(() => {});
       // Same refresh signals a Preferences save fires, so live surfaces reload.
       window.dispatchEvent(new Event("dashboard-cache-cleared"));
       window.dispatchEvent(new Event("force-locations:changed"));
@@ -96,10 +109,12 @@ export default function MissionProfileEditor() {
   return (
     <div className="space-y-4">
       <p className="text-[11px] text-slate-500 leading-relaxed">
-        Declare what you command — the app derives the tracking (countries, bases, SITREP picks, weather points,
-        watch terms) from its curated hub/gateway network and theater data. Derived rows carry an{" "}
-        <span className="text-emerald-400 font-mono text-[10px]">AUTO</span> tag in the editors below; your manual
-        entries are never touched, and anything you remove stays removed.
+        Declare what you command — the app derives the tracking (countries, bases, METAR stations, SITREP picks,
+        chokepoint watch terms) from its curated hub/gateway network and theater data. Airfields flow into the
+        Mobility Watch + METAR + SITREP; tracked weather locations stay yours for civil places (home, family, TDY).
+        Derived Mobility Watch rows carry an{" "}
+        <span className="text-emerald-400 font-mono text-[10px]">AUTO</span> tag; your manual entries are never
+        touched, and anything you remove — anywhere — stays removed.
         {!canEdit && <span className="text-amber-400"> Shared team config — editable by the owner.</span>}
       </p>
 
@@ -179,9 +194,6 @@ export default function MissionProfileEditor() {
           <PreviewGroup label={`Bases & gateways (${preview.bases.length})`}
             items={preview.bases.map((b) => ({ id: b.id, text: `${b.icao} · ${b.label}`, why: b.note ?? "" }))}
             excluded={profile.excludedIds} onToggle={toggleExcluded} canEdit={canEdit} />
-          <PreviewGroup label={`Weather points (${preview.weatherPoints.length})`}
-            items={preview.weatherPoints.map((w) => ({ id: w.id, text: w.label, why: "" }))}
-            excluded={profile.excludedIds} onToggle={toggleExcluded} canEdit={canEdit} />
 
           {/* SITREP picks */}
           <div>
@@ -189,7 +201,9 @@ export default function MissionProfileEditor() {
               SITREP full treatment — pick up to {SITREP_MAX}
             </p>
             <div className="space-y-0.5">
-              {preview.sitrepCandidates.map((s) => {
+              {[...preview.sitrepCandidates,
+                ...currentSitrep.filter((c) => !preview.sitrepCandidates.some((s) => s.icao === c.icao))
+                  .map((c) => ({ icao: c.icao, label: `${c.label} (current)` }))].map((s) => {
                 const on = sitrepPicks.includes(s.icao);
                 return (
                   <label key={s.icao} className="flex items-center gap-2 text-[11px] text-slate-300">
@@ -202,7 +216,7 @@ export default function MissionProfileEditor() {
               })}
               {preview.sitrepCandidates.length === 0 && <p className="text-[10px] text-slate-600">Set a home station or a primary AOI first.</p>}
             </div>
-            <p className="text-[9px] text-slate-600 mt-1">Applying with picks replaces the SITREP base set; with none selected the current set is kept.</p>
+            <p className="text-[9px] text-slate-600 mt-1">Picks start as your current SITREP set — Apply changes it only if you change them here. Unchecking everything keeps the current set.</p>
           </div>
 
           {preview.watchlistSeeds.length > 0 && (
@@ -268,7 +282,7 @@ function OwnForceEditor({ profile, canEdit, patch }: {
         Own force airfields — hub &amp; spokes
       </label>
       <p className="text-[10px] text-slate-600 mb-1.5">
-        Where your crews and aircraft live. Every field here gets weather, METAR, force-protection watch, and SITREP candidacy.
+        Where your crews and aircraft live — distinct from your residence (Home Location, in the You group). Every field here gets METAR, force-protection watch, and SITREP candidacy.
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="inline-flex items-center gap-1.5 border border-emerald-500/40 bg-emerald-500/10 rounded-full pl-2 pr-1 py-0.5">

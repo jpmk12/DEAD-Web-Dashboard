@@ -2512,6 +2512,10 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [countriesOfInterest, setCountriesOfInterest] = useState<CountryWatch[]>([]);
   const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
   const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
+  // Only send osintFeeds on save when the drawer's editor actually changed it —
+  // the OSINT Sources pane writes the same field via its own endpoint, and a
+  // whole-row save with a stale copy used to revert those edits.
+  const [osintFeedsDirty, setOsintFeedsDirty] = useState(false);
   const [newsletterSources, setNewsletterSources] = useState<NewsletterSourceRule[]>([]);
   const [metarStations, setMetarStations] = useState<MetarStation[]>([]);
   const [disabledNewsSources, setDisabledNewsSources] = useState<string[]>([]);
@@ -2688,6 +2692,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setCountriesOfInterest(prefs.countriesOfInterest ?? []);
         setMarketsWatchlist(prefs.marketsWatchlist ?? []);
         setOsintFeeds(prefs.osintFeeds ?? []);
+        setOsintFeedsDirty(false);
         setNewsletterSources(prefs.newsletterSources ?? []);
         setMetarStations(prefs.metarStations ?? []);
         setDisabledNewsSources(prefs.disabledNewsSources ?? []);
@@ -2772,7 +2777,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         body: JSON.stringify({
           role, priorityTopics, deprioritizeTopics, watchlist,
           vipSenders, muteSenders,
-          trackedLocations, forceLocations, countriesOfInterest, marketsWatchlist, osintFeeds, newsletterSources, metarStations,
+          trackedLocations, forceLocations, countriesOfInterest, marketsWatchlist, newsletterSources, metarStations,
+          ...(osintFeedsDirty ? { osintFeeds } : {}),
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
           localFeedKey,
@@ -2927,8 +2933,10 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                     Home Location
                   </label>
                   <p className="text-[10px] text-slate-600 mb-2">
-                    Your home base — drives the Weather tab home card, the Morning Brief&apos;s home
-                    forecast, and the map center. Search an address, city, or ZIP for a precise point.
+                    Where YOU live — drives the Weather tab home card, the Morning Brief&apos;s home
+                    forecast, local news, and the map center. Your hub/spoke AIRFIELDS are separate:
+                    declare those in Mission Profile (they get posture, METAR, and SITREP treatment,
+                    not forecast cards). Search an address, city, or ZIP for a precise point.
                   </p>
                   <HomeLocationEditor
                     feedKey={localFeedKey}
@@ -3219,7 +3227,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                 />
                 <NewsletterSourcesEditor value={newsletterSources} onChange={setNewsletterSources} />
                 <MetarStationsEditor value={metarStations} onChange={setMetarStations} />
-                <OsintFeedsEditor value={osintFeeds} onChange={setOsintFeeds} />
+                <OsintFeedsEditor value={osintFeeds} onChange={(v) => { setOsintFeeds(v); setOsintFeedsDirty(true); }} />
                 <AcledCredentialsEditor />
               </div>
             )}

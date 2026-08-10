@@ -1,10 +1,21 @@
 // Mission Profile — the "tell the app what you command" layer. PURE data +
-// math (client-safe, unit-tested): the user declares home station, theaters,
-// and named Areas of Interest; deriveTracking() turns that into the concrete
-// tracking lists every feature already reads (countries of interest, force
-// locations, SITREP candidates, weather points, METAR stations, watchlist
-// seeds, warning-problem seeds). The server-side materializer
-// (lib/missionProfileApply.ts) merges the derivation into user_prefs.
+// math (client-safe, unit-tested): the user declares hub/spoke airfields,
+// theaters, and named Areas of Interest; deriveTracking() turns that into the
+// concrete tracking lists every feature already reads. The server-side
+// materializer (lib/missionProfileApply.ts) merges the derivation into
+// user_prefs.
+//
+// ONE CHANNEL PER CONCEPT (the coherence contract):
+//   airfields   -> forceLocations (posture/map) + metarStations (aviation wx)
+//                  + sitrepBases (deep watch). Airfields are deliberately NOT
+//                  materialized into trackedLocations - that list is for CIVIL
+//                  places (home, family, TDY spots) and drives forecast cards;
+//                  putting bases there double-rendered them on the map, made
+//                  blank OCONUS forecast cards, and double-counted them in the
+//                  brief alongside the force-protection channel.
+//   countries   -> countriesOfInterest (posture watch).
+//   chokepoints -> watchlist terms (headline-matchable names only).
+//   primary AOI -> I&W warning board.
 //
 // Architecture decision (see the review doc): derive-and-materialize, NOT a
 // storage rewrite. Derived items carry an "mp-" id prefix so every editor can
@@ -16,7 +27,7 @@ import { classifyAor, type Aor } from "./aor";
 import { ALL_AIRFIELDS, type MobilityAirfield } from "./airfields";
 import { CHOKEPOINTS, type Chokepoint } from "./chokepoints";
 import { countryCentroid } from "./countryCentroids";
-import type { CountryWatch, ForceLocation, TrackedLocation, MetarStation, SitrepBase } from "./types";
+import type { CountryWatch, ForceLocation, MetarStation, SitrepBase } from "./types";
 
 export interface MissionAoi {
   id: string;                       // slug, e.g. "iran-hormuz"
@@ -58,11 +69,10 @@ export const EMPTY_PROFILE: MissionProfile = {
 export interface DerivedTracking {
   countries: CountryWatch[];        // ids mp-c-*
   bases: ForceLocation[];           // ids mp-b-*
-  weatherPoints: TrackedLocation[]; // ids mp-w-*
-  metarStations: MetarStation[];
-  sitrepCandidates: SitrepBase[];   // home + per-primary-AOI picks, ≤4 suggested
-  watchlistSeeds: string[];
-  // Phase-2 consumers (I&W templating); derived now so the review shows them.
+  metarStations: MetarStation[];    // exclusion pseudo-ids mp-m-<ICAO>
+  sitrepCandidates: SitrepBase[];   // hub -> spokes -> theater picks
+  watchlistSeeds: string[];         // exclusion pseudo-ids mp-t-<slug>
+  // Consumed live by lib/warningProblems (one board per primary AOI with iw).
   warningProblems: { id: string; name: string; aor: Aor; countries: string[]; chokepointId: string | null }[];
 }
 
@@ -213,7 +223,7 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
       seenCountry.add(key);
       const id = `mp-c-${slugify(c)}`;
       if (excluded.has(id)) continue;
-      countries.push({ id, country: titleCase(key), cocom: classifyAor({ name: c }), note: `AOI: ${aoi.name}` });
+      countries.push({ id, country: titleCase(key), cocom: classifyAor({ name: c }), note: `${aoi.name} AOI` });
     }
 
     // Bases: curated hubs/gateways in the AOI's countries, or in-theater within
@@ -238,19 +248,22 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
       bases.push({
         id, label: a.name, icao: a.icao, lat: a.lat, lon: a.lon,
         country: a.country ?? "", cocom: classifyAor({ lat: a.lat, lon: a.lon }),
-        kind: "base", note: `AOI: ${aoi.name}`,
+        kind: "base", note: `${aoi.name} AOI`,
       });
     }
 
-    // Watchlist seeds: the AOI's name + its chokepoints.
-    watchlistSeeds.push(aoi.name);
+    // Watchlist seeds: chokepoint names only. They match real headlines
+    // ("Strait of Hormuz"); AOI display names ("Iran & Hormuz") never do and
+    // just polluted the keyword list. Deletions stick via mp-t-* pseudo-ids.
     for (const cid of aoi.chokepointIds) {
       const cp = CHOKEPOINTS.find((c) => c.id === cid);
-      if (cp) watchlistSeeds.push(cp.name);
+      if (cp && !excluded.has(`mp-t-${slugify(cp.name)}`)) watchlistSeeds.push(cp.name);
     }
 
-    // Warning board per primary AOI that wants one (Phase-2 consumer).
-    if (aoi.intensity === "primary" && aoi.iw) {
+    // Warning board per primary AOI that wants one (consumed live by
+    // lib/warningProblems; the AOI's iw checkbox is the opt-out, and an
+    // exclusion recorded against the board id also holds).
+    if (aoi.intensity === "primary" && aoi.iw && !excluded.has(`mp-${aoi.id}`)) {
       warningProblems.push({
         id: `mp-${aoi.id}`, name: aoi.name, aor: aoi.aor,
         countries: [...aoi.countries], chokepointId: aoi.chokepointIds[0] ?? null,
@@ -258,12 +271,11 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
     }
   }
 
-  // Weather points + METAR stations follow the derived bases.
-  const weatherPoints: TrackedLocation[] = bases.slice(0, 10)
-    .map((b) => ({ id: `mp-w-${b.icao}`, label: b.label, lat: b.lat, lon: b.lon }))
-    .filter((w) => !excluded.has(w.id));
+  // METAR stations follow the derived bases (aviation wx is THE weather
+  // product for an airfield; forecast cards are for civil places). Exclusions
+  // use mp-m-<ICAO> pseudo-ids since MetarStation has no id field.
   const metarStations: MetarStation[] = bases
-    .filter((b) => !!b.icao)
+    .filter((b) => !!b.icao && !excluded.has(`mp-m-${b.icao}`))
     .map((b) => ({ icao: b.icao as string, label: b.label }));
 
   // SITREP candidates: hub first, then spokes (crews live there — "can my
@@ -276,7 +288,7 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
     sitrepCandidates.push({ icao: sp.icao, label: sp.label, lat: sp.lat, lon: sp.lon, country: sp.country || "United States", place: sp.label });
   }
   for (const aoi of profile.aois.filter((a) => a.intensity === "primary")) {
-    for (const b of bases.filter((x) => x.note === `AOI: ${aoi.name}`).slice(0, 2)) {
+    for (const b of bases.filter((x) => x.note === `${aoi.name} AOI`).slice(0, 2)) {
       if (!b.icao || sitSeen.has(b.icao) || sitrepCandidates.length >= SITREP_MAX + 6) continue;
       sitSeen.add(b.icao);
       sitrepCandidates.push({ icao: b.icao, label: b.label, lat: b.lat, lon: b.lon, country: b.country, place: b.label });
@@ -284,18 +296,22 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
   }
 
   return {
-    countries, bases, weatherPoints, metarStations, sitrepCandidates,
+    countries, bases, metarStations, sitrepCandidates,
     watchlistSeeds: [...new Set(watchlistSeeds)],
     warningProblems,
   };
 }
 
 // All ids a derivation would materialize — used for exclusion drift detection.
+// METAR stations and watchlist terms have no id field, so they carry PSEUDO-ids
+// (mp-m-<ICAO> / mp-t-<slug>): if one was materialized and is later missing
+// from its list, the user deleted it somewhere — it stays excluded.
 export function derivedIds(d: DerivedTracking): string[] {
   return [
     ...d.countries.map((c) => c.id),
     ...d.bases.map((b) => b.id),
-    ...d.weatherPoints.map((w) => w.id),
+    ...d.metarStations.map((m) => `mp-m-${m.icao}`),
+    ...d.watchlistSeeds.map((t) => `mp-t-${slugify(t)}`),
   ];
 }
 

@@ -57,7 +57,7 @@ export default function WeatherTab() {
   // Hydrate the location set from user prefs. Home is the localLat/localLon
   // already there; extras are the trackedLocations field added this push.
   useEffect(() => {
-    fetch("/api/user-prefs")
+    const hydrate = () => fetch("/api/user-prefs")
       .then((r) => r.json())
       .then(({ prefs }) => {
         if (prefs?.localLat && prefs?.localLon) {
@@ -74,6 +74,12 @@ export default function WeatherTab() {
         if (Array.isArray(prefs?.metarStations)) setMetarStations(prefs.metarStations);
       })
       .catch(() => {});
+    hydrate();
+    // Re-hydrate when Preferences or a Mission Profile Apply changes the
+    // tracked/METAR sets — otherwise this tab disagreed with the Crisis tab
+    // about the mission until a full remount.
+    window.addEventListener("dashboard-cache-cleared", hydrate);
+    return () => window.removeEventListener("dashboard-cache-cleared", hydrate);
   }, []);
 
   // Active TDY trip → a "(TDY)" card that leads the list. Home stays put as its

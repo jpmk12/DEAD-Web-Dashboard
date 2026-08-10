@@ -778,7 +778,7 @@ export default function CrisisMap() {
                     setViewName("My AO");
                     setViewMenuOpen(false);
                   }}
-                  title={`Your Mission Profile theater (${myAoAor}) — forces, conflict, NEO, airspace/GPS access degraders`}
+                  title={`Your primary AOI theater (${myAoAor}) — forces, conflict, NEO, airspace/GPS access degraders`}
                   className="block w-full text-left px-2.5 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-100"
                 >
                   ⌂ My AO<span className="block text-[9px] text-slate-500 normal-case font-normal tracking-normal">Mission Profile · {myAoAor}</span>
@@ -1069,7 +1069,7 @@ export default function CrisisMap() {
               return (
                 <CircleMarker key={`force-${f.id}`} center={[f.lat, f.lon]} radius={sel ? 13 : 10} pathOptions={{ color: sel ? "#fff" : color, fillColor: color, fillOpacity: 0.3, weight: 3 }} eventHandlers={{ click: () => pick(`force-${f.id}`, f.lat, f.lon) }}>
                   {on.labels && <Tooltip permanent direction="top" offset={[0, -8]} className="cm-label cm-crisis">{f.kind === "country" ? "🌐" : "🛡"} {f.label}</Tooltip>}
-                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div><div className="text-slate-700 mt-0.5">{f.topDriver}</div>{on.milair && milNearForce[f.id] > 0 && <div className="text-[10px] text-yellow-700 font-bold mt-0.5">✈ {milNearForce[f.id]} mil aircraft within {WATCH_NEAR_KM} km</div>}</div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div>{f.note && <div className="text-emerald-700 text-[10px]">{f.note}</div>}<div className="text-slate-700 mt-0.5">{f.topDriver}</div>{on.milair && milNearForce[f.id] > 0 && <div className="text-[10px] text-yellow-700 font-bold mt-0.5">✈ {milNearForce[f.id]} mil aircraft within {WATCH_NEAR_KM} km</div>}</div></Popup>
                 </CircleMarker>
               );
             })}
