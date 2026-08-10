@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>sitrep</title><link rel="stylesheet" href="shot.css">
+<style>
+  .pane{max-width:1080px;margin:24px auto;padding:0 20px}
+  .tiles{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px}
+  .btile{border:1px solid var(--bd);border-radius:10px;padding:9px 12px;background:rgba(2,6,23,.5);min-width:200px}
+  .btile.sel{border-color:rgba(52,211,153,.5);box-shadow:0 0 14px -6px rgba(16,185,129,.4)}
+  .btile.hot{border-color:rgba(248,113,113,.55)}
+  .btile .top{display:flex;align-items:center;gap:8px}
+  .btile .icao{font-weight:800;font-size:13px}
+  .btile .leds{display:flex;gap:4px;margin-left:auto}
+  .btile .drv{font-size:10px;color:var(--mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+  .mc{border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.05);border-radius:12px;padding:14px 17px;margin-bottom:14px}
+  .mc .state{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .mc .big{font-size:17px;font-weight:800;color:var(--amber)}
+  .bluf{font-size:12.5px;color:var(--txt2);line-height:1.65;max-width:88ch}
+  .bluf b{color:var(--txt)}
+  .caps{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 2px}
+  .cap{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:5px;padding:3px 8px;border:1px solid}
+  .cap.f{color:var(--acc);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.07)}
+  .cap.p{color:var(--amber);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.07)}
+  .cap.u{color:var(--mut);border-color:var(--bd2)}
+  .limfac{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;align-items:baseline;padding:4px 0}
+  .limfac .n{color:var(--amber);font-weight:800}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .taf{display:flex;height:16px;border-radius:4px;overflow:hidden;margin:8px 0 4px}
+  .taf div{height:100%}
+  .tl{font-size:9px;color:var(--mut2);display:flex;justify-content:space-between}
+  .cw{margin-top:10px}
+  .cwrow{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--mut);padding:3px 0}
+  .cwlab{width:88px;flex-shrink:0;font-family:ui-monospace,Menlo,monospace}
+  .cwbar{position:relative;flex:1;height:10px;background:rgba(30,41,59,.5);border-radius:3px}
+  .cwbar i{position:absolute;top:0;bottom:0;border-radius:3px}
+  .nrow{font-size:11px;color:var(--txt2);padding:4px 0;display:flex;gap:8px;align-items:baseline}
+  .nrow .k{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;flex-shrink:0;width:58px}
+</style></head>
+<body>
+<div class="pane">
+  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+    <span class="ptitle accent" style="font-size:13px">⚑ SITREP</span>
+    <span class="hint">per-base commander&rsquo;s report — Wx / Ops / Threat / Infrastructure · UNKNOWN ≠ clear</span>
+  </div>
+
+  <div class="tiles">
+    <div class="btile sel"><div class="top"><span class="icao mono">KCHS</span><span class="leds"><span class="led g"></span><span class="led a"></span><span class="led g"></span><span class="led g"></span></span></div><div class="drv">↑ Ops — RWY 03/21 closed 1200–1800Z</div></div>
+    <div class="btile"><div class="top"><span class="icao mono">KWRI</span><span class="leds"><span class="led g"></span><span class="led g"></span><span class="led g"></span><span class="led g"></span></span></div><div class="drv">All green</div></div>
+    <div class="btile"><div class="top"><span class="icao mono">KADW</span><span class="leds"><span class="led g"></span><span class="led g"></span><span class="led g"></span><span class="led u"></span></span></div><div class="drv">Infra UNKNOWN — IODA unreachable</div></div>
+    <div class="btile hot"><div class="top"><span class="icao mono">OTBH</span><span class="leds"><span class="led a"></span><span class="led g"></span><span class="led r"></span><span class="led g"></span></span></div><div class="drv">Threat — escalation reporting in AOR</div></div>
+  </div>
+
+  <div class="mc">
+    <div class="state"><span class="big">PMC — PARTIAL MISSION CAPABLE</span><span class="tag amber">CCIR: closure × training launch overlap</span></div>
+    <p class="bluf"><b>BLUF:</b> KCHS launches and recovers today with a six-hour caveat — RWY 03/21 closes 1200–1800Z for arresting-gear maintenance, folding fixed-wing ops onto 15/33 with a 90° crosswind component forecast at 18 gusting 24 knots. Greatest impact: the 1400L training launch sits inside the closure window. Projected recovery: full capability at 1800Z. <b>Ask:</b> slip the launch left of 1200Z or accept single-runway ops with crosswind advisory.</p>
+    <div class="caps">
+      <span class="cap p">Launch/Recovery · PMC</span><span class="cap f">All-Wx/Night · FMC</span><span class="cap p">Throughput · PMC</span><span class="cap f">Fuel · FMC</span><span class="cap f">ARFF · FMC</span><span class="cap f">C2/Comms · FMC</span><span class="cap u">Force Protection · —</span>
+    </div>
+    <div class="limfac"><span class="n">L1</span>RWY 03/21 closure 1200–1800Z (NOTAM) — single-runway MOG until complete <span class="tag amber" style="margin-left:auto">auto</span></div>
+    <div class="limfac"><span class="n">L2</span>MHE: one 60K loader in phase — pallet throughput halved through Friday <span class="tag violet" style="margin-left:auto">entered · Maj Chen</span></div>
+  </div>
+
+  <div class="cards">
+    <div class="panel"><div class="phead"><span class="ptitle">Weather</span><span class="hint">METAR 21012G18KT · VFR</span></div>
+      <div style="padding:11px 13px">
+        <div class="hint" style="text-transform:uppercase;letter-spacing:.1em;font-weight:800">24-h TAF category</div>
+        <div class="taf"><div style="flex:5;background:#10b981"></div><div style="flex:3;background:#38bdf8"></div><div style="flex:2;background:#ef4444"></div><div style="flex:2;background:#38bdf8"></div><div style="flex:12;background:#10b981"></div></div>
+        <div class="tl"><span>09Z</span><span>15Z</span><span>21Z</span><span>03Z</span><span>09Z</span></div>
+        <div class="nrow" style="margin-top:8px"><span class="k" style="color:var(--amber)">RWY WIND</span>15/33 crosswind 17 kt gusting 22 — advisory ≥20 kt</div>
+        <div class="nrow"><span class="k" style="color:var(--mut)">ASTRO</span>SR 1042Z · SS 0104Z · moon 84% — BASH elevated at dusk</div>
+      </div>
+    </div>
+    <div class="panel"><div class="phead"><span class="ptitle">Ops / NOTAMs</span><span class="tag amber">closure × IFR conflict</span></div>
+      <div style="padding:11px 13px">
+        <div class="cw">
+          <div class="cwrow"><span class="cwlab">RWY 03/21</span><div class="cwbar"><i style="left:12%;width:26%;background:rgba(239,68,68,.8)"></i></div></div>
+          <div class="cwrow"><span class="cwlab">TWY A</span><div class="cwbar"><i style="left:30%;width:14%;background:rgba(251,191,36,.7)"></i></div></div>
+          <div class="cwrow"><span class="cwlab">TAF cat</span><div class="cwbar"><i style="left:0;width:38%;background:rgba(16,185,129,.6)"></i><i style="left:38%;width:16%;background:rgba(239,68,68,.55)"></i><i style="left:54%;width:46%;background:rgba(16,185,129,.6)"></i></div></div>
+          <div class="tl" style="margin-top:2px"><span>now</span><span>+12h</span><span>+24h</span><span>+36h</span><span>+48h</span></div>
+        </div>
+        <div class="nrow" style="margin-top:8px"><span class="k" style="color:var(--red)">CONFLICT</span>RWY 03/21 closure overlaps forecast IFR 15–18Z — no precision approach on 15/33</div>
+        <div class="nrow"><span class="k" style="color:var(--mut)">CENTER</span>ZJX: 2 enroute advisories · fuel NOTAMs: none</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="mockcap">illustrative render</div>
+</body></html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>iw board</title><link rel="stylesheet" href="shot.css">
+<style>
+  .pane{max-width:980px;margin:24px auto;padding:0 20px}
+  .prob{border:1px solid rgba(251,191,36,.4);border-radius:12px;background:rgba(2,6,23,.5);overflow:hidden}
+  .probhead{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--bd);background:rgba(251,191,36,.05)}
+  .lvl{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);border:1px solid rgba(251,191,36,.5);border-radius:6px;padding:3px 11px}
+  .anom{margin-left:auto;text-align:right}
+  .anom .n{font-size:22px;font-weight:800;color:var(--amber);font-family:ui-monospace,Menlo,monospace}
+  .anom .l{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+  .traj{font-size:11px;color:#fdba74;border:1px solid rgba(251,146,60,.4);border-radius:999px;padding:2px 10px}
+  .scen{padding:10px 16px;font-size:11.5px;color:var(--mut);border-bottom:1px solid var(--bd);line-height:1.6}
+  .ind{display:flex;align-items:center;gap:11px;padding:8px 16px;font-size:12px}
+  .ind + .ind{border-top:1px solid rgba(30,41,59,.55)}
+  .ind .nm{width:250px;flex-shrink:0;color:var(--txt2);font-weight:600}
+  .st{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:2px 7px;flex-shrink:0}
+  .st.conf{color:var(--red);background:rgba(248,113,113,.12)}
+  .st.act{color:var(--amber);background:rgba(251,191,36,.12)}
+  .st.watch{color:var(--sky);background:rgba(56,189,248,.12)}
+  .st.dorm{color:var(--mut);background:rgba(100,116,139,.12)}
+  .ind .why{font-size:10.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .quad{padding:11px 16px;border-top:1px solid var(--bd);display:flex;gap:14px;align-items:center;background:rgba(15,23,42,.4)}
+  .qbox{display:grid;grid-template-columns:repeat(2,58px);grid-template-rows:repeat(2,30px);gap:3px}
+  .q{border:1px solid var(--bd2);border-radius:4px;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.2}
+  .q.hot{border-color:rgba(251,191,36,.6);color:var(--amber);background:rgba(251,191,36,.08)}
+  .foot{padding:9px 16px;border-top:1px solid var(--bd);font-size:9.5px;color:var(--mut2);display:flex;gap:14px;flex-wrap:wrap}
+  .drv{padding:10px 16px;border-top:1px solid var(--bd);font-size:11px;color:var(--txt2)}
+  .drv b{color:var(--amber);font-size:9px;letter-spacing:.12em;text-transform:uppercase;margin-right:8px}
+</style></head>
+<body>
+<div class="pane">
+  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+    <span class="ptitle accent" style="font-size:13px">◭ Indications &amp; Warning</span>
+    <span class="hint">anomaly over baseline — calm by default, color is earned · one board per primary AOI</span>
+  </div>
+
+  <div class="prob">
+    <div class="probhead">
+      <div>
+        <div style="font-size:14px;font-weight:800">CENTCOM · Iran &amp; Hormuz</div>
+        <div class="hint">baseline 21 days · derived from your Mission Profile</div>
+      </div>
+      <span class="lvl">Watch</span>
+      <span class="traj">↗ deteriorating</span>
+      <div class="anom"><div class="n">+0.18</div><div class="l">anomaly vs baseline</div></div>
+    </div>
+    <div class="scen">Escalation across the Iran &amp; Hormuz AOI (Iran, Iraq, Kuwait, Bahrain, Qatar, Saudi Arabia) toward sustained hostilities affecting basing, overflight, and mobility access. Thresholds: watch 0.15 · warning 0.35 · alert 0.60.</div>
+
+    <div class="ind"><span class="nm">Conflict intensity</span><span class="st act">Active</span><span class="why">UCDP/ACLED/ReliefWeb — 34 events trailing 90d, above band (UCDP lags 1–2 mo)</span></div>
+    <div class="ind"><span class="nm">Escalatory strike / rhetoric signal</span><span class="st conf">Confirmed</span><span class="why">GDELT escalation scan + your 📄 captured analysis corroborate (wire + own-source)</span></div>
+    <div class="ind"><span class="nm">Airlift mobility divergence</span><span class="st act">Active</span><span class="why">11 mobility/tanker within 600 km of AOI hubs; baseline ~7/day over 21d</span></div>
+    <div class="ind"><span class="nm">NEO / departure posture</span><span class="st dorm">Dormant</span><span class="why">no NEW ordered/authorized departure or Level-4 change in 14d window</span></div>
+    <div class="ind"><span class="nm">Airspace / GPS disruption</span><span class="st watch">Watching</span><span class="why">1 caution-class FIR notice (ORBB); GPS-interference cells at baseline</span></div>
+    <div class="ind"><span class="nm">Chokepoint interdiction</span><span class="st watch">Watching</span><span class="why">GDELT &lsquo;Strait of Hormuz&rsquo; + interdiction scan — 1 hit, own-source only caps at watch</span></div>
+
+    <div class="drv"><b>Drivers</b>Escalatory strike signal (confirmed, wire + own-source) · mobility above own baseline · chokepoint reporting uncorroborated</div>
+
+    <div class="quad">
+      <div class="qbox">
+        <div class="q hot">early<br>warning</div><div class="q">anomaly</div>
+        <div class="q">corrobo-<br>ration</div><div class="q">quiet</div>
+      </div>
+      <div style="font-size:11px;color:var(--txt2);max-width:56ch">Early-warning window — implied demand exists (confirmed conflict band) while observed lift is only partially responding. Demand with no lift is the warning; lift with no trigger is the anomaly.</div>
+    </div>
+
+    <div class="foot">
+      <span>sensors: conflictEvents ✓ · GDELT ✓ · ADS-B ✓ · advisories ✓ · DAIP ✓ · your sources: X / analysis / feeds ✓</span>
+      <span>ACLED — acleddata.com · unofficial posture, open sources only</span>
+    </div>
+  </div>
+</div>
+<div class="mockcap">illustrative render</div>
+</body></html>

@@ -62,7 +62,7 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 
 ---
 
-## The seven tabs
+## The eight tabs
 
 ### 1. News
 
@@ -305,6 +305,42 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 
 ---
 
+## Mission Profile (the configuration spine)
+
+**Preferences → Mission Profile** (first group). The user declares WHAT they
+command; the app derives WHAT TO TRACK. Pure model + derivation in
+`lib/missionProfile.ts` (client-safe, unit-tested); server materializer in
+`lib/missionProfileApply.ts`; API `/api/mission-profile` (GET · PUT save ·
+POST apply, owner-gated writes); editor
+`components/preferences/MissionProfileEditor.tsx`.
+
+- **Declaration**: hub + spoke airfields (ICAO-resolved via
+  `/api/airfields/resolve` — curated hubs → gateways → OurAirports), theaters
+  (COCOMs), named AOIs (countries with one-tap theater suggestions,
+  primary/watch intensity, I&W toggle, auto-suggested chokepoints).
+- **Derivation — one channel per concept**: airfields → `forceLocations` +
+  `metarStations` + SITREP candidates (hub → spokes → theater picks);
+  AOI countries → `countriesOfInterest`; chokepoints → watchlist terms;
+  primary AOIs → I&W warning problems (consumed live by
+  `lib/warningProblems.ts`). Tracked weather locations are deliberately NOT
+  derived — that list stays civil-only (home / family / TDY).
+- **Apply = materialize**: derived rows land in the existing prefs fields with
+  `mp-*` ids (`AUTO` badges in editors); manual rows always win on natural-key
+  collision; per-list caps enforced; SITREP set changes only when the picks
+  (initialized from the LIVE set) are changed.
+- **Deletions stick**: exclusion-drift detection — any previously-materialized
+  item missing from its list (deleted in ANY editor / the SITREP pane) is
+  recorded excluded and never re-derived. Id-less lists use pseudo-ids
+  (`mp-m-<ICAO>` METAR, `mp-t-<slug>` watch terms).
+- **The declaration informs the AI**: `missionSummaryLine()` is computed
+  read-only into `prefs.missionSummary` by `getUserPrefs` and appended by
+  `buildUserContext` — every AI route reasons from the declared AO.
+- Consumers: Crisis-map "⌂ My AO" preset + persisted view/AOR filter,
+  AO-aware feed suggestions in the Sources pane
+  (`suggestionGroupsForAors`), per-AOI I&W boards.
+
+---
+
 ## Preferences groups
 
 ### You
@@ -450,7 +486,16 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 
 ```
 /api/auth/*                    NextAuth flow + secondary Gmail OAuth
-/api/user-prefs                GET / POST — all prefs
+/api/user-prefs                GET / POST — all prefs (absent osintFeeds = preserve stored)
+/api/mission-profile           GET / PUT (save declaration) / POST (apply — materialize)
+/api/airfields/resolve         GET ?icao= — curated sets → OurAirports labeled point
+/api/alerts/check              GET — current alert conditions, stable ids (session or capture token)
+/api/osint/feeds               GET / PUT — targeted OSINT-feed editing (Sources pane)
+/api/capture/article           POST / GET / DELETE — reader-captured analysis articles
+/api/capture/events            POST / GET / DELETE — captured LiveUAMap events
+/api/osint/x-import            POST / GET / DELETE — dead-x-capture ingestion
+/api/settings/x-token          GET / POST / DELETE — capture bearer token (SHA-256 stored)
+/api/warning                   GET — I&W assessments, one per active problem (per primary AOI)
 /api/ai-usage                  GET — today / 7d / 30d spend summaries
 
 /api/news                      GET — RSS aggregation + sourceStats (feeds the trend recorder)

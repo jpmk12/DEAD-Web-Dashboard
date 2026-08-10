@@ -1443,3 +1443,72 @@ needs the bundled DoD CA). The one
 **WebSocket** is the AISStream vessel bridge (`wss://stream.aisstream.io`, over
 443). The only non-HTTP connection is to the platform's managed MySQL, which is
 explicitly allowed.
+
+### Mission Profile (the configuration spine — declare the AO, derive the tracking)
+The app's settings converge on **Preferences → Mission Profile**: the user
+declares hub+spoke airfields, theaters, and named AOIs; `deriveTracking()`
+(`lib/missionProfile.ts` — PURE, client-safe, unit-tested) turns that into the
+tracking lists every feature already reads; `applyMissionProfile()`
+(`lib/missionProfileApply.ts`, server-only, `/api/mission-profile` POST,
+owner-gated) MATERIALIZES them into `user_prefs`. Architecture is
+**derive-and-materialize, NOT a storage rewrite** — zero downstream consumers
+changed; derived rows carry `mp-*` ids (`AUTO` badges in the Mobility Watch
+editors).
+
+Load-bearing contracts (violating these re-opens closed bugs):
+- **One channel per concept**: airfields → `forceLocations` + `metarStations` +
+  `sitrepBases`; AOI countries → `countriesOfInterest`; chokepoints → watchlist
+  terms; primary AOIs → I&W boards. Airfields are deliberately NEVER
+  materialized into `trackedLocations` (civil places only) — doing so
+  double-marked the Crisis map, made blank OCONUS forecast cards, and
+  double-counted bases in the brief. `applyMissionProfile` purges legacy
+  `mp-w-*` rows.
+- **Deletions stick / manual wins**: exclusion drift compares
+  `materializedIds` against what's present; id-less lists use pseudo-ids
+  (`mp-m-<ICAO>`, `mp-t-<slug>`). Manual rows win natural-key collisions.
+  SITREP picks initialize from the LIVE base set (never auto-default to
+  candidates) so Apply can't silently replace the pane-curated set.
+- **`prefs.missionSummary`** is COMPUTED read-only by `getUserPrefs` from the
+  `mission_profile` column (`missionSummaryLine()`) and appended by
+  `buildUserContext` — every AI route gets the declared AO. `saveUserPrefs`
+  never writes it.
+- Spokes/hub are stored RESOLVED (label+coords via `/api/airfields/resolve`,
+  which wraps the shared `lib/resolveAirfield.ts` — same door as SITREP base
+  add) so derivation stays pure client-side.
+- I&W: `lib/warningProblems.ts` instantiates one templated six-indicator board
+  per primary AOI (`problemFromSeed` in `warningTaxonomy.ts`; sensors take a
+  `ProblemGeo` — CENTCOM_GEO keeps the legacy hand-tuned Gulf values AND the
+  legacy indicator ids for history continuity). Fallback = CENTCOM_IRAN when
+  no profile boards exist. Fresh problem ids start in learning mode (empty
+  `warning_daily` history) by design.
+- Two "home" concepts are DISTINCT on purpose: Home Location (You group,
+  residence — forecast/local news/map center) vs the Mission Profile hub
+  (own-force airfield — posture/METAR/SITREP). Both editors state this.
+
+### Alerting (`/api/alerts/check` + the capture extension)
+Out-of-app alerting with no cron/no push infra: the endpoint returns CURRENT
+alert-worthy conditions with **stable ids** (force-protection RED,
+life-threatening weather at tracked points, in-effect ordered departures, I&W
+warning/alert) — callers dedupe by id, so the server keeps no per-client
+watermark. Auth: session OR the capture bearer token. The extension
+(`tools/x-auto-capture/background.js`) polls on a `chrome.alarms` cadence
+(default 15 min, options-configurable) and raises OS notifications; seen-ids in
+`chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
+the endpoint unchanged.
+
+### Morning Brief cross-device cache
+`briefing_cache` PK is **(date, user_email, tz)** — zone-briefs coexist per
+day, so devices in different timezones (Auto mode, traveling) don't ping-pong
+regenerate. Reads are tz-scoped; `generatedAtMs`/`generatedTz` are baked INTO
+the cached briefing object so every path shows "generated H:MM · Zone". The
+"Your day" block (tasks + keep-in-touch) and Base SITREP LEDs are fetched live
+at modal open, deliberately never baked into the cached AI text.
+KEY_MIGRATIONS entries carry a per-entry marker `column` (the runner checks
+`pkIncludes(table, column)`).
+
+### README screenshots (`docs/` + `docs/mockups/`)
+The README hero/feature PNGs are **illustrative renders** built from mockup
+HTML in `docs/mockups/` (same design tokens as the app; the README says so).
+Regenerate after UI changes with `sh docs/mockups/render.sh` (needs Chromium;
+`CHROME=<path>` override). Keep shots in sync when a pictured surface changes
+materially. No Playwright/npm involved — plain headless-Chromium screenshots.

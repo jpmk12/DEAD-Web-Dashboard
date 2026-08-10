@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>hero</title><link rel="stylesheet" href="shot.css">
+<style>
+  .since{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+  .since .chip{cursor:default}
+  .strip{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0 18px}
+  .tile{display:flex;align-items:center;gap:8px;border:1px solid var(--bd);border-radius:9px;padding:7px 11px;background:rgba(2,6,23,.5)}
+  .tile.hot{border-color:rgba(248,113,113,.5)}
+  .tile.warm{border-color:rgba(251,191,36,.4)}
+  .tile .icao{font-weight:800;font-size:12px}
+  .tile .leds{display:flex;gap:4px}
+  .tile .drv{font-size:10px;color:var(--mut);max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hero{border:1px solid var(--accbd);background:var(--accbg);border-radius:12px;padding:18px 20px;margin-bottom:20px;box-shadow:0 0 24px -8px rgba(16,185,129,.25)}
+  .hero .k{display:flex;align-items:center;gap:8px;color:var(--acc);font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
+  .hero p.head{font-size:15px;font-weight:600;color:#f1f5f9;line-height:1.55;max-width:72ch;margin:0}
+  .hero .gen{font-size:10px;color:var(--mut);margin-top:6px}
+  .hero .focus{margin:12px 0 0;padding:0;list-style:none}
+  .hero .focus li{font-size:12.5px;color:var(--txt2);padding:3px 0 3px 18px;position:relative}
+  .hero .focus li::before{content:"▸";position:absolute;left:2px;color:var(--acc)}
+  .vgroup{background:rgba(139,92,246,.06);border-bottom:1px solid rgba(139,92,246,.2)}
+  .vhead{display:flex;align-items:center;gap:8px;padding:7px 13px 3px}
+  .vhead .k{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#c4b5fd}
+  .cb{width:15px;height:15px;border-radius:4px;border:1px solid rgba(167,139,250,.6);flex-shrink:0;margin-top:2px}
+  .defer{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:4px;padding:2px 6px;color:var(--mut)}
+  .meta{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;flex-shrink:0}
+  .ev{display:flex;gap:10px;padding:8px 13px;font-size:12px}
+  .ev+.ev{border-top:1px solid rgba(30,41,59,.6)}
+  .ev .tm{color:var(--amber);font-weight:700;flex-shrink:0;width:52px}
+  .reach .row .s{white-space:normal}
+</style></head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions">
+      <span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span>
+    </div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab active">Glance</span>
+    <span class="tab">News <span class="badge">5</span></span>
+    <span class="tab">Calendar</span>
+    <span class="tab">Email <span class="badge">3</span></span>
+    <span class="tab">OSINT <span class="badge">2</span></span>
+    <span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:4px">
+    <div>
+      <h2 style="font-size:18px;font-weight:700;letter-spacing:.02em">Good morning, DEAD</h2>
+      <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-top:2px">Sunday, August 9</div>
+    </div>
+    <div class="since">
+      <span class="chip">5 new stories</span><span class="chip">3 priority email</span>
+      <span class="chip" style="color:var(--red);border-color:rgba(239,68,68,.4)">2 signals</span>
+      <span class="chip">＋ Capture</span>
+    </div>
+  </div>
+
+  <!-- Base SITREP LED strip -->
+  <div class="strip">
+    <div class="tile"><span class="icao mono">KWRI</span><span class="leds"><span class="led g"></span><span class="led g"></span><span class="led g"></span><span class="led g"></span></span></div>
+    <div class="tile warm"><span class="icao mono">KCHS</span><span class="leds"><span class="led g"></span><span class="led a"></span><span class="led g"></span><span class="led g"></span></span><span style="color:var(--amber);font-size:10px;font-weight:800">↑</span><span class="drv">RWY 03/21 closed 1200–1800Z</span></div>
+    <div class="tile"><span class="icao mono">KADW</span><span class="leds"><span class="led g"></span><span class="led g"></span><span class="led g"></span><span class="led u"></span></span></div>
+    <div class="tile hot"><span class="icao mono">OTBH</span><span class="leds"><span class="led a"></span><span class="led g"></span><span class="led r"></span><span class="led g"></span></span><span class="drv">Threat — new escalation reporting in AOR</span></div>
+  </div>
+
+  <!-- Morning brief hero -->
+  <div class="hero">
+    <div class="k">▤ Morning Brief</div>
+    <p class="head">Hormuz transit harassment resumed overnight while Gulf base weather stays green — your KCHS runway closure window overlaps the airlift training block this afternoon.</p>
+    <div class="gen mono">generated 6:12 · Chicago · shared across your devices</div>
+    <ul class="focus">
+      <li>Confirm the 14:00 KCHS launch can slip to RWY 15/33 or move left of the closure window.</li>
+      <li>I&amp;W board holds WATCH — review the two new escalation indicators before the 0900 sync.</li>
+    </ul>
+  </div>
+
+  <div class="grid g-main">
+    <div>
+      <!-- Needs you now -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="phead"><span class="ptitle accent">Needs You Now</span><span class="tag violet">2 tasks</span></div>
+        <div class="vgroup">
+          <div class="vhead"><span class="k">Your Actions</span><span class="hint">tasks with your name on them</span><span style="margin-left:auto" class="pjump">Tasks →</span></div>
+          <div class="row bl-violet"><span class="cb"></span><div class="body"><div class="t">Sign the Q3 aircrew currency memo</div><div class="s">Overdue</div></div><span class="defer">⏭ tmrw</span><span class="meta" style="color:var(--red)">Overdue</span></div>
+          <div class="row bl-violet"><span class="cb"></span><div class="body"><div class="t">Call TACC about the Wednesday channel mission</div><div class="s">Due today</div></div><span class="defer">⏭ tmrw</span><span class="meta" style="color:var(--violet)">Today</span></div>
+        </div>
+        <div class="row bl-red"><span class="ic" style="color:var(--red)">🛡</span><div class="body"><div class="t">Al Udeid AB</div><div class="s">↑ escalated from AMBER — Conflict: strike reporting within 400 km</div></div><span class="meta" style="color:var(--red)">CENTCOM</span></div>
+        <div class="row bl-red"><span class="ic" style="color:var(--red)">⚠</span><div class="body"><div class="t">Severe Thunderstorm Warning</div><div class="s">JB Charleston, SC</div></div><span class="meta" style="color:var(--red)">Weather</span></div>
+        <div class="row bl-amber"><span class="ic" style="color:var(--amber)">◎</span><div class="body"><div class="t">RE: DV airlift request — Thursday</div><div class="s">Col Mattis — needs your yes/no before the 1500 ATO cut</div></div><span class="meta" style="color:var(--amber)">2h ago</span></div>
+      </div>
+
+      <!-- Global reach watch -->
+      <div class="panel reach">
+        <div class="phead"><span class="ptitle">Global Reach Watch</span><span style="display:flex;gap:5px"><span class="chip skyon">All</span><span class="chip">NEO</span><span class="chip">Disasters</span><span class="chip">Conflict</span><span class="chip">Airspace</span></span></div>
+        <div class="row"><span class="ic" style="color:var(--red)">🛫</span><div class="body"><div class="t">Ordered departure — Embassy Baghdad</div><div class="s">State Dept advisory in effect · CENTCOM</div></div><span class="tag red">NEO</span></div>
+        <div class="row"><span class="ic" style="color:var(--amber)">✸</span><div class="body"><div class="t">Strike reporting near Erbil</div><div class="s">3 events · 90 km from watched base · UCDP + GDELT corroborated</div></div><span class="tag amber">Conflict</span></div>
+        <div class="row"><span class="ic" style="color:var(--amber)">✈</span><div class="body"><div class="t">Overflight NOTAMs — Baghdad FIR (ORBB)</div><div class="s">2 caution-class enroute notices active</div></div><span class="tag amber">Airspace</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel" style="margin-bottom:20px">
+        <div class="phead"><span class="ptitle">Today</span><span class="pjump">View all →</span></div>
+        <div class="ev"><span class="tm mono">0900</span><div>Staff sync — I&amp;W review<div class="hint">Conference line · 8 attendees</div></div></div>
+        <div class="ev"><span class="tm mono">1400</span><div>KCHS local training launch<div class="hint">⚠ overlaps runway closure window</div></div></div>
+        <div class="ev"><span class="tm mono">1600</span><div>TACC channel-mission telecon</div></div>
+      </div>
+      <div class="panel">
+        <div class="phead"><span class="ptitle">On Your Radar</span><span class="tag amber">2 new</span></div>
+        <div class="row"><div class="body"><div class="t" style="font-size:12px">I&amp;W · Iran &amp; Hormuz</div><div class="s">WATCH · anomaly +0.18 · ↗ deteriorating</div></div></div>
+        <div class="row"><div class="body"><div class="t" style="font-size:12px">Hormuz chokepoint activity</div><div class="s">4 stories · tanker harassment reporting</div></div></div>
+        <div class="row"><div class="body"><div class="t" style="font-size:12px">Brent crude</div><div class="s mono">$87.40 ▲ 2.1% — fuel/sustainment driver</div></div></div>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="mockcap">illustrative render</div>
+</body></html>

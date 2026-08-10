@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>mission profile</title><link rel="stylesheet" href="shot.css">
+<style>
+  body{background:var(--bg2)}
+  .drawer{max-width:880px;margin:26px auto;background:var(--bg);border:1px solid var(--bd);border-radius:14px;padding:22px 26px 26px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .gh{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .gh .car{color:var(--mut)}
+  .gh .t{font-size:14px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+  .gh .sub{font-size:10px;color:var(--mut)}
+  .blurb{font-size:11px;color:var(--mut);line-height:1.7;max-width:78ch}
+  .aoi{border:1px solid var(--bd2);border-radius:10px;background:rgba(2,6,23,.45);padding:12px 14px;margin-top:8px}
+  .aoihead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .aoihead .nm{font-weight:800;font-size:14px}
+  .sel{font-size:10px;font-family:ui-monospace,Menlo,monospace;color:var(--sky);border:1px solid rgba(56,189,248,.35);border-radius:4px;padding:1px 7px}
+  .cchip{display:inline-flex;align-items:center;gap:5px;font-size:10px;border:1px solid var(--bd2);border-radius:999px;padding:2px 9px;color:var(--txt2)}
+  .cchip .x{color:var(--mut2)}
+  .sug{font-size:9px;border:1px solid var(--bd);border-radius:5px;padding:2px 7px;color:var(--mut)}
+  .review{border:1px solid var(--bd);border-radius:10px;background:rgba(2,6,23,.5);padding:13px 15px;margin-top:14px}
+  .rrow{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--txt2);padding:2.5px 0}
+  .rrow .why{font-size:9.5px;color:var(--mut2)}
+  .rrow .auto{margin-left:auto}
+  .cbx{width:13px;height:13px;border:1px solid var(--bd2);border-radius:3px;background:rgba(52,211,153,.25);flex-shrink:0;position:relative}
+  .cbx::after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--acc)}
+  .cbx.off{background:transparent}.cbx.off::after{content:""}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .applied{margin-top:12px;font-size:11px;color:var(--acc)}
+</style></head>
+<body>
+<div class="drawer">
+  <div class="gh"><span class="car">▾</span><span class="t">Mission Profile</span><span class="sub">· declare your AO — the app derives the tracking</span></div>
+  <p class="blurb">Declare what you command — the app derives the tracking (countries, bases, METAR stations, SITREP picks, chokepoint watch terms) from its curated hub/gateway network and theater data. Derived rows carry an <span class="mono" style="color:var(--acc);font-size:10px">AUTO</span> tag; your manual entries are never touched, and anything you remove — anywhere — stays removed.</p>
+
+  <span class="lbl">Own force airfields — hub &amp; spokes</span>
+  <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+    <span class="chip on"><span class="tag green" style="padding:0 4px">HUB</span><span class="mono" style="font-weight:800">KWRI</span><span class="hint">JB MDL (McGuire), NJ</span></span>
+    <span class="chip"><span class="mono" style="font-weight:800;color:var(--txt)">KCHS</span><span class="hint">JB Charleston, SC</span><span style="color:var(--mut2)">✕</span></span>
+    <span class="chip"><span class="mono" style="font-weight:800;color:var(--txt)">KADW</span><span class="hint">JB Andrews, MD</span><span style="color:var(--mut2)">✕</span></span>
+    <span class="chip" style="border-style:dashed;color:var(--mut2)">+ spoke ICAO</span>
+  </div>
+
+  <span class="lbl">Theaters you own</span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <span class="chip on mono">✓ CENTCOM</span><span class="chip on mono">✓ EUCOM</span>
+    <span class="chip mono">AFRICOM</span><span class="chip mono">INDOPACOM</span><span class="chip mono">SOUTHCOM</span><span class="chip mono">NORTHCOM</span>
+  </div>
+
+  <span class="lbl">Named areas of interest</span>
+  <div class="aoi">
+    <div class="aoihead">
+      <span class="nm">Iran &amp; Hormuz</span><span class="sel">CENTCOM</span>
+      <span class="tag red">primary</span>
+      <span class="hint">☑ I&amp;W board</span>
+      <span style="margin-left:auto;color:var(--mut2)">✎ ✕</span>
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">
+      <span class="cchip">Iran <span class="x">✕</span></span><span class="cchip">Iraq <span class="x">✕</span></span><span class="cchip">Kuwait <span class="x">✕</span></span><span class="cchip">Bahrain <span class="x">✕</span></span><span class="cchip">Qatar <span class="x">✕</span></span><span class="cchip">Saudi Arabia <span class="x">✕</span></span>
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:7px">
+      <span style="font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acc)">▾ suggest countries (CENTCOM)</span>
+      <span class="sug">+ United Arab Emirates</span><span class="sug">+ Oman</span><span class="sug">+ Jordan</span><span class="sug">+ Yemen</span><span class="sug">+ Pakistan</span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+      <span style="font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2)">Chokepoints:</span>
+      <span class="sug" style="border-color:rgba(56,189,248,.5);color:var(--sky)">✓ Strait of Hormuz</span>
+      <span class="sug">+ Bab-el-Mandeb / Red Sea</span><span class="sug">+ Suez Canal</span>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-top:16px;align-items:center">
+    <span class="btn">Hide derived tracking ▴</span><span class="btn">Save declaration</span><span class="btn primary">Apply — materialize tracking</span>
+  </div>
+
+  <div class="review">
+    <div class="hint" style="margin-bottom:8px">Uncheck anything you don&rsquo;t want tracked — exclusions are remembered and never re-derived.</div>
+    <div class="cols">
+      <div>
+        <span class="lbl" style="margin-top:2px">Countries → posture watch (6)</span>
+        <div class="rrow"><span class="cbx"></span>Iran · CENTCOM <span class="why">Iran &amp; Hormuz AOI</span><span class="tag auto auto">AUTO</span></div>
+        <div class="rrow"><span class="cbx"></span>Iraq · CENTCOM <span class="why">Iran &amp; Hormuz AOI</span><span class="tag auto auto">AUTO</span></div>
+        <div class="rrow"><span class="cbx off"></span><span style="text-decoration:line-through;color:var(--mut2)">Saudi Arabia · CENTCOM</span><span class="tag auto auto" style="opacity:.4">AUTO</span></div>
+        <span class="lbl">Watch terms seeded</span>
+        <div class="rrow" style="color:var(--mut)">Strait of Hormuz</div>
+        <span class="lbl">I&amp;W boards</span>
+        <div class="rrow" style="color:var(--mut)">CENTCOM · Iran &amp; Hormuz — 6 indicators</div>
+      </div>
+      <div>
+        <span class="lbl" style="margin-top:2px">Bases &amp; gateways (9)</span>
+        <div class="rrow"><span class="cbx"></span><span class="mono">KWRI</span> JB MDL <span class="why">Own force — hub</span><span class="tag auto auto">AUTO</span></div>
+        <div class="rrow"><span class="cbx"></span><span class="mono">KCHS</span> JB Charleston <span class="why">Own force — spoke</span><span class="tag auto auto">AUTO</span></div>
+        <div class="rrow"><span class="cbx"></span><span class="mono">OTBH</span> Al Udeid AB <span class="why">hub · CENTCOM</span><span class="tag auto auto">AUTO</span></div>
+        <div class="rrow"><span class="cbx"></span><span class="mono">OBBI</span> Bahrain Intl <span class="why">gateway · Hormuz 480 km</span><span class="tag auto auto">AUTO</span></div>
+        <span class="lbl">SITREP full treatment — pick up to 4</span>
+        <div class="rrow"><span class="cbx"></span><span class="mono">KWRI</span> — home station</div>
+        <div class="rrow"><span class="cbx"></span><span class="mono">KCHS</span> · <span class="mono">KADW</span> — spokes</div>
+        <div class="rrow"><span class="cbx"></span><span class="mono">OTBH</span> — theater pick</div>
+      </div>
+    </div>
+  </div>
+  <div class="applied">✓ Applied — 6 countries · 9 bases · 4 SITREP · 9 METAR · +1 watch terms.</div>
+</div>
+<div class="mockcap">illustrative render</div>
+</body></html>

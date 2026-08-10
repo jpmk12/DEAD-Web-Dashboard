@@ -303,7 +303,7 @@
 
 <!-- ───────────────────────── THE 5 TABS ───────────────────────── -->
 <section id="tabs-content">
-  <h2>The seven tabs</h2>
+  <h2>The eight tabs</h2>
   <p class="lede">
     The seven top-of-app tabs each serve a different daily workflow. Switch
     with the tab bar; all seven stay mounted so their data refreshes in the
@@ -1024,8 +1024,40 @@
   <p class="lede">
     The drawer behind the <span class="ui">⚙</span> button. Everything
     here personalises the dashboard — most settings flow into AI prompts
-    on every relevant route.
+    on every relevant route. Start with the <strong>Mission Profile</strong>:
+    it derives most of the tracking for you.
   </p>
+
+  <h3>Mission Profile — declare your AO, the app derives the tracking</h3>
+  <p>
+    The first group in the drawer, and the one to set up first. Declare three
+    things: your <strong>own-force airfields</strong> (the hub plus the spoke
+    fields where crews and aircraft live — type an ICAO, it resolves to a
+    named point), the <strong>theaters you own</strong>, and named
+    <strong>Areas of Interest</strong> like <em>Iran &amp; Hormuz</em> (pick
+    countries with one-tap theater suggestions; chokepoints are auto-suggested
+    from geography).
+  </p>
+  <p>
+    <span class="ui">Review derived tracking</span> shows everything the
+    declaration would track — countries, bases, SITREP picks, watch terms,
+    I&amp;W boards — with a checkbox per item.
+    <span class="ui muted">Save declaration</span> stores the statement without
+    changing anything. <span class="ui emerald">Apply — materialize
+    tracking</span> is the commit: derived rows land in the normal editors with
+    an <span class="ui emerald">AUTO</span> badge.
+  </p>
+  <div class="note">
+    <span class="label">The contract</span><br>
+    Manual entries always win; anything you delete — in any editor, or the
+    SITREP pane — stays deleted across re-applies; SITREP bases only change
+    when you change the picks. Your declaration also rides into every AI call
+    (brief, chat, all the reads) as a one-line mission summary, and each
+    primary AOI stands up its own I&amp;W warning board. Airfields get
+    posture/METAR/SITREP treatment; the tracked-weather list stays yours for
+    civil places (home, family, TDY) — set your residence separately under
+    <strong>Home Location</strong> below.
+  </div>
 
   <h3>Accounts</h3>
   <p>
