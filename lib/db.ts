@@ -418,7 +418,8 @@ const SCHEMA_STATEMENTS = [
     date          VARCHAR(10) NOT NULL UNIQUE,
     generated_at  DATETIME(3) NOT NULL,
     through_line  TEXT        NOT NULL,
-    article_count INT         NOT NULL DEFAULT 0
+    article_count INT         NOT NULL DEFAULT 0,
+    article_hash  VARCHAR(16) NOT NULL DEFAULT ''  -- article set + ctx; match = replay, don't regenerate
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS threads (
@@ -456,6 +457,10 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_memory", column: "pending_exchanges",         ddl: "ALTER TABLE user_memory ADD COLUMN pending_exchanges JSON NULL" },
   { table: "briefing_cache", column: "tz",                     ddl: "ALTER TABLE briefing_cache ADD COLUMN tz VARCHAR(64) NOT NULL DEFAULT 'UTC'" },
   { table: "news_overview_cache", column: "ctx_hash",          ddl: "ALTER TABLE news_overview_cache ADD COLUMN ctx_hash VARCHAR(16) NOT NULL DEFAULT ''" },
+  // Threads run on Opus over the whole article set — the priciest call in the
+  // app. Hash of the article ids + user context; an unchanged set replays the
+  // stored session instead of regenerating.
+  { table: "thread_sessions", column: "article_hash",          ddl: "ALTER TABLE thread_sessions ADD COLUMN article_hash VARCHAR(16) NOT NULL DEFAULT ''" },
   { table: "user_prefs",  column: "ai_enabled",                ddl: "ALTER TABLE user_prefs ADD COLUMN ai_enabled TINYINT(1) NOT NULL DEFAULT 1" },
   { table: "user_prefs",  column: "ai_feature_toggles",        ddl: "ALTER TABLE user_prefs ADD COLUMN ai_feature_toggles JSON NULL" },
   { table: "user_prefs",  column: "disabled_news_sources",     ddl: "ALTER TABLE user_prefs ADD COLUMN disabled_news_sources JSON NULL" },

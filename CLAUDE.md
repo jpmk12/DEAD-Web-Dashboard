@@ -1534,3 +1534,37 @@ were always ONE list with a client filter; they are chips INSIDE Feeds now).
   id (`crisis`/`sitrep`/`iw` → watch; `ground` → regional;
   `all`/`social`/`telegram`/`news` → feeds + feedKind). Glance dispatchers
   unchanged.
+
+### AI spend discipline (what may call the model, and when)
+An August 2026 spend audit found the ledger healthy ($1.73/day) but two
+structural leaks worth keeping closed. The rules that came out of it:
+
+- **Nothing pays on page load.** The Threads analysis (Opus over ~40 articles,
+  ~$0.42/call — the single most expensive call in the app) used to pre-fetch in
+  the background from `NewsShell` the moment articles arrived, so every load or
+  reload of the dashboard spent Opus tokens on an analysis nobody had opened.
+  It now runs when the **Threads view is actually open** (an effect keyed on
+  `viewMode`, which also covers Refresh-while-on-the-view). Same rule as
+  `crisis-read` / `force-read`, which have always been click handlers.
+- **`/api/threads` is day-cached like the briefing.** `thread_sessions.article_hash`
+  (additive column) stores a hash of the article ids + user context;
+  `getTodaySession(hash)` replays the stored session when the set is unchanged,
+  so switching views repeatedly is free and only a genuinely moved feed pays.
+  `?refresh=1` forces a fresh read (the "↻ Regenerate" affordance). The 15 s
+  rate limit moved to AFTER the cache check — a free replay must never 429.
+- **Background tabs don't poll paid surfaces.** The OSINT feed poll is gated on
+  the tab being `active` AND `document.visibilityState === "visible"`, because
+  every feed refresh re-runs the triage effect, which costs tokens on any item
+  it hasn't classified. Triage itself is `active`-gated too. A hidden tab stops
+  entirely and catches up via the focus/visibilitychange handler.
+- **Every model call is attributed.** All 22 `logCall` sites now pass
+  `user: normEmail(session.user?.email)`. Before this, ~85% of 30-day spend
+  logged as `shared`, which made "who spent this" unanswerable. Keep the field
+  on any new call site — the AI Controls per-user breakdown is the forensic
+  tool, and it's only as good as its coverage.
+- **The ledger is the source of truth.** `anthropic_usage` records route, model,
+  tokens, and cost for every call; Preferences → AI Controls → "Show today's
+  breakdown" reads it. If that total ever diverges materially from the Anthropic
+  Console, the key is being used outside this app — rotate it. Route names that
+  don't match an `AiFeature` key need a `ROUTE_LABEL_OVERRIDES` entry or they
+  render as raw slugs in that breakdown.

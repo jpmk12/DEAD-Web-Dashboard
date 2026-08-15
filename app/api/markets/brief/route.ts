@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { normEmail } from "@/lib/allowlist";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
       ],
       messages: [{ role: "user", content: userContent }],
     });
-    logCall({ route: "markets_brief", model: "claude-sonnet-4-6", usage: response.usage }).catch(() => {});
+    logCall({ route: "markets_brief", model: "claude-sonnet-4-6", usage: response.usage, user: normEmail(session.user?.email) }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";

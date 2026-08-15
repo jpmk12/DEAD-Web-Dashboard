@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       ],
     });
 
-    logCall({ route: "email_actions", model: "claude-opus-4-7", usage: response.usage }).catch(() => {});
+    logCall({ route: "email_actions", model: "claude-opus-4-7", usage: response.usage, user: normEmail(session.user?.email) }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "[]";

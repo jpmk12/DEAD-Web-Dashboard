@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { normEmail } from "@/lib/allowlist";
 import { anthropic } from "@/lib/claude";
 import { logCall } from "@/lib/anthropicLog";
 import { getUserPrefs } from "@/lib/userPrefs";
@@ -77,7 +78,7 @@ ${lines.join("\n")}`;
 
     const modelStart = Date.now();
     const resp = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 420, messages: [{ role: "user", content: prompt }] });
-    logCall({ route: "ground_sitrep", model: "claude-sonnet-4-6", usage: resp.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+    logCall({ route: "ground_sitrep", model: "claude-sonnet-4-6", usage: resp.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
     const text = resp.content[0].type === "text" ? resp.content[0].text.trim() : "";
     cache.set(cacheKey, { text, expires: Date.now() + TTL });
     return NextResponse.json({ text });

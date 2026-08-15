@@ -109,7 +109,7 @@ export async function POST(request: Request) {
       system: kind === "task" ? taskPrompt(today) : eventPrompt(today, tz),
       messages: [{ role: "user", content: emailBlock }],
     });
-    logCall({ route: "email_convert", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+    logCall({ route: "email_convert", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
     const text = response.content[0]?.type === "text" ? response.content[0].text : "{}";
     let plan: Record<string, unknown> = {};

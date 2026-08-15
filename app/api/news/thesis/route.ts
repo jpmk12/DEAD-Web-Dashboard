@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     );
   }
 
-  logCall({ route: "news_thesis", model: MODEL, usage: resp.usage }).catch(() => {});
+  logCall({ route: "news_thesis", model: MODEL, usage: resp.usage, user: normEmail(session.user?.email) }).catch(() => {});
 
   const thesis = resp.content
     .map((b) => (b.type === "text" ? b.text : ""))

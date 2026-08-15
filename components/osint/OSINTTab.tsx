@@ -140,13 +140,27 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       .finally(() => setLoading(false));
   }, []);
 
+  // Poll only while this tab is actually on screen AND the document is visible.
+  // Every OSINT feed refresh re-runs the triage effect below, which costs
+  // Anthropic tokens on any item it hasn't classified before — a background
+  // browser tab (or the app sitting on Glance) has no business paying for that.
+  // Load once on first activation, then poll; a hidden tab stops entirely and
+  // catches up on the focus/visibility handler when you come back.
   useEffect(() => {
-    loadFeed();
-    const id = setInterval(loadFeed, POLL_MS);
-    const onFocus = () => loadFeed();
-    window.addEventListener("focus", onFocus);
-    return () => { clearInterval(id); window.removeEventListener("focus", onFocus); };
-  }, [loadFeed]);
+    if (!active) return;
+    let stopped = false;
+    const tick = () => { if (!stopped && document.visibilityState === "visible") loadFeed(); };
+    tick();
+    const id = setInterval(tick, POLL_MS);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [loadFeed, active]);
 
   // Poll the auto-capture token freshness so the Sources chip can warn when the
   // unattended pipeline goes quiet — same signal as the Social pane's pill.
@@ -345,8 +359,11 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // Fire triage once items are loaded. Each cluster's primary id is what
   // gets surfaced to the user; non-primary dupes inherit the cluster's
   // priority pill so we don't need to triage them separately.
+  // Gated on `active`: the server caches per item id, so re-runs are usually
+  // free, but every genuinely new item costs — only pay while the user is
+  // looking at this tab.
   useEffect(() => {
-    if (items.length === 0) return;
+    if (!active || items.length === 0) return;
     const payload = items.slice(0, 120).map((i) => ({
       id: i.id, title: i.title, summary: i.summary, feedKind: i.feedKind, feedLabel: i.feedLabel,
     }));
@@ -360,7 +377,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       .then((d) => { if (d?.triage) setTriage(d.triage); })
       .catch(() => {})
       .finally(() => setTriaging(false));
-  }, [items]);
+  }, [items, active]);
 
   const toggleCluster = (key: string) => setExpandedClusters((prev) => {
     const next = new Set(prev);

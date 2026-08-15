@@ -90,7 +90,11 @@ function rowToThread(row: ThreadRow): StoredThread {
 
 // ─── Write ────────────────────────────────────────────────────────────────────
 
-export async function saveSession(result: ThreadsResult, articleCount: number): Promise<void> {
+export async function saveSession(
+  result: ThreadsResult,
+  articleCount: number,
+  articleHash = "",
+): Promise<void> {
   const pool = await getDb();
   const today = new Date().toISOString().slice(0, 10);
   const now = new Date();
@@ -101,13 +105,14 @@ export async function saveSession(result: ThreadsResult, articleCount: number): 
 
     // Upsert session for today, then look up its id (LAST_INSERT_ID isn't reliable across upserts)
     await conn.execute(
-      `INSERT INTO thread_sessions (date, generated_at, through_line, article_count)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO thread_sessions (date, generated_at, through_line, article_count, article_hash)
+       VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          generated_at  = VALUES(generated_at),
          through_line  = VALUES(through_line),
-         article_count = VALUES(article_count)`,
-      [today, now, result.throughLine, articleCount]
+         article_count = VALUES(article_count),
+         article_hash  = VALUES(article_hash)`,
+      [today, now, result.throughLine, articleCount, articleHash]
     );
 
     const [idRows] = await conn.query<(RowDataPacket & { id: number })[]>(
@@ -147,6 +152,44 @@ export async function saveSession(result: ThreadsResult, articleCount: number): 
 }
 
 // ─── Reads ────────────────────────────────────────────────────────────────────
+
+// Today's session replayed as a ThreadsResult — but ONLY when it was generated
+// from the same article set (and same user context) the caller is asking about.
+// Threads is the single most expensive call in the app (Opus over ~40 articles),
+// and the client used to pre-fetch it on every page load, so an unchanged feed
+// was regenerating the identical analysis at ~$0.42 a time. A hash mismatch
+// means the feed genuinely moved on and a fresh read is worth paying for.
+export async function getTodaySession(articleHash: string): Promise<ThreadsResult | null> {
+  if (!articleHash) return null;
+  const pool = await getDb();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [sessions] = await pool.query<(SessionRow & { article_hash: string })[]>(
+    "SELECT id, date, generated_at, through_line, article_count, article_hash FROM thread_sessions WHERE date = ?",
+    [today]
+  );
+  const session = sessions[0];
+  if (!session || (session.article_hash ?? "") !== articleHash) return null;
+
+  const [threadRows] = await pool.query<ThreadRow[]>(
+    "SELECT id, session_id, label, headline, summary, trend, sources, newsletter_context, article_ids FROM threads WHERE session_id = ? ORDER BY id",
+    [session.id]
+  );
+  if (threadRows.length === 0) return null;
+
+  return {
+    throughLine: session.through_line,
+    threads: threadRows.map((r) => ({
+      label: r.label,
+      headline: r.headline,
+      summary: r.summary,
+      trend: r.trend as "rising" | "stable" | "fading",
+      articleIds: asStringArray(r.article_ids),
+      sources: asStringArray(r.sources),
+      newsletterContext: r.newsletter_context ?? undefined,
+    })),
+  };
+}
 
 export async function getRecentSessions(days: number): Promise<StoredSession[]> {
   const pool = await getDb();

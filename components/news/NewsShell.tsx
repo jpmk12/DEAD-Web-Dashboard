@@ -69,21 +69,20 @@ export default function NewsShell({
     onNewslettersChange?.(items);
   }, [onNewslettersChange]);
 
-  // Pre-fetch threads in the background as soon as articles are loaded
-  useEffect(() => {
-    if (articles.length > 0 && !threads && !fetchingRef.current) {
-      void fetchThreads(articles, newsletters);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [articles.length]);
+  // Threads is the priciest call in the app (Opus over the whole article set),
+  // so it runs when you actually open the Threads view — NOT on page load. It
+  // used to pre-fetch in the background here, which meant every load/reload of
+  // the dashboard spent Opus tokens on an analysis nobody had asked to see.
+  // The server replays an unchanged article set from cache, so switching views
+  // repeatedly is free; only a genuinely moved feed pays again.
 
-  const fetchThreads = async (arts: NewsItem[], news: NewsletterSummary[]) => {
-    if (fetchingRef.current || threads) return;
+  const fetchThreads = async (arts: NewsItem[], news: NewsletterSummary[], refresh = false) => {
+    if (fetchingRef.current || (threads && !refresh)) return;
     fetchingRef.current = true;
     setThreadsLoading(true);
     setThreadsError(null);
     try {
-      const res = await fetch("/api/threads", {
+      const res = await fetch(`/api/threads${refresh ? "?refresh=1" : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ articles: arts, newsletters: news }),
@@ -99,10 +98,19 @@ export default function NewsShell({
     }
   };
 
-  const switchToThreads = () => {
-    setViewMode("threads");
-    if (articles.length > 0) void fetchThreads(articles, newsletters);
-  };
+  // Fetch whenever the Threads view is open and has nothing to show. This
+  // covers both entering the view and a Refresh performed while already on it
+  // (which clears `threads`) — without it the view would sit blank until you
+  // navigated away and back. The error guard stops a failed call from looping;
+  // Retry clears it deliberately.
+  useEffect(() => {
+    if (viewMode !== "threads") return;
+    if (articles.length === 0 || threads || threadsLoading || threadsError) return;
+    void fetchThreads(articles, newsletters);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, articles.length, threads, threadsLoading, threadsError]);
+
+  const switchToThreads = () => setViewMode("threads");
 
   const switchToFeed = () => setViewMode("feed");
   const switchToHistory = () => setViewMode("history");
@@ -233,7 +241,7 @@ export default function NewsShell({
               <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4 text-sm">
                 {threadsError}
                 <button
-                  onClick={switchToThreads}
+                  onClick={() => setThreadsError(null)}
                   disabled={threadsLoading}
                   className="ml-3 text-red-400 underline hover:text-red-300 text-xs disabled:opacity-40"
                 >
@@ -249,12 +257,23 @@ export default function NewsShell({
             )}
 
             {threads && !threadsLoading && (
-              <ThreadsView
-                result={threads}
-                articles={articles}
-                newsletters={newsletters}
-                watchlist={watchlist}
-              />
+              <>
+                <div className="flex justify-end mb-2">
+                  <button
+                    onClick={() => void fetchThreads(articles, newsletters, true)}
+                    title="Force a fresh analysis — an unchanged feed replays today's saved read for free"
+                    className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono uppercase tracking-wider transition-colors"
+                  >
+                    ↻ Regenerate
+                  </button>
+                </div>
+                <ThreadsView
+                  result={threads}
+                  articles={articles}
+                  newsletters={newsletters}
+                  watchlist={watchlist}
+                />
+              </>
             )}
           </div>
         )}

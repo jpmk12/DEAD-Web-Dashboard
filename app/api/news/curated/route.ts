@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ownerEmail } from "@/lib/allowlist";
+import { ownerEmail, normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
         messages: [{ role: "user", content: userContent }],
       });
 
-      logCall({ route: "news_curated", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+      logCall({ route: "news_curated", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
       const textBlock = response.content.find((b) => b.type === "text");
       const raw = textBlock?.type === "text" ? textBlock.text : "{}";

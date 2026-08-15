@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { normEmail } from "@/lib/allowlist";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
@@ -84,7 +85,7 @@ export async function POST(req: Request) {
       ],
       messages: [{ role: "user", content: JSON.stringify(payload) }],
     });
-    logCall({ route: "osint_situation", model: "claude-haiku-4-5", usage: response.usage }).catch(() => {});
+    logCall({ route: "osint_situation", model: "claude-haiku-4-5", usage: response.usage, user: normEmail(session.user?.email) }).catch(() => {});
     const block = response.content.find((b) => b.type === "text");
     const situation = cleanSituation(block?.type === "text" ? block.text : "");
     return NextResponse.json({ situation });

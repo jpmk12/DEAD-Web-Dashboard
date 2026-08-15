@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       ],
       messages: [{ role: "user", content: `${voiceBlock}\n\n${emailBlock}` }],
     });
-    logCall({ route: "email_draft", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+    logCall({ route: "email_draft", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const draft = (textBlock?.type === "text" ? textBlock.text : "").trim();

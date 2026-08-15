@@ -1489,9 +1489,23 @@ function formatUsd(micros: number): string {
 
 // Map a route name back to its human label, falling back to the raw route id
 // if a new route name lands without a label entry.
-const ROUTE_LABEL: Record<string, string> = Object.fromEntries(
-  ALL_AI_FEATURES.map((f) => [f, AI_FEATURE_LABELS[f].label])
-);
+// Most logged routes share a name with their AI feature toggle, so the label
+// comes for free. These don't — either the route predates the toggle (the
+// per-surface reads) or the names simply diverged (news_curated vs the
+// news_overview feature) — and without an entry the breakdown shows a raw
+// route name, which reads like a bug when you're auditing spend.
+const ROUTE_LABEL_OVERRIDES: Record<string, string> = {
+  news_curated: "News overview",
+  crisis_read: "Crisis map read",
+  force_read: "Force protection read",
+  ground_sitrep: "Country SITREP",
+  sitrep_read: "Base commander's read",
+};
+
+const ROUTE_LABEL: Record<string, string> = {
+  ...Object.fromEntries(ALL_AI_FEATURES.map((f) => [f, AI_FEATURE_LABELS[f].label])),
+  ...ROUTE_LABEL_OVERRIDES,
+};
 
 function AIControlPanel({
   aiEnabled, onAiEnabled, toggles, onToggles,

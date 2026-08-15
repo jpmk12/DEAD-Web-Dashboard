@@ -4,7 +4,9 @@ import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { NewsItem, NewsletterSummary, NewsThread, ThreadsResult } from "@/lib/types";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { saveSession, getRecentLabels } from "@/lib/threadHistory";
+import { saveSession, getRecentLabels, getTodaySession } from "@/lib/threadHistory";
+import { normEmail } from "@/lib/allowlist";
+import { createHash } from "node:crypto";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { extractJsonObject } from "@/lib/aiJson";
@@ -42,9 +44,7 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!checkRateLimit("threads", 15_000)) {
-    return NextResponse.json({ error: "Rate limited — wait 15 s between thread analyses" }, { status: 429 });
-  }
+  const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (contentLength > 600_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
@@ -73,6 +73,21 @@ export async function POST(request: Request) {
     pubDate: a.pubDate,
   }));
 
+  // Replay today's stored analysis when the article set AND user context are
+  // unchanged. The client pre-fetches threads on load, so without this an
+  // unchanged feed regenerated the identical Opus read on every page load —
+  // by far the largest line on the AI usage ledger. `?refresh=1` forces a new
+  // read (the "Regenerate" affordance), exactly like the briefing route.
+  const articleHash = createHash("sha256")
+    .update(articlePayload.map((a) => a.id).join("|") + "::ctx::" + userContext)
+    .digest("hex")
+    .slice(0, 16);
+
+  if (!forceRefresh) {
+    const cached = await getTodaySession(articleHash).catch(() => null);
+    if (cached) return NextResponse.json({ ...cached, cached: true });
+  }
+
   // Include newsletter bullets as supplemental signal
   const newsletterBullets = (newsletters as NewsletterSummary[])
     .flatMap((n) => n.bullets.slice(0, 4).map((b) => b.slice(0, 200)))
@@ -99,6 +114,12 @@ export async function POST(request: Request) {
     );
   }
 
+  // Rate-limit only the paid path — a cache hit above is free and must never
+  // be rejected for arriving too soon after the last generation.
+  if (!checkRateLimit("threads", 15_000)) {
+    return NextResponse.json({ error: "Rate limited — wait 15 s between thread analyses" }, { status: 429 });
+  }
+
   try {
     const modelStart = Date.now();
     const response = await anthropic.messages.create({
@@ -111,7 +132,7 @@ export async function POST(request: Request) {
       messages: [{ role: "user", content: userContent }],
     });
 
-    logCall({ route: "threads", model: "claude-opus-4-7", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+    logCall({ route: "threads", model: "claude-opus-4-7", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
@@ -141,8 +162,10 @@ export async function POST(request: Request) {
         : [],
     };
 
-    // Persist to history DB (fire-and-forget — don't block the response)
-    saveSession(result, articlePayload.length).catch((e) =>
+    // Persist to history DB (fire-and-forget — don't block the response).
+    // The hash rides along so the next identical request replays this instead
+    // of paying for it again.
+    saveSession(result, articlePayload.length, articleHash).catch((e) =>
       console.error("Thread history save failed:", e)
     );
 

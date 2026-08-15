@@ -156,7 +156,7 @@ export async function GET() {
         }],
       });
 
-      logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+      logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       const parsed: unknown = JSON.parse(extractJsonArray(raw));
       if (!Array.isArray(parsed)) throw new Error("Expected array");

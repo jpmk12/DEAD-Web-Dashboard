@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { auth } from "@/lib/auth";
+import { normEmail } from "@/lib/allowlist";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
@@ -107,7 +108,7 @@ export async function POST(req: Request) {
         ],
       });
 
-      logCall({ route: "osint_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart }).catch(() => {});
+      logCall({ route: "osint_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
       const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
       // Strip ```json fences / prose the model sometimes adds before parsing.
