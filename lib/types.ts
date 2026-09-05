@@ -258,6 +258,17 @@ export interface AiUsageSummary {
   byUser: { user: string; micros: number; calls: number }[];
 }
 
+// One calendar day of spend, for the trend strip in AI Controls. `day` is a
+// YYYY-MM-DD label already resolved in the user's timezone. `topRoute` names
+// the biggest line that day, which is what turns "Tuesday was expensive" into
+// "Tuesday was expensive BECAUSE of threads".
+export interface AiUsageDay {
+  day: string;
+  micros: number;
+  calls: number;
+  topRoute: string;
+}
+
 // Forecast / alerts / space-weather payloads returned by the weather APIs.
 export interface ForecastPeriod {
   name: string;

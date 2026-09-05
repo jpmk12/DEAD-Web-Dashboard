@@ -1,6 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { AiUsageRow, AiUsageSummary } from "./types";
+import { AiUsageRow, AiUsageSummary, AiUsageDay } from "./types";
 import { costMicrosFor } from "./aiFeatures";
 
 interface UsageRow extends RowDataPacket {
@@ -168,6 +168,68 @@ export async function getUsageToday(tz: string): Promise<AiUsageSummary> {
 export async function getUsageLastNDays(tz: string, n: number): Promise<AiUsageSummary> {
   const start = startOfDayMs(tz, n - 1);
   return summaryBetween(start, Date.now());
+}
+
+// Midnight on the 1st of the current month, in the user's timezone.
+function startOfMonthMs(tz: string): number {
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  const first = `${ymd.slice(0, 7)}-01`;
+  const offsetMin = tzOffsetMinutes(tz, new Date(`${first}T12:00:00Z`));
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMin);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return Date.parse(`${first}T00:00:00${sign}${hh}:${mm}`);
+}
+
+// Month-to-date spend. This is the number that matches an Anthropic Console
+// MONTHLY spend threshold — "today" and "last 30 days" both answer a different
+// question, and comparing either one against a monthly alert is how a routine
+// accumulation gets mistaken for a spike.
+export async function getUsageMonthToDate(tz: string): Promise<AiUsageSummary> {
+  return summaryBetween(startOfMonthMs(tz), Date.now());
+}
+
+// Per-day spend for the last n days, oldest first, with the day's biggest
+// route named. Answers "which day changed, and what changed on it" — the
+// aggregates alone can't distinguish a steady rate from one expensive day.
+export async function getUsageByDay(tz: string, n: number): Promise<AiUsageDay[]> {
+  const pool = await getDb();
+  const start = startOfDayMs(tz, n - 1);
+  const [rows] = await pool.query<(RowDataPacket & {
+    route: string; micros: string; calls: number; created_at: string | number;
+  })[]>(
+    `SELECT route, cost_micros AS micros, created_at
+     FROM anthropic_usage WHERE created_at >= ?`,
+    [start]
+  );
+
+  // Bucket in JS: the day label must be resolved in the user's timezone, which
+  // MySQL's DATE() can't do without a named-zone table being loaded.
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const byDay = new Map<string, { micros: number; calls: number; routes: Map<string, number> }>();
+  for (const r of rows) {
+    const day = fmt.format(new Date(Number(r.created_at)));
+    let e = byDay.get(day);
+    if (!e) { e = { micros: 0, calls: 0, routes: new Map() }; byDay.set(day, e); }
+    const m = Number(r.micros) || 0;
+    e.micros += m;
+    e.calls += 1;
+    e.routes.set(r.route, (e.routes.get(r.route) ?? 0) + m);
+  }
+
+  return Array.from(byDay.entries())
+    .map(([day, e]) => ({
+      day,
+      micros: e.micros,
+      calls: e.calls,
+      topRoute: Array.from(e.routes.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "",
+    }))
+    .sort((a, b) => a.day.localeCompare(b.day));
 }
 
 // Best-effort prune so the table doesn't grow unbounded. Keep 90 days of

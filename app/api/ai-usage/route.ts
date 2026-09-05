@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
-import { getUsageToday, getUsageLastNDays } from "@/lib/anthropicLog";
+import { getUsageToday, getUsageLastNDays, getUsageMonthToDate, getUsageByDay } from "@/lib/anthropicLog";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,15 @@ export async function GET() {
   const prefs = await getUserPrefs().catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
 
-  const [today, last7, last30] = await Promise.all([
+  // monthToDate matches an Anthropic Console MONTHLY spend threshold; byDay
+  // shows whether a month's total came from a steady rate or one bad day.
+  const [today, last7, last30, monthToDate, byDay] = await Promise.all([
     getUsageToday(tz),
     getUsageLastNDays(tz, 7),
     getUsageLastNDays(tz, 30),
+    getUsageMonthToDate(tz),
+    getUsageByDay(tz, 14),
   ]);
 
-  return NextResponse.json({ tz, today, last7, last30 });
+  return NextResponse.json({ tz, today, last7, last30, monthToDate, byDay });
 }

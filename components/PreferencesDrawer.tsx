@@ -2,7 +2,7 @@
 
 import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary, AiUsageDay } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { classifyAor, AOR_LABELS, type Aor } from "@/lib/aor";
 import { GATEWAYS } from "@/lib/airfields";
@@ -1517,13 +1517,17 @@ function AIControlPanel({
 }) {
   const [usage, setUsage] = useState<{
     today: AiUsageSummary; last7: AiUsageSummary; last30: AiUsageSummary;
+    monthToDate: AiUsageSummary; byDay: AiUsageDay[];
   } | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
 
   useEffect(() => {
     fetch("/api/ai-usage")
       .then((r) => r.json())
-      .then((d) => setUsage({ today: d.today, last7: d.last7, last30: d.last30 }))
+      .then((d) => setUsage({
+        today: d.today, last7: d.last7, last30: d.last30,
+        monthToDate: d.monthToDate, byDay: Array.isArray(d.byDay) ? d.byDay : [],
+      }))
       .catch(() => {});
   }, []);
 
@@ -1624,10 +1628,45 @@ function AIControlPanel({
             <span className="text-slate-500">Last 7 days</span>
             <span className="text-slate-300">{formatUsd(usage.last7.totalMicros)}</span>
           </div>
+          {/* Month-to-date is the line that matches an Anthropic Console MONTHLY
+              spend threshold — compare alerts against THIS number, not "today". */}
+          <div className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
+            <span className="text-emerald-600">This month (to date)</span>
+            <span className="text-emerald-300 font-bold">{formatUsd(usage.monthToDate.totalMicros)}</span>
+          </div>
           <div className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
             <span className="text-slate-500">Last 30 days</span>
             <span className="text-slate-300">{formatUsd(usage.last30.totalMicros)}</span>
           </div>
+
+          {/* Per-day trend — distinguishes a steady rate from one bad day. */}
+          {usage.byDay.length > 1 && (() => {
+            const peak = Math.max(...usage.byDay.map((d) => d.micros), 1);
+            return (
+              <div className="mt-2 pt-2 border-t border-slate-700/60">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">
+                  Daily — last {usage.byDay.length} days
+                </p>
+                <ul className="space-y-0.5">
+                  {usage.byDay.slice().reverse().map((d) => (
+                    <li key={d.day} className="flex items-center gap-2 text-[10px] font-mono">
+                      <span className="text-slate-500 w-11 flex-shrink-0">{d.day.slice(5)}</span>
+                      <span className="flex-1 h-1.5 bg-slate-900/60 rounded-sm overflow-hidden">
+                        <span
+                          className="block h-full bg-emerald-500/70 rounded-sm"
+                          style={{ width: `${Math.max(2, (d.micros / peak) * 100)}%` }}
+                        />
+                      </span>
+                      <span className="text-slate-400 w-14 text-right flex-shrink-0">{formatUsd(d.micros)}</span>
+                      <span className="text-slate-600 w-24 truncate hidden sm:block" title={`biggest line: ${d.topRoute}`}>
+                        {ROUTE_LABEL[d.topRoute] ?? d.topRoute}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
 
           {usage.today.byRoute.length > 0 && (
             <>
