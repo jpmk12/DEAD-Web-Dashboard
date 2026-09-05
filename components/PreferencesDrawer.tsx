@@ -1520,6 +1520,7 @@ function AIControlPanel({
     monthToDate: AiUsageSummary; byDay: AiUsageDay[];
   } | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [breakdownWindow, setBreakdownWindow] = useState<"today" | "last7" | "last30">("today");
 
   useEffect(() => {
     fetch("/api/ai-usage")
@@ -1674,42 +1675,87 @@ function AIControlPanel({
                 onClick={() => setShowBreakdown((v) => !v)}
                 className="text-[10px] text-slate-500 hover:text-slate-300 font-mono mt-2 transition-colors"
               >
-                {showBreakdown ? "▲ Hide" : "▼ Show"} today's breakdown
+                {showBreakdown ? "▲ Hide" : "▼ Show"} breakdown
               </button>
-              {showBreakdown && (
-                <ul className="mt-2 space-y-0.5">
-                  {usage.today.byRoute.map((r) => (
-                    <li key={r.route} className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
-                      <span className="text-slate-400 truncate">
-                        {ROUTE_LABEL[r.route] ?? r.route}
+              {showBreakdown && (() => {
+                // Every window's byRoute/byUser is already computed server-side;
+                // pinning the breakdown to "today" hid the one comparison that
+                // makes "shared" legible — today (post-attribution-fix) against
+                // 30 days (mostly rows written before every route passed a user).
+                const sel = breakdownWindow === "today" ? usage.today
+                  : breakdownWindow === "last7" ? usage.last7 : usage.last30;
+                return (
+                  <>
+                    <div className="flex items-center gap-1 mt-2">
+                      {([
+                        ["today", "Today"],
+                        ["last7", "7 days"],
+                        ["last30", "30 days"],
+                      ] as const).map(([id, label]) => (
+                        <button
+                          key={id}
+                          onClick={() => setBreakdownWindow(id)}
+                          className={`text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border transition-colors ${
+                            breakdownWindow === id
+                              ? "border-emerald-500/50 text-emerald-300 bg-emerald-500/10"
+                              : "border-slate-700 text-slate-600 hover:text-slate-400"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      <span className="ml-auto text-[9px] text-slate-600 font-mono">
+                        {formatUsd(sel.totalMicros)} · {sel.totalCalls}
                       </span>
-                      <span className="text-slate-500 flex-shrink-0">
-                        {formatUsd(r.micros)} · {r.calls}
-                        {typeof r.p50Ms === "number" && (
-                          <span className="text-slate-600" title="Model-call latency p50 / p95 today">
-                            {" "}· {(r.p50Ms / 1000).toFixed(1)}s{typeof r.p95Ms === "number" && r.p95Ms !== r.p50Ms ? `/${(r.p95Ms / 1000).toFixed(1)}s` : ""}
+                    </div>
+                    <ul className="mt-2 space-y-0.5">
+                      {sel.byRoute.map((r) => (
+                        <li key={r.route} className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
+                          <span className="text-slate-400 truncate">
+                            {ROUTE_LABEL[r.route] ?? r.route}
                           </span>
+                          <span className="text-slate-500 flex-shrink-0">
+                            {formatUsd(r.micros)} · {r.calls}
+                            {typeof r.p50Ms === "number" && (
+                              <span className="text-slate-600" title="Model-call latency p50 / p95">
+                                {" "}· {(r.p50Ms / 1000).toFixed(1)}s{typeof r.p95Ms === "number" && r.p95Ms !== r.p50Ms ? `/${(r.p95Ms / 1000).toFixed(1)}s` : ""}
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {/* Per-user attribution for the SAME window. "shared" = rows
+                        logged with no session email; since every route now passes
+                        one, a large shared slice in a recent window means an
+                        unattributed call site, while a large one at 30 days is
+                        just history from before the fix. */}
+                    {(sel.byUser?.length ?? 0) > 0 && (
+                      <>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mt-3 mb-1">
+                          By user — {breakdownWindow === "today" ? "today" : breakdownWindow === "last7" ? "last 7 days" : "last 30 days"}
+                        </p>
+                        <ul className="space-y-0.5">
+                          {sel.byUser.map((u) => (
+                            <li key={u.user} className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
+                              <span className={u.user === "shared" ? "text-amber-500/80 truncate" : "text-slate-400 truncate"}>
+                                {u.user}
+                              </span>
+                              <span className="text-slate-500 flex-shrink-0">{formatUsd(u.micros)} · {u.calls}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {sel.byUser.some((u) => u.user === "shared") && (
+                          <p className="text-[9px] text-slate-600 mt-1 leading-snug">
+                            &ldquo;shared&rdquo; = calls logged without a signed-in identity. Every route
+                            now records one, so this should only appear for older rows.
+                          </p>
                         )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {/* Per-user attribution — shown once more than one identity has
-                  spend ("shared" = background jobs + pre-split rows). */}
-              {showBreakdown && (usage.last30.byUser?.length ?? 0) > 1 && (
-                <>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mt-3 mb-1">By user — last 30 days</p>
-                  <ul className="space-y-0.5">
-                    {usage.last30.byUser.map((u) => (
-                      <li key={u.user} className="flex items-baseline justify-between gap-2 text-[10px] font-mono">
-                        <span className="text-slate-400 truncate">{u.user}</span>
-                        <span className="text-slate-500 flex-shrink-0">{formatUsd(u.micros)} · {u.calls}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
         </div>
