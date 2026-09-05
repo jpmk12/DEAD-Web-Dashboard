@@ -1517,7 +1517,7 @@ function AIControlPanel({
 }) {
   const [usage, setUsage] = useState<{
     today: AiUsageSummary; last7: AiUsageSummary; last30: AiUsageSummary;
-    monthToDate: AiUsageSummary; byDay: AiUsageDay[];
+    monthToDate: AiUsageSummary; byDay: AiUsageDay[]; keyTail?: string | null;
   } | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [breakdownWindow, setBreakdownWindow] = useState<"today" | "last7" | "last30">("today");
@@ -1528,6 +1528,7 @@ function AIControlPanel({
       .then((d) => setUsage({
         today: d.today, last7: d.last7, last30: d.last30,
         monthToDate: d.monthToDate, byDay: Array.isArray(d.byDay) ? d.byDay : [],
+        keyTail: typeof d.keyTail === "string" ? d.keyTail : null,
       }))
       .catch(() => {});
   }, []);
@@ -1625,6 +1626,14 @@ function AIControlPanel({
           }`}>
             {formatUsd(usage.today.totalMicros)}
           </p>
+          {/* Which key this deploy is actually holding (owner-only). After a
+              rotation, match these 4 characters against the Console's masked
+              key to confirm the swap landed — without spending to find out. */}
+          {usage.keyTail && (
+            <p className="text-[9px] text-slate-600 font-mono mt-0.5" title="Last 4 characters of the API key this server is using">
+              key ···{usage.keyTail}
+            </p>
+          )}
           <div className="flex items-baseline justify-between gap-2 mt-1.5 pt-1.5 border-t border-slate-700/60 text-[10px] font-mono">
             <span className="text-slate-500">Last 7 days</span>
             <span className="text-slate-300">{formatUsd(usage.last7.totalMicros)}</span>
