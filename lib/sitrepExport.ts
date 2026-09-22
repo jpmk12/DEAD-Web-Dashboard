@@ -11,7 +11,7 @@
 // same UNKNOWN-≠-clear discipline as the pane.
 
 import type { SitrepPayload } from "./sitrep";
-import { closureWindows, windowConflicts, type Led } from "./sitrepSignals";
+import { closureWindows, windowConflicts, windowRangeLabel, type Led } from "./sitrepSignals";
 import type { FlightCategory } from "./types";
 
 export function esc(s: string): string {
@@ -171,9 +171,7 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
           // solid CLOSED block on a page the recipient can't interrogate.
           const cls = w.indeterminate ? "sched"
             : w.kind === "closure" ? "red" : w.kind === "unserviceable" ? "amb" : "sky";
-          const lbl = w.indeterminate
-            ? "SCHED — see NOTAM"
-            : `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "→" : zhm(w.toMs)}`;
+          const lbl = w.indeterminate ? "SCHED — see NOTAM" : windowRangeLabel(w, nowMs);
           const tip = w.indeterminate
             ? `${w.text} · schedule published in the NOTAM, times not parsed`
             : w.recurring ? `${w.text} · recurring window` : w.text;

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
-import { closureWindows, windowConflicts, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
+import { closureWindows, windowConflicts, windowRangeLabel, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
 import { renderSitrepHtml } from "@/lib/sitrepExport";
 import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
 
@@ -663,7 +663,7 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                                 key={i}
                                 title={w.indeterminate
                                   ? `${w.text} · schedule published in the NOTAM — times could not be parsed, read the full text`
-                                  : `${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "continues past +48h" : zhm(w.toMs)}${w.recurring ? " · recurring window" : ""}`}
+                                  : `${w.text} · ${windowRangeLabel(w, tlNowMs)}${w.recurring ? " · recurring window" : ""}`}
                                 className={`absolute top-[2px] bottom-[2px] rounded-[3px] border px-1 text-[7.5px] font-bold flex items-center overflow-hidden whitespace-nowrap ${
                                   w.indeterminate ? "bg-transparent border-dashed border-slate-500/70 text-slate-400"
                                   : w.kind === "closure" ? "bg-red-500/20 border-red-500/55 text-red-300"
@@ -689,9 +689,8 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                               : "border-sky-500/40 bg-sky-500/[.06]"
                             }`}>
                               <p className="text-[9px] font-mono text-slate-500">
-                                {w.indeterminate
-                                  ? "SCHEDULE IN NOTAM — extent not parsed"
-                                  : <>{zhm(w.fromMs)}–{w.openEnded ? "UFN" : w.beyondHorizon ? "→ beyond +48h" : zhm(w.toMs)} · {w.kind === "closure" ? "CLOSED" : w.kind === "unserviceable" ? "U/S" : "LIMITED"}{w.recurring ? " · RECURRING" : ""}</>}
+                                {windowRangeLabel(w, tlNowMs)}
+                                {!w.indeterminate && <> · {w.kind === "closure" ? "CLOSED" : w.kind === "unserviceable" ? "U/S" : "LIMITED"}{w.recurring ? " · RECURRING" : ""}</>}
                               </p>
                               <p className="text-[10.5px] text-slate-300 leading-snug break-words">{w.text}</p>
                             </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { closureWindows, windowConflicts, windowLabel, parseNotamSchedule, type ClosureWindow } from "../lib/sitrepSignals";
+import { closureWindows, windowConflicts, windowLabel, parseNotamSchedule, windowRangeLabel as mkLabel, type ClosureWindow } from "../lib/sitrepSignals";
 import type { TafSegment } from "../lib/sitrepSignals";
 
 const NOW = Date.UTC(2026, 6, 6, 6, 0);           // 06Z
@@ -213,5 +213,24 @@ describe("closureWindows — scheduled closures", () => {
     expect(w).toHaveLength(1);
     expect(w[0].recurring).toBeUndefined();
     expect(w[0].fromMs).toBe(TUE);
+  });
+});
+
+describe("windowRangeLabel", () => {
+  const TUE = Date.UTC(2026, 8, 22, 6, 48);
+  const mk = (from: number, to: number, extra: Partial<ClosureWindow> = {}): ClosureWindow => ({
+    label: "RWY 01/19", kind: "closure", fromMs: from, toMs: to,
+    openEnded: false, beyondHorizon: false, text: "", ...extra,
+  });
+
+  it("omits the weekday for today and adds it for later days", () => {
+    expect(mkLabel(mk(Date.UTC(2026, 8, 22, 14, 0), Date.UTC(2026, 8, 22, 18, 0)), TUE)).toBe("14:00Z–18:00Z");
+    expect(mkLabel(mk(Date.UTC(2026, 8, 23, 14, 0), Date.UTC(2026, 8, 23, 18, 0)), TUE)).toBe("Wed 14:00Z–18:00Z");
+  });
+
+  it("keeps UFN / beyond-horizon / indeterminate wording", () => {
+    expect(mkLabel(mk(TUE, TUE + 48 * H, { openEnded: true }), TUE)).toBe("06:48Z–UFN");
+    expect(mkLabel(mk(TUE, TUE + 48 * H, { beyondHorizon: true }), TUE)).toBe("06:48Z–→ beyond +48h");
+    expect(mkLabel(mk(TUE, TUE + 48 * H, { indeterminate: true }), TUE)).toBe("SCHEDULE IN NOTAM — extent not parsed");
   });
 });

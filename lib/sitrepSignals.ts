@@ -368,6 +368,25 @@ export function windowLabel(text: string, category: string): string {
   return snippet.length < clean.length ? `${snippet}…` : snippet;
 }
 
+const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Range text for one bar, shared by the pane and the HTML export so they can
+// never drift. Occurrences of a recurring schedule repeat at the SAME clock
+// time on different days, so a bare "14:00Z-18:00Z" listed twice is ambiguous
+// — prefix the weekday whenever the window does not start on the same UTC day
+// the board was generated.
+export function windowRangeLabel(w: ClosureWindow, nowMs: number): string {
+  if (w.indeterminate) return "SCHEDULE IN NOTAM — extent not parsed";
+  const z = (ms: number) => new Date(ms).toISOString().slice(11, 16) + "Z";
+  const a = new Date(w.fromMs), b = new Date(nowMs);
+  const sameDay = a.getUTCFullYear() === b.getUTCFullYear()
+    && a.getUTCMonth() === b.getUTCMonth()
+    && a.getUTCDate() === b.getUTCDate();
+  const prefix = sameDay ? "" : `${DOW_LABEL[a.getUTCDay()]} `;
+  const end = w.openEnded ? "UFN" : w.beyondHorizon ? "→ beyond +48h" : z(w.toMs);
+  return `${prefix}${z(w.fromMs)}–${end}`;
+}
+
 const KIND_ORDER: Record<WindowKind, number> = { closure: 0, unserviceable: 1, limited: 2 };
 
 export function closureWindows(notams: SitrepNotam[], nowMs: number, horizonH = 48): ClosureWindow[] {
