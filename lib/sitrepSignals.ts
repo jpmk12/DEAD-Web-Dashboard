@@ -226,6 +226,101 @@ export interface ClosureWindow {
   openEnded: boolean;    // no C) end time — bar runs to the horizon edge (→ UFN)
   beyondHorizon: boolean; // has a C) end, but it falls past the horizon (→ continues)
   text: string;          // source NOTAM snippet (tooltip)
+  recurring?: boolean;   // one occurrence of a day/hour schedule inside the validity span
+  indeterminate?: boolean; // schedule detected but NOT parseable — extent unknown, never claim CLOSED
+}
+
+// ── NOTAM activity schedules ────────────────────────────────────────────────
+// A NOTAM's B)/C) times bound how long the NOTICE is valid, not when the
+// condition is actually in effect. Construction closures routinely read
+// "SUN TUE WED 1400-1800, MON 1400-1700" inside a two-month validity span.
+// Painting the validity span as one solid bar claims the runway is shut for
+// two months when it is shut four hours a day on four days a week — wrong in
+// the direction that manufactures a permanent CCIR and teaches the commander
+// to stop believing the board.
+//
+// PURE + unit-tested. Returns null when the text carries no schedule at all
+// (a genuinely continuous closure, which SHOULD draw as one bar).
+
+const DOW_NUM: Record<string, number> = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
+const DAY_TOKEN = "MON|TUE|WED|THU|FRI|SAT|SUN";
+// A day-of-week token is the marker that a schedule exists at all. Matched
+// case-sensitively against the upper-cased text so "Mon" inside a word can't
+// trip it.
+const HAS_SCHEDULE_RE = new RegExp(`\\b(?:${DAY_TOKEN}|DAILY)\\b`);
+// day list (possibly ranges) immediately followed by an HHMM-HHMM span
+const SCHEDULE_CLAUSE_RE = new RegExp(
+  `((?:(?:${DAY_TOKEN}|DAILY)(?:\\s*-\\s*(?:${DAY_TOKEN}))?[\\s,]*)+)(\\d{4})\\s*-\\s*(\\d{4})`,
+  "g",
+);
+
+export interface ScheduleRule {
+  days: number[];    // 0 = Sunday … 6 = Saturday
+  startMin: number;  // minutes past 00:00Z
+  endMin: number;    // when ≤ startMin the window crosses midnight
+}
+
+function expandDayTokens(raw: string): number[] {
+  const days = new Set<number>();
+  // Normalise "MON - FRI" → "MON-FRI" so a range survives the split.
+  for (const tok of raw.replace(/\s*-\s*/g, "-").split(/[\s,]+/).filter(Boolean)) {
+    if (tok === "DAILY") { for (let d = 0; d < 7; d++) days.add(d); continue; }
+    const range = tok.match(new RegExp(`^(${DAY_TOKEN})-(${DAY_TOKEN})$`));
+    if (range) {
+      const a = DOW_NUM[range[1]], b = DOW_NUM[range[2]];
+      // Inclusive, wrapping (FRI-MON = Fri, Sat, Sun, Mon).
+      for (let i = 0; i < 7; i++) { const d = (a + i) % 7; days.add(d); if (d === b) break; }
+      continue;
+    }
+    if (tok in DOW_NUM) days.add(DOW_NUM[tok]);
+  }
+  return [...days].sort((x, y) => x - y);
+}
+
+const hhmmToMin = (s: string): number | null => {
+  const h = Number(s.slice(0, 2)), m = Number(s.slice(2, 4));
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h > 24 || m > 59) return null;
+  return h * 60 + m;
+};
+
+export function parseNotamSchedule(text: string): ScheduleRule[] | null {
+  const up = text.toUpperCase();
+  if (!HAS_SCHEDULE_RE.test(up)) return null;     // no schedule → continuous
+  const rules: ScheduleRule[] = [];
+  SCHEDULE_CLAUSE_RE.lastIndex = 0;
+  for (const m of up.matchAll(SCHEDULE_CLAUSE_RE)) {
+    const days = expandDayTokens(m[1]);
+    const startMin = hhmmToMin(m[2]);
+    const endMin = hhmmToMin(m[3]);
+    if (!days.length || startMin === null || endMin === null) continue;
+    rules.push({ days, startMin, endMin });
+  }
+  return rules.length ? rules : [];               // [] = schedule present but unreadable
+}
+
+// Occurrences of a schedule inside [fromMs, toMs], already clipped.
+export function scheduleOccurrences(
+  rules: ScheduleRule[],
+  fromMs: number,
+  toMs: number,
+): { fromMs: number; toMs: number }[] {
+  if (toMs <= fromMs) return [];
+  const out: { fromMs: number; toMs: number }[] = [];
+  const d0 = new Date(fromMs);
+  // Start one day early so a window that began yesterday and crosses midnight
+  // is still caught. UTC midnights are exactly 86 400 000 ms apart — no DST.
+  let day = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate()) - 86_400_000;
+  for (; day <= toMs; day += 86_400_000) {
+    const dow = new Date(day).getUTCDay();
+    for (const r of rules) {
+      if (!r.days.includes(dow)) continue;
+      const s = day + r.startMin * 60_000;
+      const e = day + r.endMin * 60_000 + (r.endMin <= r.startMin ? 86_400_000 : 0);
+      const cs = Math.max(s, fromMs), ce = Math.min(e, toMs);
+      if (ce > cs) out.push({ fromMs: cs, toMs: ce });
+    }
+  }
+  return out.sort((a, b) => a.fromMs - b.fromMs);
 }
 
 const CLSD_RE = /\bCLSD\b|\bCLOSED\b/i;
@@ -289,19 +384,43 @@ export function closureWindows(notams: SitrepNotam[], nowMs: number, horizonH = 
     const from = hasStart ? startMs : nowMs;            // already in effect
     const to = hasEnd ? endMs : horizonEnd;             // open-ended → horizon edge
     if (to <= nowMs || from >= horizonEnd || to <= from) continue;
-    out.push({
+    const base = {
       label: windowLabel(n.text, n.category),
       kind,
-      fromMs: Math.max(from, nowMs),
-      toMs: Math.min(to, horizonEnd),
+      text: n.text.slice(0, 160),
+    };
+    const clipFrom = Math.max(from, nowMs);
+    const clipTo = Math.min(to, horizonEnd);
+
+    // A day/hour schedule inside the validity span wins over the span itself.
+    const rules = parseNotamSchedule(n.text);
+    if (rules && rules.length > 0) {
+      for (const occ of scheduleOccurrences(rules, clipFrom, clipTo)) {
+        out.push({ ...base, fromMs: occ.fromMs, toMs: occ.toMs, openEnded: false, beyondHorizon: false, recurring: true });
+      }
+      // No occurrence inside the horizon means the condition simply isn't in
+      // effect in the next 48 h. Drawing nothing is the correct answer — the
+      // NOTAM still shows in the text list above.
+      continue;
+    }
+    if (rules && rules.length === 0) {
+      // Schedule markers present but the times didn't parse. A solid bar here
+      // would be exactly the guess this timeline promises never to make, so
+      // mark it indeterminate and let the UI draw it as "extent unknown".
+      out.push({ ...base, fromMs: clipFrom, toMs: clipTo, openEnded: !hasEnd, beyondHorizon: hasEnd && endMs > horizonEnd, indeterminate: true });
+      continue;
+    }
+    out.push({
+      ...base,
+      fromMs: clipFrom,
+      toMs: clipTo,
       openEnded: !hasEnd,
       beyondHorizon: hasEnd && endMs > horizonEnd,
-      text: n.text.slice(0, 160),
     });
   }
   return out
     .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.fromMs - b.fromMs)
-    .slice(0, 12);
+    .slice(0, 24);   // a scheduled closure emits one bar PER occurrence, not one per NOTAM
 }
 
 const zHhmm = (ms: number) => {
@@ -315,6 +434,7 @@ export function windowConflicts(windows: ClosureWindow[], segments: TafSegment[]
   const out: string[] = [];
   for (const w of windows) {
     if (w.kind !== "closure") continue;
+    if (w.indeterminate) continue;   // unknown extent → cannot assert a weather overlap
     if (!/^RWY|^Airfield/.test(w.label)) continue;
     let worst: TafSegment | null = null;
     for (const s of segments) {

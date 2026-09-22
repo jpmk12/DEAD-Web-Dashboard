@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { closureWindows, windowConflicts, windowLabel, type ClosureWindow } from "../lib/sitrepSignals";
+import { closureWindows, windowConflicts, windowLabel, parseNotamSchedule, type ClosureWindow } from "../lib/sitrepSignals";
 import type { TafSegment } from "../lib/sitrepSignals";
 
 const NOW = Date.UTC(2026, 6, 6, 6, 0);           // 06Z
@@ -133,5 +133,85 @@ describe("windowConflicts", () => {
       [seg("IFR", 7, 10), seg("LIFR", 12, 14)],
     );
     expect(c[0]).toContain("LIFR");
+  });
+});
+
+// ── NOTAM activity schedules ────────────────────────────────────────────────
+// Regression: a construction closure whose B)/C) span is two months but whose
+// E) text restricts it to a few hours on a few weekdays. Painting the validity
+// span drew a solid 48-h CLOSED bar and drove a permanent single-runway CCIR.
+const REAL = "A0467/26 RWY CLSD DUE TO CONST WORK EXC EMERG AND SPECIAL FLT. SUN TUE WED 1400 - 1800, MON 1400 - 1700, 20 SEP 14:00 2026 UNTIL 18 NOV 18:00 2026. CREATED: 14 SEP 12:02 2026";
+
+describe("parseNotamSchedule", () => {
+  it("reads multi-clause day/hour schedules and ignores the validity dates", () => {
+    const rules = parseNotamSchedule(REAL)!;
+    expect(rules).toHaveLength(2);
+    expect(rules[0]).toEqual({ days: [0, 2, 3], startMin: 14 * 60, endMin: 18 * 60 }); // SUN TUE WED
+    expect(rules[1]).toEqual({ days: [1], startMin: 14 * 60, endMin: 17 * 60 });       // MON
+  });
+
+  it("handles DAILY and weekday ranges; no day token at all → null (continuous)", () => {
+    expect(parseNotamSchedule("RWY CLSD DAILY 0600-0800")![0].days).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(parseNotamSchedule("TWY A CLSD MON-FRI 0800-1600")![0].days).toEqual([1, 2, 3, 4, 5]);
+    expect(parseNotamSchedule("RWY 06/24 CLSD DUE WIP")).toBeNull();
+    // Validity dates alone must not be mistaken for a schedule.
+    expect(parseNotamSchedule("RWY CLSD 20 SEP 14:00 2026 UNTIL 18 NOV 18:00 2026")).toBeNull();
+  });
+
+  it("day token present but times unreadable → [] (schedule exists, unparseable)", () => {
+    expect(parseNotamSchedule("RWY CLSD MON THU AS PUBLISHED BY NOTAM")).toEqual([]);
+  });
+});
+
+describe("closureWindows — scheduled closures", () => {
+  // Tue 22 Sep 2026 06:48Z, inside the NOTAM's 20 Sep – 18 Nov validity.
+  const TUE = Date.UTC(2026, 8, 22, 6, 48);
+  const sched = [notam(REAL, "runway", Date.UTC(2026, 8, 20, 14, 0), Date.UTC(2026, 10, 18, 18, 0))];
+
+  it("emits one bar per occurrence, not one spanning the validity", () => {
+    const w = closureWindows(sched, TUE, 48);
+    // Horizon Tue 06:48Z → Thu 06:48Z covers Tue and Wed only; Thu is not in
+    // the schedule, so exactly two 4-hour bars.
+    expect(w).toHaveLength(2);
+    expect(w.every((x) => x.recurring === true)).toBe(true);
+    expect(w[0].fromMs).toBe(Date.UTC(2026, 8, 22, 14, 0));
+    expect(w[0].toMs).toBe(Date.UTC(2026, 8, 22, 18, 0));
+    expect(w[1].fromMs).toBe(Date.UTC(2026, 8, 23, 14, 0));
+    expect(w[1].toMs).toBe(Date.UTC(2026, 8, 23, 18, 0));
+    // The bug: nothing may claim the runway is shut right now.
+    expect(w.some((x) => x.fromMs <= TUE && x.toMs > TUE)).toBe(false);
+  });
+
+  it("MON uses its own shorter 1400-1700 clause", () => {
+    const w = closureWindows(sched, Date.UTC(2026, 8, 21, 6, 0), 24);   // Mon
+    expect(w).toHaveLength(1);
+    expect(w[0].toMs).toBe(Date.UTC(2026, 8, 21, 17, 0));
+  });
+
+  it("no occurrence inside the horizon → no bar at all", () => {
+    // Thu 24 Sep 06:00Z → Fri 06:00Z: neither day is in the schedule.
+    expect(closureWindows(sched, Date.UTC(2026, 8, 24, 6, 0), 24)).toHaveLength(0);
+  });
+
+  it("clips an occurrence already under way to now", () => {
+    const w = closureWindows(sched, Date.UTC(2026, 8, 22, 15, 0), 6);   // mid-closure
+    expect(w[0].fromMs).toBe(Date.UTC(2026, 8, 22, 15, 0));
+    expect(w[0].toMs).toBe(Date.UTC(2026, 8, 22, 18, 0));
+  });
+
+  it("unparseable schedule is marked indeterminate and never counts as a conflict", () => {
+    const w = closureWindows(
+      [notam("RWY 06/24 CLSD MON THU AS PUBLISHED", "runway", TUE - H, TUE + 200 * H)], TUE, 48);
+    expect(w).toHaveLength(1);
+    expect(w[0].indeterminate).toBe(true);
+    const ifr: TafSegment[] = [{ cat: "IFR", fromMs: TUE, toMs: TUE + 12 * H, label: "06Z" }];
+    expect(windowConflicts(w, ifr)).toEqual([]);
+  });
+
+  it("a genuinely continuous closure still draws one bar", () => {
+    const w = closureWindows([notam("RWY 06/24 CLSD DUE WIP", "runway", TUE - H, TUE + 10 * H)], TUE, 48);
+    expect(w).toHaveLength(1);
+    expect(w[0].recurring).toBeUndefined();
+    expect(w[0].fromMs).toBe(TUE);
   });
 });

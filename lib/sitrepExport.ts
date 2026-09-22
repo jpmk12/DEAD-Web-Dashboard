@@ -167,9 +167,17 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
         `<div class="tlrow"><div class="tllab">${esc(label)}</div><div class="tltrack">${ws.map((w) => {
           const left = ((w.fromMs - nowMs) / span48) * 100;
           const width = Math.max(1.5, ((w.toMs - w.fromMs) / span48) * 100);
-          const cls = w.kind === "closure" ? "red" : w.kind === "unserviceable" ? "amb" : "sky";
-          const lbl = `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "→" : zhm(w.toMs)}`;
-          return `<span class="bar ${cls}" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%" title="${esc(w.text)}">${width > 12 ? esc(lbl) : ""}</span>`;
+          // A published schedule the parser couldn't read must not print as a
+          // solid CLOSED block on a page the recipient can't interrogate.
+          const cls = w.indeterminate ? "sched"
+            : w.kind === "closure" ? "red" : w.kind === "unserviceable" ? "amb" : "sky";
+          const lbl = w.indeterminate
+            ? "SCHED — see NOTAM"
+            : `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "→" : zhm(w.toMs)}`;
+          const tip = w.indeterminate
+            ? `${w.text} · schedule published in the NOTAM, times not parsed`
+            : w.recurring ? `${w.text} · recurring window` : w.text;
+          return `<span class="bar ${cls}" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%" title="${esc(tip)}">${width > 12 ? esc(lbl) : ""}</span>`;
         }).join("")}</div></div>`
       ).join("") +
       conflicts.map((c) => `<div class="conflict">⚠ <b>Window conflict:</b> ${esc(c)}</div>`).join("") +
@@ -275,6 +283,7 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 .bar.red{background:rgba(239,68,68,.22);border:1px solid rgba(239,68,68,.55);color:#fca5a5}
 .bar.amb{background:rgba(251,191,36,.2);border:1px solid rgba(251,191,36,.5);color:#fcd34d}
 .bar.sky{background:rgba(56,189,248,.18);border:1px solid rgba(56,189,248,.45);color:#7dd3fc}
+.bar.sched{background:transparent;border:1px dashed rgba(148,163,184,.7);color:#94a3b8}
 .conflict{margin-top:8px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.06);border-radius:8px;padding:7px 10px;font-size:11px;color:#fca5a5}
 .foot{font:10px ui-monospace,Menlo,monospace;color:#475569;line-height:1.7;border-top:1px solid #1e293b;padding-top:12px;margin-top:18px}
 .foot b{color:#94a3b8}

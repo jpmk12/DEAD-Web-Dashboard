@@ -1116,6 +1116,20 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   conflicts. Only window-pattern NOTAMs WITH a parseable time become bars —
   everything else stays a text row (never a guessed bar); open-ended windows
   run to the horizon flagged UFN.
+  **A NOTAM's B)/C) times bound how long the NOTICE is valid, NOT when the
+  condition is in effect** — construction closures routinely read "SUN TUE WED
+  1400-1800, MON 1400-1700" inside a two-month validity span.
+  `parseNotamSchedule` / `scheduleOccurrences` (PURE, tested against the real
+  A0467/26) expand a published day/hour schedule into one bar PER OCCURRENCE;
+  no occurrence inside the horizon means NO bar at all (the NOTAM still shows
+  in the text list). Painting the validity span instead drew a solid 48-h
+  CLOSED bar and — through `deriveMissionImpact`'s `rwyClose` lookup — a
+  PERMANENT single-runway CCIR + PMC for the whole two months: "colour is
+  earned" broken in the direction that teaches the commander to stop believing
+  the board. When day tokens are present but the times don't parse, the window
+  is flagged `indeterminate`, renders as a dashed "SCHED — see NOTAM" outline
+  in BOTH the pane and the HTML export, and is excluded from
+  `windowConflicts` — an unknown extent cannot assert a weather overlap.
 - **⇩ Export HTML (standalone shareable SITREP)**: `lib/sitrepExport.ts` →
   `renderSitrepHtml(payload, read)` — PURE client-safe string builder
   (tested) that renders the pane's current payload + BLUF into ONE

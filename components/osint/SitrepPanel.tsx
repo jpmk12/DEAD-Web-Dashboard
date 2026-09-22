@@ -661,15 +661,19 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                             return (
                               <span
                                 key={i}
-                                title={`${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "continues past +48h" : zhm(w.toMs)}`}
+                                title={w.indeterminate
+                                  ? `${w.text} · schedule published in the NOTAM — times could not be parsed, read the full text`
+                                  : `${w.text} · ${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "continues past +48h" : zhm(w.toMs)}${w.recurring ? " · recurring window" : ""}`}
                                 className={`absolute top-[2px] bottom-[2px] rounded-[3px] border px-1 text-[7.5px] font-bold flex items-center overflow-hidden whitespace-nowrap ${
-                                  w.kind === "closure" ? "bg-red-500/20 border-red-500/55 text-red-300"
+                                  w.indeterminate ? "bg-transparent border-dashed border-slate-500/70 text-slate-400"
+                                  : w.kind === "closure" ? "bg-red-500/20 border-red-500/55 text-red-300"
                                   : w.kind === "unserviceable" ? "bg-amber-500/20 border-amber-500/55 text-amber-300"
                                   : "bg-sky-500/15 border-sky-500/45 text-sky-300"
                                 }`}
                                 style={{ left: `${left}%`, width: `${width}%` }}
                               >
-                                {width > 12 ? `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "→" : zhm(w.toMs)}` : ""}
+                                {w.indeterminate ? (width > 12 ? "SCHED — see NOTAM" : "SCHED")
+                                  : width > 12 ? `${zhm(w.fromMs)}–${w.openEnded ? "UFN" : w.beyondHorizon ? "→" : zhm(w.toMs)}` : ""}
                               </span>
                             );
                           })}
@@ -679,12 +683,15 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                         <div className="ml-[104px] mt-1 mb-1.5 space-y-1">
                           {ws.map((w, i) => (
                             <div key={i} className={`rounded-md border px-2 py-1 ${
-                              w.kind === "closure" ? "border-red-500/40 bg-red-500/[.06]"
+                              w.indeterminate ? "border-dashed border-slate-600 bg-slate-800/20"
+                              : w.kind === "closure" ? "border-red-500/40 bg-red-500/[.06]"
                               : w.kind === "unserviceable" ? "border-amber-500/40 bg-amber-500/[.06]"
                               : "border-sky-500/40 bg-sky-500/[.06]"
                             }`}>
                               <p className="text-[9px] font-mono text-slate-500">
-                                {zhm(w.fromMs)}–{w.openEnded ? "UFN" : w.beyondHorizon ? "→ beyond +48h" : zhm(w.toMs)} · {w.kind === "closure" ? "CLOSED" : w.kind === "unserviceable" ? "U/S" : "LIMITED"}
+                                {w.indeterminate
+                                  ? "SCHEDULE IN NOTAM — extent not parsed"
+                                  : <>{zhm(w.fromMs)}–{w.openEnded ? "UFN" : w.beyondHorizon ? "→ beyond +48h" : zhm(w.toMs)} · {w.kind === "closure" ? "CLOSED" : w.kind === "unserviceable" ? "U/S" : "LIMITED"}{w.recurring ? " · RECURRING" : ""}</>}
                               </p>
                               <p className="text-[10.5px] text-slate-300 leading-snug break-words">{w.text}</p>
                             </div>
@@ -717,7 +724,7 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                     </div>
                   ))}
                   <p className="text-[8.5px] text-slate-600 mt-1.5">
-                    Tap a row to read the NOTAM behind it. Bars come only from NOTAMs with parseable B)/C) times — anything unparseable stays a text row above, never a guessed bar. Open-ended windows run to the edge (UFN); “→” means the window continues past the 48 h horizon.
+                    Tap a row to read the NOTAM behind it. Bars come only from NOTAMs with parseable B)/C) times — anything unparseable stays a text row above, never a guessed bar. Open-ended windows run to the edge (UFN); “→” means the window continues past the 48 h horizon. When a NOTAM publishes a day/hour schedule (e.g. “SUN TUE WED 1400-1800”), each occurrence draws as its own bar rather than filling the whole validity span; a dashed “SCHED” bar means a schedule is published but its times could not be parsed — read the NOTAM.
                   </p>
                 </div>
               )}
