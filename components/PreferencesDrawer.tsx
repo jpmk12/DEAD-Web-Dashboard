@@ -1517,7 +1517,7 @@ function AIControlPanel({
 }) {
   const [usage, setUsage] = useState<{
     today: AiUsageSummary; last7: AiUsageSummary; last30: AiUsageSummary;
-    monthToDate: AiUsageSummary; byDay: AiUsageDay[]; keyTail?: string | null;
+    monthToDate: AiUsageSummary; byDay: AiUsageDay[]; keyTail?: string | null; aiHealth?: string | null;
   } | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [breakdownWindow, setBreakdownWindow] = useState<"today" | "last7" | "last30">("today");
@@ -1529,6 +1529,7 @@ function AIControlPanel({
         today: d.today, last7: d.last7, last30: d.last30,
         monthToDate: d.monthToDate, byDay: Array.isArray(d.byDay) ? d.byDay : [],
         keyTail: typeof d.keyTail === "string" ? d.keyTail : null,
+        aiHealth: typeof d.aiHealth === "string" ? d.aiHealth : null,
       }))
       .catch(() => {});
   }, []);
@@ -1552,6 +1553,15 @@ function AIControlPanel({
         back to non-AI behaviour when off — no errors, just degraded output
         (snippets instead of summaries, etc).
       </p>
+
+      {/* Why the AI went quiet. Every feature degrades to a placeholder on
+          failure, so without this a rejected key reads as "no results". */}
+      {usage?.aiHealth && (
+        <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-3 mb-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-red-300 mb-0.5">AI calls are failing</p>
+          <p className="text-[11px] text-red-200/90 leading-snug">{usage.aiHealth}</p>
+        </div>
+      )}
 
       {/* Master switch */}
       <div className={`rounded-lg border p-3 mb-3 ${
