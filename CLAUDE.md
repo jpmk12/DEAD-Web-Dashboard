@@ -1626,3 +1626,48 @@ notice was one sentence inside a newsletter about spirit week. Pieces:
   coverage line with empty summaries — the tab says the summary is
   unavailable rather than implying a quiet week.
 - Mockup: `docs/mockups/family.html` → `docs/family.png`.
+
+### Family → Household pane (bills, documents, wellbeing)
+A second pane inside the Family tab, organised around one claim: **the things
+that hurt you are the ones with no alarm attached.** Autopay reminds itself, a
+manual bill does not; a subscription renews silently; a passport expires with
+no notice; and a bill that STOPS arriving raises nothing at all.
+
+- **Division of labour is the load-bearing decision.** The model extracts
+  FACTS from bill text (amount in cents, printed due date, account tail, a
+  one-clause note the statement itself gives). Every JUDGEMENT — late,
+  unusual, how much runway — is computed in `lib/householdSignals.ts` (PURE,
+  tested). Cadence arithmetic must not be asked of a model that will
+  occasionally be confidently wrong, and the silence watch in particular
+  ACCUSES a biller of not writing, so it has to be right.
+- **Silence watch needs memory**, which a single fetch cannot provide, so
+  `household_bills` (message_id PK → idempotent re-reads) records every
+  sighting. `silenceWatch()` requires **three** prior sightings before it will
+  claim anything: with fewer, "quarterly" and "stopped six months ago" are
+  indistinguishable. Irregular billers never appear — no expected cadence, no
+  violation. Slack is generous (10/21/45 days) because one late statement is
+  normal and a false alarm teaches the user to ignore the panel.
+- **`amountDelta` returns null below three prior samples** — the learning-mode
+  rule from I&W. A "+300%" from one prior month is noise dressed as a finding.
+  `AMOUNT_ALERT_PCT` (15%) keeps seasonal swing quiet. Extracted amounts are
+  range-guarded (<$100k) so one bad parse can't poison the trailing average.
+- **Documents are DECLARED, not extracted** (`family_profile.documents`) — a
+  passport expiry never arrives by email, so there is nothing to read and
+  inferring one would invent a date. `leadDays` is what makes the runway
+  honest: sorting and colour follow the ACTIONABLE date, so a passport needing
+  6-month validity goes red months before it expires.
+- Billers/documents live in the existing `family_profile` JSON column;
+  `billerQueryFor()` is a SEPARATE Gmail query (90d, vs the school pane's 14d)
+  so the school digest never reads financial mail and vice versa.
+- Owner-only, like the school digest and more so: it reports amounts and
+  account tails. Accounts are masked to four digits at render (`maskAccount`)
+  and never stored; amounts are kept only to compare a bill to its own past.
+- **Degrades to the deterministic half.** If the model call fails, cadence and
+  document runway still compute, so the pane reports those rather than going
+  blank — and the AI-off banner says exactly that.
+- Household is NOT rendered until its chip is selected (own Gmail query + model
+  call); the school body became a `schoolBody()` branch rather than early
+  returns, because those skipped the header and would strand a user with a
+  failed school digest and no way to reach Household. The roster is fetched
+  independently of either digest so the editor stays reachable when one fails.
+- Mockup: `docs/mockups/household.html` → `docs/household.png`.

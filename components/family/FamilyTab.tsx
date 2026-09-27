@@ -5,6 +5,7 @@ import type { FamilyDigest, FamilyDeadline } from "@/lib/family";
 import type { FamilyPerson, FamilyProfile } from "@/lib/familyProfile";
 import type { ProposedEvent } from "@/lib/familyDates";
 import FamilyRosterEditor from "@/components/family/FamilyRosterEditor";
+import HouseholdPane from "@/components/family/HouseholdPane";
 
 // The Family tab: school and household mail reported as obligations with dates
 // rather than as messages. The deadline is the unit of this interface — an
@@ -52,6 +53,11 @@ export default function FamilyTab({ active }: { active: boolean }) {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [added, setAdded] = useState<Record<string, "adding" | "done" | "error">>({});
   const [nowMs, setNowMs] = useState(0);
+  // School and Household are two readings of the same mailbox with different
+  // questions. Household is NOT rendered until selected: it runs its own Gmail
+  // query and model call, and must not fire because you opened the tab.
+  const [pane, setPane] = useState<"school" | "household">("school");
+  const [roster, setRoster] = useState<FamilyProfile | null>(null);
 
   // Client-only clock: comparing dates during SSR and again on hydration across
   // a midnight boundary throws React #418.
@@ -79,7 +85,17 @@ export default function FamilyTab({ active }: { active: boolean }) {
     load();
   }, [active, digest, loading, error, load]);
 
-  const profile: FamilyProfile | null = digest?.profile ?? null;
+  // Roster fetched on its own so the editor stays reachable when a digest
+  // fails — otherwise a bad roster becomes unfixable from the UI.
+  const loadRoster = useCallback(() => {
+    fetch("/api/family/roster")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.profile) setRoster(j.profile); })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { if (active && !roster) loadRoster(); }, [active, roster, loadRoster]);
+
+  const profile: FamilyProfile | null = roster ?? digest?.profile ?? null;
   const personById = useMemo(() => {
     const m = new Map<string, { person: FamilyPerson; tint: (typeof PERSON_TINT)[number] }>();
     (profile?.people ?? []).forEach((p, i) => m.set(p.id, { person: p, tint: PERSON_TINT[i % PERSON_TINT.length] }));
@@ -110,39 +126,42 @@ export default function FamilyTab({ active }: { active: boolean }) {
     );
   };
 
-  if (!digest && error) {
-    return (
-      <div className="max-w-md mx-auto py-16 text-center">
-        <p className="text-sm text-red-300 mb-1.5">Couldn&rsquo;t load family mail.</p>
-        <p className="text-[11px] text-slate-500 mb-4">{error}</p>
-        <button onClick={() => load()} className="text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded-md px-4 py-2 hover:bg-emerald-500/10">
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (!digest && loading) {
-    return <div className="py-16 text-center text-xs text-slate-600 font-mono uppercase tracking-widest animate-pulse">Reading family mail…</div>;
-  }
-
-  if (digest?.empty === "no-roster") {
-    return (
-      <div className="max-w-xl mx-auto py-14 text-center">
-        <p className="text-sm text-slate-300 mb-1.5">Tell the app who is in your household.</p>
-        <p className="text-xs text-slate-500 leading-relaxed mb-5">
-          Add each person, then the school and household senders that write about them. Nothing is read
-          until you do — the roster IS the mail search, so this tab only ever touches mail you name.
-        </p>
-        <button onClick={() => setRosterOpen(true)} className="text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded-md px-4 py-2 hover:bg-emerald-500/10">
-          Set up the roster
-        </button>
-        {rosterOpen && profile && (
-          <FamilyRosterEditor profile={profile} onClose={() => setRosterOpen(false)} onSaved={() => { setRosterOpen(false); setDigest(null); }} />
-        )}
-      </div>
-    );
-  }
+  // School-pane body states. These used to be early RETURNS, which skipped the
+  // header — and now that the header carries the pane switcher, a failed school
+  // digest would strand the user with no way to reach Household. They are a
+  // body-level branch so the chrome always renders.
+  const schoolBody = (): React.ReactNode => {
+    if (!digest && error) {
+      return (
+        <div className="max-w-md mx-auto py-16 text-center">
+          <p className="text-sm text-red-300 mb-1.5">Couldn&rsquo;t load family mail.</p>
+          <p className="text-[11px] text-slate-500 mb-4">{error}</p>
+          <button onClick={() => load()} className="text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded-md px-4 py-2 hover:bg-emerald-500/10">
+            Retry
+          </button>
+        </div>
+      );
+    }
+    if (!digest && loading) {
+      return <div className="py-16 text-center text-xs text-slate-600 font-mono uppercase tracking-widest animate-pulse">Reading family mail…</div>;
+    }
+    if (digest?.empty === "no-roster") {
+      return (
+        <div className="max-w-xl mx-auto py-14 text-center">
+          <p className="text-sm text-slate-300 mb-1.5">Tell the app who is in your household.</p>
+          <p className="text-xs text-slate-500 leading-relaxed mb-5">
+            Add each person, then the school and household senders that write about them. Nothing is read
+            until you do — the roster IS the mail search, so this tab only ever touches mail you name.
+          </p>
+          <button onClick={() => setRosterOpen(true)} className="text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded-md px-4 py-2 hover:bg-emerald-500/10">
+            Set up the roster
+          </button>
+        </div>
+      );
+    }
+    return null;
+  };
+  const schoolState = schoolBody();
 
   const deadlines: FamilyDeadline[] = digest?.deadlines ?? [];
   const events = digest?.events ?? [];
@@ -155,6 +174,21 @@ export default function FamilyTab({ active }: { active: boolean }) {
         <p className="text-[10px] text-slate-600 flex-1 min-w-[16rem]">
           school, activities &amp; household — what needs you, by when · deadlines are pulled out of the email, not left in it
         </p>
+        <div className="flex items-center gap-1">
+          {([["school", "◈ School"], ["household", "⌂ Household"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setPane(id)}
+              className={`text-[10px] font-bold uppercase tracking-wider rounded px-2.5 py-1 border transition-colors ${
+                pane === id
+                  ? "border-emerald-500/50 text-emerald-300 bg-emerald-500/10"
+                  : "border-slate-700 text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button onClick={() => setRosterOpen(true)} className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-300 border border-slate-700 rounded px-2.5 py-1">
           Roster
         </button>
@@ -163,6 +197,11 @@ export default function FamilyTab({ active }: { active: boolean }) {
         </button>
       </div>
 
+      {pane === "household" && <HouseholdPane active={active && pane === "household"} />}
+
+      {pane === "school" && schoolState}
+
+      {pane === "school" && !schoolState && (<>
       {digest?.disabled && (
         <p className="text-[11px] text-amber-300/90 border border-amber-500/30 bg-amber-500/5 rounded-lg px-3 py-2">
           Family digest is off in Preferences → AI Controls. Mail is still being collected; summaries are not.
@@ -331,8 +370,14 @@ export default function FamilyTab({ active }: { active: boolean }) {
         </div>
       </div>
 
+      </>)}
+
       {rosterOpen && profile && (
-        <FamilyRosterEditor profile={profile} onClose={() => setRosterOpen(false)} onSaved={() => { setRosterOpen(false); setDigest(null); }} />
+        <FamilyRosterEditor
+          profile={profile}
+          onClose={() => setRosterOpen(false)}
+          onSaved={() => { setRosterOpen(false); setDigest(null); setError(null); setRoster(null); }}
+        />
       )}
     </div>
   );

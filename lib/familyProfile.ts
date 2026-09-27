@@ -24,17 +24,49 @@ export interface FamilySender {
   personId?: string;     // when this sender only ever concerns one person
 }
 
+// How often a biller is expected to write. Declared, not inferred: three
+// months of history cannot distinguish "quarterly" from "stopped", and that
+// distinction is the entire point of the silence watch.
+export type BillCadence = "monthly" | "quarterly" | "annual" | "irregular";
+
+export interface FamilyBiller {
+  id: string;
+  pattern: string;           // address or bare domain, same matching as senders
+  label: string;             // "Electric — Xcel Energy"
+  cadence: BillCadence;
+  // Whether it pays itself. The question this pane answers is not "what is
+  // due" but "what will NOT pay itself", so this drives the ordering.
+  autopay: boolean;
+}
+
+// Things with an expiry and no reminder attached. Declared rather than
+// extracted: a passport expiry never arrives by email, so there is nothing to
+// read. Trying to infer these would invent dates.
+export interface FamilyDocument {
+  id: string;
+  label: string;             // "Passport — Emma"
+  expiresISO: string;        // YYYY-MM-DD
+  note?: string;             // "6-month validity rule applies"
+  // Lead time before expiry at which this becomes actionable (renewal windows
+  // open early; passports are unusable for travel months before they expire).
+  leadDays?: number;
+}
+
 export interface FamilyProfile {
   people: FamilyPerson[];
   senders: FamilySender[];
   // Household items (insurance, appointments, visiting relatives) ride the
   // same surface — they are the other half of "don't let me miss something".
   includeHousehold: boolean;
+  billers: FamilyBiller[];
+  documents: FamilyDocument[];
 }
 
-export const EMPTY_FAMILY_PROFILE: FamilyProfile = { people: [], senders: [], includeHousehold: true };
+export const EMPTY_FAMILY_PROFILE: FamilyProfile = {
+  people: [], senders: [], includeHousehold: true, billers: [], documents: [],
+};
 
-const CAPS = { people: 12, senders: 40 };
+const CAPS = { people: 12, senders: 40, billers: 40, documents: 30 };
 
 const str = (v: unknown, max: number): string =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
@@ -79,7 +111,46 @@ export function sanitizeFamilyProfile(raw: unknown): FamilyProfile {
     })
     .slice(0, CAPS.senders);
 
-  return { people, senders, includeHousehold: r.includeHousehold !== false };
+  const CADENCES = new Set<BillCadence>(["monthly", "quarterly", "annual", "irregular"]);
+  const billers: FamilyBiller[] = (Array.isArray(r.billers) ? r.billers : [])
+    .flatMap((b): FamilyBiller[] => {
+      if (!b || typeof b !== "object") return [];
+      const o = b as Record<string, unknown>;
+      const pattern = str(o.pattern, 120).toLowerCase();
+      if (!pattern || !/^[a-z0-9@._+-]+$/.test(pattern)) return [];
+      const cadence = CADENCES.has(o.cadence as BillCadence) ? (o.cadence as BillCadence) : "monthly";
+      return [{
+        id: str(o.id, 40) || `b-${slug(pattern)}`,
+        pattern,
+        label: str(o.label, 60) || pattern,
+        cadence,
+        autopay: o.autopay === true,
+      }];
+    })
+    .slice(0, CAPS.billers);
+
+  const documents: FamilyDocument[] = (Array.isArray(r.documents) ? r.documents : [])
+    .flatMap((d): FamilyDocument[] => {
+      if (!d || typeof d !== "object") return [];
+      const o = d as Record<string, unknown>;
+      const label = str(o.label, 80);
+      const expiresISO = str(o.expiresISO, 10);
+      // A document row with no usable expiry has nothing to say — drop it
+      // rather than render a card with a blank runway.
+      if (!label || !/^\d{4}-\d{2}-\d{2}$/.test(expiresISO)) return [];
+      if (!Number.isFinite(Date.parse(`${expiresISO}T12:00:00Z`))) return [];
+      const lead = Number(o.leadDays);
+      const note = str(o.note, 160);
+      return [{
+        id: str(o.id, 40) || `d-${slug(label)}`,
+        label, expiresISO,
+        ...(note ? { note } : {}),
+        ...(Number.isFinite(lead) && lead > 0 ? { leadDays: Math.min(730, Math.round(lead)) } : {}),
+      }];
+    })
+    .slice(0, CAPS.documents);
+
+  return { people, senders, includeHousehold: r.includeHousehold !== false, billers, documents };
 }
 
 export function slug(s: string): string {
@@ -117,6 +188,30 @@ export function gmailQueryFor(profile: FamilyProfile, days = 14): string {
   if (pats.length === 0) return "";
   const from = pats.map((p) => (p.includes("@") ? p : `@${p}`)).join(" OR ");
   return `from:(${from}) newer_than:${Math.max(1, Math.min(90, Math.round(days)))}d`;
+}
+
+// Billers are queried separately from school senders, over a longer window:
+// the silence watch needs enough history to know a cadence. Keeping the two
+// searches apart also means the school digest never reads financial mail.
+export function billerQueryFor(profile: FamilyProfile, days = 90): string {
+  const pats = profile.billers.map((b) => b.pattern).filter(Boolean);
+  if (pats.length === 0) return "";
+  const from = pats.map((p) => (p.includes("@") ? p : `@${p}`)).join(" OR ");
+  return `from:(${from}) newer_than:${Math.max(1, Math.min(365, Math.round(days)))}d`;
+}
+
+export function billerFor(profile: FamilyProfile, from: string): FamilyBiller | null {
+  const addr = addressOf(from);
+  if (!addr) return null;
+  for (const b of profile.billers) {
+    if (b.pattern.includes("@")) {
+      if (addr === b.pattern) return b;
+    } else {
+      const domain = addr.split("@")[1] ?? "";
+      if (domain === b.pattern || domain.endsWith(`.${b.pattern}`)) return b;
+    }
+  }
+  return null;
 }
 
 // One line of roster context for the model prompt.

@@ -413,6 +413,21 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_contacts_name (name)
   ) ENGINE=InnoDB`,
 
+  // Household bill sightings. The silence watch needs to know a biller's
+  // cadence, which cannot be read from a single fetch window — it needs
+  // memory. Keyed by message id so recording the same statement twice is a
+  // no-op and the history stays honest across re-fetches.
+  `CREATE TABLE IF NOT EXISTS household_bills (
+    message_id   VARCHAR(80)  NOT NULL PRIMARY KEY,
+    biller_id    VARCHAR(40)  NOT NULL,
+    seen_date    VARCHAR(10)  NOT NULL,
+    amount_cents INT          NULL,
+    due_date     VARCHAR(10)  NULL,
+    subject      VARCHAR(255) NULL,
+    created_at   BIGINT       NOT NULL,
+    INDEX idx_hb_biller (biller_id, seen_date)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,

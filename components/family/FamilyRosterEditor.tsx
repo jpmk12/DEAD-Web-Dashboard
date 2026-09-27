@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { FamilyProfile, FamilyPerson, FamilySender } from "@/lib/familyProfile";
+import type { FamilyProfile, FamilyPerson, FamilySender, FamilyBiller, FamilyDocument, BillCadence } from "@/lib/familyProfile";
 import { slug } from "@/lib/familyProfile";
 
 // Declare the household. This roster is not cosmetic — it becomes the Gmail
@@ -14,6 +14,15 @@ export default function FamilyRosterEditor({
   const [people, setPeople] = useState<FamilyPerson[]>(profile.people);
   const [senders, setSenders] = useState<FamilySender[]>(profile.senders);
   const [household, setHousehold] = useState(profile.includeHousehold);
+  const [billers, setBillers] = useState<FamilyBiller[]>(profile.billers ?? []);
+  const [documents, setDocuments] = useState<FamilyDocument[]>(profile.documents ?? []);
+  const [bPattern, setBPattern] = useState("");
+  const [bLabel, setBLabel] = useState("");
+  const [bCadence, setBCadence] = useState<BillCadence>("monthly");
+  const [bAuto, setBAuto] = useState(false);
+  const [dLabel, setDLabel] = useState("");
+  const [dExpires, setDExpires] = useState("");
+  const [dLead, setDLead] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -44,13 +53,36 @@ export default function FamilyRosterEditor({
     setSPattern(""); setSPerson("");
   };
 
+  const addBiller = () => {
+    const pattern = bPattern.trim().toLowerCase().replace(/^@/, "");
+    if (!pattern || !/^[a-z0-9@._+-]+$/.test(pattern)) { setErr("Use an email address or a bare domain."); return; }
+    setErr(null);
+    setBillers((xs) => [...xs, {
+      id: `b-${slug(pattern)}-${xs.length}`, pattern,
+      label: bLabel.trim() || pattern, cadence: bCadence, autopay: bAuto,
+    }]);
+    setBPattern(""); setBLabel(""); setBCadence("monthly"); setBAuto(false);
+  };
+
+  const addDocument = () => {
+    const label = dLabel.trim();
+    if (!label || !/^\d{4}-\d{2}-\d{2}$/.test(dExpires)) { setErr("A document needs a label and an expiry date."); return; }
+    setErr(null);
+    const lead = Number(dLead);
+    setDocuments((xs) => [...xs, {
+      id: `d-${slug(label)}-${xs.length}`, label, expiresISO: dExpires,
+      ...(Number.isFinite(lead) && lead > 0 ? { leadDays: Math.round(lead) } : {}),
+    }]);
+    setDLabel(""); setDExpires(""); setDLead("");
+  };
+
   const save = async () => {
     setBusy(true); setErr(null);
     try {
       const res = await fetch("/api/family/roster", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: { people, senders, includeHousehold: household } }),
+        body: JSON.stringify({ profile: { people, senders, includeHousehold: household, billers, documents } }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Save failed");
       onSaved();
@@ -123,6 +155,67 @@ export default function FamilyRosterEditor({
                 {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <button onClick={addSender} disabled={!sPattern.trim()} className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-1 disabled:opacity-30">Add</button>
+            </div>
+          </div>
+
+          {/* billers */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Billers (Household pane)</p>
+            <p className="text-[10px] text-slate-600 mb-1.5 leading-relaxed">
+              Cadence is what lets the silence watch tell &ldquo;quarterly&rdquo; apart from &ldquo;stopped&rdquo;.
+              Mark autopay so the pane can lead with the bills that will <i>not</i> pay themselves.
+            </p>
+            <div className="space-y-1 mb-2">
+              {billers.map((b, i) => (
+                <div key={b.id} className="flex items-center gap-2 text-[11.5px] bg-slate-800/40 rounded px-2.5 py-1.5">
+                  <span className="text-slate-300 font-semibold truncate">{b.label}</span>
+                  <span className="font-mono text-[10px] text-slate-500 truncate">{b.pattern}</span>
+                  <span className="text-[9px] uppercase tracking-wider text-slate-500">{b.cadence}</span>
+                  {b.autopay && <span className="text-[9px] uppercase tracking-wider text-emerald-400">autopay</span>}
+                  <button onClick={() => setBillers((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                </div>
+              ))}
+              {billers.length === 0 && <p className="text-[10.5px] text-slate-600 italic">No billers — the Household pane reads nothing.</p>}
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <input value={bLabel} onChange={(e) => setBLabel(e.target.value)} placeholder="Electric — Xcel" className={`${field} w-40`} />
+              <input value={bPattern} onChange={(e) => setBPattern(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addBiller(); }}
+                placeholder="xcelenergy.com" className={`${field} flex-1 min-w-[10rem] font-mono`} />
+              <select value={bCadence} onChange={(e) => setBCadence(e.target.value as BillCadence)} className={`${field} w-24`}>
+                <option value="monthly">monthly</option><option value="quarterly">quarterly</option>
+                <option value="annual">annual</option><option value="irregular">irregular</option>
+              </select>
+              <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                <input type="checkbox" checked={bAuto} onChange={(e) => setBAuto(e.target.checked)} className="accent-emerald-500" /> autopay
+              </label>
+              <button onClick={addBiller} disabled={!bPattern.trim()} className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-1 disabled:opacity-30">Add</button>
+            </div>
+          </div>
+
+          {/* documents */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Documents with an expiry</p>
+            <p className="text-[10px] text-slate-600 mb-1.5 leading-relaxed">
+              Typed in once — a passport expiry never arrives by email. <b className="text-slate-500">Lead days</b> is
+              how far before expiry it stops being usable: 183 for a passport, because most destinations demand six
+              months&rsquo; validity.
+            </p>
+            <div className="space-y-1 mb-2">
+              {documents.map((d, i) => (
+                <div key={d.id} className="flex items-center gap-2 text-[11.5px] bg-slate-800/40 rounded px-2.5 py-1.5">
+                  <span className="text-slate-300 font-semibold truncate">{d.label}</span>
+                  <span className="font-mono text-[10px] text-slate-500">{d.expiresISO}</span>
+                  {d.leadDays ? <span className="text-[9px] text-slate-500">{d.leadDays}d lead</span> : null}
+                  <button onClick={() => setDocuments((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                </div>
+              ))}
+              {documents.length === 0 && <p className="text-[10.5px] text-slate-600 italic">None yet.</p>}
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <input value={dLabel} onChange={(e) => setDLabel(e.target.value)} placeholder="Passport — Emma" className={`${field} flex-1 min-w-[10rem]`} />
+              <input value={dExpires} onChange={(e) => setDExpires(e.target.value)} placeholder="2027-02-14" className={`${field} w-28 font-mono`} />
+              <input value={dLead} onChange={(e) => setDLead(e.target.value)} placeholder="lead days" className={`${field} w-24`} />
+              <button onClick={addDocument} disabled={!dLabel.trim() || !dExpires.trim()} className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-1 disabled:opacity-30">Add</button>
             </div>
           </div>
 

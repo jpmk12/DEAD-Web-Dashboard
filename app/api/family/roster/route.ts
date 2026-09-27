@@ -4,6 +4,7 @@ import { isOwner } from "@/lib/allowlist";
 import { getFamilyProfile, saveFamilyProfile } from "@/lib/familyStore";
 import { sanitizeFamilyProfile } from "@/lib/familyProfile";
 import { resetFamilyCache } from "@/lib/family";
+import { resetHouseholdCache } from "@/lib/household";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
   try {
     const saved = await saveFamilyProfile(sanitizeFamilyProfile((body as { profile?: unknown })?.profile));
     resetFamilyCache();   // the roster is part of the digest cache key AND its query
+    resetHouseholdCache();   // billers + documents key the household digest too
     return NextResponse.json({ profile: saved });
   } catch (err) {
     // Without this the route throws, Next returns an HTML 500, the client's
