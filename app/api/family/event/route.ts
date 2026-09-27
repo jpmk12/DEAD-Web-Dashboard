@@ -4,6 +4,7 @@ import { createEvent } from "@/lib/calendar";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { normEmail } from "@/lib/allowlist";
 import { isAnchoredDate, endForEvent, type ProposedEvent } from "@/lib/familyDates";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,13 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Throttled because this writes to an external service the user cannot
+  // easily un-write in bulk. A client-side retry loop reaching this route
+  // would otherwise fill a real calendar before anyone noticed.
+  if (!checkRateLimit("family-event", 2_000)) {
+    return NextResponse.json({ error: "Too fast — one event at a time." }, { status: 429 });
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }

@@ -9,7 +9,6 @@
 // mail that is already family mail. A household with 8 senders sees ~20-40
 // messages per fortnight, one Sonnet call, cached 15 minutes.
 
-import { createHash } from "node:crypto";
 import { anthropic } from "./claude";
 import { fetchNewsletterEmails } from "./gmail";
 import { logCall } from "./anthropicLog";
@@ -52,7 +51,11 @@ export interface FamilyDigest {
 
 const WINDOW_DAYS = 14;
 const TTL = 15 * 60 * 1000;
-let cache: { key: string; at: number; value: FamilyDigest } | null = null;
+// Keyed by USER + roster, and checked before any Gmail call. The first cut
+// hashed the fetched message ids, which meant a cache hit still cost 40
+// messages.get round-trips to discover it could have been skipped. Per-user
+// because a module-level single slot is shared across every signed-in session.
+const cache = new Map<string, { at: number; value: FamilyDigest }>();
 
 const SYSTEM_PROMPT = `You read a household's school and family email and report what the parent must not miss.
 
@@ -77,6 +80,7 @@ export async function assembleFamilyDigest(
   accessToken: string,
   prefs: UserPrefs | null,
   userEmail: string,
+  opts: { refresh?: boolean } = {},
 ): Promise<FamilyDigest> {
   const profile = await getFamilyProfile();
   const now = new Date();
@@ -91,20 +95,21 @@ export async function assembleFamilyDigest(
   const query = gmailQueryFor(profile, WINDOW_DAYS);
   if (!query) return blank({ empty: "no-roster" });
 
-  const mail = await fetchNewsletterEmails(accessToken, query, 40).catch(() => []);
+  // Serve a warm digest without touching Gmail at all. `?refresh=1` is the
+  // deliberate bypass, same affordance as the briefing and threads caches.
+  const cacheKey = `${userEmail}|${JSON.stringify(profile)}`;
+  if (!opts.refresh) {
+    const hit = cache.get(cacheKey);
+    if (hit && Date.now() - hit.at < TTL) return hit.value;
+  }
+
+  const mail = await fetchNewsletterEmails(accessToken, query, 30).catch(() => []);
   if (mail.length === 0) return blank({ empty: "no-mail" });
 
   const oldest = mail.map((m) => m.date).filter(Boolean).sort()[0] ?? null;
   base.coverage = { scanned: mail.length, windowDays: WINDOW_DAYS, senders: profile.senders.length, oldestISO: oldest };
 
   if (!isFeatureEnabled("family_digest", prefs)) return blank({ disabled: true });
-
-  // Cache on the message set + roster: re-opening the tab is free, and only
-  // genuinely new mail pays. Same contract as the threads day-cache.
-  const key = createHash("sha256")
-    .update(mail.map((m) => m.id).join("|") + "::" + JSON.stringify(profile))
-    .digest("hex").slice(0, 16);
-  if (cache && cache.key === key && Date.now() - cache.at < TTL) return cache.value;
 
   const roster = familyContextLine(profile);
   const idLine = profile.people.length
@@ -192,7 +197,7 @@ export async function assembleFamilyDigest(
         ? parsed.household.trim().slice(0, 600) : "",
       events,
     };
-    cache = { key, at: Date.now(), value };
+    cache.set(cacheKey, { at: Date.now(), value });
     return value;
   } catch (err) {
     console.error("Family digest failed:", err);
@@ -204,5 +209,5 @@ export async function assembleFamilyDigest(
 }
 
 export function resetFamilyCache(): void {
-  cache = null;
+  cache.clear();
 }

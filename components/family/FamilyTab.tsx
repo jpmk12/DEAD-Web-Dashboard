@@ -48,6 +48,7 @@ const fmtDate = (iso: string | null): string => {
 export default function FamilyTab({ active }: { active: boolean }) {
   const [digest, setDigest] = useState<FamilyDigest | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
   const [added, setAdded] = useState<Record<string, "adding" | "done" | "error">>({});
   const [nowMs, setNowMs] = useState(0);
@@ -56,16 +57,27 @@ export default function FamilyTab({ active }: { active: boolean }) {
   // a midnight boundary throws React #418.
   useEffect(() => { setNowMs(Date.now()); }, []);
 
-  const load = useCallback(() => {
+  const load = useCallback((refresh = false) => {
     setLoading(true);
-    fetch("/api/family")
-      .then((r) => r.json())
-      .then((d) => { if (d && !d.error) setDigest(d); })
-      .catch(() => {})
+    setError(null);
+    fetch(`/api/family${refresh ? "?refresh=1" : ""}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || d.error) throw new Error(d?.error || `Request failed (${r.status})`);
+        setDigest(d);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load family mail"))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { if (active && !digest && !loading) load(); }, [active, digest, loading, load]);
+  // The `error` guard is load-bearing, not cosmetic. Without it a failing
+  // request leaves digest null and loading false, the deps change, and the
+  // effect fires again — an unbounded retry loop, each pass costing a Gmail
+  // fetch and a model call. Retry is a deliberate tap.
+  useEffect(() => {
+    if (!active || digest || loading || error) return;
+    load();
+  }, [active, digest, loading, error, load]);
 
   const profile: FamilyProfile | null = digest?.profile ?? null;
   const personById = useMemo(() => {
@@ -97,6 +109,18 @@ export default function FamilyTab({ active }: { active: boolean }) {
       </span>
     );
   };
+
+  if (!digest && error) {
+    return (
+      <div className="max-w-md mx-auto py-16 text-center">
+        <p className="text-sm text-red-300 mb-1.5">Couldn&rsquo;t load family mail.</p>
+        <p className="text-[11px] text-slate-500 mb-4">{error}</p>
+        <button onClick={() => load()} className="text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded-md px-4 py-2 hover:bg-emerald-500/10">
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!digest && loading) {
     return <div className="py-16 text-center text-xs text-slate-600 font-mono uppercase tracking-widest animate-pulse">Reading family mail…</div>;
@@ -134,7 +158,7 @@ export default function FamilyTab({ active }: { active: boolean }) {
         <button onClick={() => setRosterOpen(true)} className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-300 border border-slate-700 rounded px-2.5 py-1">
           Roster
         </button>
-        <button onClick={() => { setDigest(null); load(); }} disabled={loading} className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 disabled:opacity-40">
+        <button onClick={() => load(true)} disabled={loading} className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 disabled:opacity-40">
           {loading ? "…" : "↻"}
         </button>
       </div>

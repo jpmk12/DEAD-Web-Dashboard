@@ -13,6 +13,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Owner-only on READ as well as write: this names the user's children and
+  // the schools they attend.
+  if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
   return NextResponse.json({ profile: await getFamilyProfile() });
 }
 

@@ -170,11 +170,18 @@ export async function fetchNewsletterEmails(
   const refs = (listRes.data.messages ?? []).filter((r) => r.id);
   if (!refs.length) return [];
 
-  const full = await Promise.all(
-    refs.map((ref) =>
-      gmail.users.messages.get({ userId: "me", id: ref.id!, format: "full" })
-    )
-  );
+  // Chunked rather than one big Promise.all: messages.get costs 5 quota units
+  // and the per-user ceiling is 250/sec, so a 30-message fan-out in a single
+  // burst sits right on the limit and 429s under any concurrency. Ten at a
+  // time is well inside it and costs a few hundred ms.
+  const full: { data: gmail_v1.Schema$Message }[] = [];
+  for (let i = 0; i < refs.length; i += 10) {
+    full.push(...await Promise.all(
+      refs.slice(i, i + 10).map((ref) =>
+        gmail.users.messages.get({ userId: "me", id: ref.id!, format: "full" })
+      )
+    ));
+  }
 
   return full.flatMap((res) => {
     const msg = res.data;
