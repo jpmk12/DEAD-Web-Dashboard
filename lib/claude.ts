@@ -58,7 +58,19 @@ function wrapMessages(messages: Anthropic["messages"]): Anthropic["messages"] {
 
 export const anthropic = new Proxy({} as Anthropic, {
   get(_target, prop) {
-    if (!_client) _client = getAnthropic();
+    // getAnthropic() throws when the key is absent, and it throws HERE — in the
+    // property access, before messages.create is ever reached. The promise hook
+    // below therefore never sees it, which meant the single most likely failure
+    // (key not set at all) was the one case the health banner stayed silent for.
+    // Record it explicitly before rethrowing.
+    if (!_client) {
+      try {
+        _client = getAnthropic();
+      } catch (err) {
+        recordAiFail(err);
+        throw err;
+      }
+    }
     const value = (_client as unknown as Record<string | symbol, unknown>)[prop];
     if (prop === "messages" && value) return wrapMessages(value as Anthropic["messages"]);
     return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(_client) : value;

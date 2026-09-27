@@ -59,3 +59,20 @@ describe("keyFormat", () => {
     expect(keyFormat()).toBe("ok");
   });
 });
+
+describe("missing-key path", () => {
+  const orig = process.env.ANTHROPIC_API_KEY;
+  afterEach(() => { process.env.ANTHROPIC_API_KEY = orig; });
+
+  it("records a health failure when the key is absent — the throw happens on property access, not on create", async () => {
+    // Regression: the promise hook only fires for a call that was actually
+    // made, so an absent key (the commonest failure) left the banner silent.
+    const { anthropic } = await import("../lib/claude");
+    const { recordAiOk, getAiHealth, aiHealthLine } = await import("../lib/aiHealth");
+    recordAiOk();
+    delete process.env.ANTHROPIC_API_KEY;
+    expect(() => anthropic.messages).toThrow(/not set/i);
+    expect(getAiHealth().failStreak).toBeGreaterThan(0);
+    expect(aiHealthLine(getAiHealth())).toBeTruthy();
+  });
+});

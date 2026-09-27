@@ -1640,6 +1640,11 @@ function AIControlPanel({
           {/* Which key this deploy is actually holding (owner-only). After a
               rotation, match these 4 characters against the Console's masked
               key to confirm the swap landed — without spending to find out. */}
+          {usage.keyFormat === "missing" && (
+            <p className="text-[10px] font-bold text-red-300 mt-0.5">
+              ANTHROPIC_API_KEY is NOT SET on this server — every AI feature is off.
+            </p>
+          )}
           {usage.keyTail && (
             <p className="text-[9px] text-slate-600 font-mono mt-0.5" title="Last 4 characters of the API key this server is using">
               key ···{usage.keyTail}
@@ -1649,7 +1654,6 @@ function AIControlPanel({
               {usage.keyFormat === "unexpected-prefix" && (
                 <span className="text-amber-400"> · does not start with sk-ant- — wrong value pasted?</span>
               )}
-              {usage.keyFormat === "missing" && <span className="text-red-400"> · NOT SET</span>}
             </p>
           )}
           <div className="flex items-baseline justify-between gap-2 mt-1.5 pt-1.5 border-t border-slate-700/60 text-[10px] font-mono">
