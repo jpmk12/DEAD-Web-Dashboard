@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>household</title><link rel="stylesheet" href="shot.css">
+<style>
+  .pane{max-width:1180px;margin:22px auto;padding:0 20px}
+  .head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+  .thesis{font-size:11px;color:var(--mut);margin:0 0 16px;max-width:96ch;line-height:1.6}
+  .thesis b{color:var(--txt2)}
+
+  .sect{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.45);overflow:hidden;margin-bottom:16px}
+  .sh{display:flex;align-items:center;gap:9px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.32)}
+  .sh .t{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:#94a3b8}
+  .sh .n{margin-left:auto;font-size:10px;color:var(--mut2)}
+
+  /* money rows */
+  .mrow{display:flex;align-items:center;gap:12px;padding:9px 14px}
+  .mrow + .mrow{border-top:1px solid rgba(30,41,59,.6)}
+  .amt{width:88px;flex-shrink:0;text-align:right;font-family:ui-monospace,Menlo,monospace;font-size:14px;font-weight:800;color:var(--txt)}
+  .due2{width:74px;flex-shrink:0;text-align:center;border-radius:6px;padding:3px 0;font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-family:ui-monospace,Menlo,monospace}
+  .due2.r{color:#fecaca;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5)}
+  .due2.a{color:#fde68a;background:rgba(245,158,11,.16);border:1px solid rgba(245,158,11,.42)}
+  .due2.g{color:#a7f3d0;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35)}
+  .mbody{flex:1;min-width:0}
+  .mbody .t{display:block;font-size:13px;font-weight:700;color:var(--txt)}
+  .mbody .s{display:block;font-size:10.5px;color:var(--mut);margin-top:1px}
+  .pay{flex-shrink:0;font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;border-radius:999px;padding:2px 9px;border:1px solid}
+  .pay.auto{color:var(--acc);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+  .pay.man{color:#fdba74;border-color:rgba(251,146,60,.45);background:rgba(251,146,60,.1)}
+  .flag{flex-shrink:0;font-size:9.5px;font-weight:700;color:var(--amber)}
+
+  /* silence watch — the hero */
+  .silence{border-color:rgba(167,139,250,.4);background:rgba(76,29,149,.09)}
+  .silence .sh{background:rgba(167,139,250,.07);border-bottom-color:rgba(167,139,250,.25)}
+  .srow{display:flex;align-items:center;gap:12px;padding:9px 14px}
+  .srow + .srow{border-top:1px solid rgba(30,41,59,.6)}
+  .quiet{width:88px;flex-shrink:0;text-align:center;border:1px solid rgba(167,139,250,.45);background:rgba(167,139,250,.12);color:#ddd6fe;border-radius:6px;padding:3px 0;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;font-family:ui-monospace,Menlo,monospace}
+  .mini2{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:5px;padding:3px 9px;border:1px solid var(--bd2);color:var(--mut);flex-shrink:0}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+
+  /* expiry runway */
+  .exp{padding:9px 14px}
+  .exp + .exp{border-top:1px solid rgba(30,41,59,.6)}
+  .etop{display:flex;align-items:baseline;gap:8px}
+  .ename{font-size:12.5px;font-weight:600;color:var(--txt);flex:1;min-width:0}
+  .edate{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--mut)}
+  .bar{height:5px;border-radius:3px;background:rgba(30,41,59,.8);margin-top:5px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:3px}
+  .enote{font-size:10px;color:var(--mut);margin-top:3px}
+  .enote b{color:var(--amber)}
+
+  /* generic list rows */
+  .lrow{display:flex;align-items:flex-start;gap:9px;padding:8px 14px;font-size:11.5px;color:var(--txt2);line-height:1.5}
+  .lrow + .lrow{border-top:1px solid rgba(30,41,59,.55)}
+  .dot2{width:7px;height:7px;border-radius:50%;margin-top:5px;flex-shrink:0}
+  .src2{font-size:9.5px;color:var(--mut2);font-style:italic}
+
+  /* amount watch table */
+  .aw{padding:4px 14px 10px}
+  .awrow{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11px}
+  .awrow + .awrow{border-top:1px solid rgba(30,41,59,.5)}
+  .awname{flex:1;min-width:0;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .awbar{width:88px;height:8px;background:rgba(30,41,59,.7);border-radius:3px;position:relative;flex-shrink:0}
+  .awbar i{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
+  .awnum{width:70px;text-align:right;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;flex-shrink:0}
+</style></head>
+<body>
+<div class="pane">
+  <div class="head">
+    <span class="ptitle accent" style="font-size:13px">⌂ Household</span>
+    <span class="hint">bills, documents &amp; wellbeing</span>
+  </div>
+  <p class="thesis">Organised around one idea: <b>the things that hurt you are the ones with no alarm attached.</b>
+    Autopay reminds itself; a manual bill does not. A subscription renews silently — that is the problem, not the exception.
+    A passport expires with no notice at all. And a bill that <i>stops arriving</i> gives no signal by definition, which is
+    why silence gets its own panel. Same rule as the rest of the app: nothing here is guessed, and every row says where it came from.</p>
+
+  <!-- ── MONEY DUE ── -->
+  <div class="sect">
+    <div class="sh"><span class="t" style="color:#fca5a5">◧ Money due — 5 items</span><span class="n">manual first · autopay shown for completeness</span></div>
+
+    <div class="mrow">
+      <span class="amt">$184.22</span>
+      <span class="due2 r">Thu 8</span>
+      <span class="mbody"><span class="t">Electric — Xcel Energy</span>
+        <span class="s">Account ····4471 · no autopay on file <span class="src2">· e-bill, 26 Sep</span></span></span>
+      <span class="flag">▲ 38% over 6-mo avg</span>
+      <span class="pay man">Manual</span>
+    </div>
+
+    <div class="mrow">
+      <span class="amt">$612.00</span>
+      <span class="due2 a">Oct 30</span>
+      <span class="mbody"><span class="t">Auto insurance — renewal</span>
+        <span class="s">Up 8% from $567. Decision window closes 15 Oct to re-shop <span class="src2">· Geico, 21 Sep</span></span></span>
+      <span class="flag">▲ renewal increase</span>
+      <span class="pay man">Manual</span>
+    </div>
+
+    <div class="mrow">
+      <span class="amt">$89.99</span>
+      <span class="due2 a">Oct 12</span>
+      <span class="mbody"><span class="t">Internet — Comcast</span>
+        <span class="s">Was $69.99 for 11 months — introductory rate ended <span class="src2">· statement, 24 Sep</span></span></span>
+      <span class="flag">▲ promo expired</span>
+      <span class="pay auto">Autopay</span>
+    </div>
+
+    <div class="mrow">
+      <span class="amt">$2,410</span>
+      <span class="due2 g">Nov 1</span>
+      <span class="mbody"><span class="t">Mortgage — Rocket</span>
+        <span class="s">Unchanged. Escrow review due Jan <span class="src2">· statement, 20 Sep</span></span></span>
+      <span class="pay auto">Autopay</span>
+    </div>
+
+    <div class="mrow">
+      <span class="amt">$47.50</span>
+      <span class="due2 g">Nov 3</span>
+      <span class="mbody"><span class="t">Phone — Verizon</span><span class="s">Unchanged <span class="src2">· statement, 22 Sep</span></span></span>
+      <span class="pay auto">Autopay</span>
+    </div>
+  </div>
+
+  <!-- ── SILENCE WATCH ── -->
+  <div class="sect silence">
+    <div class="sh"><span class="t" style="color:#c4b5fd">◌ Silence watch — expected, not seen</span><span class="n">a bill that stops arriving raises no alarm on its own</span></div>
+
+    <div class="srow">
+      <span class="quiet">22 days</span>
+      <span class="mbody"><span class="t">Water — City of Aurora</span>
+        <span class="s">Arrived by the 5th for the last 6 months. Nothing this cycle. Paperless lapse, address change, or autopay cancelled?</span></span>
+      <span class="mini2">Check account</span><span class="mini2">Not a bill</span>
+    </div>
+
+    <div class="srow">
+      <span class="quiet">2 cycles</span>
+      <span class="mbody"><span class="t">HOA quarterly — Stonebridge</span>
+        <span class="s">Last seen 14 Apr. Quarterly cadence would have put one in July and one this month.</span></span>
+      <span class="mini2">Check account</span><span class="mini2">Not a bill</span>
+    </div>
+
+    <div class="srow">
+      <span class="quiet">Pending</span>
+      <span class="mbody"><span class="t">Insurance claim — 12 Aug, $1,240</span>
+        <span class="s">Submitted 46 days ago, acknowledged 14 Aug, no decision since. Typical turnaround 30 days.</span></span>
+      <span class="mini2">Open thread</span><span class="mini2">Resolved</span>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <!-- ── EXPIRING ── -->
+      <div class="sect">
+        <div class="sh"><span class="t">⧗ Expiring — nothing will remind you</span><span class="n">next 12 months</span></div>
+
+        <div class="exp">
+          <div class="etop"><span class="ename">Passport — Emma</span><span class="edate">14 Feb 2027</span></div>
+          <div class="bar"><i style="width:38%;background:linear-gradient(90deg,#f59e0b,#fbbf24)"></i></div>
+          <div class="enote"><b>Usable window is shorter than it looks:</b> most destinations require 6 months' validity, so this is effectively expired for travel after <b>14 Aug 2026</b> — 10 months out.</div>
+        </div>
+
+        <div class="exp">
+          <div class="etop"><span class="ename">Vehicle registration — Highlander</span><span class="edate">31 Oct 2026</span></div>
+          <div class="bar"><i style="width:9%;background:linear-gradient(90deg,#ef4444,#f87171)"></i></div>
+          <div class="enote">34 days. Emissions test required first in this county.</div>
+        </div>
+
+        <div class="exp">
+          <div class="etop"><span class="ename">Driver's licence — Sarah</span><span class="edate">02 Mar 2027</span></div>
+          <div class="bar"><i style="width:43%;background:linear-gradient(90deg,#f59e0b,#fbbf24)"></i></div>
+          <div class="enote">Renewal opens 6 months prior — 02 Sep 2026.</div>
+        </div>
+
+        <div class="exp">
+          <div class="etop"><span class="ename">Homeowners policy — term ends</span><span class="edate">30 Oct 2026</span></div>
+          <div class="bar"><i style="width:9%;background:linear-gradient(90deg,#ef4444,#f87171)"></i></div>
+          <div class="enote">Quote came in 8% higher. Re-shop window closes before renewal.</div>
+        </div>
+      </div>
+
+      <!-- ── WELLBEING ── -->
+      <div class="sect">
+        <div class="sh"><span class="t">✚ Health &amp; wellbeing</span><span class="n">the admin that keeps people well</span></div>
+        <div class="lrow"><span class="dot2" style="background:#ef4444"></span><div><b style="color:var(--txt)">Rx refill — 8 days left.</b> Maintenance prescription, no refills remaining on the script; needs a prescriber call, not a pharmacy tap. <span class="src2">· CVS, 25 Sep</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#f59e0b"></span><div><b style="color:var(--txt)">Dental cleanings overdue — both kids.</b> Last visit March; the practice stopped sending recalls after the insurance change. <span class="src2">· inferred from absence</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#f59e0b"></span><div><b style="color:var(--txt)">Open enrolment 1–15 Nov.</b> Hard deadline, no extensions. Last year's elections roll over if you do nothing — including the dental tier you meant to change. <span class="src2">· HR, 18 Sep</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#f59e0b"></span><div><b style="color:var(--txt)">FSA — $340 unspent, forfeits 31 Dec.</b> <span class="src2">· benefits portal, 19 Sep</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#10b981"></span><div>Annual physicals: Jack done 12 Sep · Emma booked 4 Nov · yours <b style="color:var(--amber)">not scheduled</b> (last: Aug 2025). <span class="src2">· portal + calendar</span></div></div>
+      </div>
+    </div>
+
+    <div>
+      <!-- ── AMOUNT WATCH ── -->
+      <div class="sect">
+        <div class="sh"><span class="t">◫ Amount watch</span><span class="n">this month vs your own 6-month average</span></div>
+        <div class="aw">
+          <div class="awrow"><span class="awname">Electric</span><span class="awbar"><i style="width:100%;background:rgba(239,68,68,.65)"></i></span><span class="awnum" style="color:var(--red)">+38%</span></div>
+          <div class="awrow"><span class="awname">Internet</span><span class="awbar"><i style="width:82%;background:rgba(245,158,11,.65)"></i></span><span class="awnum" style="color:var(--amber)">+29%</span></div>
+          <div class="awrow"><span class="awname">Auto insurance</span><span class="awbar"><i style="width:40%;background:rgba(245,158,11,.5)"></i></span><span class="awnum" style="color:var(--amber)">+8%</span></div>
+          <div class="awrow"><span class="awname">Groceries (card alerts)</span><span class="awbar"><i style="width:26%;background:rgba(100,116,139,.6)"></i></span><span class="awnum" style="color:var(--mut)">+3%</span></div>
+          <div class="awrow"><span class="awname">Phone</span><span class="awbar"><i style="width:2%;background:rgba(100,116,139,.5)"></i></span><span class="awnum" style="color:var(--mut)">flat</span></div>
+          <div class="awrow"><span class="awname">Mortgage</span><span class="awbar"><i style="width:2%;background:rgba(100,116,139,.5)"></i></span><span class="awnum" style="color:var(--mut)">flat</span></div>
+          <p class="hint" style="margin:8px 0 0">Averages come only from statements actually seen in your mail. A bill with fewer than three prior months shows no comparison rather than a misleading one.</p>
+        </div>
+      </div>
+
+      <!-- ── DOCUMENT LOCKER ── -->
+      <div class="sect">
+        <div class="sh"><span class="t">⛁ Where the documents are</span><span class="n">found, not stored</span></div>
+        <div class="lrow"><span class="dot2" style="background:#38bdf8"></span><div>Homeowners policy PDF — <span class="src2">Allstate, 12 Mar · attachment</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#38bdf8"></span><div>2025 W-2s (both) — <span class="src2">payroll, 28 Jan · attachment</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#38bdf8"></span><div>Mortgage escrow analysis — <span class="src2">Rocket, 14 Jan · attachment</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#38bdf8"></span><div>Emma immunisation record — <span class="src2">pediatrics portal, 3 Aug</span></div></div>
+        <div class="lrow"><span class="dot2" style="background:#38bdf8"></span><div>Vehicle title — Highlander <span class="src2">· DMV, 2 Feb</span></div></div>
+        <p class="hint" style="padding:0 14px 10px;margin:0">Links point back to the email the document arrived in. Nothing is copied into the dashboard — the file stays in your mailbox.</p>
+      </div>
+
+      <!-- ── COVERAGE ── -->
+      <div class="sect">
+        <div class="sh"><span class="t">✓ Coverage</span></div>
+        <div class="lrow"><span class="dot2" style="background:#10b981"></span><div>14 billers and 6 document sources watched · 63 messages read in the last 90 days.</div></div>
+        <div class="lrow"><span class="dot2" style="background:#f59e0b"></span><div><b style="color:var(--txt)">2 billers have no cadence yet.</b> Silence watch needs three prior cycles before it will claim a bill is missing.</div></div>
+        <div class="lrow"><span class="dot2" style="background:#475569"></span><div>Account numbers are masked to the last four and never stored. Amounts live only in the 15-minute cache. Owner-only.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="mockcap">illustrative render</div>
+</body></html>

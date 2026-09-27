@@ -17,3 +17,4 @@ shot mission-profile.html mission-profile.png 1180,880  2
 shot sitrep.html          sitrep.png          1180,700  2
 shot iw-board.html        iw-board.png        1060,660  2
 shot family.html          family.png          1240,1285 2
+shot household.html       household.png       1240,1330 2
