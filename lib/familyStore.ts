@@ -32,10 +32,17 @@ export async function getFamilyProfile(): Promise<FamilyProfile> {
 export async function saveFamilyProfile(profile: FamilyProfile): Promise<FamilyProfile> {
   const clean = sanitizeFamilyProfile(profile);
   const pool = await getDb();
+  // `last_updated` is NOT NULL with no DEFAULT. MySQL validates the INSERT row
+  // in strict mode even when the duplicate-key path will win, so omitting the
+  // column fails with ER_NO_DEFAULT_FOR_FIELD on EVERY save, not just the
+  // insert case. saveAcledCredentials already solved this on the same table —
+  // this now matches it. The ON DUPLICATE clause deliberately does NOT touch
+  // last_updated: it is the team-config timestamp other caches key off, and a
+  // roster edit should not invalidate them.
   await pool.execute(
-    `INSERT INTO user_prefs (id, family_profile) VALUES (1, CAST(? AS JSON))
+    `INSERT INTO user_prefs (id, family_profile, last_updated) VALUES (1, CAST(? AS JSON), ?)
      ON DUPLICATE KEY UPDATE family_profile = VALUES(family_profile)`,
-    [JSON.stringify(clean)],
+    [JSON.stringify(clean), new Date()],
   );
   return clean;
 }

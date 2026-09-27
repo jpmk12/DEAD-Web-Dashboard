@@ -28,7 +28,17 @@ export async function POST(req: Request) {
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
-  const saved = await saveFamilyProfile(sanitizeFamilyProfile((body as { profile?: unknown })?.profile));
-  resetFamilyCache();   // the roster is part of the digest cache key AND its query
-  return NextResponse.json({ profile: saved });
+  try {
+    const saved = await saveFamilyProfile(sanitizeFamilyProfile((body as { profile?: unknown })?.profile));
+    resetFamilyCache();   // the roster is part of the digest cache key AND its query
+    return NextResponse.json({ profile: saved });
+  } catch (err) {
+    // Without this the route throws, Next returns an HTML 500, the client's
+    // res.json() fails and the user sees only "Save failed" — the same opaque
+    // degradation the AI routes had. This is owner-only, so naming the real
+    // database error is useful rather than a disclosure.
+    console.error("Family roster save failed:", err);
+    const msg = err instanceof Error ? err.message : "Unknown database error";
+    return NextResponse.json({ error: `Could not save the roster: ${msg}` }, { status: 500 });
+  }
 }
