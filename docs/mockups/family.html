@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>family</title><link rel="stylesheet" href="shot.css">
+<style>
+  .pane{max-width:1180px;margin:22px auto;padding:0 20px}
+  .head{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
+
+  /* ── needs you ── */
+  .needs{border:1px solid rgba(248,113,113,.35);border-radius:12px;background:rgba(127,29,29,.08);overflow:hidden;margin-bottom:18px}
+  .needs .phead{background:rgba(248,113,113,.07);border-bottom-color:rgba(248,113,113,.25)}
+  .nrow{display:flex;align-items:center;gap:12px;padding:10px 14px}
+  .nrow + .nrow{border-top:1px solid rgba(30,41,59,.7)}
+  .due{flex-shrink:0;width:86px;text-align:center;border-radius:6px;padding:4px 0;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-family:ui-monospace,Menlo,monospace}
+  .due.r{color:#fecaca;background:rgba(239,68,68,.22);border:1px solid rgba(239,68,68,.5)}
+  .due.a{color:#fde68a;background:rgba(245,158,11,.18);border:1px solid rgba(245,158,11,.45)}
+  .nbody{flex:1;min-width:0}
+  .nbody .t{font-size:13.5px;font-weight:700;color:var(--txt)}
+  .nbody .s{font-size:11px;color:var(--mut);margin-top:1px}
+  .who{flex-shrink:0;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border-radius:999px;padding:3px 10px}
+  .who.em{color:#c4b5fd;background:rgba(167,139,250,.16);border:1px solid rgba(167,139,250,.35)}
+  .who.ja{color:#7dd3fc;background:rgba(56,189,248,.14);border:1px solid rgba(56,189,248,.35)}
+  .who.hh{color:#5eead4;background:rgba(45,212,191,.13);border:1px solid rgba(45,212,191,.32)}
+  .act{flex-shrink:0;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:5px 11px;border:1px solid var(--acc2);background:rgba(16,185,129,.12);color:var(--acc)}
+
+  .cols{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;align-items:start}
+
+  /* ── per-kid ── */
+  .kid{margin-bottom:16px}
+  .kidhead{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.3)}
+  .av{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0}
+  .av.em{background:rgba(167,139,250,.18);color:#c4b5fd;border:1px solid rgba(167,139,250,.4)}
+  .av.ja{background:rgba(56,189,248,.16);color:#7dd3fc;border:1px solid rgba(56,189,248,.4)}
+  .kidname{font-size:13px;font-weight:800}
+  .kidsub{font-size:10.5px;color:var(--mut)}
+  .summ{padding:11px 14px;font-size:12.5px;color:var(--txt2);line-height:1.7}
+  .summ b{color:var(--txt)}
+  .up{border-top:1px solid rgba(30,41,59,.6);padding:8px 14px}
+  .uprow{display:flex;align-items:baseline;gap:10px;font-size:11.5px;color:var(--txt2);padding:3px 0}
+  .update{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--mut);width:64px;flex-shrink:0}
+  .src{font-size:9.5px;color:var(--mut2);font-style:italic}
+
+  /* ── calendar proposals ── */
+  .prop{padding:9px 13px;border-bottom:1px solid rgba(30,41,59,.6)}
+  .prop:last-child{border-bottom:0}
+  .ptop{display:flex;align-items:center;gap:8px}
+  .pdate{font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:700;color:var(--acc)}
+  .ptitle2{font-size:12px;font-weight:600;color:var(--txt);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pbtns{display:flex;gap:5px;margin-top:6px}
+  .mini{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:5px;padding:3px 9px;border:1px solid var(--bd2);color:var(--mut)}
+  .mini.go{border-color:var(--acc2);background:rgba(16,185,129,.12);color:var(--acc)}
+  .mini.warn{border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1);color:var(--amber)}
+  .added{font-size:10px;color:var(--acc);font-weight:700}
+  .psrc{font-size:9.5px;color:var(--mut2);margin-top:3px}
+  .ambig{border-left:2px solid rgba(245,158,11,.75)}
+
+  /* ── coverage ── */
+  .cov{padding:10px 13px;font-size:11px;color:var(--txt2);line-height:1.7}
+  .cov .k{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:800;display:block;margin-bottom:3px}
+  .rost{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+
+  /* ── week strip ── */
+  .week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:18px}
+  .day{border:1px solid var(--bd);border-radius:8px;background:rgba(15,23,42,.5);padding:7px 8px;min-height:74px}
+  .day.today{border-color:rgba(52,211,153,.5);background:rgba(16,185,129,.06)}
+  .dname{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-bottom:5px}
+  .ev{font-size:10px;line-height:1.35;color:var(--txt2);margin-bottom:4px;padding-left:6px;border-left:2px solid var(--bd2)}
+  .ev.em{border-left-color:#a78bfa}.ev.ja{border-left-color:#38bdf8}.ev.hh{border-left-color:#2dd4bf}
+</style></head>
+<body>
+<div class="pane">
+  <div class="head">
+    <span class="ptitle accent" style="font-size:13px">◈ Family</span>
+    <span class="hint">school, activities &amp; household — what needs you, by when · deadlines are pulled out of the email, not left in it</span>
+  </div>
+
+  <!-- ── NEEDS YOU ── -->
+  <div class="needs">
+    <div class="phead"><span class="ptitle" style="color:#fca5a5">⚑ Needs you — 4 items with a deadline</span><span class="hint">soonest first</span></div>
+
+    <div class="nrow">
+      <span class="due r">Due Fri</span>
+      <span class="nbody"><span class="t">Field-trip permission slip + $12 — Ellis Island</span>
+        <span class="s">Returned to homeroom by Fri 2 Oct. Trip is Thu 8 Oct, 7:15am departure.</span></span>
+      <span class="who em">Emma</span>
+      <span class="act">Open email</span>
+    </div>
+
+    <div class="nrow">
+      <span class="due r">2 days</span>
+      <span class="nbody"><span class="t">Immunization record — Tdap booster on file</span>
+        <span class="s">Nurse: without it Jack is excluded from class from Mon 5 Oct. <b style="color:#fca5a5">Buried in paragraph 6</b> of the Lincoln Weekly.</span></span>
+      <span class="who ja">Jack</span>
+      <span class="act">Open email</span>
+    </div>
+
+    <div class="nrow">
+      <span class="due a">Mon 5</span>
+      <span class="nbody"><span class="t">Parent–teacher conference sign-up opens</span>
+        <span class="s">Slots fill in ~2 h historically. Window 5–9 Oct; both kids, same evening possible.</span></span>
+      <span class="who em">Emma</span>
+      <span class="act">Open email</span>
+    </div>
+
+    <div class="nrow">
+      <span class="due a">Wed 7</span>
+      <span class="nbody"><span class="t">Lunch account below $5 — auto-reload is off</span>
+        <span class="s">Balance $3.40. Two more lunches before it blocks.</span></span>
+      <span class="who ja">Jack</span>
+      <span class="act">Open email</span>
+    </div>
+  </div>
+
+  <div class="cols">
+    <!-- ── LEFT: per-child ── -->
+    <div>
+      <div class="panel kid">
+        <div class="kidhead">
+          <span class="av em">E</span>
+          <span><span class="kidname">Emma</span> <span class="kidsub">· 4th grade · Oakwood Elementary · Ms. Reyes</span></span>
+          <span style="margin-left:auto" class="tag amber">1 deadline</span>
+        </div>
+        <p class="summ"><b>This week:</b> the Ellis Island field trip is confirmed for Thu 8 Oct — slip and $12 due Friday, and they still need two parent chaperones. Reading logs move to a weekly turn-in starting Monday. Ms. Reyes flagged that Emma&rsquo;s book-report topic was approved (Amelia Earhart) with the draft due 14 Oct. Picture retakes are 12 Oct if you want them.</p>
+        <div class="up">
+          <div class="uprow"><span class="update">Thu 8</span><span>Field trip — Ellis Island, 7:15a departure, pack lunch <span class="src">· Oakwood Weekly, 24 Sep</span></span></div>
+          <div class="uprow"><span class="update">Mon 12</span><span>Picture retakes <span class="src">· Lifetouch notice, 22 Sep</span></span></div>
+          <div class="uprow"><span class="update">Wed 14</span><span>Book report draft due <span class="src">· Ms. Reyes, 25 Sep</span></span></div>
+        </div>
+      </div>
+
+      <div class="panel kid">
+        <div class="kidhead">
+          <span class="av ja">J</span>
+          <span><span class="kidname">Jack</span> <span class="kidsub">· 7th grade · Lincoln Middle · band + cross-country</span></span>
+          <span style="margin-left:auto" class="tag red">2 deadlines</span>
+        </div>
+        <p class="summ"><b>This week:</b> the nurse needs the Tdap record on file before Monday or he&rsquo;s excluded from class — this was one line inside the weekly newsletter, not a separate email. Cross-country meet moved from Sat 3 Oct to <b>Sat 10 Oct</b> (venue change to Riverside Park). Band concert 21 Oct, black pants required and he has outgrown last year&rsquo;s. Progress reports post Fri 9 Oct.</p>
+        <div class="up">
+          <div class="uprow"><span class="update">Sat 10</span><span>XC meet — Riverside Park, 9:00a call <span class="src">· Coach Duval, 26 Sep — supersedes 3 Oct</span></span></div>
+          <div class="uprow"><span class="update">Fri 9</span><span>Progress reports post to portal <span class="src">· Lincoln Weekly, 25 Sep</span></span></div>
+          <div class="uprow"><span class="update">Wed 21</span><span>Fall band concert, 7:00p — black pants <span class="src">· Mr. Okafor, 20 Sep</span></span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="kidhead">
+          <span class="av" style="background:rgba(45,212,191,.14);color:#5eead4;border:1px solid rgba(45,212,191,.35)">⌂</span>
+          <span><span class="kidname">Household</span> <span class="kidsub">· appointments, travel &amp; family mail</span></span>
+        </div>
+        <p class="summ">Sarah&rsquo;s mother arrives 17 Oct for five days (flight confirmation forwarded 23 Sep). Dentist moved both kids to 11 Oct, 3:40p — the practice asked for confirmation and <b>has not had a reply</b>. Homeowners renewal quote came in 8% higher; response window closes 30 Oct.</p>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: calendar + coverage ── -->
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <div class="phead"><span class="ptitle accent">◷ Dates found — add to calendar</span><span class="pjump">6 this week</span></div>
+
+        <div class="prop">
+          <div class="ptop"><span class="pdate">Thu 8 Oct · 07:15</span><span class="ptitle2">Emma — Ellis Island field trip</span></div>
+          <div class="psrc">Oakwood Weekly Update · 24 Sep</div>
+          <div class="pbtns"><span class="mini go">＋ Add</span><span class="mini">Skip</span></div>
+        </div>
+
+        <div class="prop">
+          <div class="ptop"><span class="pdate">Sat 10 Oct · 09:00</span><span class="ptitle2">Jack — XC meet, Riverside Park</span></div>
+          <div class="psrc">Coach Duval · 26 Sep — <span style="color:var(--amber)">replaces the 3 Oct entry already on your calendar</span></div>
+          <div class="pbtns"><span class="mini go">＋ Add &amp; replace</span><span class="mini">Add only</span><span class="mini">Skip</span></div>
+        </div>
+
+        <div class="prop ambig">
+          <div class="ptop"><span class="pdate" style="color:var(--amber)">?? Oct</span><span class="ptitle2">Emma — Spirit Week dress-up</span></div>
+          <div class="psrc">Sender wrote &ldquo;next Friday&rdquo; with no date. <b style="color:var(--amber)">Not guessed.</b> Likely 9 Oct.</div>
+          <div class="pbtns"><span class="mini warn">Confirm 9 Oct</span><span class="mini">Open email</span><span class="mini">Skip</span></div>
+        </div>
+
+        <div class="prop">
+          <div class="ptop"><span class="pdate">Sun 11 Oct · 15:40</span><span class="ptitle2">Dentist — both kids</span></div>
+          <div class="psrc">Brightsmile Dental · 25 Sep</div>
+          <div class="pbtns"><span class="added">✓ Added 26 Sep</span></div>
+        </div>
+
+        <div class="prop">
+          <div class="ptop"><span class="pdate">Wed 21 Oct · 19:00</span><span class="ptitle2">Jack — fall band concert</span></div>
+          <div class="psrc">Mr. Okafor · 20 Sep</div>
+          <div class="pbtns"><span class="added">✓ Added 21 Sep</span></div>
+        </div>
+
+        <div style="padding:8px 13px;border-top:1px solid var(--bd)">
+          <p class="hint">Nothing is written to your calendar until you tap Add. Relative dates (&ldquo;next Friday&rdquo;, &ldquo;the 15th&rdquo;) are flagged, never resolved silently.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="phead"><span class="ptitle">✓ Coverage</span></div>
+        <div class="cov">
+          <span class="k">Nothing missed</span>
+          All 31 family emails from the last 14 days are read and summarised. Oldest unsummarised: <b>none</b>.
+          <div style="height:9px"></div>
+          <span class="k">Watching 9 senders</span>
+          <div class="rost">
+            <span class="chip">Oakwood Elementary</span><span class="chip">Lincoln Middle</span>
+            <span class="chip">Ms. Reyes</span><span class="chip">Mr. Okafor</span>
+            <span class="chip">Coach Duval</span><span class="chip">Brightsmile</span>
+            <span class="chip on">＋ add sender</span>
+          </div>
+          <div style="height:9px"></div>
+          <span class="k">Roster</span>
+          <div class="rost">
+            <span class="chip"><span style="color:#c4b5fd">●</span> Emma · 4th · Oakwood</span>
+            <span class="chip"><span style="color:#7dd3fc">●</span> Jack · 7th · Lincoln</span>
+            <span class="chip"><span style="color:#5eead4">●</span> Sarah</span>
+          </div>
+          <p class="hint" style="margin:8px 0 0">You declare the roster; the app decides which mail is about whom. Same pattern as the Mission Profile.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── week strip ── -->
+  <span class="lbl">The next seven days</span>
+  <div class="week">
+    <div class="day today"><div class="dname">Sun 27</div></div>
+    <div class="day"><div class="dname">Mon 28</div><div class="ev em">Reading log → weekly</div></div>
+    <div class="day"><div class="dname">Tue 29</div></div>
+    <div class="day"><div class="dname">Wed 30</div><div class="ev hh">Insurance reply due</div></div>
+    <div class="day"><div class="dname">Thu 1</div></div>
+    <div class="day"><div class="dname">Fri 2</div><div class="ev em">Permission slip + $12 due</div></div>
+    <div class="day"><div class="dname">Sat 3</div><div class="ev ja" style="opacity:.45;text-decoration:line-through">XC meet — moved</div></div>
+  </div>
+</div>
+<div class="mockcap">illustrative render</div>
+</body></html>

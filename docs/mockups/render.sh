@@ -16,3 +16,4 @@ shot hero.html            hero.png            1600,1000 2
 shot mission-profile.html mission-profile.png 1180,880  2
 shot sitrep.html          sitrep.png          1180,700  2
 shot iw-board.html        iw-board.png        1060,660  2
+shot family.html          family.png          1240,1285 2
