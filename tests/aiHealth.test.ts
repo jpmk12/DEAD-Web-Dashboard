@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { recordAiOk, recordAiFail, getAiHealth, aiHealthLine } from "../lib/aiHealth";
 
 describe("aiHealth", () => {
@@ -34,5 +34,28 @@ describe("aiHealth", () => {
     recordAiOk();
     recordAiFail(new Error("fetch failed: ECONNREFUSED"));
     expect(aiHealthLine(getAiHealth())).toMatch(/Could not reach Anthropic/);
+  });
+});
+
+describe("keyFormat", () => {
+  const orig = process.env.ANTHROPIC_API_KEY;
+  afterEach(() => { process.env.ANTHROPIC_API_KEY = orig; });
+
+  it("flags the trailing-newline paste the hosting env UI is known to add", async () => {
+    const { keyFormat } = await import("../lib/claude");
+    process.env.ANTHROPIC_API_KEY = "sk-ant-abc123\n";
+    expect(keyFormat()).toBe("whitespace");
+    process.env.ANTHROPIC_API_KEY = " sk-ant-abc123 ";
+    expect(keyFormat()).toBe("whitespace");
+  });
+
+  it("flags a wrong value and a missing one, and passes a clean key", async () => {
+    const { keyFormat } = await import("../lib/claude");
+    process.env.ANTHROPIC_API_KEY = "not-a-key";
+    expect(keyFormat()).toBe("unexpected-prefix");
+    process.env.ANTHROPIC_API_KEY = "   ";
+    expect(keyFormat()).toBe("missing");
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-abc123";
+    expect(keyFormat()).toBe("ok");
   });
 });

@@ -4,6 +4,7 @@ import { isOwner } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getUsageToday, getUsageLastNDays, getUsageMonthToDate, getUsageByDay } from "@/lib/anthropicLog";
 import { getAiHealth, aiHealthLine } from "@/lib/aiHealth";
+import { keyFormat } from "@/lib/claude";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,6 @@ export async function GET() {
     tz, today, last7, last30, monthToDate, byDay,
     // Owner-only: why the AI last went quiet, if it did. Without this every
     // failure mode renders as the same empty placeholder in the feature UIs.
-    ...(owner ? { keyTail: keyTail(), aiHealth: aiHealthLine(getAiHealth()) } : {}),
+    ...(owner ? { keyTail: keyTail(), keyFormat: keyFormat(), aiHealth: aiHealthLine(getAiHealth()) } : {}),
   });
 }

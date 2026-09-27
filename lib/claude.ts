@@ -2,9 +2,27 @@ import Anthropic from "@anthropic-ai/sdk";
 import { recordAiOk, recordAiFail } from "./aiHealth";
 
 export function getAnthropic(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // TRIM is load-bearing, not hygiene. The hosting env UI is known to append a
+  // trailing newline to pasted values — it already broke the Gmail secondary
+  // redirect_uri, where Google's byte-for-byte match failed on an invisible
+  // character. The same paste path feeds this key, and an untrimmed one is
+  // rejected 401 on every call, which each route then swallows into its own
+  // placeholder ("No key facts extracted", "Couldn't generate a thesis").
+  const apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
   return new Anthropic({ apiKey });
+}
+
+// Shape of the configured key, for the owner-only diagnostic in AI Controls.
+// Never returns the key — only what is wrong with it.
+export type KeyFormat = "missing" | "whitespace" | "unexpected-prefix" | "ok";
+
+export function keyFormat(): KeyFormat {
+  const raw = process.env.ANTHROPIC_API_KEY ?? "";
+  if (!raw.trim()) return "missing";
+  if (raw !== raw.trim()) return "whitespace";
+  if (!raw.startsWith("sk-ant-")) return "unexpected-prefix";
+  return "ok";
 }
 
 // Module-level singleton — only instantiated when first imported at request time,

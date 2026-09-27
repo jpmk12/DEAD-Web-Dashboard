@@ -1517,7 +1517,7 @@ function AIControlPanel({
 }) {
   const [usage, setUsage] = useState<{
     today: AiUsageSummary; last7: AiUsageSummary; last30: AiUsageSummary;
-    monthToDate: AiUsageSummary; byDay: AiUsageDay[]; keyTail?: string | null; aiHealth?: string | null;
+    monthToDate: AiUsageSummary; byDay: AiUsageDay[]; keyTail?: string | null; keyFormat?: string | null; aiHealth?: string | null;
   } | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [breakdownWindow, setBreakdownWindow] = useState<"today" | "last7" | "last30">("today");
@@ -1530,6 +1530,7 @@ function AIControlPanel({
         monthToDate: d.monthToDate, byDay: Array.isArray(d.byDay) ? d.byDay : [],
         keyTail: typeof d.keyTail === "string" ? d.keyTail : null,
         aiHealth: typeof d.aiHealth === "string" ? d.aiHealth : null,
+        keyFormat: typeof d.keyFormat === "string" ? d.keyFormat : null,
       }))
       .catch(() => {});
   }, []);
@@ -1642,6 +1643,13 @@ function AIControlPanel({
           {usage.keyTail && (
             <p className="text-[9px] text-slate-600 font-mono mt-0.5" title="Last 4 characters of the API key this server is using">
               key ···{usage.keyTail}
+              {usage.keyFormat === "whitespace" && (
+                <span className="text-amber-400"> · stored with surrounding whitespace (trimmed at use — clean it in the hosting env)</span>
+              )}
+              {usage.keyFormat === "unexpected-prefix" && (
+                <span className="text-amber-400"> · does not start with sk-ant- — wrong value pasted?</span>
+              )}
+              {usage.keyFormat === "missing" && <span className="text-red-400"> · NOT SET</span>}
             </p>
           )}
           <div className="flex items-baseline justify-between gap-2 mt-1.5 pt-1.5 border-t border-slate-700/60 text-[10px] font-mono">
