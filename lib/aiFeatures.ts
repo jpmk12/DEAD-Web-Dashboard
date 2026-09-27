@@ -6,7 +6,7 @@ export const ALL_AI_FEATURES: AiFeature[] = [
   "chat", "news_chat",
   "email_triage", "email_actions", "email_draft", "email_convert",
   "osint_triage", "osint_situation",
-  "doc_chat",
+  "doc_chat", "family_digest",
   "newsletters",
   "briefing", "digest", "threads",
   "news_overview",
@@ -19,6 +19,7 @@ export const ALL_AI_FEATURES: AiFeature[] = [
 // Human-readable labels for the Preferences UI.
 export const AI_FEATURE_LABELS: Record<AiFeature, { label: string; sub: string }> = {
   chat:          { label: "Chat assistant",            sub: "Calendar/tasks chat panel" },
+  family_digest: { label: "Family digest",              sub: "School + household summaries, deadlines, dates" },
   news_chat:     { label: "News chat",                 sub: "Right-rail news Q&A" },
   email_triage:  { label: "Email triage",              sub: "Per-email priority + summary" },
   email_actions: { label: "Email action items",        sub: "Extracts to-dos from unread mail" },

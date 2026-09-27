@@ -8,7 +8,7 @@
 //
 // Keeping the mapping here means one glyph == one meaning, and every call site
 // imports from a single source of truth.
-import {
+import { Users,
   Gauge,
   Newspaper,
   Calendar,
@@ -43,6 +43,7 @@ export const TAB_ICONS: Record<Tab, LucideIcon> = {
   weather: CloudSun,
   docs: FileText,
   markets: Coins,
+  family: Users,
 };
 
 // Strategic Economics tab header.

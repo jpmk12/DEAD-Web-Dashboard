@@ -1582,3 +1582,47 @@ structural leaks worth keeping closed. The rules that came out of it:
   Console, the key is being used outside this app — rotate it. Route names that
   don't match an `AiFeature` key need a `ROUTE_LABEL_OVERRIDES` entry or they
   render as raw slugs in that breakdown.
+
+### Family tab (school + household — "never miss something important")
+A top-level tab whose unit is the **deadline, not the email**. An inbox
+already shows unread mail; what it cannot show is that a school's exclusion
+notice was one sentence inside a newsletter about spirit week. Pieces:
+
+- **The roster is the query.** `lib/familyProfile.ts` (PURE, client-safe,
+  tested) holds people + watched senders; `gmailQueryFor()` turns them into
+  `from:(...) newer_than:14d`. An empty roster reads NOTHING — scoping the
+  Gmail search (rather than fetching all mail and classifying) is what keeps
+  the feature cheap and stops it touching mail the user never named. A bare
+  domain matches at and below itself (`oakwood.org` also catches
+  `mail.oakwood.org`); an address pattern matches only that mailbox.
+- **Stored in its own column.** `user_prefs.family_profile` (additive), via
+  `lib/familyStore.ts` + `/api/family/roster` — deliberately NOT in the
+  UserPrefs JSON blob, same discipline as ACLED creds and `sitrep_bases`: a
+  Preferences save must not clobber it, and it must not ride along in the
+  `/api/user-prefs` GET every tab makes. It names the user's children and
+  their schools, the most sensitive data in the app.
+- **One model call** (`lib/family.ts`, sonnet, 15-min cache keyed on message
+  ids + roster) returns deadlines, per-person summaries, the household
+  paragraph and the extracted dates together — three views of one reading
+  pass; splitting them would triple cost for no extra signal. Deadlines carry
+  `buried: true` when the obligation sat inside a longer newsletter, and the
+  UI says so out loud.
+- **NEVER a guessed date** (`lib/familyDates.ts`, PURE, tested) — the closure
+  timeline's rule applied to email. The prompt forbids resolving "next
+  Friday"/"the 15th"; anything unanchored comes back `needsConfirm` and the
+  UI offers "open the email", not "add". `normalizeProposed` also unanchors an
+  absurd date (>400d out) and flags a relative phrase EVEN IF the model also
+  supplied a date — in that case the date IS the guess.
+- **The write boundary re-checks.** `/api/family/event` refuses any payload
+  whose `startISO` is not explicitly anchored (422). The guard must hold at
+  the server, not just in the UI. Nothing else in the feature writes; this
+  route is the human's tap. Uses the existing `calendar.events` scope and
+  `createEvent` — no re-consent needed.
+- **Mounted only when opened** in `TabShell` (conditional render, NOT the
+  hidden-mount used for OSINT): the digest reads Gmail and calls the model, so
+  an always-mounted pane would spend on every app load. Same rule as the
+  Threads pre-fetch removal.
+- Gated on the `family_digest` AI feature. A model failure returns the
+  coverage line with empty summaries — the tab says the summary is
+  unavailable rather than implying a quiet week.
+- Mockup: `docs/mockups/family.html` → `docs/family.png`.

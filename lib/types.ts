@@ -230,6 +230,7 @@ export type AiFeature =
   | "threads"        // /api/threads
   | "news_overview"  // /api/news/curated
   | "news_thesis"    // /api/news/thesis (per-article thesis button)
+  | "family_digest"  // /api/family — school + household summaries
   | "quick_capture"  // /api/quick-capture
   | "markets_brief"  // /api/markets/brief
   | "memory";        // background memory consolidation

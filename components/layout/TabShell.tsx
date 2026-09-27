@@ -14,6 +14,7 @@ import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
 import DocumentsTab from "@/components/documents/DocumentsTab";
 import GlanceTab from "@/components/glance/GlanceTab";
+import FamilyTab from "@/components/family/FamilyTab";
 import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
@@ -22,7 +23,7 @@ import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, TickerEntry } f
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
 
-const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "docs", "osint", "markets", "weather"];
+const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "family", "docs", "osint", "markets", "weather"];
 
 export default function TabShell() {
   const [activeTab, setActiveTab] = useState<Tab>("glance");
@@ -347,6 +348,14 @@ export default function TabShell() {
             onTopSignals={setOsintTop}
           />
         </div>
+
+        {/* Family mounts only when opened: its digest reads Gmail and calls the
+            model, so an always-mounted pane would spend on every app load. */}
+        {activeTab === "family" && (
+          <div>
+            <FamilyTab active={activeTab === "family"} />
+          </div>
+        )}
 
         <div className={activeTab !== "markets" ? "hidden" : ""}>
           <MarketsTab articles={articles} />

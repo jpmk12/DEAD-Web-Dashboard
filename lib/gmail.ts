@@ -158,7 +158,7 @@ export async function fetchNewsletterEmails(
   accessToken: string,
   query: string,
   maxResults = 8
-): Promise<{ id: string; subject: string; date: string; body: string }[]> {
+): Promise<{ id: string; subject: string; date: string; body: string; from: string }[]> {
   const gmail = buildClient(accessToken);
 
   const listRes = await gmail.users.messages.list({
@@ -184,6 +184,8 @@ export async function fetchNewsletterEmails(
     return [{
       id: msg.id,
       subject: header(msg, "Subject") || "(no subject)",
+      // Needed by the Family digest to attribute a message to a roster person.
+      from: header(msg, "From") || "",
       date: (() => {
         try { return new Date(header(msg, "Date")).toISOString(); }
         catch { return ""; }
