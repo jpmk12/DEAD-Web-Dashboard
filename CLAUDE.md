@@ -941,6 +941,40 @@ is Risk-only (0 severity workflows), and Severity is distributed as **Excel on
 HDX** — adding it would need an xlsx parser + CKAN discovery. The map has no
 Severity toggle. Don't re-add one without wiring that separate source.
 
+### Crisis map: a blank map is a bug, never a quiet world
+Three separate ways the map could go empty with nothing said — all now named
+on screen, because "the OSINT map isn't displaying" is indistinguishable from
+"nothing is happening" to the person reading it.
+- **Render exception** — the map composes ~15 feeds and React unmounts a
+  throwing subtree, so one malformed row used to blank the whole panel.
+  `components/ErrorBoundary.tsx` (the app's first) wraps `CrisisMap` in
+  `WatchPane`: it names the failure, prints the message, and retries by
+  changing the child `key` (without the key change React reuses the instances
+  and re-throws on the same state). Use it for any other composite panel.
+- **Refused session** — nearly every layer route gates on the Google
+  `accessToken`, so an expired session 401s ALL of them at once, and each
+  fetch in `CrisisMap` swallows non-ok (`r.ok ? r.json() : null`). Right for
+  one flaky upstream, wrong here. `noteStatus` on the probe fetches raises a
+  red "signed out — sign in again" badge, cleared at the top of each refresh
+  cycle so re-login clears it.
+- **Basemap refusal** — the basemap is the one layer whose failure means
+  "there is no map". `BASEMAPS` is a fallback chain (CARTO dark → OSM →
+  OpenTopoMap); a provider that logs `TILE_FAIL_LIMIT` tile errors *without
+  ever loading one* is judged to be refusing us (ordinary coverage gaps
+  produce errors AND loads) and the map advances, showing a
+  `basemap: <name>` badge. Fallbacks ship LIGHT tiles, so they carry
+  `.crisis-basemap-darken` (globals.css — invert+hue-rotate; the marker panes
+  are siblings of the tile pane, so they're untouched).
+
+**`/api/osint/map-diag` (owner-only)** exists because none of this is
+verifiable from a dev sandbox: the egress policy blocks every host the map
+talks to (tile CDNs, ADS-B mirrors, RainViewer), the same wall that makes DAIP
+and travel.state.gov unprobeable. It fetches all of them FROM PRODUCTION and
+returns status + a 200-char body snippet per layer, plus `basemapOk` and a
+`keyDemands` list that greps the bodies for key/token/unauthorized language —
+which is how an upstream's "API key required" gets attributed to a service
+instead of being guessed at. Real fetches, never on a page load.
+
 ### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)
 The optional **Radar** layer (off by default) animates RainViewer precip/
 convection. Two CSP facts make it work: the app's `connect-src` (next.config.ts)

@@ -348,3 +348,16 @@
 /* Suppress the grey tap-flash overlay on touch; the app supplies its own
    active/hover states. Harmless on desktop (no tap highlight exists there). */
 * { -webkit-tap-highlight-color: transparent; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Crisis-map basemap fallback
+   ═══════════════════════════════════════════════════════════════════ */
+/* The primary basemap (CARTO dark) is already dark. The fallback providers
+   ship LIGHT tiles, which would glare against the app's slate palette and
+   wash out every marker colour the map encodes meaning with. Invert +
+   hue-rotate is the standard trick: it darkens land/water while keeping
+   label text readable and leaves the Leaflet marker/overlay panes (which are
+   siblings, not children, of the tile pane) untouched. */
+.crisis-basemap-darken {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95) saturate(0.7);
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { cellToBoundary } from "h3-js";
@@ -248,6 +248,48 @@ function Fitter({ points, fitKey }: { points: [number, number][]; fitKey: number
   return null;
 }
 
+// Basemap fallback chain, tried in order. A basemap is the ONE layer whose
+// failure means "there is no map" rather than "one layer is missing data", and
+// tile hosts are exactly the kind of free service that starts demanding a key
+// or rate-limiting datacenter traffic without notice. So the map no longer bets
+// the whole surface on a single provider: if a provider never manages to load a
+// tile, we move to the next one and say which basemap is live.
+//
+// The fallbacks ship LIGHT tiles, hence `darken` (see .crisis-basemap-darken in
+// globals.css). `{s}` subdomain rotation is only used where the provider still
+// documents it — OSM asked clients to stop using a.b.c. prefixes.
+const BASEMAPS = [
+  {
+    id: "carto",
+    name: "CARTO dark",
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution: "&copy; OpenStreetMap &copy; CARTO",
+    maxZoom: 19,
+    darken: false,
+  },
+  {
+    id: "osm",
+    name: "OpenStreetMap",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: "&copy; OpenStreetMap contributors",
+    maxZoom: 19,
+    darken: true,
+  },
+  {
+    id: "opentopo",
+    name: "OpenTopoMap",
+    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attribution: "&copy; OpenStreetMap, SRTM &copy; OpenTopoMap (CC-BY-SA)",
+    maxZoom: 17,
+    darken: true,
+  },
+] as const;
+
+// How many tile errors, with no tile ever having loaded, before we conclude the
+// provider is refusing us rather than just missing a tile at the edge of its
+// coverage. Ordinary gaps produce a handful of errors AND successful loads.
+const TILE_FAIL_LIMIT = 8;
+
 export default function CrisisMap() {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
@@ -289,6 +331,22 @@ export default function CrisisMap() {
   const noteStatus = (status: number) => {
     if (status === 401) setAuthFail(true);
   };
+
+  // Basemap health. `tileOk` latches true on the first tile that loads, which is
+  // what separates "this provider is refusing us" from "no tiles exist for that
+  // corner of the world at this zoom".
+  const [basemapIdx, setBasemapIdx] = useState(0);
+  const tileOkRef = useRef(false);
+  const tileErrors = useRef(0);
+  const basemap = BASEMAPS[Math.min(basemapIdx, BASEMAPS.length - 1)];
+  const onTileLoad = useCallback(() => { tileOkRef.current = true; }, []);
+  const onTileError = useCallback(() => {
+    if (tileOkRef.current) return; // tiles ARE arriving — coverage gaps, not refusal
+    tileErrors.current += 1;
+    if (tileErrors.current < TILE_FAIL_LIMIT) return;
+    tileErrors.current = 0;
+    setBasemapIdx((i) => (i + 1 < BASEMAPS.length ? i + 1 : i));
+  }, []);
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -895,6 +953,14 @@ export default function CrisisMap() {
         <button onClick={() => setFullscreen((v) => !v)} title="Toggle fullscreen" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
         <button onClick={runRead} title="Claude MOBILITY-DEMAND read — where airlift/HADR/NEO demand is emerging (distinct from the side panel's force-protection 'Force read')" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">Demand read</button>
         <span className="flex-1" />
+        {basemapIdx > 0 && (
+          <span
+            className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-sky-500/10 text-sky-300 border-sky-500/40"
+            title={`${BASEMAPS[0].name} would not serve tiles, so the basemap fell back to ${basemap.name}. Only the background imagery changed — every data layer is unaffected.`}
+          >
+            basemap: {basemap.name}
+          </span>
+        )}
         {authFail && (
           <a
             href="/login"
@@ -942,7 +1008,14 @@ export default function CrisisMap() {
       <div className={`flex flex-col-reverse lg:flex-row gap-2 ${fullscreen ? "flex-1 min-h-0" : ""}`}>
         <div className={`relative bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden flex-1 ${fullscreen ? "min-h-0" : "h-[58vh] min-h-[360px] lg:h-[600px]"}`} style={{ isolation: "isolate", zIndex: 0 }}>
           <MapContainer center={[25, 10]} zoom={2} worldCopyJump style={{ height: "100%", width: "100%", background: "#020617" }} scrollWheelZoom>
-            <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OpenStreetMap &copy; CARTO" maxZoom={19} />
+            <TileLayer
+              key={basemap.id}
+              url={basemap.url}
+              attribution={basemap.attribution}
+              maxZoom={basemap.maxZoom}
+              className={basemap.darken ? "crisis-basemap-darken" : undefined}
+              eventHandlers={{ load: onTileLoad, tileerror: onTileError }}
+            />
             {on.radar && radarFrames.map((f, i) => (
               <TileLayer
                 key={f.path}
