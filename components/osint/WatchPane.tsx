@@ -59,6 +59,14 @@ export default function WatchPane({ active }: { active: boolean }) {
   const [iwOpen, setIwOpen] = useState(false);
   const [sitreps, setSitreps] = useState<SitrepSummary[]>([]);
   const [sitrepOpen, setSitrepOpen] = useState<string | null>(null);
+  // Fold state for the "forming" group, remembered per browser.
+  const [formingOpen, setFormingOpen] = useState(false);
+  useEffect(() => {
+    try { setFormingOpen(localStorage.getItem("watch.formingOpen") === "1"); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("watch.formingOpen", formingOpen ? "1" : "0"); } catch { /* ignore */ }
+  }, [formingOpen]);
 
   // I&W strip — one compact card per active warning problem.
   useEffect(() => {
@@ -97,8 +105,8 @@ export default function WatchPane({ active }: { active: boolean }) {
           arrive at by scanning: everything below answers "what is happening
           now", this answers "what you already judged worth keeping just became
           live". Renders nothing when there is nothing to say. */}
-      <ConvergenceCard active={armed} />
-      <ReactivationCard active={armed} />
+      {/* ── DECIDE: the two surfaces that ask something of you ── */}
+      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Decide</p>
 
       {/* ── I&W strip ── */}
       {iw && iw.length > 0 && (
@@ -177,6 +185,25 @@ export default function WatchPane({ active }: { active: boolean }) {
           )}
         </div>
       )}
+
+      {/* ── FORMING: what is converging, and what you once kept that just
+          moved. Collapsed by default — each card is individually justified,
+          but stacked open above the map they made the pane a wall of ranked
+          lists. The cards still mount (both fetches are cheap joins) so the
+          summary line can say whether there is anything inside. ── */}
+      <details className="group rounded-xl border border-slate-800 bg-slate-900/30" open={formingOpen} onToggle={(e) => setFormingOpen((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary className="cursor-pointer select-none list-none flex items-center gap-2 px-3.5 py-2 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300">
+          <span className="text-slate-600 group-open:rotate-90 transition-transform">▸</span>
+          Forming — convergence &amp; reactivation
+        </summary>
+        <div className="px-2 pb-2">
+          <ConvergenceCard active={armed} />
+          <ReactivationCard active={armed} />
+        </div>
+      </details>
+
+      {/* ── PICTURE ── */}
+      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture</p>
 
       {/* ── The theater picture ──
           Boundaried: the map composes ~15 independent feeds, so one malformed

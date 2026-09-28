@@ -705,12 +705,12 @@ export default function CrisisMap() {
   // Scroll the list to the selected row.
   useEffect(() => { if (selected) document.getElementById(`row-${selected}`)?.scrollIntoView({ block: "nearest" }); }, [selected]);
 
-  // Convergence — AORs where ≥2 distinct signal kinds stack up (the "hot AOR").
-  const convergence = useMemo(() => {
-    const m = new Map<Aor, Set<Item["kind"]>>();
-    for (const it of items) { if (!it.aor) continue; const s = m.get(it.aor) ?? new Set<Item["kind"]>(); s.add(it.kind); m.set(it.aor, s); }
-    return [...m.entries()].filter(([, k]) => k.size >= 2).map(([aor, k]) => ({ aor, kinds: [...k] }));
-  }, [items]);
+  // The map used to compute its own AOR-level "convergence" here. It is gone:
+  // the cross-surface ConvergenceCard on the Watch pane groups by SUBJECT across
+  // feeds / I&W / disasters / posture / SITREP, which is strictly more useful
+  // than "some combatant command has two signal kinds" — and two surfaces
+  // computing different things under one word, a few hundred pixels apart,
+  // was a cohesion defect (docs/REVIEW.md §4.3).
 
   // Precompute GPSJam hex boundaries once (cellToBoundary → [lat,lng] verts).
   const gpsPolys = useMemo(
@@ -998,18 +998,6 @@ export default function CrisisMap() {
         )}
         <span className="text-slate-700 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
       </div>
-
-      {/* Convergence strip — AORs where ≥2 signal kinds stack up. */}
-      {convergence.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] bg-amber-500/5 border border-amber-500/20 rounded-md px-2.5 py-1.5">
-          <span className="text-amber-400 font-bold uppercase tracking-wider">⚠ Convergence</span>
-          {convergence.map((c) => (
-            <button key={c.aor} onClick={() => setAorFilter(c.aor)} className="font-mono text-slate-300 hover:text-amber-300" title={`Filter to ${c.aor}`}>
-              <span className="text-sky-400">{c.aor}</span> <span className="text-slate-500">({c.kinds.join(" + ")})</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* AI map read */}
       {aiOpen && (
@@ -1309,7 +1297,6 @@ export default function CrisisMap() {
             {redCount > 0 && <><span className="text-red-400">{redCount} red</span> · </>}
             {nearCount} near-base · {neoDep} NEO · <span className={severeWx > 0 ? "text-red-300" : ""}>{severeWx} severe wx</span> · {tropShown.length} tropical
           </span>
-          {convergence.length > 0 && <span className="text-[10px] font-mono text-amber-300">· convergence: {convergence.map((c) => c.aor).join(", ")}</span>}
           <span className="flex-1" />
           <span className="text-[9px] text-slate-600 font-mono">{items.length} event{items.length === 1 ? "" : "s"} · {aorFilter === "ALL" ? "all AORs" : aorFilter}{fetchedAt ? ` · as of ${new Date(fetchedAt).toISOString().slice(11, 16)}Z` : loading ? " · loading…" : ""}</span>
         </div>
@@ -1436,7 +1423,7 @@ export default function CrisisMap() {
       <p className={`text-[10px] text-slate-700 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
         NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
-        convergence strip flags AORs where signals stack; the Demand read is a Claude anticipatory mobility-demand read — where airlift/HADR/NEO demand is emerging by AOR and the airfield-access implication. The Conflict layer
+        Watch pane&apos;s Converging card shows where independent surfaces point at one place; the Demand read is a Claude anticipatory mobility-demand read — where airlift/HADR/NEO demand is emerging by AOR and the airfield-access implication. The Conflict layer
         surfaces armed-conflict events (UCDP GED, most recent available) — georeferenced battles and organized violence
         with coordinates and fatality counts — with the top events promoted into the crisis list.
         The ACLED layer (◆) adds higher-fidelity, human-coded strike events — precise coordinates, sub-event type, named
