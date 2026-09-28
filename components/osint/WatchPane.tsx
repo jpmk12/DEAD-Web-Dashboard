@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ReactivationCard from "@/components/osint/ReactivationCard";
+import ConvergenceCard from "@/components/osint/ConvergenceCard";
 import WarningBoard from "@/components/osint/WarningBoard";
 import SitrepPanel from "@/components/osint/SitrepPanel";
 import type { SitrepSummary } from "@/lib/sitrep";
@@ -96,6 +97,7 @@ export default function WatchPane({ active }: { active: boolean }) {
           arrive at by scanning: everything below answers "what is happening
           now", this answers "what you already judged worth keeping just became
           live". Renders nothing when there is nothing to say. */}
+      <ConvergenceCard active={armed} />
       <ReactivationCard active={armed} />
 
       {/* ── I&W strip ── */}
