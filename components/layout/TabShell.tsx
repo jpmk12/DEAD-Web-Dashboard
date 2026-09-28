@@ -123,6 +123,20 @@ export default function TabShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Cross-tab navigation for components too deep to hold `onNavigate`.
+  // Glance gets the prop because it is a direct child; a card nested inside
+  // OSINT → WatchPane would need it drilled three levels for one link, the
+  // same prop-drilling the docs properties panel avoided with an event.
+  // Validated against VALID_TABS so a stale dispatcher can't blank the shell.
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const t = (e as CustomEvent<string>).detail;
+      if (typeof t === "string" && (VALID_TABS as string[]).includes(t)) setActiveTab(t as Tab);
+    };
+    window.addEventListener("app:navigate", onNav);
+    return () => window.removeEventListener("app:navigate", onNav);
+  }, []);
+
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get("tab");
     if (VALID_TABS.includes(param as Tab)) setActiveTab(param as Tab);
