@@ -182,6 +182,49 @@ export default function HouseholdPane({ active }: { active: boolean }) {
         </div>
       )}
 
+      {/* ── what the history says ──
+          Two reads ALONG the sighting series, which nothing did before: the
+          store was only ever asked "did it arrive?" and "is this one unusual?".
+          Both stay silent below their sample floors. */}
+      {((d.cadenceDrift?.length ?? 0) > 0 || (d.creep?.length ?? 0) > 0) && (
+        <div className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-sky-300">◷ What the history says</span>
+            <span className="ml-auto text-[10px] text-slate-600">from your own bill sightings · no model call</span>
+          </div>
+
+          {d.creep?.map((c) => (
+            <div key={`creep-${c.biller.id}`} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/50 first:border-t-0">
+              <span className="mt-0.5 w-[60px] flex-shrink-0 text-center text-[9px] font-bold uppercase tracking-wider rounded py-0.5 border text-amber-300 border-amber-500/45 bg-amber-500/10">
+                creep
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12.5px] font-semibold text-slate-100">{c.biller.label}</span>
+                <span className="block text-[10.5px] text-slate-500">
+                  {formatUsdCents(c.firstCents)} → {formatUsdCents(c.lastCents)} · {c.reason}
+                </span>
+              </span>
+            </div>
+          ))}
+
+          {d.cadenceDrift?.map((o) => (
+            <div key={`cad-${o.biller.id}`} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/50">
+              <span className="mt-0.5 w-[60px] flex-shrink-0 text-center text-[9px] font-bold uppercase tracking-wider rounded py-0.5 border text-slate-300 border-slate-600 bg-slate-700/30">
+                cadence
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12.5px] font-semibold text-slate-100">{o.biller.label}</span>
+                <span className="block text-[10.5px] text-slate-500">{o.reason}</span>
+                <span className="block text-[9.5px] text-slate-600 mt-0.5">
+                  The declared cadence is what lets the silence watch tell &ldquo;{o.biller.cadence}&rdquo; from
+                  &ldquo;stopped&rdquo; — worth correcting in the roster.
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── silence watch ── */}
       {d.silence.length > 0 && (
         <div className="border border-violet-500/40 bg-violet-950/10 rounded-xl overflow-hidden">

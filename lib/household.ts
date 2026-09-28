@@ -1,5 +1,6 @@
 // Household digest assembler (server-only).
 import { scanJeopardy, jeopardyLine, type JeopardyFinding } from "./accountJeopardy";
+import { observedCadence, amountCreep, type ObservedCadence, type AmountCreep } from "./billHistory";
 //
 // Division of labour, deliberately: the model reads bill text and returns
 // FACTS (amount, due date, account tail, a wellbeing item). Everything that
@@ -51,6 +52,11 @@ export interface HouseholdDigest {
   // Deterministic, pre-model: declined payments, lapses, final notices.
   jeopardy: JeopardyFinding[];
   jeopardyLine: string | null;
+  // Where the biller's observed rhythm contradicts the declared cadence. The
+  // declaration drives the silence watch, so a wrong one silently disables it.
+  cadenceDrift: ObservedCadence[];
+  // Slow compounding rises no single bill was large enough to flag.
+  creep: AmountCreep[];
   coverage: { billers: number; scanned: number; windowDays: number; noCadenceYet: number };
   disabled?: boolean;
   empty?: "no-billers" | "no-mail";
@@ -92,6 +98,7 @@ export async function assembleHouseholdDigest(
   const blank = (extra: Partial<HouseholdDigest>): HouseholdDigest => ({
     generatedAt: now.toISOString(),
     bills: [], silence: [], documents, wellbeing: [], jeopardy: [], jeopardyLine: null,
+    cadenceDrift: [], creep: [],
     coverage: { billers: profile.billers.length, scanned: 0, windowDays: WINDOW_DAYS, noCadenceYet: 0 },
     ...extra,
   });
@@ -196,6 +203,14 @@ export async function assembleHouseholdDigest(
     documents,
     jeopardy,
     jeopardyLine: jeopardyLine(jeopardy),
+    // Both read ALONG the sighting series, which nothing did before: the store
+    // was only ever asked "did it arrive?" and "is this one unusual?".
+    cadenceDrift: profile.billers
+      .map((b) => observedCadence(b, prior))
+      .filter((o): o is ObservedCadence => !!o && o.disagrees),
+    creep: profile.billers
+      .map((b) => amountCreep(b, prior))
+      .filter((c): c is AmountCreep => !!c),
     wellbeing: facts.wellbeing,
     coverage: {
       billers: profile.billers.length,
