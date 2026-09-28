@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NewsItem } from "@/lib/types";
 import EconomicAccessPanel from "./EconomicAccessPanel";
-import { scoreChokepoints } from "@/lib/chokepoints";
+import ChokepointBoard from "@/components/markets/ChokepointBoard";
 import { EconomyIcon } from "@/lib/icons";
 
 interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string; link?: string; source?: "yahoo" | "stooq" | null }
@@ -33,8 +33,6 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
       .catch(() => {});
   }, [refreshKey]);
 
-  const chokepoints = useMemo(() => scoreChokepoints(articles), [articles]);
-  const activeChokes = chokepoints.filter((c) => c.count > 0);
   const accessNews = useMemo(
     () => articles.filter((a) => ACCESS_NEWS.test(`${a.title} ${a.summary ?? ""}`)).slice(0, 6),
     [articles],
@@ -83,34 +81,12 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
         <p className="text-[9px] text-slate-700 mt-2">Session change · {energy.some((q) => q.source === "stooq") ? "Stooq" : "Yahoo Finance"} · for context, not trading.</p>
       </div>
 
+      {/* Graded interdiction, above the AI read: the read should be explaining
+          evidence the user can already see, not introducing it. */}
+      <ChokepointBoard active />
+
       {/* AI Economic Access Read */}
       <EconomicAccessPanel articles={articles} />
-
-      {/* Chokepoint watch */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-2">Strategic chokepoints — transit &amp; overflight</p>
-        {activeChokes.length === 0 ? (
-          <p className="text-[11px] text-slate-600">No chokepoint activity in today&apos;s news. {chokepoints.length} points monitored (Hormuz, Bab-el-Mandeb, Suez, Turkish Straits, Malacca, Taiwan, Panama, Russian overflight).</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {activeChokes.map((c) => (
-              <li key={c.id} className="flex items-start gap-2 text-[12px]">
-                <span className="text-amber-400 mt-0.5 flex-shrink-0">◆</span>
-                <div className="min-w-0">
-                  <span className="text-slate-200 font-semibold">{c.name}</span>
-                  <span className="text-slate-600 text-[10px]"> · {c.count} item{c.count === 1 ? "" : "s"} · {c.why}</span>
-                  {c.latest && (
-                    <div className="text-[11px] text-slate-400 truncate">
-                      <a href={c.latest.link} target="_blank" rel="noopener noreferrer" className="hover:text-sky-300">{c.latest.title}</a>
-                      <span className="text-slate-600"> · {c.latest.source}{ago(c.latest.pubDate) ? ` · ${ago(c.latest.pubDate)}` : ""}</span>
-                    </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
 
       {/* Sanctions / overflight / basing news */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
