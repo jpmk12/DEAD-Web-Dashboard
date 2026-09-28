@@ -361,3 +361,25 @@
 .crisis-basemap-darken {
   filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95) saturate(0.7);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Keyboard focus — visible everywhere
+   ═══════════════════════════════════════════════════════════════════ */
+/* One rule for the whole app. Before this there was a single focus-visible
+   declaration in 83 components, so a user tabbing through controls — on a
+   locked-down machine, or without a mouse — could not see where they were.
+   :focus-visible (not :focus) so pointer clicks stay clean. */
+:focus-visible {
+  outline: 2px solid rgb(52 211 153 / 0.9); /* emerald-400 */
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Inputs already draw their own border; keep the ring tight on them. */
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline-offset: 0;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

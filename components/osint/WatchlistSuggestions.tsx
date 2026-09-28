@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { WatchlistSuggestions } from "@/lib/watchlistSuggest";
+import { toast } from "@/lib/feedback";
 
 // Watchlist recommendations, derived from the app's own signal history.
 //
@@ -50,7 +51,9 @@ export default function WatchlistSuggestionsCard() {
         drop: prev.drop.filter((d) => d.term !== term),
       });
       window.dispatchEvent(new CustomEvent("watchlist:changed"));
+      toast.ok(action === "add" ? `Watching “${term}”` : action === "remove" ? `Removed “${term}”` : "Won't suggest that again");
     } catch (e) {
+      toast.error("Could not update the watchlist", e);
       setErr(e instanceof Error ? e.message : "Save failed");
     } finally {
       setBusy(null);

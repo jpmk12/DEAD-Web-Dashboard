@@ -84,7 +84,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
               <button
                 onClick={() => setOpen(false)}
                 className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg leading-none"
-                title="Close (Esc)"
+                title="Close (Esc)" aria-label="Close assistant"
               >
                 ×
               </button>

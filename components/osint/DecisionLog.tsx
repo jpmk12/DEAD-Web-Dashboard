@@ -6,6 +6,7 @@ import {
   daysUntilDue, isDue, isOpen, validateDraft,
   type DecisionCall, type DecisionEntry, type DecisionOutcome, type HitRate,
 } from "@/lib/decisionLog";
+import { toast } from "@/lib/feedback";
 
 // The decision log, inline on the I&W problem card — where the evidence is.
 //
@@ -85,8 +86,10 @@ export default function DecisionLog({
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || "Could not save the call.");
       setExpectation(""); setIndicatorId(""); setAdding(false);
+      toast.ok("Call logged", `reopens for scoring in ${horizonDays} days`);
       load();
     } catch (e) {
+      toast.error("Could not save the call", e);
       setErr(e instanceof Error ? e.message : "Could not save the call.");
     } finally { setBusy(false); }
   };
@@ -102,8 +105,10 @@ export default function DecisionLog({
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || "Could not score it.");
       setScoring(null); setNote("");
+      toast.ok(`Scored ${outcome}`, "scoring is one-way — the record is what you thought at the time");
       load();
     } catch (e) {
+      toast.error("Could not score it", e);
       setErr(e instanceof Error ? e.message : "Could not score it.");
     } finally { setBusy(false); }
   };

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Reactivation } from "@/lib/reactivation";
+import { toast } from "@/lib/feedback";
 
 // "You cared about this before — it just moved."
 //
@@ -50,7 +51,8 @@ export default function ReactivationCard({ active }: { active: boolean }) {
       // Drop locally rather than refetching — the signals haven't changed,
       // only our answer to them.
       setItems((prev) => prev.filter((x) => !(x.interest.id === r.interest.id && x.signal.term === r.signal.term)));
-    } catch { /* leave the row; a failed dismissal must not look successful */ }
+      toast.info(`Won't pair “${r.signal.term}” with that item again`);
+    } catch { toast.error("Could not save that dismissal"); /* leave the row */ }
     finally { setBusy(null); }
   };
 

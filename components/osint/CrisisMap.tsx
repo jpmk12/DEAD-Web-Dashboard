@@ -853,7 +853,7 @@ export default function CrisisMap() {
               <div className="flex items-center mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Layers</span>
                 <span className="text-[9px] text-slate-500 ml-2 font-mono">{activeCount} on</span>
-                <button onClick={() => setLayersOpen(false)} className="ml-auto text-slate-500 hover:text-slate-200 text-xs">✕</button>
+                <button onClick={() => setLayersOpen(false)} aria-label="Close layers" className="ml-auto text-slate-500 hover:text-slate-200 text-xs">✕</button>
               </div>
 
               {/* Basemap style. Above the data toggles because it is a different

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { HouseholdDigest } from "@/lib/household";
 import { formatUsdCents, runwayPct } from "@/lib/householdSignals";
 import type { SenderCandidate, ProposalCategory } from "@/lib/senderDiscovery";
+import { toast } from "@/lib/feedback";
 import { SENDER_CATEGORIES, SENDER_CATEGORY_LABEL, SENDER_CATEGORY_TRACKS } from "@/lib/familyProfile";
 
 // Biller first: it is the category with the most machinery behind it (cadence,
@@ -77,7 +78,9 @@ export default function HouseholdPane({ active }: { active: boolean }) {
 
   const dismissDomain = async (domain: string) => {
     setDiscovery((prev) => (prev ?? []).filter((c) => c.domain !== domain));
-    await fetch(`/api/family/discover?domain=${encodeURIComponent(domain)}`, { method: "DELETE" }).catch(() => {});
+    const r = await fetch(`/api/family/discover?domain=${encodeURIComponent(domain)}`, { method: "DELETE" }).catch(() => null);
+    if (r?.ok) toast.info(`Won't propose ${domain} again`);
+    else toast.error("Could not save that dismissal");
   };
 
   useEffect(() => { setNowMs(Date.now()); }, []);
@@ -111,8 +114,10 @@ export default function HouseholdPane({ active }: { active: boolean }) {
       // Drop the accepted row and reload the digest, so the new sender's mail is
       // read on this pass rather than looking like nothing happened.
       setDiscovery((prev) => (prev ?? []).filter((x) => x.domain !== c.domain));
+      toast.ok(`Tracking ${c.name}`, `as ${CAT_LABEL[category]} — its dates start appearing on the next digest`);
       load();
     } catch (e) {
+      toast.error("Could not add that sender", e);
       setError(e instanceof Error ? e.message : "Could not add it");
     } finally {
       setAdding(null);

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FamilyDigest } from "@/lib/family";
 import type { DeadlineView } from "@/lib/familyDeadlines";
 import type { TripConflict } from "@/lib/familyTripConflict";
+import { toast } from "@/lib/feedback";
 import type { FamilyPerson, FamilyProfile } from "@/lib/familyProfile";
 import type { ProposedEvent } from "@/lib/familyDates";
 import FamilyRosterEditor from "@/components/family/FamilyRosterEditor";
@@ -217,8 +218,10 @@ export default function FamilyTab({ active }: { active: boolean }) {
         body: JSON.stringify({ id, state }),
       });
       if (!res.ok) throw new Error("save failed");
+      toast.ok(state === "done" ? "Marked done" : state === "dismissed" ? "Marked not mine" : "Reopened");
     } catch {
       setTracked(before);
+      toast.error("Could not save that change");
       setError("Could not save that change.");
     } finally {
       setSaving(null);
