@@ -279,6 +279,16 @@ export default function CrisisMap() {
   const [srcDown, setSrcDown] = useState<string[]>([]);
   const markSrc = (name: string, down: boolean) =>
     setSrcDown((prev) => (down ? (prev.includes(name) ? prev : [...prev, name]) : prev.filter((x) => x !== name)));
+  // Nearly every layer route gates on the Google access token in the session,
+  // so an expired / tokenless session 401s ALL of them at once. Each fetch here
+  // swallows a non-ok response (`r.ok ? r.json() : null`), which is right for
+  // one flaky upstream and very wrong for this case: the map painted an empty
+  // world with no statement that it had been refused. Catch the status and say
+  // so — an empty map must never be mistaken for a quiet one.
+  const [authFail, setAuthFail] = useState(false);
+  const noteStatus = (status: number) => {
+    if (status === 401) setAuthFail(true);
+  };
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -362,8 +372,9 @@ export default function CrisisMap() {
   useEffect(() => {
     const ctrl = new AbortController();
     setLoading(true);
+    setAuthFail(false); // re-earned each refresh cycle, so a re-login clears it
     fetch("/api/weather/threats", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => { noteStatus(r.status); return r.ok ? r.json() : null; })
       .then((d: WeatherThreats | null) => { setData(d && Array.isArray(d.disasters) ? d : EMPTY); setFetchedAt(Date.now()); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -391,7 +402,7 @@ export default function CrisisMap() {
     const cachedConflict = clientCache.peek<ConflictPt[]>("osint:conflict");
     if (cachedConflict) setConflict(cachedConflict);
     fetch("/api/osint/conflict", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => { noteStatus(r.status); return r.ok ? r.json() : null; })
       .then((d: { points?: ConflictPt[]; ok?: boolean; source?: string | null } | null) => {
         if (Array.isArray(d?.points)) { setConflict(d!.points); clientCache.set("osint:conflict", d!.points, 5 * 60 * 1000); }
         if (d) markSrc(d.source === "reliefweb" ? "ReliefWeb" : "UCDP", d.ok === false);
@@ -884,6 +895,15 @@ export default function CrisisMap() {
         <button onClick={() => setFullscreen((v) => !v)} title="Toggle fullscreen" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
         <button onClick={runRead} title="Claude MOBILITY-DEMAND read — where airlift/HADR/NEO demand is emerging (distinct from the side panel's force-protection 'Force read')" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">Demand read</button>
         <span className="flex-1" />
+        {authFail && (
+          <a
+            href="/login"
+            className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-red-500/10 text-red-300 border-red-500/45 hover:bg-red-500/20"
+            title="The map's data routes returned 401 — this session has no valid Google token, so every layer is being refused. The map is empty because it was denied, not because the world is quiet."
+          >
+            ⛔ signed out — sign in again
+          </a>
+        )}
         {srcDown.length > 0 && (
           <span
             className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/40"

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import WarningBoard from "@/components/osint/WarningBoard";
 import SitrepPanel from "@/components/osint/SitrepPanel";
 import type { SitrepSummary } from "@/lib/sitrep";
@@ -167,8 +168,13 @@ export default function WatchPane({ active }: { active: boolean }) {
         </div>
       )}
 
-      {/* ── The theater picture ── */}
-      <CrisisMap />
+      {/* ── The theater picture ──
+          Boundaried: the map composes ~15 independent feeds, so one malformed
+          row used to unmount the whole thing and leave blank space that reads
+          as "no map" rather than "this broke". */}
+      <ErrorBoundary label="Crisis map" minHeight="420px">
+        <CrisisMap />
+      </ErrorBoundary>
     </div>
   );
 }
