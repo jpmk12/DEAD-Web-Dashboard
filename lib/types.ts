@@ -119,6 +119,8 @@ export interface UserPrefs {
   muteSenders: string[];  // force priority = Low
   // Sender suggestions the user has explicitly dismissed; never re-suggest.
   dismissedVipSuggestions: string[];
+  // Declined watchlist recommendations (see lib/watchlistSuggest dropKey/addKey).
+  dismissedWatchSuggestions: string[];
   // Weather tab — additional locations the user wants tracked alongside the
   // home location. Each has a stable id + display label + coords.
   trackedLocations: TrackedLocation[];

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import XImportCard from "@/components/osint/XImportCard";
 import CaptureStatusCard from "@/components/osint/CaptureStatusCard";
+import WatchlistSuggestionsCard from "@/components/osint/WatchlistSuggestions";
 import { suggestionGroupsForAors } from "@/lib/osintSuggestions";
 import type { OsintFeed } from "@/lib/types";
 
@@ -30,6 +31,9 @@ export default function SourcesPane({ feeds, onChanged }: { active: boolean; fee
         <h2 className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-slate-100">⇪ Sources</h2>
         <span className="text-[11px] text-slate-500">everything you ingest — browser captures feed the whole tab (Social, News, and I&amp;W corroboration).</span>
       </div>
+
+      {/* What you're watching, judged against what your feeds actually carried. */}
+      <WatchlistSuggestionsCard />
 
       <XImportCard onImported={onChanged} />
       <CaptureStatusCard onChanged={onChanged} />

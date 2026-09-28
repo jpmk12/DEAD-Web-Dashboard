@@ -1700,3 +1700,39 @@ the button is inert, the fault is our client JS, not the network.
   is not the pairing itself but that ~60 routes gate on `session?.accessToken`
   (the Google token), so a tokenless session 401s everywhere until "needs a
   session" is split from "needs Google".
+
+### Watchlist recommendations (the trend layer, finally consumed)
+`signal_daily_counts` is written by SIX sources (OSINT feed, News, Threads
+labels, conflict events, ACLED, severe weather) and `getTrendMovers()` already
+classifies every term `new/rising/fading/steady` — but until now only
+`/api/trends` and six lines of the brief prompt read any of it. The watchlist
+recommendations close that gap with **no model call and no new fetch**: one
+indexed aggregate over data the app already collects.
+
+- `lib/watchlistSuggest.ts` (PURE, tested) takes movers + watchlist +
+  dismissals → `{ add, drop }`, each row carrying its evidence string.
+- **ADD**: `new`/`rising` movers of kind topic/region/aor, ≥5 mentions, term
+  ≥4 chars. `label` kind is excluded on purpose — thread labels are editorial
+  groupings the model coined ("IRAN WAR"), not search terms. `isCovered()`
+  suppresses a candidate when the watchlist already contains it OR a substring
+  of it: watching "Hormuz" catches "Strait of Hormuz", so proposing the longer
+  form is noise.
+- **DROP is the half nobody asks for.** A watchlist only ever grows, and every
+  dead term costs attention on every screen that renders it — the same
+  Christmas-tree failure the I&W board's "colour is earned" rule prevents.
+  Only `watch`-kind movers qualify (those counts come from `watchTermsIn()`,
+  i.e. times YOUR list actually matched), and a term with **no mover row at
+  all is never proposed for removal** — absence of data is indistinguishable
+  from a term added yesterday.
+- Dismissals persist in `user_prefs.dismissed_watch_suggestions` (additive
+  column, mirrors `dismissed_vip_suggestions`). Two namespaces in one column:
+  a bare term = "never suggest adding this", `drop:term` = "stop telling me to
+  remove it". Accepting a removal auto-dismisses its drop suggestion.
+- `/api/osint/watchlist-suggestions` GET computes; POST takes
+  `add`/`remove`/`dismiss`. POST is owner-only because `saveUserPrefs` writes
+  the shared team row. UI card sits at the top of the OSINT **Sources** pane
+  and renders nothing when there is nothing to say.
+- Design rule for any future suggestion surface: **every row states its
+  evidence, and dismissal is permanent.** A recommendation without a reason is
+  a nag; one that returns after being declined teaches the user to ignore the
+  panel.

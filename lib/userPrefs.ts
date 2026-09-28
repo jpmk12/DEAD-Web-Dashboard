@@ -47,6 +47,7 @@ const DEFAULT_PREFS: UserPrefs = {
   vipSenders: [],
   muteSenders: [],
   dismissedVipSuggestions: [],
+  dismissedWatchSuggestions: [],
   trackedLocations: [],
   countriesOfInterest: [],
   forceLocations: [],
@@ -76,6 +77,7 @@ interface PrefsRow extends RowDataPacket {
   vip_senders: string[] | null;
   mute_senders: string[] | null;
   dismissed_vip_suggestions: string[] | null;
+  dismissed_watch_suggestions: string[] | null;
   tracked_locations: TrackedLocation[] | null;
   force_locations: ForceLocation[] | null;
   sitrep_bases: SitrepBase[] | null;
@@ -242,7 +244,7 @@ function asMetarStations(v: unknown): MetarStation[] {
 async function getTeamPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
-    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_city, local_lat, local_lon, theme, timezone, timezone_mode, mission_profile, last_updated FROM user_prefs WHERE id = 1"
+    "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, dismissed_watch_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_city, local_lat, local_lon, theme, timezone, timezone_mode, mission_profile, last_updated FROM user_prefs WHERE id = 1"
   );
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   const r = rows[0];
@@ -255,6 +257,7 @@ async function getTeamPrefs(): Promise<UserPrefs> {
     vipSenders: asStringArray(r.vip_senders),
     muteSenders: asStringArray(r.mute_senders),
     dismissedVipSuggestions: asStringArray(r.dismissed_vip_suggestions),
+    dismissedWatchSuggestions: asStringArray(r.dismissed_watch_suggestions),
     trackedLocations: asTrackedLocations(r.tracked_locations),
     countriesOfInterest: asCountryWatch(r.countries_of_interest),
     forceLocations: asForceLocations(r.force_locations),
@@ -306,7 +309,7 @@ async function getTeamPrefs(): Promise<UserPrefs> {
 
 export const PERSONAL_PREF_KEYS = [
   "role", "priorityTopics", "deprioritizeTopics", "watchlist",
-  "vipSenders", "muteSenders", "dismissedVipSuggestions",
+  "vipSenders", "muteSenders", "dismissedVipSuggestions", "dismissedWatchSuggestions",
   "newsletterSources", "disabledNewsSources",
   "localFeedKey", "localCity", "localLat", "localLon",
   "theme", "timezone", "timezoneMode",
@@ -334,7 +337,7 @@ function sanitizeOverlay(raw: unknown): Partial<UserPrefs> {
   const r = raw as Record<string, unknown>;
   const out: Partial<UserPrefs> = {};
   if (typeof r.role === "string") out.role = r.role.slice(0, 2000);
-  for (const k of ["priorityTopics", "deprioritizeTopics", "watchlist", "vipSenders", "muteSenders", "dismissedVipSuggestions", "disabledNewsSources"] as const) {
+  for (const k of ["priorityTopics", "deprioritizeTopics", "watchlist", "vipSenders", "muteSenders", "dismissedVipSuggestions", "dismissedWatchSuggestions", "disabledNewsSources"] as const) {
     if (r[k] !== undefined) out[k] = asStringArray(r[k]);
   }
   if (r.newsletterSources !== undefined) out.newsletterSources = asNewsletterSources(r.newsletterSources);

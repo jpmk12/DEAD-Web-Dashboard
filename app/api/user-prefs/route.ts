@@ -173,6 +173,9 @@ export async function POST(request: Request) {
     dismissedVipSuggestions: (Array.isArray(raw.dismissedVipSuggestions) ? raw.dismissedVipSuggestions : [])
       .slice(0, 500).map((t) => String(t).trim().slice(0, 254))
       .filter((t) => t.length > 0),
+    dismissedWatchSuggestions: (Array.isArray(raw.dismissedWatchSuggestions) ? raw.dismissedWatchSuggestions : [])
+      .slice(0, 500).map((t) => String(t).trim().slice(0, 254))
+      .filter((t) => t.length > 0),
     trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
     forceLocations: sanitizeForceLocations(raw.forceLocations),
     countriesOfInterest: sanitizeCountriesOfInterest(raw.countriesOfInterest),
