@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
@@ -860,6 +861,11 @@ export default function GlanceTab({
           )}
         </div>
       </div>
+
+      {/* ── What moved since you last looked ──
+          Above the brief on purpose: the brief is day-cached prose, this is the
+          live delta the north star's verb actually asks for. */}
+      <OeDeltaCard />
 
       {/* ── Hero: morning brief ── */}
       <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5 glow-green card-hover">

@@ -48,3 +48,25 @@ export async function getSitrepHistory(icao: string, days = 7): Promise<SitrepDa
   );
   return rows.map((r) => ({ day: r.day, wx: asLed(r.wx), ops: asLed(r.ops), threat: asLed(r.threat) })).reverse();
 }
+
+// Every base's daily LEDs in one query, for the OE delta. Raw rows rather than
+// SitrepDay so this reader owes nothing to the strip's presentation shape.
+export async function getAllSitrepHistory(days = 14): Promise<Record<string, { day: string; wx: string; ops: string; threat: string }[]>> {
+  try {
+    const pool = await getDb();
+    const cutoff = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT day, icao, wx, ops, threat FROM sitrep_status_daily WHERE day >= ? ORDER BY day ASC`,
+      [cutoff],
+    );
+    const out: Record<string, { day: string; wx: string; ops: string; threat: string }[]> = {};
+    for (const r of rows) {
+      (out[String(r.icao)] ||= []).push({
+        day: String(r.day), wx: String(r.wx), ops: String(r.ops), threat: String(r.threat),
+      });
+    }
+    return out;
+  } catch {
+    return {};   // best-effort: no history is "no delta", never an error
+  }
+}

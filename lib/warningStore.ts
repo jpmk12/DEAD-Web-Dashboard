@@ -82,3 +82,24 @@ export async function getWarningAnomalyHistory(
   );
   return rows.map((r) => Number(r.anomaly)).reverse();
 }
+
+// Every problem's daily level in one query, for the OE delta.
+export async function getWarningLevelHistory(days = 14): Promise<Record<string, { day: string; level: string; anomaly: number }[]>> {
+  try {
+    const pool = await getDb();
+    const cutoff = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT problem_id, day, level, anomaly FROM warning_daily WHERE day >= ? ORDER BY day ASC`,
+      [cutoff],
+    );
+    const out: Record<string, { day: string; level: string; anomaly: number }[]> = {};
+    for (const r of rows) {
+      (out[String(r.problem_id)] ||= []).push({
+        day: String(r.day), level: String(r.level), anomaly: Number(r.anomaly) || 0,
+      });
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}

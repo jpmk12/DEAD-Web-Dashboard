@@ -78,6 +78,8 @@ the decision log, and six Family/Household surfaces). What remains:
 
 ### 3.1 Four daily history tables, no unified "what moved"
 
+> **Addressed** — `lib/oeDelta.ts` + `/api/oe-delta` + `OeDeltaCard`, mounted above the morning brief on Glance (also the first step on §5.3 and §5.4: the card leads the front door with change, and improvements are first-class).
+
 `warning_daily`, `force_posture_daily`, `sitrep_status_daily` and
 `signal_daily_counts` all now accumulate daily state. **Each is read only by the
 feature that writes it.** There is no surface that answers *"what changed in the
@@ -218,7 +220,7 @@ held, and only ever read for its negative.
 |---|---|---|---|
 | 1 | **Crew/team state model** (§2) | L | The missing half of the north star |
 | 2 | ~~**`lib/severity.ts`** — one vocabulary, one direction (§4.1)~~ **done** | S | Latent-bug class; the app's own icon rule |
-| 3 | **OE delta read** — what moved since you last looked (§3.1) | M | Four history tables already hold it |
+| 3 | ~~**OE delta read** — what moved since you last looked (§3.1)~~ **done** | M | Four history tables already hold it |
 | 4 | **Reconcile the two convergences** (§4.3) | S | My error; sitting side by side today |
 | 5 | **Watch-pane hierarchy + collapse** (§5.1) | S | Wall of lists |
 | 6 | **Glance leads with change** (§5.3) | M | Front door does not serve the verb |

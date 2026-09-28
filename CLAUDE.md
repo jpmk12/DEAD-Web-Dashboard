@@ -487,6 +487,32 @@ used on the Weather-tab `LocationCard` for the current condition + the next-4
 period mini-icons. Same vocabulary discipline (one condition → one glyph), same
 lucide dep (esbuild stays `0`).
 
+### The OE delta (`lib/oeDelta.ts` → `/api/oe-delta` → `OeDeltaCard` on Glance)
+"What changed in the operational environment since you last looked" — the
+north star's own verb, and until this nothing answered it: `warning_daily`,
+`force_posture_daily` and `sitrep_status_daily` were each read only by the
+feature that writes them. PURE join, no model call, one indexed query per
+table, so it is cheap enough to sit at the TOP of Glance — above the morning
+brief on purpose (the brief is day-cached prose; this is the live delta).
+- Anchored on `surface_state`'s new **`oe`** key, bumped AFTER the delta is
+  computed so this visit becomes the next baseline (bumping first would compare
+  now with now). No recorded look → compares with **yesterday and says so**
+  (`firstLook`) — a delta against an unstated baseline is one the user cannot
+  evaluate.
+- **NET change, not a log**: level at the last look vs level now, one row per
+  subject. Went red and back to amber while away → no row (chronicity carries
+  recurrence).
+- **No baseline → no direction.** A series that began after the last look is
+  reported `new` (only if elevated), never "worse" — that would be a claim
+  about a past the app never observed. Same floor as `classifyChronicity`.
+- **The baseline is the last OBSERVED day at or before the look** — these
+  tables are written lazily, so a recording gap is not a level.
+- **Improvements are first-class** (`better` bucket, same weight as `worse`) —
+  the first place the app shows an OPENING (review §5.4).
+- One series per SITREP **LED**, not per base: the axis is what moved.
+- Per-kind ordinals (`rankFor`): posture reuses `SEVERITY_RANK`; LEDs `g<u<a<r`;
+  I&W `calm<watch<warning<alert`. An unplaceable level is skipped, not guessed.
+
 ### Severity vocabulary (`lib/severity.ts`) — one home, one direction
 Force-protection severity (`green | unknown | amber | red`) lives in
 `lib/severity.ts` (PURE, client-safe, tested) — the same rule as `lib/icons.tsx`:

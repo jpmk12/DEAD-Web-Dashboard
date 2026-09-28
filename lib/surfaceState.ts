@@ -5,9 +5,11 @@ import { pickUserRow } from "./userScope";
 // "Surfaces" are top-level views the user scans for new content. The dashboard
 // records when they last visited each so the next visit can dim items older
 // than that timestamp ("what changed since I last looked").
-export type Surface = "email" | "news" | "newsletters" | "osint";
+// "oe" = the OE delta card on Glance: bumped when it renders, so "since you
+// last looked" has a real anchor rather than a guessed one.
+export type Surface = "email" | "news" | "newsletters" | "osint" | "oe";
 
-const VALID_SURFACES = new Set<Surface>(["email", "news", "newsletters", "osint"]);
+const VALID_SURFACES = new Set<Surface>(["email", "news", "newsletters", "osint", "oe"]);
 
 interface SurfaceRow extends RowDataPacket {
   surface: string;
@@ -25,7 +27,7 @@ export async function getAllLastSeen(email: string): Promise<Record<Surface, num
     "SELECT surface, user_email, last_seen_at FROM surface_state WHERE user_email IN (?, '')",
     [email]
   );
-  const result: Record<Surface, number> = { email: 0, news: 0, newsletters: 0, osint: 0 };
+  const result: Record<Surface, number> = { email: 0, news: 0, newsletters: 0, osint: 0, oe: 0 };
   // Per surface: exact-email row wins; '' legacy row counts only for the owner.
   for (const surface of VALID_SURFACES) {
     const row = pickUserRow(rows.filter((r) => r.surface === surface), email);

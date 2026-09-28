@@ -41,18 +41,21 @@ export async function getPreviousComposites(): Promise<Record<string, Severity>>
 // Note this returns raw per-day composites, NOT a boolean — the caller decides
 // what "elevated" means (currently amber/red), so the threshold lives with the
 // posture vocabulary rather than in the query.
-export async function getPostureHistory(days = 14): Promise<Record<string, { day: string; composite: Severity }[]>> {
+export async function getPostureHistory(days = 14): Promise<Record<string, { day: string; composite: Severity; label: string; cocom: string }[]>> {
   try {
     const pool = await getDb();
     const cutoff = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT day, entry_key, composite FROM force_posture_daily WHERE day >= ? ORDER BY day ASC`,
+      `SELECT day, entry_key, composite, label, cocom FROM force_posture_daily WHERE day >= ? ORDER BY day ASC`,
       [cutoff],
     );
-    const out: Record<string, { day: string; composite: Severity }[]> = {};
+    const out: Record<string, { day: string; composite: Severity; label: string; cocom: string }[]> = {};
     for (const r of rows) {
       const key = String(r.entry_key);
-      (out[key] ||= []).push({ day: String(r.day), composite: String(r.composite) as Severity });
+      (out[key] ||= []).push({
+        day: String(r.day), composite: String(r.composite) as Severity,
+        label: String(r.label ?? ""), cocom: String(r.cocom ?? ""),
+      });
     }
     return out;
   } catch {
