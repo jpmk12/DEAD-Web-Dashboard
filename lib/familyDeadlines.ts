@@ -49,10 +49,13 @@ export interface StoredDeadline {
   lastSeen: string;    // ISO
   state: DeadlineState;
   stateAt: string | null;
+  /** yyyy-mm-dd until which the row stays out of the way. "Not now" is a real
+   *  answer, distinct from done and not-mine: the record stays OPEN. */
+  snoozedUntil?: string | null;
 }
 
 /** What the UI renders — stored, plus derived position in its lifecycle. */
-export type DeadlinePhase = "lapsed" | "due-soon" | "open" | "undated" | "done" | "dismissed";
+export type DeadlinePhase = "lapsed" | "due-soon" | "open" | "undated" | "snoozed" | "done" | "dismissed";
 
 export interface DeadlineView extends StoredDeadline {
   phase: DeadlinePhase;
@@ -111,11 +114,17 @@ export function toView(d: StoredDeadline, today: string, nowMs = Date.now()): De
   const lastSeen = Date.parse(d.lastSeen);
   const onlyRemembered = Number.isFinite(lastSeen) && nowMs - lastSeen > MAIL_WINDOW_DAYS * DAY;
 
+  // A snooze is live while today is before its date. It never outranks LAPSED:
+  // "not now" is a deferral of attention, not of the due date, and a snoozed
+  // deadline that passes its date has still been missed.
+  const snoozeLive = !!d.snoozedUntil && /^\d{4}-\d{2}-\d{2}$/.test(d.snoozedUntil) && today < d.snoozedUntil;
+
   let phase: DeadlinePhase;
   if (d.state === "done") phase = "done";
   else if (d.state === "dismissed") phase = "dismissed";
+  else if (n !== null && n < 0) phase = "lapsed";       // wins over a snooze
+  else if (snoozeLive) phase = "snoozed";
   else if (n === null) phase = "undated";     // cannot lapse — we never had a date
-  else if (n < 0) phase = "lapsed";
   else if (n <= DUE_SOON_DAYS) phase = "due-soon";
   else phase = "open";
 
@@ -123,7 +132,7 @@ export function toView(d: StoredDeadline, today: string, nowMs = Date.now()): De
 }
 
 const PHASE_RANK: Record<DeadlinePhase, number> = {
-  lapsed: 0, "due-soon": 1, open: 2, undated: 3, done: 4, dismissed: 5,
+  lapsed: 0, "due-soon": 1, open: 2, undated: 3, snoozed: 4, done: 5, dismissed: 6,
 };
 
 /** Lapsed first — it is the thing you most need to see and the thing a cleaner
@@ -205,6 +214,7 @@ export interface DeadlineRollup {
   dueSoon: number;
   open: number;
   undated: number;
+  snoozed: number;
   /** One sentence, or null when there is genuinely nothing outstanding. */
   line: string | null;
 }
@@ -215,14 +225,16 @@ export function rollup(views: DeadlineView[]): DeadlineRollup {
   const dueSoon = views.filter((v) => v.phase === "due-soon").length;
   const open = views.filter((v) => v.phase === "open").length;
   const undated = views.filter((v) => v.phase === "undated").length;
+  const snoozed = views.filter((v) => v.phase === "snoozed").length;
 
   const parts: string[] = [];
   if (lapsed > 0) parts.push(`${lapsed} past due`);
   if (dueSoon > 0) parts.push(`${dueSoon} due within ${DUE_SOON_DAYS} days`);
   if (open > 0) parts.push(`${open} upcoming`);
   if (undated > 0) parts.push(`${undated} with no date yet`);
+  if (snoozed > 0) parts.push(`${snoozed} snoozed`);
 
-  return { lapsed, dueSoon, open, undated, line: parts.length > 0 ? parts.join(" · ") : null };
+  return { lapsed, dueSoon, open, undated, snoozed, line: parts.length > 0 ? parts.join(" · ") : null };
 }
 
 /** Today in the user's terms. Exposed so the caller can pass the effective

@@ -22,6 +22,7 @@ interface Row extends RowDataPacket {
   last_seen: Date;
   state: string;
   state_at: Date | null;
+  snoozed_until: string | null;
 }
 
 const toStored = (r: Row): StoredDeadline => ({
@@ -36,6 +37,7 @@ const toStored = (r: Row): StoredDeadline => ({
   lastSeen: r.last_seen.toISOString(),
   state: (r.state as DeadlineState) ?? "open",
   stateAt: r.state_at ? r.state_at.toISOString() : null,
+  snoozedUntil: r.snoozed_until ?? null,
 });
 
 /** Everything we hold for this user. The pane decides what to show — a done
@@ -103,6 +105,21 @@ export async function setDeadlineState(
     const [res] = await pool.execute(
       `UPDATE family_deadlines SET state = ?, state_at = ? WHERE id = ? AND user_email = ?`,
       [state, state === "open" ? null : new Date(), id, userEmail],
+    );
+    return (res as { affectedRows?: number }).affectedRows === 1;
+  } catch {
+    return false;
+  }
+}
+
+/** Snooze (yyyy-mm-dd) or clear a snooze (null). The row stays OPEN — a
+ *  snooze defers attention, not the obligation. */
+export async function snoozeDeadline(userEmail: string, id: string, untilISO: string | null): Promise<boolean> {
+  try {
+    const pool = await getDb();
+    const [res] = await pool.execute(
+      `UPDATE family_deadlines SET snoozed_until = ? WHERE id = ? AND user_email = ? AND state = 'open'`,
+      [untilISO, id, userEmail],
     );
     return (res as { affectedRows?: number }).affectedRows === 1;
   } catch {

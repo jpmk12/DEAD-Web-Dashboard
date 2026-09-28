@@ -177,3 +177,34 @@ describe("rollup", () => {
     expect(rollup([]).line).toBeNull();
   });
 });
+
+describe("snooze — a third answer, not a way out", () => {
+  it("phases a live snooze as snoozed and sorts it below everything open", () => {
+    const v = toView(stored({ dueISO: "2026-10-20", snoozedUntil: "2026-10-05" }), TODAY, NOW);
+    expect(v.phase).toBe("snoozed");
+    const r = sortDeadlines([v, toView(stored({ id: "u", dueISO: null }), TODAY, NOW)]);
+    expect(r.map((x) => x.phase)).toEqual(["undated", "snoozed"]);
+  });
+
+  it("never lets a snooze outrank lapsed — a missed deadline is still missed", () => {
+    // "Not now" defers attention, not the due date.
+    const v = toView(stored({ dueISO: "2026-09-20", snoozedUntil: "2026-10-30" }), TODAY, NOW);
+    expect(v.phase).toBe("lapsed");
+  });
+
+  it("expires: on and after the snooze date the row phases normally again", () => {
+    expect(toView(stored({ dueISO: "2026-10-02", snoozedUntil: TODAY }), TODAY, NOW).phase).toBe("due-soon");
+    expect(toView(stored({ dueISO: "2026-10-02", snoozedUntil: "2026-09-01" }), TODAY, NOW).phase).toBe("due-soon");
+  });
+
+  it("ignores a malformed snooze date rather than hiding the row forever", () => {
+    expect(toView(stored({ dueISO: "2026-10-02", snoozedUntil: "soon" }), TODAY, NOW).phase).toBe("due-soon");
+  });
+
+  it("counts snoozed rows in the rollup without calling them outstanding", () => {
+    const r = rollup([toView(stored({ dueISO: "2026-10-20", snoozedUntil: "2026-10-05" }), TODAY, NOW)]);
+    expect(r.snoozed).toBe(1);
+    expect(r.open).toBe(0);
+    expect(r.line).toBe("1 snoozed");
+  });
+});

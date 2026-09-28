@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { normEmail, isOwner } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { assembleFamilyDigest } from "@/lib/family";
-import { listDeadlines, upsertDeadlines, setDeadlineState, pruneHandledDeadlines } from "@/lib/familyDeadlineStore";
+import { listDeadlines, upsertDeadlines, setDeadlineState, pruneHandledDeadlines, snoozeDeadline } from "@/lib/familyDeadlineStore";
 import { mergeDeadlines, toView, sortDeadlines, rollup, todayYmd } from "@/lib/familyDeadlines";
 import type { DeadlineState } from "@/lib/familyDeadlines";
 import { listTrips } from "@/lib/trips";
@@ -63,21 +63,49 @@ export async function GET(req: Request) {
     id: t.id, label: t.label, startDate: t.startDate, endDate: t.endDate,
   })));
 
+  // The end of the current or next trip, so "snooze until I'm back" is a real
+  // date rather than a guess. Null when no trip is ahead.
+  const nextTripEnd = trips
+    .filter((t) => t.endDate >= today)
+    .map((t) => ({ end: t.endDate, label: t.label }))
+    .sort((a, b) => a.end.localeCompare(b.end))[0] ?? null;
+
   return NextResponse.json({
     ...digest, tracked, rollup: rollup(tracked),
     tripConflicts: conflicts, tripConflictLine: conflictLine(conflicts),
+    nextTripEnd,
   });
 }
 
-// PATCH { id, state } — record how the user handled a deadline. This is the
-// only write; the extractor never sets state.
+// PATCH { id, state } — record how the user handled a deadline, or
+// PATCH { id, snoozeUntil } — defer it ("not now"; null clears). The extractor
+// never sets either.
 export async function PATCH(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
 
-  const body = await req.json().catch(() => null) as { id?: unknown; state?: unknown } | null;
+  const body = await req.json().catch(() => null) as { id?: unknown; state?: unknown; snoozeUntil?: unknown } | null;
   const id = typeof body?.id === "string" ? body.id : "";
+
+  if (body && "snoozeUntil" in body) {
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+    const raw = body.snoozeUntil;
+    let until: string | null = null;
+    if (raw !== null) {
+      // Validated here, not just in the UI: a past or malformed date would
+      // either do nothing forever or hide the row with no end.
+      if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        return NextResponse.json({ error: "snoozeUntil must be yyyy-mm-dd or null" }, { status: 422 });
+      }
+      if (raw <= todayYmd()) return NextResponse.json({ error: "Snooze date must be in the future" }, { status: 422 });
+      until = raw;
+    }
+    const ok = await snoozeDeadline(normEmail(session.user?.email), id, until);
+    if (!ok) return NextResponse.json({ error: "Not found, or not open" }, { status: 404 });
+    return NextResponse.json({ ok: true, snoozedUntil: until });
+  }
+
   const state = body?.state === "done" || body?.state === "dismissed" || body?.state === "open"
     ? (body.state as DeadlineState) : null;
   if (!id || !state) return NextResponse.json({ error: "id and a valid state are required" }, { status: 400 });

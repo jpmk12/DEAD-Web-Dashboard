@@ -36,11 +36,13 @@ const PHASE_TONE: Record<string, { cls: string }> = {
   "due-soon": { cls: "text-amber-200 bg-amber-500/20 border-amber-500/50" },
   open:       { cls: "text-slate-300 bg-slate-700/30 border-slate-600" },
   undated:    { cls: "text-slate-400 bg-slate-700/40 border-slate-600" },
+  snoozed:    { cls: "text-slate-500 bg-slate-800/40 border-slate-700" },
   done:       { cls: "text-emerald-300 bg-emerald-500/15 border-emerald-500/40" },
   dismissed:  { cls: "text-slate-500 bg-slate-800/40 border-slate-700" },
 };
 
 function phaseText(d: DeadlineView): string {
+  if (d.phase === "snoozed") return "Later";
   if (d.phase === "done") return "Done";
   if (d.phase === "dismissed") return "Not mine";
   if (d.phase === "undated") return "No date";
@@ -85,6 +87,9 @@ export default function FamilyTab({ active }: { active: boolean }) {
   // the Family tab nor the trip list can see on its own.
   const [conflicts, setConflicts] = useState<TripConflict[]>([]);
   const [conflictLine, setConflictLine] = useState<string | null>(null);
+  // "Until I'm back" needs the next trip's end date; null = no trip ahead.
+  const [nextTripEnd, setNextTripEnd] = useState<{ end: string; label: string } | null>(null);
+  const [snoozeFor, setSnoozeFor] = useState<string | null>(null);   // row id with the picker open
   const [nowMs, setNowMs] = useState(0);
   // School and Household are two readings of the same mailbox with different
   // questions. Household is NOT rendered until selected: it runs its own Gmail
@@ -108,6 +113,7 @@ export default function FamilyTab({ active }: { active: boolean }) {
         setRollupLine(d.rollup?.line ?? null);
         if (Array.isArray(d.tripConflicts)) setConflicts(d.tripConflicts);
         setConflictLine(d.tripConflictLine ?? null);
+        setNextTripEnd(d.nextTripEnd ?? null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load family mail"))
       .finally(() => setLoading(false));
@@ -201,6 +207,27 @@ export default function FamilyTab({ active }: { active: boolean }) {
   const schoolState = schoolBody();
 
   const events = digest?.events ?? [];
+
+  const snooze = async (id: string, untilISO: string | null) => {
+    setSaving(id);
+    setSnoozeFor(null);
+    try {
+      const res = await fetch("/api/family", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, snoozeUntil: untilISO }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error || "save failed");
+      toast.ok(untilISO ? `Snoozed until ${untilISO}` : "Snooze cleared", untilISO ? "it still lapses if the due date passes" : undefined);
+      load();
+    } catch (e) {
+      toast.error("Could not snooze that", e);
+    } finally {
+      setSaving(null);
+    }
+  };
+  const plusDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
   // Optimistic local state change, then persist. On failure we reload rather
   // than silently leaving the row looking handled — the whole feature is a
@@ -332,13 +359,37 @@ export default function FamilyTab({ active }: { active: boolean }) {
                   </span>
                   <span className="block text-[9.5px] text-slate-600 mt-0.5">
                     tracked {d.ageDays}d
+                    {d.phase === "snoozed" && d.snoozedUntil && ` · snoozed until ${d.snoozedUntil} — still lapses if its date passes`}
                     {d.phase === "undated" && " · no date given — the email never stated one"}
                     {d.onlyRemembered && " · the email has aged out of your inbox search; this is the only record"}
                   </span>
                 </span>
                 <Who id={d.personId} />
                 {!handled ? (
-                  <span className="flex-shrink-0 flex items-center gap-1">
+                  <span className="flex-shrink-0 flex items-center gap-1 relative">
+                    {/* "Not now" — a third answer between done and not-mine. The
+                        record stays open; only attention is deferred. */}
+                    {d.phase !== "lapsed" && (
+                      <button onClick={() => setSnoozeFor(snoozeFor === d.id ? null : d.id)} disabled={saving !== null}
+                        aria-expanded={snoozeFor === d.id}
+                        className="text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-40">
+                        {d.phase === "snoozed" ? "Snoozed" : "Later"}
+                      </button>
+                    )}
+                    {snoozeFor === d.id && (
+                      <span className="absolute right-0 top-full mt-1 z-20 flex flex-col gap-1 bg-slate-950 border border-slate-700 rounded-lg p-1.5 shadow-xl min-w-[170px]">
+                        <button onClick={() => snooze(d.id, plusDays(3))} className="text-left text-[10px] px-2 py-1 rounded hover:bg-slate-800 text-slate-300">3 days</button>
+                        <button onClick={() => snooze(d.id, plusDays(7))} className="text-left text-[10px] px-2 py-1 rounded hover:bg-slate-800 text-slate-300">1 week</button>
+                        {nextTripEnd && (
+                          <button onClick={() => snooze(d.id, nextTripEnd.end)} className="text-left text-[10px] px-2 py-1 rounded hover:bg-slate-800 text-violet-300">
+                            Until I&apos;m back <span className="text-slate-500">({nextTripEnd.label}, {nextTripEnd.end.slice(5)})</span>
+                          </button>
+                        )}
+                        {d.phase === "snoozed" && (
+                          <button onClick={() => snooze(d.id, null)} className="text-left text-[10px] px-2 py-1 rounded hover:bg-slate-800 text-amber-300">Clear snooze</button>
+                        )}
+                      </span>
+                    )}
                     <button onClick={() => setState(d.id, "done")} disabled={saving !== null}
                       className="text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40">
                       {saving === d.id ? "…" : "Done"}

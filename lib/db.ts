@@ -468,6 +468,7 @@ const SCHEMA_STATEMENTS = [
     last_seen   DATETIME(3)  NOT NULL,
     state       VARCHAR(16)  NOT NULL DEFAULT 'open',
     state_at    DATETIME(3)  NULL,
+    snoozed_until VARCHAR(10) NULL,
     PRIMARY KEY (id, user_email),
     INDEX idx_fd_user (user_email, due_iso)
   ) ENGINE=InnoDB`,
@@ -529,6 +530,7 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "ai_feature_toggles",        ddl: "ALTER TABLE user_prefs ADD COLUMN ai_feature_toggles JSON NULL" },
   { table: "user_prefs",  column: "disabled_news_sources",     ddl: "ALTER TABLE user_prefs ADD COLUMN disabled_news_sources JSON NULL" },
   { table: "warning_daily", column: "mobility_count",          ddl: "ALTER TABLE warning_daily ADD COLUMN mobility_count INT NULL" },
+  { table: "family_deadlines", column: "snoozed_until",        ddl: "ALTER TABLE family_deadlines ADD COLUMN snoozed_until VARCHAR(10) NULL" },
   { table: "x_upload_tokens", column: "expected_interval_hours", ddl: "ALTER TABLE x_upload_tokens ADD COLUMN expected_interval_hours INT NULL" },
   { table: "user_prefs",  column: "mission_profile",           ddl: "ALTER TABLE user_prefs ADD COLUMN mission_profile JSON NULL" },
   { table: "user_prefs",  column: "newsletter_sources",        ddl: "ALTER TABLE user_prefs ADD COLUMN newsletter_sources JSON NULL" },
