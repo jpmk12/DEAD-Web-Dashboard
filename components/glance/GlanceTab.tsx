@@ -5,6 +5,7 @@ import { toast } from "@/lib/feedback";
 import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
+import StatusRow from "@/components/glance/StatusRow";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
@@ -820,6 +821,16 @@ export default function GlanceTab({
 
   // Acknowledge the changes after a short dwell (a quick tab-flip won't reset
   // the highlights; an actual look will). Writes the new baseline for next time.
+  // Brief fold — remembered per browser; default open so the first visit
+  // still reads the headline's focus bullets.
+  const [briefOpen, setBriefOpen] = useState(true);
+  useEffect(() => {
+    try { setBriefOpen(localStorage.getItem("glance.briefOpen") !== "0"); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("glance.briefOpen", briefOpen ? "1" : "0"); } catch { /* ignore */ }
+  }, [briefOpen]);
+
   // One-page OE brief: fetch the snapshot, render the standalone HTML in the
   // browser (lib/oeBriefExport, pure), download. Also reachable from the
   // command palette via the `oebrief:export` event.
@@ -905,48 +916,47 @@ export default function GlanceTab({
         </div>
       </div>
 
-      {/* ── What moved since you last looked ──
-          Above the brief on purpose: the brief is day-cached prose, this is the
-          live delta the north star's verb actually asks for. */}
+      {/* ── Hero: live status row ──
+          Posture · Bases · I&W · Demand · Alerts · Family — each a live tile
+          that deep-links. The north star's verb is "see changes"; a hero of
+          day-cached prose could not show one. The per-base LED strip that
+          used to sit below the brief is folded into the Bases tile (the
+          Watch pane keeps the full strip). */}
+      <StatusRow forceWatch={forceWatch} sitreps={sitreps} onNavigate={onNavigate} />
+
+      {/* ── What moved since you last looked ── */}
       <OeDeltaCard />
 
       {/* ── Where demand is going over the next week ──
           The forecast the north star names; deterministic from the sensors
           already on the board. */}
-      <DemandHorizonCard />
+      <div id="glance-demand" className="scroll-mt-24">
+        <DemandHorizonCard />
+      </div>
 
-      {/* ── Hero: morning brief ── */}
-      <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5 glow-green card-hover">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-emerald-400 text-[11px] font-bold uppercase tracking-widest mb-2">
-              <BriefIcon size={15} strokeWidth={2.5} className="leading-none" /> Morning Brief
-            </div>
-            {briefing ? (
-              <>
-                <p className="text-base sm:text-lg font-semibold text-slate-100 leading-snug">
-                  {briefing.headline}
-                </p>
-                {briefing.suggestedFocus?.length > 0 && (
-                  <ul className="mt-3 space-y-1.5">
-                    {briefing.suggestedFocus.slice(0, 3).map((f, i) => (
-                      <li key={i} className="flex gap-2 text-sm text-slate-300">
-                        <span className="text-emerald-500 mt-0.5 flex-shrink-0">▸</span>
-                        <span className="min-w-0">{f}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-slate-400 leading-relaxed">
-                {warming
-                  ? "Pulling your news, mail and calendar together… your brief will appear here shortly."
+      {/* ── Morning brief — demoted to a collapsible; the headline stays
+          visible, the prose lives in the modal. ── */}
+      <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
+        <div className="flex items-start justify-between gap-3 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setBriefOpen((v) => !v)}
+            aria-expanded={briefOpen}
+            className="min-w-0 text-left flex-1"
+          >
+            <span className="flex items-center gap-2 text-emerald-400 text-[11px] font-bold uppercase tracking-widest">
+              <BriefIcon size={14} strokeWidth={2.5} className="leading-none" /> Morning Brief
+              <span className="text-slate-600 text-[10px] normal-case tracking-normal font-normal">{briefOpen ? "▴" : "▾"}</span>
+            </span>
+            <span className="block text-[13.5px] font-semibold text-slate-100 leading-snug mt-1">
+              {briefing
+                ? briefing.headline
+                : warming
+                  ? "Pulling your news, mail and calendar together…"
                   : "Your brief is being generated from today's news and newsletters."}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col gap-2 flex-shrink-0">
+            </span>
+          </button>
+          <div className="flex gap-2 flex-shrink-0">
             <button
               onClick={onOpenBrief}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all whitespace-nowrap"
@@ -961,41 +971,17 @@ export default function GlanceTab({
             </button>
           </div>
         </div>
+        {briefOpen && briefing && briefing.suggestedFocus?.length > 0 && (
+          <ul className="px-4 pb-3 space-y-1.5 border-t border-emerald-500/15 pt-2.5">
+            {briefing.suggestedFocus.slice(0, 3).map((f, i) => (
+              <li key={i} className="flex gap-2 text-sm text-slate-300">
+                <span className="text-emerald-500 mt-0.5 flex-shrink-0">▸</span>
+                <span className="min-w-0">{f}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
-
-      {/* ── Base SITREP LED strip (deterministic; full detail on OSINT → SITREP) ── */}
-      {sitreps.length > 0 && (
-        <section className="mb-6">
-          <div className="flex flex-wrap gap-2">
-            {sitreps.map((s) => {
-              const LED: Record<string, string> = { g: "bg-emerald-500", a: "bg-amber-500", r: "bg-red-500", u: "bg-slate-600" };
-              const worstRed = Object.values(s.status).includes("r");
-              const worstAmber = Object.values(s.status).includes("a");
-              return (
-                <button
-                  key={s.icao}
-                  onClick={() => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "sitrep" })); }}
-                  title={`${s.label} — Wx/Ops/Threat/Infra · ${s.driver || "all green"}${s.worse.length ? ` · worse than yesterday: ${s.worse.join(", ")}` : ""}`}
-                  className={`group flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors hover:bg-slate-800/50 ${
-                    worstRed ? "border-red-500/50" : worstAmber ? "border-amber-500/40" : "border-slate-800"
-                  }`}
-                >
-                  <span className="text-[11px] font-mono font-bold text-slate-200">{s.icao}</span>
-                  <span className="flex gap-1">
-                    {(["wx", "ops", "threat", "infra"] as const).map((k) => (
-                      <span key={k} className={`w-1.5 h-1.5 rounded-full ${LED[s.status[k]] ?? LED.u}`} title={k} />
-                    ))}
-                  </span>
-                  {s.worse.length > 0 && <span title="Worse than yesterday" className="text-[9px] font-bold text-amber-400">↑</span>}
-                  {(worstRed || worstAmber) && (
-                    <span className="hidden sm:block text-[10px] text-slate-500 max-w-[180px] truncate">{s.driver}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {/* ── Global Reach Watch: NEO / disasters / weather, de-crowded ── */}
       {reach.length > 0 && (

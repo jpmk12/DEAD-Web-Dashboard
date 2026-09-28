@@ -1652,6 +1652,23 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### Glance hero = live status row (`components/glance/StatusRow.tsx`)
+The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
+Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns
+it (Regional / Watch › SITREP via `watch:focus` / Watch › I&W / the demand
+card `#glance-demand` / Watch / Family). Colour is EARNED: red/amber only
+when a surface actually is; UNKNOWN is its own tone, never folded into
+green; "…" while loading. Posture + Bases come from data Glance already
+holds; I&W, demand, alerts, family/week are fetched by the row (all
+deterministic, server-cached, no model call; 5-min poll). Family is owner-
+only — the route answers `empty` for crew and the tile doesn't render. The
+Morning Brief is DEMOTED to a collapsible below the OE delta + demand
+horizon (headline always visible, focus bullets fold, state in
+`localStorage["glance.briefOpen"]`); the old per-base SITREP LED strip on
+Glance is gone (Bases tile summarises; the Watch pane keeps the strip).
+Order on Glance: header → StatusRow → OeDeltaCard → DemandHorizonCard →
+brief → Global Reach Watch → …
+
 ### One-page OE brief export (`lib/oeBriefExport.ts` · `/api/oe-brief`)
 "⇩ OE brief" in the Glance header (and the palette's "Export OE brief")
 downloads ONE self-contained HTML file — **zero JavaScript, zero external
