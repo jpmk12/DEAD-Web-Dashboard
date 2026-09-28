@@ -449,6 +449,29 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_hb_biller (biller_id, seen_date)
   ) ENGINE=InnoDB`,
 
+  // Persisted family deadlines. Without this the school digest's 14-day Gmail
+  // window IS the memory: a form due in six weeks, mentioned once, vanished
+  // from the board about a fortnight later while still being due. `state` is
+  // the lifecycle (open/done/dismissed); LAPSED is derived from due_iso vs
+  // today, never stored, so no sweeper job is needed and a row cannot rot into
+  // the wrong state on a day the app was not opened.
+  `CREATE TABLE IF NOT EXISTS family_deadlines (
+    id          VARCHAR(160) NOT NULL,
+    user_email  VARCHAR(255) NOT NULL DEFAULT '',
+    title       VARCHAR(240) NOT NULL,
+    detail      TEXT         NULL,
+    due_iso     VARCHAR(10)  NULL,
+    person_id   VARCHAR(40)  NULL,
+    source_id   VARCHAR(80)  NOT NULL,
+    buried      TINYINT(1)   NOT NULL DEFAULT 0,
+    first_seen  DATETIME(3)  NOT NULL,
+    last_seen   DATETIME(3)  NOT NULL,
+    state       VARCHAR(16)  NOT NULL DEFAULT 'open',
+    state_at    DATETIME(3)  NULL,
+    PRIMARY KEY (id, user_email),
+    INDEX idx_fd_user (user_email, due_iso)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS thread_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     date          VARCHAR(10) NOT NULL UNIQUE,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FamilyDigest, FamilyDeadline } from "@/lib/family";
+import type { DeadlineView } from "@/lib/familyDeadlines";
 import type { FamilyPerson, FamilyProfile } from "@/lib/familyProfile";
 import type { ProposedEvent } from "@/lib/familyDates";
 import FamilyRosterEditor from "@/components/family/FamilyRosterEditor";
@@ -24,6 +25,27 @@ function daysUntil(iso: string | null, nowMs: number): number | null {
   const ms = Date.parse(`${iso}T23:59:59Z`);
   if (!Number.isFinite(ms)) return null;
   return Math.ceil((ms - nowMs) / 86_400_000);
+}
+
+// Lifecycle tones for a TRACKED deadline. Lapsed is the loudest on purpose:
+// it is the one a cleaner design would have quietly dropped.
+const PHASE_TONE: Record<string, { cls: string }> = {
+  lapsed:     { cls: "text-red-200 bg-red-500/25 border-red-500/60" },
+  "due-soon": { cls: "text-amber-200 bg-amber-500/20 border-amber-500/50" },
+  open:       { cls: "text-slate-300 bg-slate-700/30 border-slate-600" },
+  undated:    { cls: "text-slate-400 bg-slate-700/40 border-slate-600" },
+  done:       { cls: "text-emerald-300 bg-emerald-500/15 border-emerald-500/40" },
+  dismissed:  { cls: "text-slate-500 bg-slate-800/40 border-slate-700" },
+};
+
+function phaseText(d: DeadlineView): string {
+  if (d.phase === "done") return "Done";
+  if (d.phase === "dismissed") return "Not mine";
+  if (d.phase === "undated") return "No date";
+  if (d.daysUntil === null) return "No date";
+  if (d.daysUntil < 0) return `${-d.daysUntil}d late`;
+  if (d.daysUntil === 0) return "Today";
+  return `${d.daysUntil}d`;
 }
 
 function dueChip(iso: string | null, nowMs: number): { text: string; cls: string } {
@@ -52,6 +74,11 @@ export default function FamilyTab({ active }: { active: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
   const [added, setAdded] = useState<Record<string, "adding" | "done" | "error">>({});
+  // Persisted deadlines, which outlive the 14-day mail window the extraction
+  // is scoped to. `saving` disables the row's controls during a write.
+  const [tracked, setTracked] = useState<DeadlineView[]>([]);
+  const [rollupLine, setRollupLine] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(0);
   // School and Household are two readings of the same mailbox with different
   // questions. Household is NOT rendered until selected: it runs its own Gmail
@@ -71,6 +98,8 @@ export default function FamilyTab({ active }: { active: boolean }) {
         const d = await r.json().catch(() => null);
         if (!r.ok || !d || d.error) throw new Error(d?.error || `Request failed (${r.status})`);
         setDigest(d);
+        if (Array.isArray(d.tracked)) setTracked(d.tracked);
+        setRollupLine(d.rollup?.line ?? null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load family mail"))
       .finally(() => setLoading(false));
@@ -163,8 +192,31 @@ export default function FamilyTab({ active }: { active: boolean }) {
   };
   const schoolState = schoolBody();
 
-  const deadlines: FamilyDeadline[] = digest?.deadlines ?? [];
   const events = digest?.events ?? [];
+
+  // Optimistic local state change, then persist. On failure we reload rather
+  // than silently leaving the row looking handled — the whole feature is a
+  // promise that nothing is quietly lost.
+  const setState = async (id: string, state: "done" | "dismissed" | "open") => {
+    setSaving(id);
+    const before = tracked;
+    setTracked((prev) => prev.map((d) => (d.id === id
+      ? { ...d, state, phase: state === "open" ? (d.daysUntil === null ? "undated" : d.daysUntil < 0 ? "lapsed" : "open") : state }
+      : d)));
+    try {
+      const res = await fetch("/api/family", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, state }),
+      });
+      if (!res.ok) throw new Error("save failed");
+    } catch {
+      setTracked(before);
+      setError("Could not save that change.");
+    } finally {
+      setSaving(null);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -208,30 +260,59 @@ export default function FamilyTab({ active }: { active: boolean }) {
         </p>
       )}
 
-      {/* ── needs you ── */}
-      {deadlines.length > 0 && (
+      {/* ── needs you ──
+          Renders the TRACKED (persisted) deadlines, not the raw extraction.
+          The 14-day Gmail window used to be the memory, so a form due in six
+          weeks and mentioned once vanished from this board about a fortnight
+          later while still being due. Lapsed items stay, deliberately: a
+          deadline that disappears when missed teaches nothing. */}
+      {tracked.length > 0 && (
         <div className="border border-red-500/35 bg-red-950/10 rounded-xl overflow-hidden">
           <div className="flex items-center gap-2 px-3.5 py-2 border-b border-red-500/25 bg-red-500/[.06]">
             <span className="text-[11px] font-bold uppercase tracking-widest text-red-300">
-              ⚑ Needs you — {deadlines.length} item{deadlines.length === 1 ? "" : "s"} with a deadline
+              ⚑ Needs you — {tracked.length} tracked
             </span>
-            <span className="ml-auto text-[10px] text-slate-600">soonest first</span>
+            <span className="ml-auto text-[10px] text-slate-600">{rollupLine ?? "nothing outstanding"}</span>
           </div>
-          {deadlines.map((d, i) => {
-            const chip = dueChip(d.dueISO, nowMs);
+          {tracked.map((d) => {
+            const tone = PHASE_TONE[d.phase] ?? PHASE_TONE.open;
+            const handled = d.phase === "done" || d.phase === "dismissed";
             return (
-              <div key={`${d.sourceId}-${i}`} className="flex items-center gap-3 px-3.5 py-2.5 border-t border-slate-800/70 first:border-t-0">
-                <span className={`w-[86px] flex-shrink-0 text-center rounded-md border py-1 text-[10px] font-bold uppercase tracking-wider font-mono ${chip.cls}`}>
-                  {chip.text}
+              <div key={d.id} className={`flex items-center gap-3 px-3.5 py-2.5 border-t border-slate-800/70 first:border-t-0 ${handled ? "opacity-45" : ""}`}>
+                <span className={`w-[86px] flex-shrink-0 text-center rounded-md border py-1 text-[10px] font-bold uppercase tracking-wider font-mono ${tone.cls}`}>
+                  {phaseText(d)}
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[13.5px] font-bold text-slate-100">{d.title}</span>
+                  <span className={`block text-[13.5px] font-bold ${handled ? "text-slate-400 line-through" : "text-slate-100"}`}>{d.title}</span>
                   <span className="block text-[11px] text-slate-500 mt-0.5">
                     {d.buried && <span className="text-red-400 font-semibold">Buried in a longer newsletter. </span>}
                     {d.detail}
                   </span>
+                  <span className="block text-[9.5px] text-slate-600 mt-0.5">
+                    tracked {d.ageDays}d
+                    {d.phase === "undated" && " · no date given — the email never stated one"}
+                    {d.onlyRemembered && " · the email has aged out of your inbox search; this is the only record"}
+                  </span>
                 </span>
                 <Who id={d.personId} />
+                {!handled ? (
+                  <span className="flex-shrink-0 flex items-center gap-1">
+                    <button onClick={() => setState(d.id, "done")} disabled={saving !== null}
+                      className="text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40">
+                      {saving === d.id ? "…" : "Done"}
+                    </button>
+                    <button onClick={() => setState(d.id, "dismissed")} disabled={saving !== null}
+                      title="Not mine / not a real obligation"
+                      className="text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-slate-700 text-slate-500 hover:text-slate-300 disabled:opacity-40">
+                      Not mine
+                    </button>
+                  </span>
+                ) : (
+                  <button onClick={() => setState(d.id, "open")} disabled={saving !== null}
+                    className="flex-shrink-0 text-[9px] uppercase tracking-wider text-slate-600 hover:text-slate-400 disabled:opacity-40">
+                    undo
+                  </button>
+                )}
               </div>
             );
           })}
@@ -244,7 +325,9 @@ export default function FamilyTab({ active }: { active: boolean }) {
           {(digest?.people ?? []).map((pd) => {
             const e = personById.get(pd.personId);
             if (!e) return null;
-            const mine = deadlines.filter((d) => d.personId === pd.personId).length;
+            // Outstanding only: a person's badge should count what still
+            // needs doing, not everything ever extracted for them.
+            const mine = tracked.filter((d) => d.personId === pd.personId && d.phase !== "done" && d.phase !== "dismissed").length;
             return (
               <div key={pd.personId} className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
                 <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-slate-800 bg-slate-800/30">
