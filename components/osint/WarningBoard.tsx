@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import DecisionLog from "@/components/osint/DecisionLog";
 import type { WarningAssessmentPlus } from "@/lib/warningAssess";
 import type { WarningLevel, Trajectory, ObservedState, IndicatorScore } from "@/lib/warning";
 
@@ -148,6 +149,11 @@ function ProblemCard({ p }: { p: WarningAssessmentPlus }) {
           return <IndicatorRow key={i.id} i={i} unreachable={h ? !h.live : false} note={h?.note} />;
         })}
       </div>
+
+      {/* Decision log — inline, where the evidence is. The taxonomy already
+          requires a pre-registered falsifier per indicator; this is what
+          finally checks one. */}
+      <DecisionLog problemId={p.problemId} indicatorIds={p.indicators.map((i) => i.id)} indicatorLabel={label} />
 
       {unreachable.length > 0 && (
         <p className="text-[10px] text-slate-600 font-mono">⚠ {unreachable.length} sensor{unreachable.length === 1 ? "" : "s"} unreachable this cycle — shown UNKNOWN, never implied-clear.</p>

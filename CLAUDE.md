@@ -1820,3 +1820,73 @@ indexed aggregate over data the app already collects.
   evidence, and dismissal is permanent.** A recommendation without a reason is
   a nag; one that returns after being declined teaches the user to ignore the
   panel.
+
+### The learning layer (four surfaces that read the app's own history)
+A survey for "where could the app learn from me / show me a connection I
+couldn't see" found the same shape as the watchlist recommendations: data the
+app already writes and nobody reads. **All four are PURE joins — no model call,
+no new fetch** (the AI-spend rule: nothing pays for a derived insight).
+
+- **Chronic vs acute** (`lib/chronicity.ts`, tested). `force_posture_daily` and
+  `sitrep_status_daily` were read for a ONE-DAY delta only, so "amber twelve of
+  the last fourteen days" and "amber since this morning" rendered identically.
+  Returns `new|recurring|chronic|improving|quiet|unknown`; `ForceAssessment`
+  carries `chronicity`. Two load-bearing rules: **ratios are against days
+  OBSERVED, never calendar days** (these tables are written lazily, only on
+  days the app was opened — "2 of 14" would under-report a chronic problem on
+  exactly the week you were away), and "the previous day" means the previous
+  OBSERVED day so a recording gap cannot read as a recovery. Below
+  `MIN_OBSERVED` it returns `unknown` and says how little history it has.
+  `UNKNOWN` severity is NOT elevated — a dead feed must not accumulate into a
+  chronic claim. Rendered as a muted chip on Mobility Watch (CHRONIC is quieter
+  than NEW on purpose) and as the full sentence in Regional.
+- **Reactivation** (`lib/reactivation.ts` → `/api/osint/reactivations` →
+  `ReactivationCard` on Watch). Closes the `saved_items` gap: a save is the
+  strongest signal the user produces and fed NOTHING, while `article_prefs`
+  (clicks) feeds news sort, the digest and trends. Joins saved items + doc
+  titles/**aliases only** (a title is a statement of subject; a body mentions
+  everything) against trend movers, non-calm I&W boards and disasters.
+  **Dormancy IS the feature** — an interest must be 14+ days old, or the card
+  is just your saved list again. Matching is word-bounded via lookarounds
+  ("Hormuz" hits "Strait of Hormuz." not "Hormuzian"), ≥4 chars, terms
+  regex-escaped before compiling, plus a small stoplist of vocabulary every doc
+  in a mobility corpus contains. Dismissal is per **interest+term** (muting one
+  term doesn't mute the item forever), stored as a third prefixed namespace in
+  `dismissed_watch_suggestions` — no migration.
+- **Convergence** (`lib/convergence.ts` → `/api/osint/convergence` →
+  `ConvergenceCard` on Watch). The Crisis map's convergence strip sees only map
+  layers and groups by AOR (a whole COCOM); this spans feeds / I&W / disasters /
+  posture / base status and groups by SUBJECT. **Convergence means DISTINCT
+  KINDS** — three disaster alerts in one country is one story told three times,
+  the single-source trap behind "own-source-only caps at WATCH"; only the
+  strongest signal per kind is kept so a chatty surface can't inflate a row.
+  **Breadth beats intensity** in ranking (a loud single source is already
+  visible on its own pane; weights only break ties). `canonicalSubject` joins
+  the different names surfaces give one place ("Iran (Islamic Republic of)" vs
+  "Iran") and **iterates to a fixed point** — a test caught stacked prefixes
+  ("The Republic of Iraq") surviving a single pass. Its pattern list stays
+  deliberately small: over-eager normalising merges distinct places, a worse
+  failure than a missed join. No dismiss control — it is derived live from
+  current conditions, not a recommendation.
+- **I&W decision log** (`lib/decisionLog.ts` pure + `lib/decisionStore.ts` +
+  `/api/warning/decision` + `DecisionLog.tsx` inline on each problem card, and
+  the new `warning_decisions` table — SHARED per problem like `sitrep_limfacs`,
+  attributed by `by_email`). `warningTaxonomy.ts` already required a
+  pre-registered **falsifier** per indicator, but nothing recorded a call or
+  checked one, so the falsifiers were decoration. An entry is call +
+  expectation + horizon (7/14/30); at the horizon the board reopens it and asks
+  you to score right/wrong/ambiguous. Disciplines: **the app never scores for
+  you** — it only reopens; **scoring is ONE-WAY** (the UPDATE requires
+  `outcome IS NULL`, because a re-scoreable entry is one you can quietly make
+  yourself right about, and same for delete-while-open-only);
+  **ambiguous is first-class but stays VISIBLE** — excluded from the hit-rate
+  ratio yet reported separately, because a log that is mostly ambiguous means
+  the expectations aren't sharp enough and that IS the finding; and **below
+  `MIN_SCORED_FOR_RATE` decided entries there is no percentage**, only a tally
+  (two-for-three is not 67% skill). `validateDraft` runs in the UI *and* at the
+  route — an expectation under 8 chars is rejected because an unscoreable entry
+  makes the hit rate look better-founded than it is.
+- Also added: **`app:navigate`** window event in `TabShell` (validated against
+  `VALID_TABS`) — the missing cross-tab primitive. Glance gets `onNavigate` as
+  a prop because it is a direct child; anything nested deeper (a card inside
+  OSINT → WatchPane) would need it drilled three levels for one link.

@@ -51,6 +51,27 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (problem_id, day)
   ) ENGINE=InnoDB`,
 
+  // I&W decision log: a call logged against an indicator, with the expectation
+  // that makes it falsifiable and a horizon at which the board reopens it for
+  // scoring. SHARED per problem (the crew maintains one board, same as
+  // sitrep_limfacs) and attributed via `by_email`. outcome NULL = still open.
+  `CREATE TABLE IF NOT EXISTS warning_decisions (
+    id           VARCHAR(64)  NOT NULL,
+    problem_id   VARCHAR(64)  NOT NULL,
+    indicator_id VARCHAR(64)  NULL,
+    call_kind    VARCHAR(16)  NOT NULL,
+    expectation  TEXT         NOT NULL,
+    horizon_days INT          NOT NULL,
+    created_at   DATETIME(3)  NOT NULL,
+    due_at       DATETIME(3)  NOT NULL,
+    outcome      VARCHAR(16)  NULL,
+    scored_at    DATETIME(3)  NULL,
+    score_note   TEXT         NULL,
+    by_email     VARCHAR(255) NOT NULL DEFAULT '',
+    PRIMARY KEY (id),
+    INDEX idx_wd_problem (problem_id, due_at)
+  ) ENGINE=InnoDB`,
+
   // Imported X (Twitter) posts from dead-x-capture bookmarklet files. Post id
   // is the PK so re-importing the same capture is idempotent. Pruned on every
   // import: rows older than 14 days (by import time) and beyond the newest
