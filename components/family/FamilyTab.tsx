@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FamilyDigest, FamilyDeadline } from "@/lib/family";
+import type { FamilyDigest } from "@/lib/family";
 import type { DeadlineView } from "@/lib/familyDeadlines";
+import type { TripConflict } from "@/lib/familyTripConflict";
 import type { FamilyPerson, FamilyProfile } from "@/lib/familyProfile";
 import type { ProposedEvent } from "@/lib/familyDates";
 import FamilyRosterEditor from "@/components/family/FamilyRosterEditor";
@@ -79,6 +80,10 @@ export default function FamilyTab({ active }: { active: boolean }) {
   const [tracked, setTracked] = useState<DeadlineView[]>([]);
   const [rollupLine, setRollupLine] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  // Deadlines and events that land inside a trip window — the one thing neither
+  // the Family tab nor the trip list can see on its own.
+  const [conflicts, setConflicts] = useState<TripConflict[]>([]);
+  const [conflictLine, setConflictLine] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(0);
   // School and Household are two readings of the same mailbox with different
   // questions. Household is NOT rendered until selected: it runs its own Gmail
@@ -100,6 +105,8 @@ export default function FamilyTab({ active }: { active: boolean }) {
         setDigest(d);
         if (Array.isArray(d.tracked)) setTracked(d.tracked);
         setRollupLine(d.rollup?.line ?? null);
+        if (Array.isArray(d.tripConflicts)) setConflicts(d.tripConflicts);
+        setConflictLine(d.tripConflictLine ?? null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load family mail"))
       .finally(() => setLoading(false));
@@ -258,6 +265,38 @@ export default function FamilyTab({ active }: { active: boolean }) {
         <p className="text-[11px] text-amber-300/90 border border-amber-500/30 bg-amber-500/5 rounded-lg px-3 py-2">
           Family digest is off in Preferences → AI Controls. Mail is still being collected; summaries are not.
         </p>
+      )}
+
+      {/* ── while you are away ──
+          Above "needs you" because it changes what you do about those items,
+          not just whether you know about them. */}
+      {conflicts.length > 0 && (
+        <div className="border border-violet-500/40 bg-violet-950/10 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-3.5 py-2 border-b border-violet-500/25 bg-violet-500/[.06]">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-violet-300">✈ While you are away</span>
+            <span className="ml-auto text-[10px] text-slate-500">{conflictLine}</span>
+          </div>
+          {conflicts.map((c) => (
+            <div key={`${c.item.id}-${c.trip.id}`} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/70 first:border-t-0">
+              <span className={`mt-0.5 w-[64px] flex-shrink-0 text-center text-[9px] font-bold uppercase tracking-wider rounded py-0.5 border ${
+                c.severity === "away"
+                  ? "text-violet-200 border-violet-500/50 bg-violet-500/15"
+                  : "text-amber-200 border-amber-500/45 bg-amber-500/10"
+              }`}>
+                {c.severity === "away" ? "Away" : "Return"}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12.5px] font-semibold text-slate-100">{c.item.title}</span>
+                <span className="block text-[10.5px] text-slate-500">{c.reason}</span>
+              </span>
+              <Who id={c.item.personId ?? null} />
+            </div>
+          ))}
+          <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
+            Matched from your trip dates against dated obligations — undated items and dates the model only guessed
+            at are excluded, since a conflict asserted from a guess is worse than none.
+          </p>
+        </div>
       )}
 
       {/* ── needs you ──

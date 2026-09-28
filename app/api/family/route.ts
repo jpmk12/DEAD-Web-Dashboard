@@ -6,6 +6,8 @@ import { assembleFamilyDigest } from "@/lib/family";
 import { listDeadlines, upsertDeadlines, setDeadlineState, pruneHandledDeadlines } from "@/lib/familyDeadlineStore";
 import { mergeDeadlines, toView, sortDeadlines, rollup, todayYmd } from "@/lib/familyDeadlines";
 import type { DeadlineState } from "@/lib/familyDeadlines";
+import { listTrips } from "@/lib/trips";
+import { findTripConflicts, conflictLine, type DatedItem } from "@/lib/familyTripConflict";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +41,32 @@ export async function GET(req: Request) {
   const today = todayYmd();
   const tracked = sortDeadlines([...byId.values()].map((d) => toView(d, today)));
 
-  return NextResponse.json({ ...digest, tracked, rollup: rollup(tracked) });
+  // "That deadline falls while you are away." The app has held trips and dated
+  // family obligations side by side all along and never compared them — one
+  // knows the date, the other knows the absence.
+  const trips = await listTrips(email).catch(() => []);
+  const dated: DatedItem[] = [
+    ...tracked.map((d) => ({
+      id: d.id, kind: "deadline" as const, title: d.title, dateISO: d.dueISO,
+      personId: d.personId, handled: d.phase === "done" || d.phase === "dismissed",
+    })),
+    // Only anchored events — `needsConfirm` means the date is the model's guess,
+    // and a conflict asserted from a guess is worse than none.
+    ...(digest.events ?? [])
+      .filter((e) => !e.needsConfirm && e.startISO)
+      .map((e, i) => ({
+        id: `ev-${i}`, kind: "event" as const, title: e.title,
+        dateISO: (e.startISO ?? "").slice(0, 10), personId: e.personId ?? null,
+      })),
+  ];
+  const conflicts = findTripConflicts(dated, trips.map((t) => ({
+    id: t.id, label: t.label, startDate: t.startDate, endDate: t.endDate,
+  })));
+
+  return NextResponse.json({
+    ...digest, tracked, rollup: rollup(tracked),
+    tripConflicts: conflicts, tripConflictLine: conflictLine(conflicts),
+  });
 }
 
 // PATCH { id, state } — record how the user handled a deadline. This is the
