@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
-import { getForceProtection } from "@/lib/forceProtection";
+import { getForceProtectionCached } from "@/lib/forceProtectionCached";
 
 export const dynamic = "force-dynamic";
 
 // Force Protection Watch board: per-location fused threat posture for the user's
-// watched force locations. Same upstream data as the Crisis map; cached 10 min.
-const TTL = 10 * 60 * 1000;
-// Keyed on the watched-locations signature so editing the list (add/remove/move)
-// busts the cache immediately instead of serving a 10-min-stale board.
-let cache: { key: string; body: unknown; expires: number } | null = null;
-
+// watched force locations. Same upstream data as the Crisis map. The 10-min,
+// signature-keyed cache lives in lib/forceProtectionCached.ts so the alert
+// check, the assistant and the demand horizon share this gather.
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -23,13 +20,7 @@ export async function GET() {
     if (countries.length === 0 && bases.length === 0) {
       return NextResponse.json({ assessments: [], generatedAt: new Date().toISOString(), sources: { gps: false, acled: false, aviationWx: false, notams: "off", conflict: "none" }, empty: true });
     }
-    const key = [
-      ...countries.map((c) => `c:${c.id}:${c.country}`),
-      ...bases.map((l) => `b:${l.id}:${l.lat},${l.lon}:${l.icao ?? ""}:${l.start ?? ""}-${l.end ?? ""}`),
-    ].join("|");
-    if (cache && cache.key === key && cache.expires > Date.now()) return NextResponse.json(cache.body);
-    const result = await getForceProtection(countries, bases);
-    cache = { key, body: result, expires: Date.now() + TTL };
+    const result = await getForceProtectionCached(countries, bases);
     return NextResponse.json(result);
   } catch {
     return NextResponse.json({ error: "force-protection read failed" }, { status: 502 });

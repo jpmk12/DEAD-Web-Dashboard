@@ -63,6 +63,12 @@ describe("renderOeContext", () => {
     expect(s).toMatch(/Glance › What changed/);
   });
 
+  it("carries the demand horizon lines and marks it unavailable when null", () => {
+    const s = renderOeContext({ ...base, demand: [{ aor: "CENTCOM", direction: "rise", score: 64, confidence: "high", line: "CENTCOM: demand likely to RISE over 7 days (+64, high confidence) — x" }] });
+    expect(s).toMatch(/demand likely to RISE/);
+    expect(renderOeContext({ ...base, demand: null })).toMatch(/demand horizon .*UNAVAILABLE/);
+  });
+
   it("never exceeds the cap", () => {
     const many: OeSnapshot = {
       ...base,

@@ -13,7 +13,7 @@
 // dispatch (see lib/pushDispatch.ts).
 
 import { getUserPrefs } from "./userPrefs";
-import { getForceProtection } from "./forceProtection";
+import { getForceProtectionCached as getForceProtection } from "./forceProtectionCached";
 import { getWeatherThreats, type NamedPoint } from "./severeWeather";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { activeWarningProblems } from "./warningProblems";

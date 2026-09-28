@@ -1652,6 +1652,32 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### 7-day demand horizon (`lib/demandHorizon.ts` · `lib/demandAssemble.ts`)
+The forecast the north star names ("predicting the needs of my forces"),
+**deterministic, no model call**: one outlook per combatant command —
+demand likely to RISE / HOLD / FALL over 7 days — from sensors the board
+already runs. `demandHorizon()` is PURE + tested; `getDemandHorizon()`
+(server, 10-min cache) feeds `/api/demand-horizon`, the Glance
+`DemandHorizonCard` (under the OE delta; per-row expand lists every driver
+with its signed weight), and the assistant's OE snapshot. Rules that are
+load-bearing: **trajectory over level** (I&W deteriorating WATCH > improving
+WARNING; posture escalated-today > chronic red — a permanent condition is
+posture, not warning); **recency decays** (HADR disasters ×0.5 after 7d,
+×0.2 after 14d red-only; ordered departure ≤14d = +28, older = "standing"
++6); **learning-mode boards capped** at +12; **disasters capped** at +45 per
+AOR; **FALL is a real answer** (improving boards go negative); **confidence =
+count of independent sources** with |delta| ≥ 8 (≥3 high), never score size.
+Thresholds `RISE_AT` +25 / `FALL_AT` −15. Every watched AOR gets a row; a
+quiet one says "absence of signal, not evidence of calm" and the body's
+`sources` names which sensor families answered. Board AOR = bbox centre via
+`aorFromCoords`; chokepoint AOR from its coordinates.
+Two extractions made for it, keep them shared: `lib/forceProtectionCached.ts`
+(THE single memo over the ~15-feed `getForceProtection` fan-out — signature-
+keyed, 10 min, in-flight dedupe; the route, alerts, OE context and horizon
+all go through it — never call `getForceProtection` directly from a new
+caller) and `lib/chokepointReads.ts` (`getChokepointReads(ids?)`, 15-min
+cache, was inline in `/api/markets/chokepoints`).
+
 ### Assistant OE context (`lib/oeContext.ts` · `lib/oeContextFormat.ts`)
 The floating assistant (`/api/chat`) now carries the dashboard's OWN computed
 picture in its per-turn dynamic block: force posture (worst-first, greens

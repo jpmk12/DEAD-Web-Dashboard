@@ -13,7 +13,8 @@
 // "unavailable this turn", and the next turn has it.
 
 import { getUserPrefs } from "./userPrefs";
-import { getForceProtection } from "./forceProtection";
+import { getForceProtectionCached as getForceProtection } from "./forceProtectionCached";
+import { getDemandHorizon } from "./demandAssemble";
 import { assembleSitrep, sitrepSummary } from "./sitrep";
 import { activeWarningProblems } from "./warningProblems";
 import { assessWarning } from "./warningAssess";
@@ -82,8 +83,12 @@ async function gather(): Promise<OeSnapshot> {
     problem: d.problemId, call: d.call, expectation: d.expectation, dueISO: d.dueAt,
   }))));
 
-  const [force, sitrep, boards, alerts, decisionsDue] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP]);
-  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue };
+  const demandP = settle(getDemandHorizon().then((d) => d.outlooks.map((o) => ({
+    aor: o.aor, direction: o.direction, score: o.score, confidence: o.confidence, line: o.line,
+  }))));
+
+  const [force, sitrep, boards, alerts, decisionsDue, demand] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP, demandP]);
+  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue, demand };
 }
 
 /**

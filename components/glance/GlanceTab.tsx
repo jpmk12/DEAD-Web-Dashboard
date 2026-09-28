@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
+import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
@@ -866,6 +867,11 @@ export default function GlanceTab({
           Above the brief on purpose: the brief is day-cached prose, this is the
           live delta the north star's verb actually asks for. */}
       <OeDeltaCard />
+
+      {/* ── Where demand is going over the next week ──
+          The forecast the north star names; deterministic from the sensors
+          already on the board. */}
+      <DemandHorizonCard />
 
       {/* ── Hero: morning brief ── */}
       <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5 glow-green card-hover">
