@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import { TAB_ICONS } from "@/lib/icons";
 
 export type Tab = "glance" | "news" | "calendar" | "email" | "docs" | "osint" | "markets" | "weather" | "family";
@@ -23,9 +26,22 @@ export const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) {
+  // Nine tabs do not fit a phone. The row scrolls, labels collapse to icons
+  // below `sm` (the badge survives), and the active tab is kept in view so a
+  // deep-link to Family or Economy never lands on a bar that shows Glance.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = navRef.current?.querySelector<HTMLElement>('[data-active="true"]');
+    el?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [activeTab]);
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6">
-      <nav className="flex gap-1 pt-1" aria-label="Tabs">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6">
+      <nav
+        ref={navRef}
+        className="flex gap-1 pt-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="Tabs"
+      >
         {TABS.map((tab) => {
           const badge = badges?.[tab.id] ?? 0;
           const Icon = TAB_ICONS[tab.id];
@@ -33,7 +49,11 @@ export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) 
           <button
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
-            className={`relative flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all rounded-t-md ${
+            data-active={activeTab === tab.id ? "true" : undefined}
+            aria-current={activeTab === tab.id ? "page" : undefined}
+            aria-label={tab.label}
+            title={tab.label}
+            className={`relative flex-shrink-0 flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all rounded-t-md ${
               activeTab === tab.id
                 ? "text-emerald-400 bg-slate-950"
                 : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
@@ -46,7 +66,7 @@ export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) 
                 activeTab === tab.id ? "text-emerald-400" : "text-slate-600"
               }`}
             />
-            {tab.label}
+            <span className="hidden sm:inline">{tab.label}</span>
             {badge > 0 && activeTab !== tab.id && (
               <span
                 title={`${badge} new high-priority signal${badge === 1 ? "" : "s"} since you last looked`}
