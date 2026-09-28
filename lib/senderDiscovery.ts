@@ -24,10 +24,12 @@
 // is permanent; accepting it writes the same roster entry you would have typed.
 //
 // ── Discipline ────────────────────────────────────────────────────────────
-// A proposal must be EARNED by billing-shaped subjects, not by volume — a chatty
+// A proposal must be EARNED by category-shaped subjects, not by volume — a chatty
 // newsletter is not a biller. One message from a domain is never a pattern, so
 // two sightings are the floor, which also means a one-off receipt from a shop
 // you will never hear from again does not become a permanent suggestion.
+
+import type { SenderCategory } from "./familyProfile";
 
 /** One observed message header. Deliberately cannot carry a body. */
 export interface ObservedSender {
@@ -45,31 +47,78 @@ export interface SenderCandidate {
   name: string;
   /** How many messages matched. */
   count: number;
-  /** Distinct billing-shaped phrases seen — the evidence. */
+  /** Distinct phrases seen for the winning category — the evidence. */
   signals: string[];
   /** Up to two example subjects, for the row. */
   examples: string[];
-  /** What the row proposes this is. */
-  kind: "biller" | "school";
+  /** The category proposed. */
+  category: ProposalCategory;
+  /** `clear` when one category won outright; `close` when the runner-up was
+   *  within CONFIDENCE_MARGIN and the user should look before accepting. */
+  confidence: "clear" | "close";
+  /** The runner-up, when it was close — so the row's dropdown can default
+   *  sensibly and the user can see what else it might be. */
+  alternate?: ProposalCategory;
   reason: string;
 }
 
-/** Phrases that make a message look like a bill. Same phrase-not-word rule as
- *  accountJeopardy: "account" alone means nothing, "your statement" does. */
-const BILLING_PHRASES = [
-  "your statement", "statement is ready", "statement available", "e-statement",
-  "your bill", "bill is ready", "new invoice", "invoice", "amount due",
-  "payment due", "autopay", "automatic payment", "payment reminder",
-  "your receipt", "subscription renews", "renewal notice", "will renew",
-  "billing", "paperless",
-];
+/** How far ahead the winner must be to count as a clear call. Below this the row
+ *  says so rather than pretending: mis-filing a swim-club signup as a bill is
+ *  cheap to fix with a dropdown and expensive to leave silently wrong. */
+export const CONFIDENCE_MARGIN = 2;
 
-/** Phrases that make a message look like it comes from a school or activity. */
-const SCHOOL_PHRASES = [
-  "newsletter", "permission slip", "field trip", "parent", "principal",
-  "report card", "conference", "enrollment", "registration", "pta", "classroom",
-  "school year", "immunization", "dismissal",
-];
+/** Categories a proposal can land in. `biller` is separate from the sender
+ *  categories because billers get their own roster list (the silence watch needs
+ *  a cadence and an autopay flag that no other category has). */
+export type ProposalCategory = "biller" | SenderCategory;
+
+/** Phrase evidence per category. PHRASES, never single words — "account",
+ *  "schedule" and "reminder" appear in everyone's mail. Same rule as
+ *  accountJeopardy, and for the same reason: a single-word trigger would
+ *  classify half the mailbox and the panel would be ignored within a week. */
+const CATEGORY_PHRASES: Record<ProposalCategory, string[]> = {
+  biller: [
+    "your statement", "statement is ready", "statement available", "e-statement",
+    "your bill", "bill is ready", "new invoice", "amount due", "payment due",
+    "autopay", "automatic payment", "payment reminder", "your receipt",
+    "subscription renews", "renewal notice", "will renew", "billing statement",
+    "paperless billing", "your plan renews", "membership renewal",
+  ],
+  school: [
+    "newsletter", "permission slip", "report card", "parent conference",
+    "parent-teacher", "principal", "classroom", "school year", "immunization",
+    "dismissal", "pta", "school calendar", "progress report", "enrollment",
+    "back to school", "lunch account", "field trip",
+  ],
+  activity: [
+    // The "something fun for the kids" bucket: these are the ones with signup
+    // windows and fees that close quietly.
+    "registration is open", "registration opens", "register now", "sign up",
+    "signup", "season schedule", "practice schedule", "game schedule",
+    "team schedule", "tryouts", "recital", "rehearsal", "camp", "clinic",
+    "roster", "league", "swim", "scouts", "troop", "dues are due",
+    "uniform order", "picture day", "tournament", "meet schedule",
+    "lessons", "coach", "spirit wear",
+  ],
+  medical: [
+    "your appointment", "appointment reminder", "appointment confirmed",
+    "test results", "lab results", "prescription", "refill", "your visit",
+    "patient portal", "referral", "immunization record", "well visit",
+    "annual physical", "dental cleaning", "orthodontic", "copay",
+  ],
+  travel: [
+    "your itinerary", "booking confirmation", "reservation confirmed",
+    "check-in opens", "online check-in", "your flight", "boarding pass",
+    "hotel confirmation", "rental confirmation", "trip summary", "e-ticket",
+  ],
+  admin: [
+    "renewal notice for your", "your license", "registration renewal",
+    "passport", "tax statement", "tax document", "your w-2", "your 1099",
+    "jury duty", "voter registration", "vehicle registration", "property tax",
+    "official notice", "your claim", "policy documents",
+  ],
+  other: [],
+};
 
 /** Domains that are never a useful roster entry: a free mail host is a person,
  *  and adding one as a pattern would pull in unrelated mail wholesale. */
@@ -144,8 +193,17 @@ export function discoverSenders(
   const minSightings = opts.minSightings ?? MIN_SIGHTINGS;
   const dismissedSet = new Set(dismissed.map((d) => d.toLowerCase()));
 
-  interface Acc { name: string; count: number; billing: Set<string>; school: Set<string>; examples: string[] }
+  interface Acc {
+    name: string;
+    count: number;
+    /** Distinct matched phrases per category — set size IS the score, so one
+     *  sender repeating "your statement" nine times does not outweigh another
+     *  showing three different activity signals. */
+    hits: Map<ProposalCategory, Set<string>>;
+    examples: string[];
+  }
   const groups = new Map<string, Acc>();
+  const CATEGORIES = Object.keys(CATEGORY_PHRASES) as ProposalCategory[];
 
   for (const o of observed) {
     const domain = domainOf(o.from);
@@ -155,25 +213,44 @@ export function discoverSenders(
     if (dismissedSet.has(dismissKey(domain))) continue;
 
     let g = groups.get(domain);
-    if (!g) { g = { name: nameOf(o.from), count: 0, billing: new Set(), school: new Set(), examples: [] }; groups.set(domain, g); }
+    if (!g) { g = { name: nameOf(o.from), count: 0, hits: new Map(), examples: [] }; groups.set(domain, g); }
     g.count++;
     const subject = o.subject ?? "";
-    for (const p of BILLING_PHRASES) if (hasPhrase(subject, p)) g.billing.add(p);
-    for (const p of SCHOOL_PHRASES) if (hasPhrase(subject, p)) g.school.add(p);
+    for (const cat of CATEGORIES) {
+      for (const p of CATEGORY_PHRASES[cat]) {
+        if (!hasPhrase(subject, p)) continue;
+        let set = g.hits.get(cat);
+        if (!set) { set = new Set(); g.hits.set(cat, set); }
+        set.add(p);
+      }
+    }
     if (subject.trim() && g.examples.length < 2) g.examples.push(subject.trim().slice(0, 90));
   }
 
   const out: SenderCandidate[] = [];
   for (const [domain, g] of groups) {
     if (g.count < minSightings) continue;                 // one message is not a pattern
-    // Volume alone earns nothing — a chatty newsletter is not a biller.
-    if (g.billing.size === 0 && g.school.size === 0) continue;
 
-    const kind: SenderCandidate["kind"] = g.billing.size >= g.school.size ? "biller" : "school";
-    const signals = [...(kind === "biller" ? g.billing : g.school)].slice(0, 4);
+    // Rank categories by distinct evidence. Volume alone earns nothing — a
+    // chatty newsletter is not a biller and not an activity.
+    const ranked = [...g.hits.entries()]
+      .map(([cat, set]) => ({ cat, n: set.size }))
+      .sort((a, b) => b.n - a.n || CATEGORIES.indexOf(a.cat) - CATEGORIES.indexOf(b.cat));
+    if (ranked.length === 0 || ranked[0].n === 0) continue;
+
+    const winner = ranked[0];
+    const runnerUp = ranked[1];
+    // A close call is REPORTED, not resolved silently. Mis-filing a swim-club
+    // signup as a bill costs one click to fix and is expensive to leave wrong.
+    const close = !!runnerUp && winner.n - runnerUp.n < CONFIDENCE_MARGIN;
+
+    const signals = [...(g.hits.get(winner.cat) ?? [])].slice(0, 4);
     out.push({
-      domain, name: g.name, count: g.count, signals, examples: g.examples, kind,
-      reason: `${g.count} messages mentioning ${signals.map((s) => `“${s}”`).join(", ")}`,
+      domain, name: g.name, count: g.count, signals, examples: g.examples,
+      category: winner.cat,
+      confidence: close ? "close" : "clear",
+      ...(close && runnerUp ? { alternate: runnerUp.cat } : {}),
+      reason: `${g.count} messages mentioning ${signals.map((s) => `\u201c${s}\u201d`).join(", ")}`,
     });
   }
 
@@ -187,8 +264,17 @@ export function discoverSenders(
  *  mailbox — and `-from:` excludes what is already declared so the results are
  *  only ever things the user has not seen proposed. */
 export function discoveryQuery(declaredPatterns: string[], days = 120): string {
-  const subjects = ["statement", "invoice", "your bill", "amount due", "autopay", "receipt", "renews", "newsletter"]
-    .map((s) => `subject:(${s})`).join(" OR ");
+  // One subject term per category family. Widened from the billing-only list
+  // because a swim-club registration mail says none of those words — a scan that
+  // cannot see a category cannot propose it, and "I miss things" was the point.
+  const subjects = [
+    "statement", "invoice", "your bill", "amount due", "autopay", "renews",   // biller
+    "newsletter", "permission", "report card", "conference",                  // school
+    "registration", "sign up", "schedule", "tryouts", "recital", "camp",      // activity
+    "appointment", "results", "refill",                                       // medical
+    "itinerary", "reservation", "check-in",                                   // travel
+    "renewal", "tax", "license",                                              // admin
+  ].map((t) => `subject:(${t})`).join(" OR ");
   const window = `newer_than:${Math.max(7, Math.min(365, Math.round(days)))}d`;
   const exclude = declaredPatterns
     .map((p) => (p.includes("@") ? p : `@${p}`))

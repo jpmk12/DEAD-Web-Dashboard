@@ -17,11 +17,46 @@ export interface FamilyPerson {
   school?: string;  // "Oakwood Elementary"
 }
 
+// What KIND of thing a sender is, which decides what gets tracked from it.
+// One list with a category rather than a list per category: the digest already
+// reads every sender the same way, and a sixth parallel array would multiply the
+// places a "Preferences save must not clobber this" bug can appear.
+//
+// `biller` is deliberately NOT here — billers live in their own list because the
+// silence watch needs a declared cadence and an autopay flag, which no other
+// category has.
+export type SenderCategory =
+  | "school"       // the school itself — newsletters, notices, report cards
+  | "activity"     // sports, music, scouts, camps — signups, fees, schedules
+  | "medical"      // appointments, results, refills
+  | "travel"       // flights, hotels, reservations
+  | "admin"        // government, base, DMV, taxes, legal
+  | "other";
+
+export const SENDER_CATEGORIES: SenderCategory[] = ["school", "activity", "medical", "travel", "admin", "other"];
+
+export const SENDER_CATEGORY_LABEL: Record<SenderCategory, string> = {
+  school: "School", activity: "Activity", medical: "Medical",
+  travel: "Travel", admin: "Admin", other: "Other",
+};
+
+/** What declaring a sender in this category actually buys you. Shown on the
+ *  proposal row, because a recommendation the user cannot evaluate is a nag. */
+export const SENDER_CATEGORY_TRACKS: Record<SenderCategory, string> = {
+  school: "deadlines, forms and buried notices from this school",
+  activity: "signup windows, fees and schedule changes",
+  medical: "appointment and follow-up dates",
+  travel: "booking dates and check-in windows",
+  admin: "filing and renewal deadlines",
+  other: "dates and deadlines in this sender's mail",
+};
+
 export interface FamilySender {
   id: string;
   pattern: string;       // "principal@oakwood.org" or a bare domain "oakwood.org"
   label?: string;        // "Oakwood Elementary"
   personId?: string;     // when this sender only ever concerns one person
+  category?: SenderCategory;  // absent on pre-category rows — treated as "school"
 }
 
 // How often a biller is expected to write. Declared, not inferred: three
@@ -116,9 +151,16 @@ export function sanitizeFamilyProfile(raw: unknown): FamilyProfile {
       const id = str(o.id, 40) || `s-${slug(pattern)}`;
       const label = str(o.label, 60);
       const personId = str(o.personId, 40);
+      const cat = str(o.category, 16) as SenderCategory;
+      const category = SENDER_CATEGORIES.includes(cat) ? cat : undefined;
       return [{
         id, pattern,
         ...(label ? { label } : {}),
+        // Absent stays absent rather than defaulting: every sender predating
+        // categories was a school sender, and `senderCategory()` resolves that
+        // at read time. Writing a default here would make the two cases
+        // indistinguishable later.
+        ...(category ? { category } : {}),
         // A personId pointing at a deleted person is dropped, not kept dangling.
         ...(personId && seenIds.has(personId) ? { personId } : {}),
       }];
@@ -220,6 +262,12 @@ export function senderFor(profile: FamilyProfile, from: string): FamilySender | 
 // The Gmail search that pulls exactly the declared family mail. Scoping the
 // QUERY (rather than fetching everything and classifying) is what keeps this
 // feature cheap and stops it reading mail that was never family mail.
+/** A sender's effective category. Rows created before categories existed were
+ *  all school senders, which is why the fallback is `school` and not `other`. */
+export function senderCategory(s: FamilySender): SenderCategory {
+  return s.category ?? "school";
+}
+
 export function gmailQueryFor(profile: FamilyProfile, days = 14): string {
   const pats = profile.senders.map((s) => s.pattern).filter(Boolean);
   if (pats.length === 0) return "";

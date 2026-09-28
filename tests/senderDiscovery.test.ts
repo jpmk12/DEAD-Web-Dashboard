@@ -48,7 +48,7 @@ describe("discoverSenders — what must be earned", () => {
     const r = discoverSenders([xcel("Your statement is ready"), xcel("Amount due 14 Oct")], []);
     expect(r).toHaveLength(1);
     expect(r[0].domain).toBe("xcelenergy.com");
-    expect(r[0].kind).toBe("biller");
+    expect(r[0].category).toBe("biller");
     expect(r[0].reason).toMatch(/2 messages mentioning/);
   });
 
@@ -86,9 +86,62 @@ describe("discoverSenders — what must be earned", () => {
   it("classifies a school sender as school, not biller", () => {
     const r = discoverSenders([
       msg("office@oakwood.org", "Weekly newsletter — field trip permission slip"),
-      msg("office@oakwood.org", "Parent conference sign-ups"),
+      msg("office@oakwood.org", "Report card is available"),
     ], []);
-    expect(r[0].kind).toBe("school");
+    expect(r[0].category).toBe("school");
+  });
+
+  it("recognises a kids' activity — the bucket whose signups close quietly", () => {
+    const r = discoverSenders([
+      msg("info@swimclub.org", "Fall registration is open — sign up by Friday"),
+      msg("info@swimclub.org", "Practice schedule and meet schedule posted"),
+    ], []);
+    expect(r[0].category).toBe("activity");
+    expect(r[0].reason).toMatch(/messages mentioning/);
+  });
+
+  it("recognises medical, travel and admin senders", () => {
+    const cases: [string, string, string, string][] = [
+      ["a@peds.com", "Appointment reminder for Emma", "Test results are ready", "medical"],
+      ["b@air.com", "Your itinerary for BWI", "Check-in opens in 24 hours", "travel"],
+      ["c@dmv.gov", "Vehicle registration renewal", "Your license expires soon", "admin"],
+    ];
+    for (const [from, s1, s2, want] of cases) {
+      const r = discoverSenders([msg(from, s1), msg(from, s2)], []);
+      expect(r[0]?.category, `${from} → ${want}`).toBe(want);
+    }
+  });
+
+  it("marks a close call rather than resolving it silently", () => {
+    // A club that bills AND schedules is genuinely ambiguous. Mis-filing it
+    // costs one click on the row's dropdown; leaving it silently wrong does not.
+    const r = discoverSenders([
+      msg("x@club.org", "Dues are due — your statement is ready"),
+      msg("x@club.org", "Season schedule posted"),
+    ], []);
+    expect(r[0].confidence).toBe("close");
+    expect(r[0].alternate).toBeDefined();
+    expect(r[0].alternate).not.toBe(r[0].category);
+  });
+
+  it("calls it clear when one category wins outright", () => {
+    const r = discoverSenders([
+      msg("y@utility.com", "Your statement is ready"),
+      msg("y@utility.com", "Amount due and autopay scheduled — new invoice"),
+    ], []);
+    expect(r[0].category).toBe("biller");
+    expect(r[0].confidence).toBe("clear");
+    expect(r[0].alternate).toBeUndefined();
+  });
+
+  it("scores distinct phrases, not repetitions, so a repeater cannot win on volume", () => {
+    const repeater = Array.from({ length: 9 }, () => msg("z@one.com", "Your statement is ready"));
+    const varied = [
+      msg("w@two.com", "Registration is open — tryouts announced"),
+      msg("w@two.com", "Practice schedule and recital details"),
+    ];
+    const r = discoverSenders([...repeater, ...varied], []);
+    expect(r[0].domain).toBe("two.com");   // 4 distinct activity phrases beats 1 billing phrase ×9
   });
 
   it("is word-bounded, so a phrase inside a longer word does not count", () => {
