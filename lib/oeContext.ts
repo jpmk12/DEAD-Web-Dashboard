@@ -70,6 +70,7 @@ async function gather(): Promise<OeSnapshot> {
       const a = await assessWarning(p.def.id).catch(() => null);
       if (!a) continue;
       out.push({
+        problemId: a.problemId,
         label: a.label, level: a.level, anomaly: a.anomaly, trajectory: a.trajectory, learning: a.learning,
         drivers: (a.drivers ?? []).map((d) => d.description),
       });

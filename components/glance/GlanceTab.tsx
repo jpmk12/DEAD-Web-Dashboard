@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "@/lib/feedback";
+import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import { useSession } from "next-auth/react";
@@ -818,6 +820,38 @@ export default function GlanceTab({
 
   // Acknowledge the changes after a short dwell (a quick tab-flip won't reset
   // the highlights; an actual look will). Writes the new baseline for next time.
+  // One-page OE brief: fetch the snapshot, render the standalone HTML in the
+  // browser (lib/oeBriefExport, pure), download. Also reachable from the
+  // command palette via the `oebrief:export` event.
+  const [exporting, setExporting] = useState(false);
+  const exportOeBrief = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const r = await fetch("/api/oe-brief", { cache: "no-store" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(j.error || "Could not build the OE brief."); return; }
+      const html = renderOeBriefHtml(j);
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = oeBriefFilename(j.snapshot.atISO);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast.ok("OE brief downloaded — standalone HTML, no scripts.");
+    } catch (e) {
+      toast.error(`OE brief failed: ${(e as Error).message}`);
+    } finally { setExporting(false); }
+  }, [exporting]);
+  useEffect(() => {
+    const on = () => { void exportOeBrief(); };
+    window.addEventListener("oebrief:export", on);
+    return () => window.removeEventListener("oebrief:export", on);
+  }, [exportOeBrief]);
+
   const radarValuesKey = radarMetricsRaw.map((m) => `${m.key}:${m.value}`).join(",");
   useEffect(() => {
     if (!active || typeof window === "undefined") return;
@@ -851,10 +885,18 @@ export default function GlanceTab({
           {newStories + newEmails + osintSignals === 0 && (
             <span className="text-slate-500">You&apos;re all caught up</span>
           )}
+          <button
+            onClick={exportOeBrief}
+            disabled={exporting}
+            title="Download a one-page OE brief — standalone HTML, no scripts, prints to one page"
+            className="flex items-center gap-1 px-2 py-1 rounded-md border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors disabled:opacity-50"
+          >
+            ⇩ {exporting ? "Building…" : "OE brief"}
+          </button>
           {onOpenCapture && (
             <button
               onClick={onOpenCapture}
-              title="Quick capture (⌘K) — task, event, doc, or note"
+              title="Quick capture — task, event, doc, or note"
               className="flex items-center gap-1 px-2 py-1 rounded-md border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors"
             >
               ＋ Capture

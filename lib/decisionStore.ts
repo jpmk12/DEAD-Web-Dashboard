@@ -59,6 +59,21 @@ export async function listDecisions(problemId: string, limit = 60): Promise<Deci
 
 /** Open entries past their horizon, across ALL problems — powers the "you owe
  *  this board a score" prompt without fetching every problem's full history. */
+/** Every unscored call across all problems, soonest-due first — for the OE
+ *  brief, which lists what the crew has on the line. */
+export async function listOpenDecisions(limit = 40): Promise<DecisionEntry[]> {
+  try {
+    const pool = await getDb();
+    const [rows] = await pool.query<Row[]>(
+      `SELECT * FROM warning_decisions WHERE outcome IS NULL ORDER BY due_at ASC LIMIT ?`,
+      [Math.min(100, Math.max(1, limit))],
+    );
+    return rows.map(toEntry);
+  } catch {
+    return [];
+  }
+}
+
 export async function listDueDecisions(limit = 20): Promise<DecisionEntry[]> {
   try {
     const pool = await getDb();

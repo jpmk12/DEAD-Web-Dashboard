@@ -36,6 +36,7 @@ const STATIC: Command[] = [
   { id: "act:capture", group: "act", label: "Quick capture", hint: "task, event, or note", keywords: ["task", "note", "event", "add"] },
   { id: "act:assistant", group: "act", label: "Ask the assistant", hint: "AI chat with today's context", keywords: ["chat", "ai", "ask"] },
   { id: "act:alerts", group: "act", label: "Alerts on this device", hint: "push notifications setup", keywords: ["push", "notifications", "install"] },
+  { id: "act:oebrief", group: "act", label: "Export OE brief", hint: "one-page standalone HTML, no scripts", keywords: ["export", "brief", "download", "print", "oe"] },
   { id: "prefs:mission", group: "prefs", label: "Preferences — Mission Profile", keywords: ["hub", "spoke", "aoi", "theater", "airfields"] },
   { id: "prefs:you", group: "prefs", label: "Preferences — You", keywords: ["timezone", "watchlist", "topics", "home", "role"] },
   { id: "prefs:connections", group: "prefs", label: "Preferences — Connections & appearance", keywords: ["theme", "gmail", "account", "acled"] },
@@ -62,6 +63,7 @@ function run(cmd: Command) {
       else if (key === "capture") emit("capture:open");
       else if (key === "assistant") emit("assistant:open", { prompt: "" });
       else if (key === "alerts") emit("prefs:open", "you");
+      else if (key === "oebrief") { emit("app:navigate", "glance"); later(60, () => emit("oebrief:export")); }
       return;
     }
     case "prefs": emit("prefs:open", key); return;

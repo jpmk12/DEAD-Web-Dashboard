@@ -1652,6 +1652,23 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### One-page OE brief export (`lib/oeBriefExport.ts` · `/api/oe-brief`)
+"⇩ OE brief" in the Glance header (and the palette's "Export OE brief")
+downloads ONE self-contained HTML file — **zero JavaScript, zero external
+resources**, prints to a page — rendered IN THE BROWSER by the PURE, tested
+`renderOeBriefHtml()` from `/api/oe-brief` (the SAME `OeSnapshot` the
+assistant reads, waited up to 12 s because an export is deliberate, plus
+`listOpenDecisions()` and the mission summary; reading does NOT bump the
+`oe` last-seen — exporting is not looking). Sections: masthead with
+"SNAPSHOT AS OF …Z — NOT LIVE" + prepared-by, BLUF chips (reds, UNKNOWNs,
+boards at warning/alert, rising commands, changes, alerts), what changed,
+active alerts, demand-horizon table, posture table (greens counted not
+listed), SITREP LEDs, I&W boards, open decision-log calls (DUE rows
+highlighted, board named via `OeBoardRow.problemId`), sources/unofficial
+footer. Same disciplines as `sitrepExport.ts` (reuses its `esc()`):
+UNAVAILABLE is rendered, never dropped; every dynamic string escaped
+(tests assert no `<script`, no `http` src/href, markup in drivers escaped).
+
 ### 7-day demand horizon (`lib/demandHorizon.ts` · `lib/demandAssemble.ts`)
 The forecast the north star names ("predicting the needs of my forces"),
 **deterministic, no model call**: one outlook per combatant command —

@@ -35,6 +35,7 @@ export interface OeSitrepRow {
 }
 
 export interface OeBoardRow {
+  problemId?: string;
   label: string;
   level: string;                // calm | watch | warning | alert
   anomaly: number;

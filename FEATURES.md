@@ -491,6 +491,8 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/airfields/resolve         GET ?icao= — curated sets → OurAirports labeled point
 /api/alerts/check              GET — current alert conditions, stable ids (session or capture token); every hit drives web-push dispatch
 /api/push/subscribe            GET (configured + VAPID public key + device count) / POST (store this browser's subscription) / DELETE
+/api/demand-horizon            GET — deterministic 7-day demand outlook per COCOM (rise/hold/fall, drivers, confidence, sources answered)
+/api/oe-brief                  GET — OE snapshot + open decisions for the one-page standalone HTML brief (rendered client-side)
 /api/osint/feeds               GET / PUT — targeted OSINT-feed editing (Sources pane)
 /api/capture/article           POST / GET / DELETE — reader-captured analysis articles
 /api/capture/events            POST / GET / DELETE — captured LiveUAMap events
