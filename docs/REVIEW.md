@@ -1,5 +1,7 @@
 # Application review — against the north star
 
+> Companion: `REVIEW-UX.md` covers layout, interaction and feature enhancements.
+>
 > **North star:** sense and make sense of the world, so I can be the best C-17
 > commander — see changes in the operational environment, and ensure my team is
 > postured to take advantage of them.
