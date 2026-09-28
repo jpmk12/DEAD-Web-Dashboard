@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
+import { BASEMAPS, DARKEN_CLASS } from "@/lib/basemaps";
 import type { Incident } from "@/lib/groundTruth";
 
 const incIcon = L.divIcon({ html: `<div style="color:#ef4444;font-size:12px;line-height:1;text-shadow:0 0 3px #020617">◆</div>`, className: "", iconSize: [14, 14], iconAnchor: [7, 7] });
@@ -35,7 +36,15 @@ export default function IncidentMiniMap({ center, base, incidents }: {
   return (
     <div className="h-[200px] rounded-lg overflow-hidden border border-slate-700/60" style={{ isolation: "isolate", zIndex: 0 }}>
       <MapContainer center={start} zoom={5} scrollWheelZoom={false} style={{ height: "100%", width: "100%", background: "#070d18" }}>
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OSM &copy; CARTO" maxZoom={12} />
+        {/* Same provider list as the Crisis map (lib/basemaps) — this map had
+            the same CARTO nag tile. No fallback chain here: a 200-height inset
+            doesn't warrant the machinery, and one list means one fix. */}
+        <TileLayer
+          url={BASEMAPS[0].url}
+          attribution={BASEMAPS[0].attribution}
+          maxZoom={Math.min(12, BASEMAPS[0].maxZoom)}
+          className={BASEMAPS[0].darken ? DARKEN_CLASS : undefined}
+        />
         <FitBounds pts={pts} />
         {base && (
           <Marker position={[base.lat, base.lon]} icon={baseIcon}>

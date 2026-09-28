@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { cellToBoundary } from "h3-js";
+import { BASEMAPS, DARKEN_CLASS, TILE_FAIL_LIMIT } from "@/lib/basemaps";
 import { AMC_HUBS } from "@/lib/amcHubs";
 import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
@@ -247,48 +248,6 @@ function Fitter({ points, fitKey }: { points: [number, number][]; fitKey: number
   useEffect(() => { if (points.length > 0) map.fitBounds(points, { padding: [40, 40], maxZoom: 5 }); }, [fitKey]); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
-
-// Basemap fallback chain, tried in order. A basemap is the ONE layer whose
-// failure means "there is no map" rather than "one layer is missing data", and
-// tile hosts are exactly the kind of free service that starts demanding a key
-// or rate-limiting datacenter traffic without notice. So the map no longer bets
-// the whole surface on a single provider: if a provider never manages to load a
-// tile, we move to the next one and say which basemap is live.
-//
-// The fallbacks ship LIGHT tiles, hence `darken` (see .crisis-basemap-darken in
-// globals.css). `{s}` subdomain rotation is only used where the provider still
-// documents it — OSM asked clients to stop using a.b.c. prefixes.
-const BASEMAPS = [
-  {
-    id: "carto",
-    name: "CARTO dark",
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: "&copy; OpenStreetMap &copy; CARTO",
-    maxZoom: 19,
-    darken: false,
-  },
-  {
-    id: "osm",
-    name: "OpenStreetMap",
-    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: "&copy; OpenStreetMap contributors",
-    maxZoom: 19,
-    darken: true,
-  },
-  {
-    id: "opentopo",
-    name: "OpenTopoMap",
-    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    attribution: "&copy; OpenStreetMap, SRTM &copy; OpenTopoMap (CC-BY-SA)",
-    maxZoom: 17,
-    darken: true,
-  },
-] as const;
-
-// How many tile errors, with no tile ever having loaded, before we conclude the
-// provider is refusing us rather than just missing a tile at the edge of its
-// coverage. Ordinary gaps produce a handful of errors AND successful loads.
-const TILE_FAIL_LIMIT = 8;
 
 export default function CrisisMap() {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
@@ -1013,7 +972,7 @@ export default function CrisisMap() {
               url={basemap.url}
               attribution={basemap.attribution}
               maxZoom={basemap.maxZoom}
-              className={basemap.darken ? "crisis-basemap-darken" : undefined}
+              className={basemap.darken ? DARKEN_CLASS : undefined}
               eventHandlers={{ load: onTileLoad, tileerror: onTileError }}
             />
             {on.radar && radarFrames.map((f, i) => (

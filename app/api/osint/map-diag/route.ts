@@ -81,9 +81,14 @@ export async function GET() {
   const probes = await Promise.all([
     // The basemap — the ONE failure that means "there is no map" rather than
     // "one layer has no data". Probed in provider-chain order.
-    probe("basemap (primary)", "https://a.basemaps.cartocdn.com/dark_all/3/4/3.png", { ua: BROWSER_UA }),
-    probe("basemap (fallback 1)", "https://tile.openstreetmap.org/3/4/3.png", { ua: BROWSER_UA }),
-    probe("basemap (fallback 2)", "https://a.tile.opentopomap.org/3/4/3.png", { ua: BROWSER_UA }),
+    probe("basemap 1 (OSM)", "https://tile.openstreetmap.org/3/4/3.png", { ua: BROWSER_UA }),
+    probe("basemap 2 (Esri dark)", "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/3/3/4", { ua: BROWSER_UA }),
+    probe("basemap 3 (OpenTopoMap)", "https://a.tile.opentopomap.org/3/4/3.png", { ua: BROWSER_UA }),
+    // Negative control, kept deliberately: CARTO answers its nag tile with
+    // HTTP 200 and content-type image/*, so this row is expected to look
+    // HEALTHY while being useless. It is here so the next person to read this
+    // output knows a 200 from a tile host proves nothing about the tile.
+    probe("basemap (CARTO — removed, keyless access withdrawn)", "https://a.basemaps.cartocdn.com/dark_all/3/4/3.png", { ua: BROWSER_UA }),
     // Mil air — community ADS-B mirrors. These are the likeliest source of a
     // literal "API key required": free REST tiers here have been withdrawn
     // before, and the route tries them in this order.
@@ -113,7 +118,8 @@ export async function GET() {
   const keyDemands = probes.filter(
     (p) => /api[ _-]?(key|token)|unauthori[sz]ed|requires? (an )?(api )?(key|token)|subscription/i.test(p.body ?? ""),
   );
-  const basemapOk = probes.some((p) => p.layer.startsWith("basemap") && p.status === 200);
+  // Only the providers actually in the chain count — see the CARTO row above.
+  const basemapOk = probes.some((p) => /^basemap \d/.test(p.layer) && p.status === 200);
 
   return NextResponse.json({
     checkedAt: new Date().toISOString(),

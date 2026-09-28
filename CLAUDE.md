@@ -958,13 +958,30 @@ on screen, because "the OSINT map isn't displaying" is indistinguishable from
   red "signed out — sign in again" badge, cleared at the top of each refresh
   cycle so re-login clears it.
 - **Basemap refusal** — the basemap is the one layer whose failure means
-  "there is no map". `BASEMAPS` is a fallback chain (CARTO dark → OSM →
-  OpenTopoMap); a provider that logs `TILE_FAIL_LIMIT` tile errors *without
-  ever loading one* is judged to be refusing us (ordinary coverage gaps
-  produce errors AND loads) and the map advances, showing a
-  `basemap: <name>` badge. Fallbacks ship LIGHT tiles, so they carry
-  `.crisis-basemap-darken` (globals.css — invert+hue-rotate; the marker panes
-  are siblings of the tile pane, so they're untouched).
+  "there is no map". `lib/basemaps.ts` (PURE data, shared by `CrisisMap` and
+  the Regional pane's `IncidentMiniMap` — one list, one fix) is a chain: OSM
+  → Esri dark canvas → OpenTopoMap. A provider that logs `TILE_FAIL_LIMIT`
+  tile errors *without ever loading one* is judged to be refusing us (ordinary
+  coverage gaps produce errors AND loads) and the map advances, showing a
+  `basemap: <name>` badge. Light providers carry `DARKEN_CLASS`
+  (`.crisis-basemap-darken`, globals.css — invert+hue-rotate on the tile pane
+  only; the marker panes are its siblings, so marker colours survive).
+  Esri's URL is `{z}/{y}/{x}` — row before column, unlike every other entry.
+
+  **CARTO is REMOVED, not demoted, and must not be re-added.**
+  `basemaps.cartocdn.com/dark_all` was the primary for both maps. It withdrew
+  keyless access and now answers with a nag TILE — an image reading "API key
+  required · carto.com" — served as **HTTP 200, content-type `image/png`**.
+  That is the worst failure mode a dependency can have: `tileerror` never
+  fires, `load` fires happily, and nothing on the client can distinguish that
+  graphic from cartography, so the map rendered as broken while reporting
+  itself healthy. The `TILE_FAIL_LIMIT` detector only catches providers that
+  fail HONESTLY. The generalizable rule: prefer a tile host with **no key
+  concept at all** over one whose free tier is a revocable policy — OSM leads
+  because it has never had keys and returns a real 403/429 when it wants us to
+  stop. `map-diag` keeps a CARTO row as a deliberate **negative control**: it
+  reads `status: 200` and healthy, proving a 200 from a tile host means
+  nothing.
 
 **`/api/osint/map-diag` (owner-only)** exists because none of this is
 verifiable from a dev sandbox: the egress policy blocks every host the map
