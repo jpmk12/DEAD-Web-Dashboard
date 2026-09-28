@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { HouseholdDigest } from "@/lib/household";
 import { formatUsdCents, runwayPct } from "@/lib/householdSignals";
+import type { SenderCandidate } from "@/lib/senderDiscovery";
 
 // Household: bills, documents and the admin that keeps people well.
 //
@@ -41,6 +42,30 @@ export default function HouseholdPane({ active }: { active: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(0);
+  // Discovery is null until the user has scanned at least once — an empty array
+  // means "scanned, found nothing", and the two read very differently.
+  const [discovery, setDiscovery] = useState<SenderCandidate[] | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+
+  const runDiscovery = async () => {
+    setDiscovering(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/family/discover", { method: "POST" });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error || "Scan failed");
+      setDiscovery(Array.isArray(j?.candidates) ? j.candidates : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Scan failed");
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const dismissDomain = async (domain: string) => {
+    setDiscovery((prev) => (prev ?? []).filter((c) => c.domain !== domain));
+    await fetch(`/api/family/discover?domain=${encodeURIComponent(domain)}`, { method: "DELETE" }).catch(() => {});
+  };
 
   useEffect(() => { setNowMs(Date.now()); }, []);
 
@@ -147,6 +172,67 @@ export default function HouseholdPane({ active }: { active: boolean }) {
           })}
         </div>
       )}
+
+      {/* ── discovery ──
+          The one search that looks outside the declared roster, so it runs ONLY
+          on this button: no poll, no page load, no digest. Headers only (the
+          route uses Gmail's metadata format), bounded window, and everything
+          already declared is excluded from the query. */}
+      <div className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
+        <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
+          <span className="text-[11px] font-bold uppercase tracking-widest text-slate-300">⌕ Find billers I have not declared</span>
+          <button
+            onClick={runDiscovery}
+            disabled={discovering}
+            className="ml-auto text-[9.5px] font-bold uppercase tracking-wider rounded px-2.5 py-1 border border-sky-500/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 disabled:opacity-40"
+          >
+            {discovering ? "Scanning…" : "Scan"}
+          </button>
+        </div>
+
+        {discovery === null ? (
+          <p className="px-3.5 py-2 text-[10px] text-slate-600 leading-snug">
+            You cannot be reminded of a bill you forgot you had — everything else on this pane only looks at senders
+            you named. This checks the last 120 days for billing-shaped subjects from senders you have NOT declared.
+            It reads subject lines and addresses only, never message bodies, and runs only when you press Scan.
+          </p>
+        ) : discovery.length === 0 ? (
+          <p className="px-3.5 py-2 text-[10px] text-slate-600 leading-snug">
+            Nothing new in the last 120 days. That is not a guarantee there is no undeclared biller — only that none
+            wrote with a billing-shaped subject in the window scanned.
+          </p>
+        ) : (
+          <>
+            {discovery.map((c) => (
+              <div key={c.domain} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/50">
+                <span className={`mt-0.5 w-[54px] flex-shrink-0 text-center text-[9px] font-bold uppercase tracking-wider rounded py-0.5 border ${
+                  c.kind === "biller" ? "text-amber-300 border-amber-500/45 bg-amber-500/10" : "text-sky-300 border-sky-500/45 bg-sky-500/10"
+                }`}>
+                  {c.kind}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[12.5px] font-semibold text-slate-100">{c.name}</span>
+                  <span className="block text-[10px] font-mono text-slate-500">{c.domain}</span>
+                  <span className="block text-[10.5px] text-slate-500 mt-0.5">{c.reason}</span>
+                  {c.examples.length > 0 && (
+                    <span className="block text-[9.5px] text-slate-600 mt-0.5 truncate">e.g. &ldquo;{c.examples[0]}&rdquo;</span>
+                  )}
+                </span>
+                <button
+                  onClick={() => dismissDomain(c.domain)}
+                  className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-slate-700 text-slate-500 hover:text-slate-300"
+                >
+                  Never
+                </button>
+              </div>
+            ))}
+            <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
+              These are proposals, not billers — add the ones you want in the roster editor, where you also set the
+              cadence the silence watch needs. Declining is permanent.
+            </p>
+          </>
+        )}
+      </div>
 
       {/* ── account jeopardy ──
           First, because it is the only block here where something is already

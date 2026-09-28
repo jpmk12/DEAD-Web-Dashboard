@@ -236,6 +236,46 @@ export interface ReplyContext {
 }
 
 // Full message with the headers a threaded reply needs.
+// Headers ONLY — format:"metadata" with an explicit header allow-list, so the
+// Gmail API never returns a body at all. Used by sender discovery, which is the
+// one search in this app that looks outside the declared roster: the guarantee
+// that it cannot read message content needs to be enforced by the request
+// shape, not by a promise in a comment.
+export async function fetchMessageHeaders(
+  accessToken: string,
+  query: string,
+  maxResults = 60,
+): Promise<{ id: string; from: string; subject: string; date: string }[]> {
+  const gmail = buildClient(accessToken);
+  const listRes = await gmail.users.messages.list({
+    userId: "me",
+    q: query,
+    maxResults: Math.max(1, Math.min(200, maxResults)),
+  });
+  const refs = (listRes.data.messages ?? []).filter((r) => r.id);
+  if (!refs.length) return [];
+
+  // Chunked for the same quota reason as fetchNewsletterEmails.
+  const out: { id: string; from: string; subject: string; date: string }[] = [];
+  for (let i = 0; i < refs.length; i += 10) {
+    const chunk = refs.slice(i, i + 10);
+    const got = await Promise.all(chunk.map((r) =>
+      gmail.users.messages.get({
+        userId: "me",
+        id: r.id as string,
+        format: "metadata",
+        metadataHeaders: ["From", "Subject", "Date"],
+      }).catch(() => null)));
+    for (const g of got) {
+      if (!g?.data) continue;
+      const hs = g.data.payload?.headers ?? [];
+      const h = (n: string) => hs.find((x) => (x.name ?? "").toLowerCase() === n)?.value ?? "";
+      out.push({ id: String(g.data.id ?? ""), from: h("from"), subject: h("subject"), date: h("date") });
+    }
+  }
+  return out;
+}
+
 export async function getMessageForReply(accessToken: string, id: string): Promise<ReplyContext | null> {
   const gmail = buildClient(accessToken);
   const res = await gmail.users.messages.get({ userId: "me", id, format: "full" });
