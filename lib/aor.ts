@@ -17,6 +17,11 @@ export const AOR_LABELS: Record<Aor, string> = {
   UNKNOWN: "Unknown AOR",
 };
 
+// Display form for boards and rails, where the unknown bucket reads as a dash
+// rather than a phrase. ONE definition — ForceWatchBoard and GroundTruthTab
+// used to carry identical private copies of this map.
+export const COCOM_LABEL: Record<string, string> = { ...AOR_LABELS, UNKNOWN: "—" };
+
 // Country / region tokens → AOR. Longest token wins (checked length-desc) so
 // "papua new guinea" beats "guinea" and "equatorial guinea" beats "guinea".
 const COUNTRY_AOR: Record<Aor, string[]> = {

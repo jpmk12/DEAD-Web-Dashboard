@@ -487,6 +487,39 @@ used on the Weather-tab `LocationCard` for the current condition + the next-4
 period mini-icons. Same vocabulary discipline (one condition → one glyph), same
 lucide dep (esbuild stays `0`).
 
+### Severity vocabulary (`lib/severity.ts`) — one home, one direction
+Force-protection severity (`green | unknown | amber | red`) lives in
+`lib/severity.ts` (PURE, client-safe, tested) — the same rule as `lib/icons.tsx`:
+change it there, not at call sites. Before this, `SEV_RANK` was defined **six
+times in two contradictory directions** (`forceProtection` higher-is-worse; the
+two components rendering its output lower-is-worse). Each file was
+self-consistent so nothing was visibly broken, but any comparison moved across
+that boundary was silently backwards, and the two `SEV_DOT` tables even
+disagreed on the colour of `unknown`.
+- **Direction is HIGHER-IS-WORSE and the ordinals are load-bearing**:
+  `green:0 unknown:1 amber:2 red:3`. `forceProtection` multiplies by them
+  (`rank * 20`), so moving a value silently rescales every score. A test pins
+  them.
+- **`unknown` sits ABOVE `green`** — "UNKNOWN is not clear" as an ordering.
+- **Components must use the helpers, never the numbers**: `isWorse`,
+  `worseOf` (first arg wins a tie, matching the original reducer), `worstOf`
+  (empty → `unknown`, never a guessed green), `byWorstFirst` (comparator;
+  chain a tie-break with `||`), `asSeverity` (untrusted → never defaults to
+  green). This is what removes the direction hazard, not centralising alone.
+  Both components previously decoded a numeric "worst" back through a
+  hardcoded `["red","amber","unknown","green"][n]` — gone; `worstOf` returns
+  the level itself.
+- `forceProtection.ts` re-exports the `Severity` type so existing
+  `import type { Severity } from "./forceProtection"` sites keep working.
+- Display tokens (`SEVERITY_DOT` hex for SVG/inline, `SEVERITY_TEXT`,
+  `SEVERITY_BORDER`) live there too. COCOM labels: `AOR_LABELS` and the
+  dash-for-unknown `COCOM_LABEL` are both in `lib/aor.ts`.
+- **Deliberately NOT unified**: `lib/disasters.ts` (has `orange`),
+  `lib/severeWeather.ts` (NWS `Extreme/Severe/Moderate/Minor`) and the
+  Household wellbeing tone (`red/amber/calm`) are different vocabularies with
+  different level names. Forcing them into one enum would be the opposite
+  mistake.
+
 ### Weather tab cards (`LocationCard` + Open-Meteo enrichment)
 The per-location cards fuse two keyless sources: **NWS** (`/api/weather/forecast`,
 `/api/weather/alerts`) for the nicely-worded named periods + alerts (US-only), and

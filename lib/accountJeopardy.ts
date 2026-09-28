@@ -26,6 +26,8 @@
 // suppressor match wins outright — a missed real alert is bad, but a panel that
 // cries wolf on a receipt gets switched off, and then every alert is missed.
 
+import { byWorstFirst } from "./severity";
+
 export type JeopardyKind =
   | "payment-failed"
   | "past-due"
@@ -157,7 +159,7 @@ export function isSuppressed(text: string): boolean {
   return SUPPRESSORS.some((p) => hasPhrase(text, p));
 }
 
-const SEV_RANK: Record<"red" | "amber", number> = { red: 0, amber: 1 };
+// Severity ordering comes from lib/severity; red/amber is a subset of it.
 const KIND_RANK = new Map(RULES.map((r, i) => [r.kind, i]));
 
 /**
@@ -184,7 +186,7 @@ export function scanJeopardy(
       if (!phrase) continue;
       const hit: JeopardyHit = { kind: rule.kind, phrase, severity: rule.severity, meaning: rule.meaning };
       if (!best) { best = hit; continue; }
-      const better = SEV_RANK[hit.severity] - SEV_RANK[best.severity]
+      const better = byWorstFirst(hit.severity, best.severity)
         || (KIND_RANK.get(hit.kind)! - KIND_RANK.get(best.kind)!);
       if (better < 0) best = hit;
     }
@@ -192,7 +194,7 @@ export function scanJeopardy(
   }
 
   out.sort((a, b) =>
-    SEV_RANK[a.severity] - SEV_RANK[b.severity]
+    byWorstFirst(a.severity, b.severity)
     || (b.seenDate ?? "").localeCompare(a.seenDate ?? "")
     || a.label.localeCompare(b.label));
   return out.slice(0, opts.max ?? 8);

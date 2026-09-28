@@ -5,24 +5,20 @@ import { useEffect, useState, useMemo } from "react";
 // acled/etc.) OUT of this client bundle. Runtime data comes from the API.
 import type { ForceAssessment, Severity, ForceCategory } from "@/lib/forceProtection";
 import { chronicityBadge } from "@/lib/chronicity";
+import {
+  SEVERITY_DOT as SEV_DOT, SEVERITY_TEXT as SEV_TEXT, SEVERITY_BORDER as SEV_BORDER,
+  isWorse, byWorstFirst, worstOf,
+} from "@/lib/severity";
+import { COCOM_LABEL } from "@/lib/aor";
 import { getForceProtectionData, type FpResponse } from "@/lib/forceProtectionClient";
 
-// Local label/colour vocab (not imported from the server lib, to avoid bundling
-// it). COCOM labels mirror lib/aor's AOR_LABELS.
+// Severity vocabulary comes from lib/severity and the COCOM labels from lib/aor
+// — both PURE, so safe in a client component, and one definition each. The
+// aliases keep the call sites below unchanged.
 const CAT_LABEL: Record<ForceCategory, string> = {
   conflict: "Conflict", weather: "Aviation Wx", gps: "GPS / Comms", airspace: "Airspace / NOTAM", civil: "Civil / Diplomatic", hazard: "Hazard",
 };
-const COCOM_LABEL: Record<string, string> = {
-  NORTHCOM: "USNORTHCOM", SOUTHCOM: "USSOUTHCOM", EUCOM: "USEUCOM",
-  CENTCOM: "USCENTCOM", AFRICOM: "USAFRICOM", INDOPACOM: "USINDOPACOM", UNKNOWN: "—",
-};
 
-const SEV_DOT: Record<Severity, string> = { red: "#ef4444", amber: "#fbbf24", green: "#10b981", unknown: "#64748b" };
-const SEV_TEXT: Record<Severity, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400", unknown: "text-slate-400" };
-const SEV_BORDER: Record<Severity, string> = { red: "border-l-red-500/70", amber: "border-l-amber-500/70", green: "border-l-emerald-500/40", unknown: "border-l-slate-500/50" };
-// Sort order for the board: red first, then amber, then UNKNOWN blind spots,
-// then green.
-const SEV_RANK: Record<Severity, number> = { red: 0, amber: 1, unknown: 2, green: 3 };
 
 function Card({ a }: { a: ForceAssessment }) {
   const [open, setOpen] = useState(false);
@@ -48,7 +44,7 @@ function Card({ a }: { a: ForceAssessment }) {
             <span className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{COCOM_LABEL[a.cocom] ?? a.cocom}</span>
             {a.transient && <span className="text-[8px] uppercase tracking-wider text-amber-400/80" title="Transient presence window">◷ transient</span>}
             {a.previousComposite && a.previousComposite !== a.composite && (() => {
-              const worse = SEV_RANK[a.composite] < SEV_RANK[a.previousComposite]; // lower rank index = more severe
+              const worse = isWorse(a.composite, a.previousComposite);
               return <span className={`text-[8px] font-bold ${worse ? "text-red-400" : "text-emerald-400"}`} title={`Changed from ${a.previousComposite.toUpperCase()} since yesterday`}>{worse ? "▲" : "▼"} from {a.previousComposite.toUpperCase()}</span>;
             })()}
             {/* Chronic vs acute. The ▲/▼ above is a one-day delta and cannot
@@ -161,7 +157,7 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
   const cocoms = useMemo(() => Array.from(new Set(all.map((a) => a.cocom))).sort(), [all]);
   const shown = useMemo(
     () => (cocomFilter === "ALL" ? all : all.filter((a) => a.cocom === cocomFilter))
-      .slice().sort((a, b) => SEV_RANK[a.composite] - SEV_RANK[b.composite] || b.score - a.score),
+      .slice().sort((a, b) => byWorstFirst(a.composite, b.composite) || b.score - a.score),
     [all, cocomFilter],
   );
   // Group the shown set by COCOM for the "All" view (collapsible headers, worst
@@ -172,8 +168,8 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
     const m = new Map<string, ForceAssessment[]>();
     for (const a of shown) (m.get(a.cocom) ?? m.set(a.cocom, []).get(a.cocom)!).push(a);
     return [...m.entries()]
-      .map(([cc, list]) => ({ cc, list, worst: list.reduce((w, a) => Math.min(w, SEV_RANK[a.composite]), 99) }))
-      .sort((a, b) => a.worst - b.worst || b.list.length - a.list.length || a.cc.localeCompare(b.cc));
+      .map(([cc, list]) => ({ cc, list, worst: worstOf(list.map((a) => a.composite)) }))
+      .sort((a, b) => byWorstFirst(a.worst, b.worst) || b.list.length - a.list.length || a.cc.localeCompare(b.cc));
   }, [shown, cocomFilter]);
 
   const counts = useMemo(() => ({
@@ -256,7 +252,7 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
           <div>
             {groups.map((g) => {
               const collapsed = collapsedCc.has(g.cc);
-              const worstSev = (["red", "amber", "unknown", "green"][g.worst] ?? "unknown") as Severity;
+              const worstSev = g.worst;
               return (
                 <div key={g.cc}>
                   <button

@@ -5,17 +5,20 @@ import dynamic from "next/dynamic";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { ForceAssessment, CategoryAssessment } from "@/lib/forceProtection";
 import type { CountryDossier } from "@/lib/groundTruth";
+import {
+  SEVERITY_DOT as SEV_DOT, SEVERITY_TEXT as SEV_TEXT, isWorse, byWorstFirst, worstOf, type Severity,
+} from "@/lib/severity";
+import { COCOM_LABEL } from "@/lib/aor";
 
 const IncidentMiniMap = dynamic(() => import("./IncidentMiniMap"), { ssr: false });
 
 // Type-only imports above keep the server scoring/dossier modules out of this
 // client bundle; runtime data comes from the APIs.
 
-type Sev = "red" | "amber" | "green" | "unknown";
-const SEV_DOT: Record<Sev, string> = { red: "#ef4444", amber: "#fbbf24", green: "#10b981", unknown: "#94a3b8" };
-const SEV_TEXT: Record<Sev, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400", unknown: "text-slate-400" };
-const SEV_RANK: Record<Sev, number> = { red: 0, amber: 1, unknown: 2, green: 3 };
-const COCOM_LABEL: Record<string, string> = { NORTHCOM: "USNORTHCOM", SOUTHCOM: "USSOUTHCOM", EUCOM: "USEUCOM", CENTCOM: "USCENTCOM", AFRICOM: "USAFRICOM", INDOPACOM: "USINDOPACOM", UNKNOWN: "—" };
+// Severity vocabulary from lib/severity (PURE, client-safe) — one definition,
+// one direction. `Sev` is kept as an alias so the existing casts stay readable.
+type Sev = Severity;
+// COCOM_LABEL (dash for the unknown bucket) is imported from lib/aor.
 const ADV_LABEL: Record<number, string> = { 1: "Exercise Normal Precautions", 2: "Exercise Increased Caution", 3: "Reconsider Travel", 4: "Do Not Travel" };
 const ADV_COLOR: Record<number, string> = { 1: "text-emerald-400", 2: "text-amber-400", 3: "text-orange-400", 4: "text-red-400" };
 const ADV_DOT: Record<number, string> = { 1: "#10b981", 2: "#fbbf24", 3: "#fb923c", 4: "#ef4444" };
@@ -135,7 +138,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
       if (!arr) { arr = []; groups.set(key, arr); }
       arr.push(a);
     }
-    const bySeverity = (a: ForceAssessment, b: ForceAssessment) => SEV_RANK[a.composite as Sev] - SEV_RANK[b.composite as Sev] || b.score - a.score;
+    const bySeverity = (a: ForceAssessment, b: ForceAssessment) => byWorstFirst(a.composite as Sev, b.composite as Sev) || b.score - a.score;
     const out = Array.from(groups.values()).map((list) => {
       const primary = list.find((a) => a.kind === "country") ?? list.slice().sort(bySeverity)[0];
       const base = list.filter((a) => a.kind === "base").sort((a, b) => (b.icao ? 1 : 0) - (a.icao ? 1 : 0) || bySeverity(a, b))[0] ?? null;
@@ -174,8 +177,8 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
       m.set(g.key, cur);
     }
     return [...m.values()]
-      .map((g) => ({ ...g, worst: g.rows.reduce((w, r) => Math.min(w, SEV_RANK[r.primary.composite as Sev]), 99) }))
-      .sort((a, b) => a.order - b.order || a.worst - b.worst || b.rows.length - a.rows.length || a.label.localeCompare(b.label));
+      .map((g) => ({ ...g, worst: worstOf(g.rows.map((r) => r.primary.composite as Sev)) }))
+      .sort((a, b) => a.order - b.order || byWorstFirst(a.worst, b.worst) || b.rows.length - a.rows.length || a.label.localeCompare(b.label));
   }, [rows, aois, ownCountries, iwLevels]);
   const shownGroups = cocomFilter === "ALL" ? railGroups : railGroups.filter((g) => g.key === cocomFilter);
   const shownCount = shownGroups.reduce((n, g) => n + g.rows.length, 0);
@@ -243,7 +246,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                     onClick={() => setCollapsedCocoms((prev) => { const n = new Set(prev); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n; })}
                     className="w-full flex items-center gap-2 px-3 pt-2 pb-1 bg-slate-950/40 hover:bg-slate-800/40 transition-colors"
                   >
-                    <span style={{ color: SEV_DOT[(["red", "amber", "unknown", "green"][g.worst] ?? "unknown") as Sev] }} className="text-[10px]">●</span>
+                    <span style={{ color: SEV_DOT[g.worst] }} className="text-[10px]">●</span>
                     <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left truncate">{g.label}</span>
                     {g.iw && g.iw !== "calm" && (
                       <span className={`text-[7px] font-bold uppercase tracking-wider rounded px-1 py-px border ${g.iw === "alert" ? "text-red-300 border-red-500/50" : g.iw === "warning" ? "text-orange-300 border-orange-500/50" : "text-amber-300 border-amber-500/40"}`} title={`I&W board: ${g.iw}`}>{g.iw}</span>
@@ -263,7 +266,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                               <span className="text-[13px] font-medium text-slate-200 flex-1 min-w-0 truncate">{r.country}</span>
                               {r.base && <span className="text-[9px]" title={`pinned airfield: ${r.base.label}${r.base.icao ? ` (${r.base.icao})` : ""}`}>🛡</span>}
                               {c.previousComposite && c.previousComposite !== c.composite && (
-                                <span className={`text-[8px] font-bold ${SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "text-red-400" : "text-emerald-400"}`}>{SEV_RANK[c.composite as Sev] < SEV_RANK[c.previousComposite as Sev] ? "▲" : "▼"}</span>
+                                <span className={`text-[8px] font-bold ${isWorse(c.composite as Sev, c.previousComposite as Sev) ? "text-red-400" : "text-emerald-400"}`}>{isWorse(c.composite as Sev, c.previousComposite as Sev) ? "▲" : "▼"}</span>
                               )}
                             </button>
                           </li>

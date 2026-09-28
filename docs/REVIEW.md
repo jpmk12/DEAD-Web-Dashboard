@@ -116,6 +116,8 @@ and it is collected on exactly one surface.
 
 ### 4.1 `SEV_RANK` means the opposite thing in different files
 
+> **Addressed** — `lib/severity.ts` (one direction, helper-only access, ordinals pinned by test); `COCOM_LABEL` consolidated into `lib/aor.ts`. Disaster/NWS/wellbeing vocabularies deliberately left separate.
+
 Severity ordering — the most fundamental vocabulary in a threat application — is
 defined **six times**, in two contradictory directions:
 
@@ -215,7 +217,7 @@ held, and only ever read for its negative.
 | # | Item | Effort | Why |
 |---|---|---|---|
 | 1 | **Crew/team state model** (§2) | L | The missing half of the north star |
-| 2 | **`lib/severity.ts`** — one vocabulary, one direction (§4.1) | S | Latent-bug class; the app's own icon rule |
+| 2 | ~~**`lib/severity.ts`** — one vocabulary, one direction (§4.1)~~ **done** | S | Latent-bug class; the app's own icon rule |
 | 3 | **OE delta read** — what moved since you last looked (§3.1) | M | Four history tables already hold it |
 | 4 | **Reconcile the two convergences** (§4.3) | S | My error; sitting side by side today |
 | 5 | **Watch-pane hierarchy + collapse** (§5.1) | S | Wall of lists |

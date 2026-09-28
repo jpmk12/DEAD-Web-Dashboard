@@ -29,7 +29,10 @@ import { getConflictNewsByCountry, type ConflictNewsSignal } from "./conflictNew
 import { getPreviousComposites, getPostureHistory, recordPosture, postureKey } from "./forcePostureHistory";
 import { classifyChronicity, WINDOW_DAYS, type ChronicityResult } from "./chronicity";
 
-export type Severity = "green" | "amber" | "red" | "unknown";
+import { SEVERITY_RANK, byWorstFirst, worseOf, type Severity } from "./severity";
+// Re-exported so the many `import type { Severity } from "./forceProtection"`
+// sites keep working; the vocabulary itself now lives in lib/severity.ts.
+export type { Severity };
 
 // What counts as "elevated" for chronicity. UNKNOWN is deliberately NOT
 // elevated: a dead feed must never accumulate into a chronic claim, which
@@ -106,10 +109,9 @@ export interface ForceProtectionResult {
 // Rank orders BOTH for sorting and for "worst category" rollup. UNKNOWN sits
 // between green and amber: a blind spot deserves a look, but never outranks a
 // known amber/red, and never counts as clear.
-const SEV_RANK: Record<Severity, number> = { green: 0, unknown: 1, amber: 2, red: 3 };
 // `worse` is only ever called among KNOWN severities (unknown is filtered out
-// before rollup), so the green/amber/red ordering is what matters here.
-const worse = (a: Severity, b: Severity): Severity => (SEV_RANK[a] >= SEV_RANK[b] ? a : b);
+// before rollup). worseOf keeps the original `>=` tie rule.
+const worse = worseOf;
 
 // Loose country-name match (normalize, substring either way). Mirrors the loose
 // matching used elsewhere for centroid/advisory lookups.
@@ -373,7 +375,7 @@ function assessHazard(loc: ForceLocation, ctx: ForceContext): CategoryAssessment
 // Rank score within a severity tier: weighted count of category severities so a
 // base RED in two categories sorts above one RED in a single category.
 function rankScore(categories: CategoryAssessment[]): number {
-  return categories.reduce((s, c) => s + SEV_RANK[c.severity] * 20 + c.signals.length, 0);
+  return categories.reduce((s, c) => s + SEVERITY_RANK[c.severity] * 20 + c.signals.length, 0);
 }
 
 export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAssessment {
@@ -396,7 +398,7 @@ export function assessLocation(loc: ForceLocation, ctx: ForceContext): ForceAsse
   // Headline: worst category with a signal (red/amber beat unknown beat green).
   const driver = [...categories]
     .filter((c) => c.signals.length > 0)
-    .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])[0];
+    .sort((a, b) => byWorstFirst(a.severity, b.severity))[0];
   const blind = categories.filter((c) => c.severity === "unknown").map((c) => CATEGORY_LABEL[c.category]);
   const topDriver = composite === "green" && blind.length
     ? `No active signals — blind on ${blind.join(", ")}`
@@ -476,7 +478,7 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
 
   const assessments = active
     .map((l) => assessLocation(l, ctx))
-    .sort((a, b) => SEV_RANK[b.composite] - SEV_RANK[a.composite] || b.score - a.score);
+    .sort((a, b) => byWorstFirst(a.composite, b.composite) || b.score - a.score);
 
   // "What changed": attach the prior day's composite where it differs, then
   // record today's (both best-effort — never block the board).
