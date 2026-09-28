@@ -73,6 +73,20 @@ export default function DocumentsTab() {
     try { localStorage.setItem(LAST_SELECTED_KEY, id); } catch { /* ignore */ }
   };
 
+  // `docs:open` (detail = doc id) — the command palette's door in. Same
+  // channel style as `docs:search`; no prop drilling from the shell.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (typeof id !== "string" || !id) return;
+      switchPane("docs");
+      select(id);
+    };
+    window.addEventListener("docs:open", onOpen);
+    return () => window.removeEventListener("docs:open", onOpen);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const selectFile = (id: string | null) => {
     setSelectedFileId(id);
     try {

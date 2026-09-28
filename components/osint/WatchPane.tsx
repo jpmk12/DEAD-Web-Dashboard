@@ -68,6 +68,20 @@ export default function WatchPane({ active }: { active: boolean }) {
     try { localStorage.setItem("watch.formingOpen", formingOpen ? "1" : "0"); } catch { /* ignore */ }
   }, [formingOpen]);
 
+  // `watch:focus` ({kind: "sitrep"|"iw", id}) — the command palette lands on
+  // a specific base or board. Registered regardless of `armed` so an event
+  // that arrives on the same tick as activation is not lost.
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const d = (e as CustomEvent<{ kind?: string; id?: string }>).detail;
+      if (!d) return;
+      if (d.kind === "sitrep" && typeof d.id === "string") setSitrepOpen(d.id);
+      else if (d.kind === "iw") setIwOpen(true);
+    };
+    window.addEventListener("watch:focus", onFocus);
+    return () => window.removeEventListener("watch:focus", onFocus);
+  }, []);
+
   // I&W strip — one compact card per active warning problem.
   useEffect(() => {
     if (!armed) return;

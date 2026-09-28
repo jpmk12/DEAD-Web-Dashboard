@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { Tab, TABS } from "./TabBar";
-import { TAB_ICONS, BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon } from "@/lib/icons";
+import { TAB_ICONS, BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon, SearchIcon } from "@/lib/icons";
 
 interface MobileNavDrawerProps {
   open: boolean;
@@ -14,6 +14,7 @@ interface MobileNavDrawerProps {
   onDigest: () => void;
   onCapture: () => void;
   onPreferences: () => void;
+  onSearch: () => void;
 }
 
 /**
@@ -31,6 +32,7 @@ export default function MobileNavDrawer({
   onDigest,
   onCapture,
   onPreferences,
+  onSearch,
 }: MobileNavDrawerProps) {
   // Close on Escape and lock body scroll while the drawer is open.
   useEffect(() => {
@@ -110,6 +112,12 @@ export default function MobileNavDrawer({
         </div>
 
         <div className="border-t border-slate-800 p-3 grid grid-cols-2 gap-2">
+          <button
+            onClick={() => act(onSearch)}
+            className={`${actionClass} col-span-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300`}
+          >
+            <SearchIcon size={16} strokeWidth={2.5} /> Go to…
+          </button>
           <button
             onClick={() => act(onBrief)}
             className={`${actionClass} bg-emerald-500 hover:bg-emerald-400 text-slate-950`}

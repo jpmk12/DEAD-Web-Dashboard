@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import TabBar, { Tab } from "./TabBar";
 import MobileNavDrawer from "./MobileNavDrawer";
 import SessionExpiredBanner from "@/components/SessionExpiredBanner";
-import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon, MenuIcon } from "@/lib/icons";
+import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon, MenuIcon, SearchIcon } from "@/lib/icons";
+import CommandPalette from "@/components/CommandPalette";
 import NewsShell from "@/components/news/NewsShell";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import CalendarRail from "@/components/calendar/CalendarRail";
@@ -111,16 +112,41 @@ export default function TabShell() {
     }).length;
   }, [articles, previousSeen.news, newsSeenLocal]);
 
-  // Global ⌘K / Ctrl+K opens quick capture from anywhere.
+  // Global ⌘K / Ctrl+K opens the command palette from anywhere. Quick
+  // capture (which used to own ⌘K) is an entry inside it.
+  const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setCaptureOpen(true);
+        setPaletteOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Palette → shell actions. Same event pattern as `app:navigate`: the
+  // palette knows names, the shell owns the modal state.
+  useEffect(() => {
+    const onCapture = () => setCaptureOpen(true);
+    const onBrief = () => { setBriefingMode("briefing"); setBriefingOpen(true); };
+    const onDigest = () => { setBriefingMode("digest"); setBriefingOpen(true); };
+    const onPrefs = (e: Event) => {
+      setPrefsOpen(true);
+      const group = (e as CustomEvent<string>).detail;
+      if (typeof group === "string") setTimeout(() => window.dispatchEvent(new CustomEvent("prefs:focus-group", { detail: group })), 150);
+    };
+    window.addEventListener("capture:open", onCapture);
+    window.addEventListener("brief:open", onBrief);
+    window.addEventListener("digest:open", onDigest);
+    window.addEventListener("prefs:open", onPrefs);
+    return () => {
+      window.removeEventListener("capture:open", onCapture);
+      window.removeEventListener("brief:open", onBrief);
+      window.removeEventListener("digest:open", onDigest);
+      window.removeEventListener("prefs:open", onPrefs);
+    };
   }, []);
 
   // Cross-tab navigation for components too deep to hold `onNavigate`.
@@ -255,10 +281,21 @@ export default function TabShell() {
               <span className="hidden sm:inline">Digest</span>
             </button>
 
-            {/* Quick capture (⌘K / Ctrl+K) */}
+            {/* Command palette (⌘K / Ctrl+K) */}
+            <button
+              onClick={() => setPaletteOpen(true)}
+              title="Go anywhere (⌘K) — tabs, bases, boards, countries, docs, settings"
+              aria-label="Open command palette"
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-300 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all"
+            >
+              <SearchIcon size={15} strokeWidth={2.5} className="leading-none" />
+              <kbd className="hidden xl:inline font-mono text-[10px] text-slate-500 normal-case tracking-normal">⌘K</kbd>
+            </button>
+
+            {/* Quick capture */}
             <button
               onClick={() => setCaptureOpen(true)}
-              title="Quick capture (⌘K) — task, event, or note"
+              title="Quick capture — task, event, or note"
               className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-400 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all"
             >
               <CaptureIcon size={15} strokeWidth={2.5} className="leading-none" />
@@ -302,7 +339,10 @@ export default function TabShell() {
         onDigest={openDigest}
         onCapture={() => setCaptureOpen(true)}
         onPreferences={() => setPrefsOpen(true)}
+        onSearch={() => setPaletteOpen(true)}
       />
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 pb-safe">
         {/* All tabs stay mounted — CSS hidden keeps them alive for instant switching and parallel pre-fetch */}

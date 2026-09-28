@@ -28,6 +28,7 @@ import { Users,
   Menu,
   Globe,
   Coins,
+  Search,
   type LucideIcon,
 } from "lucide-react";
 
@@ -52,7 +53,8 @@ export const EconomyIcon = Coins;
 // Primary actions / feature identities.
 export const BriefIcon = Sparkles; // Morning Brief + Macro Brief + News Analyst
 export const DigestIcon = BookOpen; // weekly reading digest
-export const CaptureIcon = Plus; // quick capture (⌘K)
+export const CaptureIcon = Plus; // quick capture
+export const SearchIcon = Search; // ⌘K command palette
 export const PreferencesIcon = Settings;
 export const AssistantIcon = Bot; // floating AI assistant
 export const MenuIcon = Menu; // phone hamburger

@@ -140,6 +140,26 @@ export default function FamilyTab({ active }: { active: boolean }) {
   useEffect(() => { if (active && !roster) loadRoster(); }, [active, roster, loadRoster]);
 
   const profile: FamilyProfile | null = roster ?? digest?.profile ?? null;
+  // `family:focus` (detail = person id) — the command palette's door in. The
+  // tab mounts only when opened, so a request made before mount is parked in
+  // sessionStorage by the palette and consumed here on first render.
+  useEffect(() => {
+    const scrollTo = (id: string) => {
+      const el = document.getElementById(`family-person-${id}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    const onFocus = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (typeof id === "string" && id) { try { sessionStorage.removeItem("family.focus"); } catch { /* ignore */ } scrollTo(id); }
+    };
+    window.addEventListener("family:focus", onFocus);
+    try {
+      const parked = sessionStorage.getItem("family.focus");
+      if (parked) { sessionStorage.removeItem("family.focus"); setTimeout(() => scrollTo(parked), 400); }
+    } catch { /* ignore */ }
+    return () => window.removeEventListener("family:focus", onFocus);
+  }, []);
+
   const personById = useMemo(() => {
     const m = new Map<string, { person: FamilyPerson; tint: (typeof PERSON_TINT)[number] }>();
     (profile?.people ?? []).forEach((p, i) => m.set(p.id, { person: p, tint: PERSON_TINT[i % PERSON_TINT.length] }));
@@ -443,7 +463,7 @@ export default function FamilyTab({ active }: { active: boolean }) {
             const mine = mineList.length;
             const lapsedMine = mineList.filter((d) => d.phase === "lapsed").length;
             return (
-              <div key={e.person.id} className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
+              <div key={e.person.id} id={`family-person-${e.person.id}`} className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden scroll-mt-24">
                 <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-slate-800 bg-slate-800/30">
                   <span className={`w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold flex-shrink-0 ${e.tint.av}`}>
                     {e.person.name.charAt(0)}

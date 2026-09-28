@@ -1652,6 +1652,32 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### ⌘K command palette (`lib/commandPalette.ts` · `components/CommandPalette.tsx`)
+⌘K / Ctrl+K (was quick capture — capture is now an entry INSIDE it) opens a
+palette from which every surface is reachable by name: tabs, the four OSINT
+panes, SITREP bases, I&W boards, Regional countries, family members, docs,
+Preferences sections, and the actions (brief, digest, capture, assistant,
+push-alert setup) + "Search docs for …" as a trailing full-text fallback.
+Ranking is PURE + tested (`rankCommands`: every token must match — AND;
+exact label > prefix > word-start > mid-word > scattered subsequence; an
+exact multi-word label beats a keyword hit; keywords weigh 0.7, hints 0.8).
+Entity lists come from endpoints that already exist (`/documents/titles`,
+`/sitrep/bases`, `/warning`, `/force-protection`, `/family/roster` — 403 for
+crew is silently absent), fetched on FIRST OPEN and refreshed after 5 min —
+never on page load, no model call. Selection dispatches window events; the
+palette holds no tab state. **Door-in events added for it** (keep them when
+refactoring a tab): `docs:open` (id, DocumentsTab), `watch:focus`
+({kind:"sitrep"|"iw", id}, WatchPane — registered regardless of `armed`),
+`regional:select` (country, GroundTruthTab — parked in a ref until the rail
+has the country, so the default-select can't overwrite it), `family:focus`
+(person id; FamilyTab mounts on open, so the palette ALSO parks the id in
+`sessionStorage["family.focus"]` which the tab consumes on mount),
+`prefs:open` (group key → TabShell opens the drawer then fires
+`prefs:focus-group`, which PreferencesDrawer answers with `openAndScrollTo`),
+`capture:open` / `brief:open` / `digest:open` (TabShell), and the existing
+`app:navigate` / `osint:set-pane` / `docs:search` / `assistant:open`.
+Header gets a ⌕ ⌘K button; the phone drawer gets a full-width "Go to…".
+
 ### Installable app + web push (`lib/alerts.ts` · `lib/pushDispatch.ts` · `public/sw.js`)
 The alert computation was lifted out of the route into **`lib/alerts.ts`**
 (`computeAlerts()`, 5-min cache, same four predicates) so the push dispatcher

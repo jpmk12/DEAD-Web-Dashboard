@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { ForceAssessment, CategoryAssessment } from "@/lib/forceProtection";
@@ -147,7 +147,26 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     return out.sort((a, b) => bySeverity(a.primary, b.primary));
   }, [assessments]);
 
-  useEffect(() => { if (rows.length && (!selected || !rows.some((r) => r.country === selected))) setSelected(rows[0].country); }, [rows, selected]);
+  // `regional:select` (detail = country) — the command palette's door in. The
+  // rail may not have loaded yet, so the request is held until the country
+  // appears in `rows` instead of being overwritten by the default-select.
+  const pendingSelect = useRef<string | null>(null);
+  useEffect(() => {
+    const onSel = (e: Event) => {
+      const c = (e as CustomEvent<string>).detail;
+      if (typeof c !== "string" || !c) return;
+      pendingSelect.current = c;
+      setSelected(c);
+    };
+    window.addEventListener("regional:select", onSel);
+    return () => window.removeEventListener("regional:select", onSel);
+  }, []);
+  useEffect(() => {
+    if (!rows.length) return;
+    const p = pendingSelect.current;
+    if (p && rows.some((r) => r.country === p)) { pendingSelect.current = null; if (selected !== p) setSelected(p); return; }
+    if (!selected || !rows.some((r) => r.country === selected)) setSelected(rows[0].country);
+  }, [rows, selected]);
 
   // Group the rail by the DECLARATION: Mission Profile AOIs first (declaration
   // order, each header carrying its I&W level), then Own force (hub/spoke

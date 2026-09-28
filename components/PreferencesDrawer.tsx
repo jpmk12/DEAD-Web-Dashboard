@@ -2713,6 +2713,17 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   };
+  // `prefs:focus-group` (detail = group key) — the shell dispatches this just
+  // after opening the drawer so the command palette can land on a section.
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const k = (e as CustomEvent<string>).detail;
+      if (k === "mission" || k === "you" || k === "connections" || k === "email" || k === "sources" || k === "ai") openAndScrollTo(k);
+    };
+    window.addEventListener("prefs:focus-group", onFocus);
+    return () => window.removeEventListener("prefs:focus-group", onFocus);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const GROUPS: { key: GroupKey; label: string }[] = [
     { key: "mission",     label: "Mission Profile" },
     { key: "you",         label: "You" },
