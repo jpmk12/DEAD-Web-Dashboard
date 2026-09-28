@@ -34,12 +34,24 @@ export default function DemandHorizonCard() {
   const [body, setBody] = useState<Body | null>(null);
   const [open, setOpen] = useState<Aor | null>(null);
   const [folded, setFolded] = useState(false);
+  // Team state against the same demand: the declared crew counts joined to
+  // each command's outlook (lib/crewState). Per-AOR lines keyed by AOR.
+  const [crew, setCrew] = useState<{ headline: string; byAor: Record<string, { line: string; mismatch: boolean; posture: string }>; declared: boolean; stale: boolean } | null>(null);
 
   useEffect(() => {
     try { setFolded(localStorage.getItem("glance.demandFolded") === "1"); } catch { /* ignore */ }
     fetch("/api/demand-horizon")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (j && Array.isArray(j.outlooks)) setBody(j); })
+      .catch(() => {});
+    fetch("/api/team/crew")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j?.posture) return;
+        const byAor: Record<string, { line: string; mismatch: boolean; posture: string }> = {};
+        for (const l of j.posture.lines ?? []) byAor[l.aor] = { line: l.line, mismatch: !!l.mismatch, posture: l.posture };
+        setCrew({ headline: j.posture.headline ?? "", byAor, declared: (j.summary?.total ?? 0) > 0, stale: !!j.summary?.stale });
+      })
       .catch(() => {});
   }, []);
 
@@ -68,6 +80,14 @@ export default function DemandHorizonCard() {
 
       {!folded && (
         <div>
+          {/* Team posture against this demand — the other half of the equation. */}
+          {crew && (
+            <div className={`px-3.5 py-1.5 border-t border-slate-800/60 text-[10.5px] ${Object.values(crew.byAor).some((x) => x.mismatch) ? "text-amber-200 bg-amber-500/[0.05]" : crew.declared ? "text-slate-300" : "text-slate-500"}`}>
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mr-2">Crews</span>
+              {crew.headline}
+              {!crew.declared && <span className="text-slate-600"> — declare counts in Preferences → Mission Profile → Team state.</span>}
+            </div>
+          )}
           {body.outlooks.map((o) => {
             const d = DIR[o.direction];
             const isOpen = open === o.aor;
@@ -101,6 +121,11 @@ export default function DemandHorizonCard() {
                         <span className={`font-mono flex-shrink-0 ${dr.delta > 0 ? "text-amber-300" : "text-emerald-300"}`}>{dr.delta > 0 ? "+" : ""}{dr.delta}</span>
                       </div>
                     ))}
+                    {crew?.byAor[o.aor] && (
+                      <p className={`text-[10px] pt-1 ${crew.byAor[o.aor].mismatch ? "text-amber-300" : "text-slate-400"}`}>
+                        <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 mr-1">Crews</span>{crew.byAor[o.aor].line}
+                      </p>
+                    )}
                     <p className="text-[9.5px] text-slate-600 pt-1">{o.line}</p>
                   </div>
                 )}

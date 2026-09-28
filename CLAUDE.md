@@ -1653,6 +1653,29 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### Team state — crews against demand (`lib/crewState.ts` · `lib/crewStore.ts` · `/api/team/crew`)
+The missing half of the north star (REVIEW §2), built to the decision taken
+for it: **counts only, per qualification level, no names** — the `crew_state`
+table has no name column by design (qual PK, label, total, crew_rest,
+on_mission, dnif, other, note, sort, updated_by, updated_at). Availability
+is DERIVED (total − outs) in the PURE, tested `deriveAvailability`; a row
+whose outs exceed its total is flagged `invalid`, never clamped. **STALE
+after 24 h** without an update (oldest row) — the posture line appends
+"last updated Nd ago, confirm". `postureOf(fraction)`: ≥0.5 sufficient /
+≥0.25 thin / else critical / unknown when nothing declared.
+`postureAgainstDemand(summary, outlooks)` joins the squadron-wide
+availability to the 7-day demand horizon per command and flags a
+**mismatch** only when demand is rising against thin/critical crews — the
+sentence the north star asks for ("CENTCOM demand likely to RISE — 2 of 8
+crews available (thin) ⚠"). Shared + crew-maintained like `sitrep_limfacs`
+(any allowlisted member updates counts, attributed by email; the DO keeps it
+current). Surfaces: `CrewStateEditor` under Mission Profile in Preferences
+(seed IP/AC/FP/LM rows, edit/remove, who-updated-when, stale banner); a
+"Crews" strip + per-AOR line inside the Glance `DemandHorizonCard`; the
+assistant's OE snapshot (`crew` block — "no crew counts declared — do not
+assume crews are available"); the OE brief export section. Never sent to a
+model except as that summary line.
+
 ### AIS transit counts at chokepoints (Economy E — `lib/chokepointAis.ts` · `lib/chokepointTransit.ts`)
 What ships DO beside what people SAY. `Chokepoint.aisBox` (tight
 [latMin, lonMin, latMax, lonMax] over the strait itself — NOT the wide

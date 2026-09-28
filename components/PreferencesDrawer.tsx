@@ -13,6 +13,7 @@ import { clientCache } from "@/lib/clientCache";
 import { applyTheme } from "@/components/ThemeApplicator";
 import MissionProfileEditor from "@/components/preferences/MissionProfileEditor";
 import PushSetupCard from "@/components/preferences/PushSetupCard";
+import CrewStateEditor from "@/components/preferences/CrewStateEditor";
 
 interface PreferencesDrawerProps {
   open: boolean;
@@ -3062,6 +3063,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             {openGroups.mission && (
               <div className="px-4 py-4 border-t border-slate-800">
                 <MissionProfileEditor />
+                <CrewStateEditor />
               </div>
             )}
           </section>

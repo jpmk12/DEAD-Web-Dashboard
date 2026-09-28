@@ -36,6 +36,25 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (day, icao)
   ) ENGINE=InnoDB`,
 
+  // Team state (lib/crewState): crew COUNTS per qualification level — total
+  // and outs (crew rest / on mission / DNIF / other); availability is derived.
+  // Deliberately no names, no individuals. Shared, crew-maintained,
+  // attributed by email like sitrep_limfacs.
+  `CREATE TABLE IF NOT EXISTS crew_state (
+    qual        VARCHAR(32)  NOT NULL,
+    label       VARCHAR(80)  NOT NULL DEFAULT '',
+    total       INT          NOT NULL DEFAULT 0,
+    crew_rest   INT          NOT NULL DEFAULT 0,
+    on_mission  INT          NOT NULL DEFAULT 0,
+    dnif        INT          NOT NULL DEFAULT 0,
+    other       INT          NOT NULL DEFAULT 0,
+    note        VARCHAR(200) NULL,
+    sort        INT          NOT NULL DEFAULT 0,
+    updated_by  VARCHAR(255) NULL,
+    updated_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (qual)
+  ) ENGINE=InnoDB`,
+
   // Daily AIS transit count per chokepoint (lib/chokepointAis): distinct MMSI
   // seen in the strait's counting box and the minutes the bridge was actually
   // listening that day — the denominator that keeps a short listen from

@@ -15,6 +15,9 @@
 import { getUserPrefs } from "./userPrefs";
 import { getForceProtectionCached as getForceProtection } from "./forceProtectionCached";
 import { getDemandHorizon } from "./demandAssemble";
+import { listCrewRows } from "./crewStore";
+import { deriveAvailability, postureAgainstDemand } from "./crewState";
+import { AOR_LABELS } from "./aor";
 import { assembleSitrep, sitrepSummary } from "./sitrep";
 import { activeWarningProblems } from "./warningProblems";
 import { assessWarning } from "./warningAssess";
@@ -88,8 +91,17 @@ async function gather(): Promise<OeSnapshot> {
     aor: o.aor, direction: o.direction, score: o.score, confidence: o.confidence, line: o.line,
   }))));
 
-  const [force, sitrep, boards, alerts, decisionsDue, demand] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP, demandP]);
-  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue, demand };
+  const crewP = settle(Promise.all([listCrewRows(), getDemandHorizon().catch(() => null)]).then(([rows, d]) => {
+    const summary = deriveAvailability(rows);
+    const posture = postureAgainstDemand(summary, (d?.outlooks ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })), AOR_LABELS as Record<string, string>);
+    return {
+      headline: posture.headline, line: summary.line, stale: summary.stale, declared: summary.total > 0,
+      mismatches: posture.lines.filter((l) => l.mismatch).map((l) => l.line),
+    };
+  }));
+
+  const [force, sitrep, boards, alerts, decisionsDue, demand, crew] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP, demandP, crewP]);
+  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue, demand, crew };
 }
 
 /**
