@@ -489,7 +489,8 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/user-prefs                GET / POST — all prefs (absent osintFeeds = preserve stored)
 /api/mission-profile           GET / PUT (save declaration) / POST (apply — materialize)
 /api/airfields/resolve         GET ?icao= — curated sets → OurAirports labeled point
-/api/alerts/check              GET — current alert conditions, stable ids (session or capture token)
+/api/alerts/check              GET — current alert conditions, stable ids (session or capture token); every hit drives web-push dispatch
+/api/push/subscribe            GET (configured + VAPID public key + device count) / POST (store this browser's subscription) / DELETE
 /api/osint/feeds               GET / PUT — targeted OSINT-feed editing (Sources pane)
 /api/capture/article           POST / GET / DELETE — reader-captured analysis articles
 /api/capture/events            POST / GET / DELETE — captured LiveUAMap events

@@ -358,6 +358,22 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_xtok_user (user_email)
   ) ENGINE=InnoDB`,
 
+  // Web-push subscriptions (installable app → OS notifications). One row per
+  // browser endpoint; `seen_ids` is THAT device's watermark over the stable
+  // alert ids from lib/alerts.ts, because the server keeps no global one.
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint     VARCHAR(1024) NOT NULL,
+    user_email   VARCHAR(255)  NOT NULL DEFAULT '',
+    p256dh       VARCHAR(256)  NOT NULL,
+    auth         VARCHAR(128)  NOT NULL,
+    label        VARCHAR(80)   NOT NULL DEFAULT '',
+    seen_ids     JSON          NULL,
+    created_at   DATETIME(3)   NOT NULL,
+    last_push_at DATETIME(3)   NULL,
+    PRIMARY KEY (endpoint(255)),
+    INDEX idx_push_user (user_email)
+  ) ENGINE=InnoDB`,
+
   // Captured analysis articles (the reader-capture flow) — single articles the
   // user manually captures from content they're reading via their own access
   // (e.g. DoD MWR Libraries WSJ). Rolling working set, not an archive.

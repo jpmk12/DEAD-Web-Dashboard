@@ -3,13 +3,25 @@ import { Inter } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import ThemeApplicator from "@/components/ThemeApplicator";
 import ToastHost from "@/components/ToastHost";
+import AlertHeartbeat from "@/components/AlertHeartbeat";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
+// Installable: the manifest + apple-touch-icon make "Add to Home Screen" produce
+// a real app tile, and iOS only allows web push for pages opened from one.
+// public/sw.js handles push only — it caches nothing (a stale dashboard that
+// looks current is worse than a login page).
 export const metadata: Metadata = {
   title: "DEAD's Dashboard",
   description: "National security news, calendar, and email — all in one place.",
+  applicationName: "DEAD's Dashboard",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "DEAD", statusBarStyle: "black-translucent" },
+  icons: {
+    icon: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/icon-512.png", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
 };
 
 // Mobile: scale to device width, allow user zoom (accessibility), and extend
@@ -43,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ThemeApplicator />
           {children}
           <ToastHost />
+          <AlertHeartbeat />
         </SessionProvider>
       </body>
     </html>

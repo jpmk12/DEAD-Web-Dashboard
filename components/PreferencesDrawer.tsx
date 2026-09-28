@@ -12,6 +12,7 @@ import { AMC_HUBS, type AmcHub } from "@/lib/amcHubs";
 import { clientCache } from "@/lib/clientCache";
 import { applyTheme } from "@/components/ThemeApplicator";
 import MissionProfileEditor from "@/components/preferences/MissionProfileEditor";
+import PushSetupCard from "@/components/preferences/PushSetupCard";
 
 interface PreferencesDrawerProps {
   open: boolean;
@@ -3200,6 +3201,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                   placeholder="hypersonic, AUKUS, INDOPACOM, REACH…"
                   accent="orange"
                 />
+
+                <PushSetupCard />
               </div>
             )}
           </section>

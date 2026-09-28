@@ -1652,6 +1652,41 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### Installable app + web push (`lib/alerts.ts` · `lib/pushDispatch.ts` · `public/sw.js`)
+The alert computation was lifted out of the route into **`lib/alerts.ts`**
+(`computeAlerts()`, 5-min cache, same four predicates) so the push dispatcher
+reads it without an HTTP hop. **How pushes fire — there is no cron on this
+host**: every `/api/alerts/check` hit ALSO runs `dispatchPush()` (rate-limited
+to one pass per 4 min), which compares the current list against EVERY
+subscription's own `seen_ids` watermark (`push_subscriptions` table; the
+server keeps no global one) and sends the difference as ONE notification per
+device (`lib/pushSelect.ts`, PURE, tested: never re-notify an id still in
+effect, forget it once it clears so its return is news, cap the set). What
+drives those hits: the capture extension's poll, an open dashboard tab
+(`components/AlertHeartbeat.tsx` — 10-min, visible-only, armed only when the
+account has ≥1 push device), and an installed Chromium PWA's `periodicsync`.
+If nothing polls, nothing is sent — the setup card says so.
+- `public/sw.js` handles **push + notificationclick + periodicsync ONLY — no
+  fetch handler, no caching.** A stale dashboard that looks current is worse
+  than a login page; do not add offline caching.
+- `public/manifest.webmanifest` + `icon-192/512/512-maskable/apple-touch-icon/
+  badge-96.png` (rendered from `app/icon.svg` by headless Chromium; re-render
+  if the SVG changes) + `app/layout.tsx` metadata (`manifest`, `appleWebApp`,
+  `icons`). iOS only permits web push from a Home-Screen-installed page.
+- VAPID keys from env (`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`,
+  `.env.example`; generate with `npx web-push generate-vapid-keys`). Unset →
+  feature off, `/api/push/subscribe` GET reports `configured:false`.
+- `/api/push/subscribe` GET (configured + public key + device count) · POST
+  (store this browser's subscription under the signed-in user, optional test
+  push) · DELETE. Per-user — crew get their own devices' alerts. 404/410 from
+  the push service drops the row.
+- UI: `components/preferences/PushSetupCard.tsx` under Watchlist in
+  Preferences → Profile. State is read from the browser each time (permission
+  + existing subscription), never assumed from localStorage.
+- `web-push` is a **runtime `dependency`** (pure JS: asn1.js/http_ece/jws —
+  no postinstall, no native build; the lockfile's three `hasInstallScript`
+  entries are the pre-existing fsevents/sharp/unrs-resolver). esbuild stays `0`.
+
 ### Morning Brief cross-device cache
 `briefing_cache` PK is **(date, user_email, tz)** — zone-briefs coexist per
 day, so devices in different timezones (Auto mode, traveling) don't ping-pong
