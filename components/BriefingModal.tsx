@@ -70,6 +70,18 @@ export default function BriefingModal({
   // Keep-in-touch contacts due/overdue — the other half of the deterministic
   // "Your day" block. Best-effort, live at open like the SITREP LEDs.
   const [kitDue, setKitDue] = useState<{ id: string; name: string; status: string }[]>([]);
+  // Family week ahead — deterministic, live at open, never in the cached AI
+  // text. Deliberately reads only what is stored (no Gmail, no model): the
+  // brief opens on every device every morning and must never pay.
+  type WeekRow = { id: string; title: string; dueISO: string | null; daysUntil: number | null; personId?: string | null };
+  type WeekDate = { id: string; title: string; dateISO: string; note?: string; tone: string; kind: string };
+  type FamilyWeek = {
+    empty: boolean; rollupLine: string | null; undated: number;
+    lapsed: WeekRow[]; dueSoon: WeekRow[];
+    conflicts: { title: string; reason: string; severity: string }[]; conflictLine: string | null;
+    manualBills: WeekDate[]; docs: WeekDate[]; expected: WeekDate[]; covers: string;
+  };
+  const [week, setWeek] = useState<FamilyWeek | null>(null);
 
   useEffect(() => {
     if (!open || mode !== "briefing") return;
@@ -77,6 +89,10 @@ export default function BriefingModal({
       .then((r) => r.json())
       .then((d) => setSitreps(Array.isArray(d?.bases) ? d.bases : []))
       .catch(() => setSitreps([]));
+    fetch("/api/family/week")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setWeek(d && typeof d.empty === "boolean" ? d : null))
+      .catch(() => setWeek(null));
     fetch("/api/contacts")
       .then((r) => r.json())
       .then((d: { contacts?: { id: string; name: string; status: string }[] }) =>
@@ -508,6 +524,68 @@ export default function BriefingModal({
                   </div>
                 );
               })()}
+
+              {/* ⚑ Family week ahead — same live-at-open pattern as Base
+                  SITREP. Renders only when there is something to say; a quiet
+                  week is one line, and it names what it did NOT check. */}
+              {week && !week.empty && (
+                <div>
+                  <BriefHeader title="⚑ Family — week ahead" />
+                  <div className="space-y-2">
+                    {week.lapsed.length > 0 && (
+                      <div className="border border-red-500/30 bg-red-500/[.06] rounded-xl px-3.5 py-2.5">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-red-300 mb-1">Past due — still open</p>
+                        {week.lapsed.map((r) => (
+                          <p key={r.id} className="text-sm text-slate-200 leading-relaxed">
+                            {r.title}
+                            {r.daysUntil !== null && <span className="text-[10px] font-mono text-red-300 ml-2">{-r.daysUntil}d late</span>}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    {week.conflicts.length > 0 && (
+                      <div className="border border-violet-500/30 bg-violet-500/[.06] rounded-xl px-3.5 py-2.5">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-violet-300 mb-1">✈ {week.conflictLine}</p>
+                        {week.conflicts.map((c, i) => (
+                          <p key={i} className="text-sm text-slate-200 leading-relaxed">{c.title} <span className="text-slate-500">— {c.reason}</span></p>
+                        ))}
+                      </div>
+                    )}
+                    {(week.dueSoon.length > 0 || week.manualBills.length > 0 || week.docs.length > 0 || week.expected.length > 0) && (
+                      <div className="border border-slate-800 bg-slate-900/60 rounded-xl px-3.5 py-2.5 space-y-1">
+                        {week.dueSoon.map((r) => (
+                          <p key={r.id} className="text-sm text-slate-300 leading-relaxed">
+                            <span className="text-amber-300 mr-1.5">⚑</span>{r.title}
+                            <span className="text-[10px] font-mono text-slate-500 ml-2">{r.daysUntil === 0 ? "today" : `${r.daysUntil}d`}</span>
+                          </p>
+                        ))}
+                        {week.manualBills.map((b) => (
+                          <p key={b.id} className="text-sm text-slate-300 leading-relaxed">
+                            <span className="text-amber-300 mr-1.5">$</span>{b.title}
+                            <span className="text-[10px] font-mono text-slate-500 ml-2">{b.dateISO.slice(5)} · manual</span>
+                          </p>
+                        ))}
+                        {week.docs.map((d) => (
+                          <p key={d.id} className="text-sm text-slate-300 leading-relaxed">
+                            <span className="text-sky-300 mr-1.5">⬒</span>{d.title}
+                            <span className="text-[10px] font-mono text-slate-500 ml-2">{d.dateISO.slice(5)}</span>
+                          </p>
+                        ))}
+                        {week.expected.map((d) => (
+                          <p key={d.id} className="text-sm text-slate-300 leading-relaxed">
+                            <span className="text-sky-300 mr-1.5">⬒</span>{d.title}
+                            <span className="text-[10px] font-mono text-slate-500 ml-2">{d.dateISO.slice(5)}</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    {week.undated > 0 && (
+                      <p className="text-xs text-slate-500 px-1">{week.undated} tracked item{week.undated === 1 ? "" : "s"} with no date given — the email never stated one.</p>
+                    )}
+                    <p className="text-[10px] text-slate-600 px-1">Covers {week.covers}.</p>
+                  </div>
+                </div>
+              )}
 
               {(briefing.weather?.length ?? 0) > 0 && (
                 <BriefSection title="Weather & travel" items={briefing.weather!} accent="text-sky-400" dot="bg-sky-400" />
