@@ -26,9 +26,15 @@ import { getAllStateAdvisories } from "./stateAdvisories";
 import { civilCalendarEvents } from "./civilCalendar";
 import { getHealthEvents, type HealthEvent } from "./health";
 import { getConflictNewsByCountry, type ConflictNewsSignal } from "./conflictNews";
-import { getPreviousComposites, recordPosture, postureKey } from "./forcePostureHistory";
+import { getPreviousComposites, getPostureHistory, recordPosture, postureKey } from "./forcePostureHistory";
+import { classifyChronicity, WINDOW_DAYS, type ChronicityResult } from "./chronicity";
 
 export type Severity = "green" | "amber" | "red" | "unknown";
+
+// What counts as "elevated" for chronicity. UNKNOWN is deliberately NOT
+// elevated: a dead feed must never accumulate into a chronic claim, which
+// would manufacture a condition out of missing data.
+const isElevated = (s: Severity): boolean => s === "amber" || s === "red";
 export type ForceCategory = "conflict" | "weather" | "gps" | "airspace" | "civil" | "hazard";
 
 export const CATEGORY_LABEL: Record<ForceCategory, string> = {
@@ -59,6 +65,7 @@ export interface ForceAssessment {
   note?: string;
   transient: boolean;        // has a presence window
   previousComposite?: Severity; // prior day's composite, only when it changed
+  chronicity?: ChronicityResult; // how long this has been elevated (omitted when quiet)
   composite: Severity;       // worst category
   score: number;             // 0-100 for ranking within a severity tier
   topDriver: string;         // one-line headline ("Conflict — ...")
@@ -473,10 +480,21 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
 
   // "What changed": attach the prior day's composite where it differs, then
   // record today's (both best-effort — never block the board).
-  const prev = await getPreviousComposites();
+  const [prev, history] = await Promise.all([getPreviousComposites(), getPostureHistory(WINDOW_DAYS)]);
+  const today = new Date().toISOString().slice(0, 10);
   for (const a of assessments) {
-    const p = prev[postureKey(a)];
+    const key = postureKey(a);
+    const p = prev[key];
     if (p && p !== a.composite) a.previousComposite = p;
+    // Chronic vs acute. A day-over-day delta cannot tell "amber twelve of the
+    // last fourteen days" from "amber since this morning", and those call for
+    // different decisions. `unknown` is a real answer here — see lib/chronicity.
+    const c = classifyChronicity(
+      (history[key] ?? []).map((r) => ({ day: r.day, elevated: isElevated(r.composite) })),
+      isElevated(a.composite),
+      today,
+    );
+    if (c.state !== "quiet") a.chronicity = c;
   }
   recordPosture(assessments).catch(() => {});
 

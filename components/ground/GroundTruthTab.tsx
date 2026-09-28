@@ -290,6 +290,13 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                 <span style={{ color: SEV_DOT[sel.composite as Sev] }} className="text-[13px]">●</span>
                 <span className={`text-[11px] font-mono font-bold ${SEV_TEXT[sel.composite as Sev]}`}>{sel.composite.toUpperCase()}</span>
                 {sel.previousComposite && sel.previousComposite !== sel.composite && <span className="text-[9px] text-slate-500">(was {sel.previousComposite.toUpperCase()})</span>}
+                {/* How long this has been true. The situation room is where the
+                    full sentence belongs — the rail and the board get a chip. */}
+                {sel.chronicity?.label && (
+                  <span className={`text-[9px] font-mono ${sel.chronicity.state === "new" ? "text-red-300" : sel.chronicity.state === "improving" ? "text-emerald-400/80" : "text-slate-400"}`}>
+                    · {sel.chronicity.label}
+                  </span>
+                )}
                 {baseForSel && <span className="text-[10px] font-mono text-slate-500 ml-auto">pinned base: {baseForSel.label}{baseForSel.icao ? ` (${baseForSel.icao})` : ""}</span>}
               </div>
 

@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 // Type-only import: keeps the server-side scoring module (which pulls disasters/
 // acled/etc.) OUT of this client bundle. Runtime data comes from the API.
 import type { ForceAssessment, Severity, ForceCategory } from "@/lib/forceProtection";
+import { chronicityBadge } from "@/lib/chronicity";
 import { getForceProtectionData, type FpResponse } from "@/lib/forceProtectionClient";
 
 // Local label/colour vocab (not imported from the server lib, to avoid bundling
@@ -49,6 +50,23 @@ function Card({ a }: { a: ForceAssessment }) {
             {a.previousComposite && a.previousComposite !== a.composite && (() => {
               const worse = SEV_RANK[a.composite] < SEV_RANK[a.previousComposite]; // lower rank index = more severe
               return <span className={`text-[8px] font-bold ${worse ? "text-red-400" : "text-emerald-400"}`} title={`Changed from ${a.previousComposite.toUpperCase()} since yesterday`}>{worse ? "▲" : "▼"} from {a.previousComposite.toUpperCase()}</span>;
+            })()}
+            {/* Chronic vs acute. The ▲/▼ above is a one-day delta and cannot
+                distinguish "amber for two weeks" from "amber since breakfast".
+                CHRONIC is muted on purpose — a standing condition should not
+                compete for attention with something that just changed. */}
+            {a.chronicity && (() => {
+              const badge = chronicityBadge(a.chronicity.state);
+              if (!badge) return null;
+              const tone = a.chronicity.state === "new" ? "text-red-300 border-red-500/40"
+                : a.chronicity.state === "recurring" ? "text-amber-300 border-amber-500/40"
+                : a.chronicity.state === "improving" ? "text-emerald-400/80 border-emerald-500/30"
+                : "text-slate-400 border-slate-600";
+              return (
+                <span className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border ${tone}`} title={a.chronicity.label ?? undefined}>
+                  {badge}
+                </span>
+              );
             })()}
             {/* Per-category severity dots */}
             <span className="ml-auto flex items-center gap-0.5">

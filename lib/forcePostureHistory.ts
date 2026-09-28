@@ -33,6 +33,33 @@ export async function getPreviousComposites(): Promise<Record<string, Severity>>
   }
 }
 
+// The last `days` days of composites per entry key, for chronic-vs-acute
+// classification (lib/chronicity). Same best-effort contract as the delta read:
+// a failure yields {} and every entry simply reports no chronicity, never a
+// wrong one.
+//
+// Note this returns raw per-day composites, NOT a boolean — the caller decides
+// what "elevated" means (currently amber/red), so the threshold lives with the
+// posture vocabulary rather than in the query.
+export async function getPostureHistory(days = 14): Promise<Record<string, { day: string; composite: Severity }[]>> {
+  try {
+    const pool = await getDb();
+    const cutoff = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT day, entry_key, composite FROM force_posture_daily WHERE day >= ? ORDER BY day ASC`,
+      [cutoff],
+    );
+    const out: Record<string, { day: string; composite: Severity }[]> = {};
+    for (const r of rows) {
+      const key = String(r.entry_key);
+      (out[key] ||= []).push({ day: String(r.day), composite: String(r.composite) as Severity });
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 // Upsert today's composite for each assessment (idempotent per day).
 export async function recordPosture(assessments: ForceAssessment[]): Promise<void> {
   if (assessments.length === 0) return;
