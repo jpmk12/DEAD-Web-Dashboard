@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { FamilyProfile, FamilyPerson, FamilySender, FamilyBiller, FamilyDocument, BillCadence } from "@/lib/familyProfile";
+import type { FamilyProfile, FamilyPerson, FamilySender, FamilyBiller, FamilyDocument, BillCadence, DocExpectationEntry } from "@/lib/familyProfile";
 import { slug } from "@/lib/familyProfile";
 
 // Declare the household. This roster is not cosmetic — it becomes the Gmail
@@ -21,6 +21,13 @@ export default function FamilyRosterEditor({
   const [bCadence, setBCadence] = useState<BillCadence>("monthly");
   const [bAuto, setBAuto] = useState(false);
   const [dLabel, setDLabel] = useState("");
+  // Expected documents: label + the phrase to recognise it + the date it should
+  // have arrived by. All three required — see the sanitizer in familyProfile.
+  const [expectations, setExpectations] = useState<DocExpectationEntry[]>(profile.expectations ?? []);
+  const [xLabel, setXLabel] = useState("");
+  const [xMatch, setXMatch] = useState("");
+  const [xBy, setXBy] = useState("");
+  const [xFrom, setXFrom] = useState("");
   const [dExpires, setDExpires] = useState("");
   const [dLead, setDLead] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,6 +71,21 @@ export default function FamilyRosterEditor({
     setBPattern(""); setBLabel(""); setBCadence("monthly"); setBAuto(false);
   };
 
+  const addExpectation = () => {
+    const label = xLabel.trim(), match = xMatch.trim();
+    if (!label || match.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(xBy)) {
+      setErr("An expected document needs a label, a phrase to look for, and a date it should arrive by.");
+      return;
+    }
+    setErr(null);
+    const from = xFrom.trim();
+    setExpectations((xs) => [...xs, {
+      id: `x-${slug(label)}-${xs.length}`, label, match, byISO: xBy,
+      ...(from ? { fromPattern: from } : {}),
+    }]);
+    setXLabel(""); setXMatch(""); setXBy(""); setXFrom("");
+  };
+
   const addDocument = () => {
     const label = dLabel.trim();
     if (!label || !/^\d{4}-\d{2}-\d{2}$/.test(dExpires)) { setErr("A document needs a label and an expiry date."); return; }
@@ -82,7 +104,7 @@ export default function FamilyRosterEditor({
       const res = await fetch("/api/family/roster", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: { people, senders, includeHousehold: household, billers, documents } }),
+        body: JSON.stringify({ profile: { people, senders, includeHousehold: household, billers, documents, expectations } }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Save failed");
       onSaved();
@@ -216,6 +238,36 @@ export default function FamilyRosterEditor({
               <input value={dExpires} onChange={(e) => setDExpires(e.target.value)} placeholder="2027-02-14" className={`${field} w-28 font-mono`} />
               <input value={dLead} onChange={(e) => setDLead(e.target.value)} placeholder="lead days" className={`${field} w-24`} />
               <button onClick={addDocument} disabled={!dLabel.trim() || !dExpires.trim()} className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-1 disabled:opacity-30">Add</button>
+            </div>
+          </div>
+
+          {/* expected documents */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Documents you expect to arrive</p>
+            <p className="text-[10px] text-slate-600 mb-1.5 leading-relaxed">
+              Things expected <b className="text-slate-500">once, by a date</b> — a W-2, a 1099, a report card. The
+              silence watch only covers billers with a cadence, so nothing was watching for these. The
+              <b className="text-slate-500"> phrase</b> is what to look for in a subject line: declared, because
+              guessing which email satisfies &ldquo;insurance card&rdquo; is how you get a confident wrong answer.
+            </p>
+            <div className="space-y-1 mb-2">
+              {expectations.map((x, i) => (
+                <div key={x.id} className="flex items-center gap-2 text-[11.5px] bg-slate-800/40 rounded px-2.5 py-1.5">
+                  <span className="text-slate-300 font-semibold truncate">{x.label}</span>
+                  <span className="font-mono text-[10px] text-amber-300/80">&ldquo;{x.match}&rdquo;</span>
+                  <span className="font-mono text-[10px] text-slate-500">by {x.byISO}</span>
+                  {x.fromPattern && <span className="font-mono text-[9px] text-slate-600 truncate">{x.fromPattern}</span>}
+                  <button onClick={() => setExpectations((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                </div>
+              ))}
+              {expectations.length === 0 && <p className="text-[10.5px] text-slate-600 italic">None yet.</p>}
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <input value={xLabel} onChange={(e) => setXLabel(e.target.value)} placeholder="W-2 — employer" className={`${field} flex-1 min-w-[9rem]`} />
+              <input value={xMatch} onChange={(e) => setXMatch(e.target.value)} placeholder="phrase: W-2" className={`${field} w-28`} />
+              <input value={xBy} onChange={(e) => setXBy(e.target.value)} placeholder="2027-01-31" className={`${field} w-28 font-mono`} />
+              <input value={xFrom} onChange={(e) => setXFrom(e.target.value)} placeholder="from (optional)" className={`${field} w-36`} />
+              <button onClick={addExpectation} disabled={!xLabel.trim() || !xMatch.trim() || !xBy.trim()} className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-1 disabled:opacity-30">Add</button>
             </div>
           </div>
 

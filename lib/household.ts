@@ -1,6 +1,7 @@
 // Household digest assembler (server-only).
 import { scanJeopardy, jeopardyLine, type JeopardyFinding } from "./accountJeopardy";
 import { observedCadence, amountCreep, type ObservedCadence, type AmountCreep } from "./billHistory";
+import { checkExpectations, worthShowing, expectationLine, type ExpectationResult } from "./expectedDocs";
 //
 // Division of labour, deliberately: the model reads bill text and returns
 // FACTS (amount, due date, account tail, a wellbeing item). Everything that
@@ -57,6 +58,10 @@ export interface HouseholdDigest {
   cadenceDrift: ObservedCadence[];
   // Slow compounding rises no single bill was large enough to flag.
   creep: AmountCreep[];
+  // Documents expected once by a date — the silence watch generalised past
+  // billers. `unknown` when no mail was scanned: a dead search must not accuse.
+  expected: ExpectationResult[];
+  expectedLine: string | null;
   coverage: { billers: number; scanned: number; windowDays: number; noCadenceYet: number };
   disabled?: boolean;
   empty?: "no-billers" | "no-mail";
@@ -98,7 +103,7 @@ export async function assembleHouseholdDigest(
   const blank = (extra: Partial<HouseholdDigest>): HouseholdDigest => ({
     generatedAt: now.toISOString(),
     bills: [], silence: [], documents, wellbeing: [], jeopardy: [], jeopardyLine: null,
-    cadenceDrift: [], creep: [],
+    cadenceDrift: [], creep: [], expected: [], expectedLine: null,
     coverage: { billers: profile.billers.length, scanned: 0, windowDays: WINDOW_DAYS, noCadenceYet: 0 },
     ...extra,
   });
@@ -196,6 +201,22 @@ export async function assembleHouseholdDigest(
     });
   }
 
+  // Expected documents, checked against the subjects we actually fetched. When
+  // `attributed` is empty every row comes back UNKNOWN rather than missing —
+  // see lib/expectedDocs: a dead search must not accuse a sender of not writing.
+  // Checked against EVERY message the biller query returned, not only the ones
+  // attributed to a declared biller: a W-2 comes from an employer that is not a
+  // biller at all. It is still bounded by that query, so the sender must be
+  // declared somewhere — the pane says so, because an unscanned sender would
+  // otherwise read as a missing document.
+  const expectedResults = worthShowing(checkExpectations(
+    profile.expectations ?? [],
+    mail.map((m) => ({
+      subject: m.subject ?? "", from: m.from ?? "", date: (m.date || "").slice(0, 10),
+    })),
+    now.toISOString().slice(0, 10),
+  ));
+
   const value: HouseholdDigest = {
     generatedAt: now.toISOString(),
     bills: sortBills(bills),
@@ -211,6 +232,8 @@ export async function assembleHouseholdDigest(
     creep: profile.billers
       .map((b) => amountCreep(b, prior))
       .filter((c): c is AmountCreep => !!c),
+    expected: expectedResults,
+    expectedLine: expectationLine(expectedResults),
     wellbeing: facts.wellbeing,
     coverage: {
       billers: profile.billers.length,

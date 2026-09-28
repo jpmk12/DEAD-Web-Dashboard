@@ -52,6 +52,19 @@ export interface FamilyDocument {
   leadDays?: number;
 }
 
+// A document expected ONCE by a date, with a declared phrase to recognise it.
+// Distinct from FamilyDocument (which has an EXPIRY and never arrives by email)
+// and from FamilyBiller (which has a cadence): a W-2 or a report card is a
+// one-off arrival, which nothing in the app was watching for.
+export interface DocExpectationEntry {
+  id: string;
+  label: string;
+  match: string;            // "W-2" — declared, never inferred from a subject
+  byISO: string;            // yyyy-mm-dd it should have arrived by
+  fromPattern?: string;     // optional sender constraint
+  note?: string;
+}
+
 export interface FamilyProfile {
   people: FamilyPerson[];
   senders: FamilySender[];
@@ -60,13 +73,14 @@ export interface FamilyProfile {
   includeHousehold: boolean;
   billers: FamilyBiller[];
   documents: FamilyDocument[];
+  expectations: DocExpectationEntry[];
 }
 
 export const EMPTY_FAMILY_PROFILE: FamilyProfile = {
-  people: [], senders: [], includeHousehold: true, billers: [], documents: [],
+  people: [], senders: [], includeHousehold: true, billers: [], documents: [], expectations: [],
 };
 
-const CAPS = { people: 12, senders: 40, billers: 40, documents: 30 };
+const CAPS = { people: 12, senders: 40, billers: 40, documents: 30, expectations: 30 };
 
 const str = (v: unknown, max: number): string =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
@@ -150,7 +164,30 @@ export function sanitizeFamilyProfile(raw: unknown): FamilyProfile {
     })
     .slice(0, CAPS.documents);
 
-  return { people, senders, includeHousehold: r.includeHousehold !== false, billers, documents };
+  const expectations: DocExpectationEntry[] = (Array.isArray(r.expectations) ? r.expectations : [])
+    .flatMap((x): DocExpectationEntry[] => {
+      if (!x || typeof x !== "object") return [];
+      const o = x as Record<string, unknown>;
+      const label = str(o.label, 80);
+      const match = str(o.match, 60);
+      const byISO = str(o.byISO, 10);
+      // All three are required. Without a match phrase we would have to guess
+      // which mail satisfies the expectation, and a confident wrong answer here
+      // means an unnoticed missing document.
+      if (!label || match.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(byISO)) return [];
+      if (!Number.isFinite(Date.parse(`${byISO}T12:00:00Z`))) return [];
+      const fromPattern = str(o.fromPattern, 120);
+      const note = str(o.note, 160);
+      return [{
+        id: str(o.id, 40) || `x-${slug(label)}`,
+        label, match, byISO,
+        ...(fromPattern ? { fromPattern } : {}),
+        ...(note ? { note } : {}),
+      }];
+    })
+    .slice(0, CAPS.expectations);
+
+  return { people, senders, includeHousehold: r.includeHousehold !== false, billers, documents, expectations };
 }
 
 export function slug(s: string): string {

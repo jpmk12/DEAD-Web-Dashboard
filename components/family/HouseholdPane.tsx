@@ -268,6 +268,40 @@ export default function HouseholdPane({ active }: { active: boolean }) {
         </div>
       )}
 
+      {/* ── expected documents ──
+          The silence watch generalised past billers: a W-2 or report card is
+          expected ONCE by a date and has no cadence, so nothing was watching. */}
+      {(d.expected?.length ?? 0) > 0 && (
+        <div className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-300">⬒ Expected documents</span>
+            <span className="ml-auto text-[10px] text-slate-600">{d.expectedLine}</span>
+          </div>
+          {d.expected.map((r) => (
+            <div key={r.expectation.id} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/50 first:border-t-0">
+              <span className={`mt-0.5 w-[66px] flex-shrink-0 text-center text-[9px] font-bold uppercase tracking-wider rounded py-0.5 border ${
+                r.status === "overdue" ? "text-red-200 border-red-500/55 bg-red-500/15"
+                : r.status === "pending" ? "text-amber-300 border-amber-500/45 bg-amber-500/10"
+                : r.status === "unknown" ? "text-slate-400 border-slate-600 bg-slate-700/30"
+                : "text-emerald-300 border-emerald-500/45 bg-emerald-500/10"
+              }`}>
+                {r.status}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12.5px] font-semibold text-slate-100">{r.expectation.label}</span>
+                <span className="block text-[10.5px] text-slate-500">{r.reason}</span>
+                {r.expectation.note && <span className="block text-[9.5px] text-slate-600 mt-0.5">{r.expectation.note}</span>}
+              </span>
+            </div>
+          ))}
+          <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
+            Matched on the phrase you declared, against mail from senders you declared. An expectation whose sender is
+            not in your roster will read <span className="font-mono">unknown</span>, never overdue — a search that did
+            not look must not accuse anyone of not writing.
+          </p>
+        </div>
+      )}
+
       {/* ── what the history says ──
           Two reads ALONG the sighting series, which nothing did before: the
           store was only ever asked "did it arrive?" and "is this one unusual?".

@@ -1756,6 +1756,77 @@ no notice; and a bill that STOPS arriving raises nothing at all.
   independently of either digest so the editor stays reachable when one fails.
 - Mockup: `docs/mockups/household.html` → `docs/household.png`.
 
+### Family/Household learning layer (six surfaces)
+A survey for "what should the Family tab learn / capture" found a **serious hole
+first**: `gmailQueryFor` scopes the school digest to `newer_than:14d` and
+`lib/family.ts` cached its output for 15 minutes with **nothing persisted**. So a
+form due in six weeks, mentioned once, showed on the board and silently vanished
+about a fortnight later *while still being due* — the buried-obligation failure
+this tab exists to prevent, reintroduced at the cache boundary. Everything else
+here depends on that being fixed, because a deadline the app forgets cannot be
+learned from. All six are PURE joins, no model call.
+
+- **Persisted deadlines** (`lib/familyDeadlines.ts` + `family_deadlines` + PATCH
+  on `/api/family`). The pane renders the STORED record, not the extraction.
+  **An undated deadline can never lapse** — `familyDates` refuses to resolve
+  "next Friday", so calling one overdue would invent the date it declined to
+  guess. **LAPSED is derived** from `due_iso` vs today, never stored: no sweeper
+  job, and no row rotting into the wrong state on a day the app wasn't opened.
+  A re-extraction never resets lifecycle state and never overwrites a date with
+  null (the SQL enforces both: `COALESCE(due_iso)`, and `state`/`state_at`/
+  `first_seen` are absent from the UPDATE clause). **Lapsed stays visible**,
+  sorted first, until cleared — deliberately uncomfortable. `deadlineKey` is
+  (source message + normalised title): title alone duplicates on rewording,
+  message alone merges two obligations in one newsletter.
+- **Trip conflicts** (`lib/familyTripConflict.ts`): trips × dated obligations,
+  two things held side by side and never compared. Only ANCHORED dates conflict
+  (events with `needsConfirm` are excluded — that flag means the date is a
+  guess). **The end date is the day you get back**, so it reports `returns`, not
+  `away`; claiming someone can't do a thing they can is how a warning surface
+  loses credibility. A malformed/inverted window matches nothing, never
+  everything.
+- **Account jeopardy** (`lib/accountJeopardy.ts`): declined payments, lapses,
+  final notices — deterministic, BEFORE the model call, so it survives an AI
+  outage. **PHRASES ONLY, never single words** (every bill says "payment"), and
+  **suppressors run first and win outright** because billers advertise the thing
+  they aren't doing ("avoid a late fee", "no past due balance"). One finding per
+  message, the worst one. An empty block is never "all clear".
+- **Bill history reads** (`lib/billHistory.ts`): `household_bills` was only ever
+  asked "did it arrive?" and "is THIS one unusual?" — never read ALONG the
+  series. `observedCadence` flags where reality contradicts the declared
+  cadence, which is load-bearing because the declaration is what lets the
+  silence watch tell "quarterly" from "stopped". `amountCreep` catches
+  compounding rises no single step was big enough to flag, and requires *most
+  steps to be increases* so a single jump (already reported by `amountDelta`)
+  isn't double-counted. Naming a cadence needs `CADENCE_CONSISTENCY` of gaps
+  inside the band, **not just the median** — a test caught that 8/12/60/140-day
+  gaps have a median of 36 and were being called "monthly", which would have
+  produced a confident wrong correction and broken the silence watch. Median
+  everywhere, never mean.
+- **Sender discovery** (`lib/senderDiscovery.ts` + POST `/api/family/discover`):
+  the ONE search that looks outside the declared roster, because you cannot be
+  reminded of a bill you forgot you had. **Its boundaries are the feature** —
+  POST only (no page load, poll or digest; a prefetch can't trigger it);
+  **headers only, enforced by `fetchMessageHeaders`'s Gmail `format:"metadata"`
+  allow-list** so the API never returns a body and the pure module literally
+  cannot see content; `discoveryQuery` is subject-shaped, window-clamped and
+  `-from:` excludes everything declared; nothing is stored but the user's
+  answer. Earned by billing/school-shaped SUBJECT phrases not volume, ≥2
+  sightings, free mail hosts excluded (that's a person), word-bounded so
+  `billingsgazette.com` isn't a biller.
+- **Expected documents** (`lib/expectedDocs.ts` + `family_profile.expectations`):
+  the silence watch generalised past billers — a W-2 or report card is expected
+  ONCE by a date with no cadence. **"Missing" requires the date to have passed**
+  (a W-2 absent on 3 January is January, not a problem). **A dead search must
+  not accuse**: with no mail observed every row is `unknown`, never `overdue` —
+  the inverse of "UNKNOWN is not clear", and it matters more here because a
+  false missing sends the user chasing a document they already have. The match
+  phrase is DECLARED, never inferred.
+- **Boundary that holds across all six**: the roster is the query. Only sender
+  discovery looks wider, once, on a button, at headers. If a signal can't be
+  seen from declared senders, the answer is for the user to declare another
+  sender — not for the app to read the whole mailbox.
+
 ### Sign-in works without client JavaScript
 `signIn()` from `next-auth/react` is a CLIENT call — it fetches
 `/api/auth/csrf`, then POSTs to `/api/auth/signin/google`. On a locked-down
