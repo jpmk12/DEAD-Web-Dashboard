@@ -1652,6 +1652,27 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### Assistant OE context (`lib/oeContext.ts` · `lib/oeContextFormat.ts`)
+The floating assistant (`/api/chat`) now carries the dashboard's OWN computed
+picture in its per-turn dynamic block: force posture (worst-first, greens
+counted not listed, chronicity + escalated tags), base SITREP LEDs (+ worse-
+than-yesterday), I&W boards (level/anomaly/trajectory/drivers, learning
+flag), active alerts (`computeAlerts`), "what changed since YOUR last look"
+(`computeDelta` over `buildOeSeries()` — extracted from `/api/oe-delta` into
+`lib/oeDeltaAssemble.ts`; the assistant reads WITHOUT bumping the `oe`
+last-seen), and I&W calls due for scoring. Format is PURE + tested
+(`renderOeContext`, capped at `OE_CONTEXT_MAX_CHARS`): UNKNOWN/UNAVAILABLE
+is stated, never dropped; every section names its surface ("OSINT › Watch ›
+I&W") so the answer can send the user there; the block is stamped with a
+snapshot time. **Latency rule**: `getOeSnapshot(maxWaitMs=2500)` serves the
+5-min in-process cache instantly; when cold it starts the gather in the
+background and the turn takes what settled within the wait (rest =
+UNAVAILABLE, older snapshot = STALE) — a chat turn never blocks on the
+force-protection fan-out. The client sends `surface` (TabShell mirrors the
+active tab onto `<body data-tab>`) so "this" has a referent. The system
+identity broadened from "scheduling assistant" to scheduler + ops analyst;
+action-block grammar unchanged. Adds ~600-900 input tokens per turn.
+
 ### ⌘K command palette (`lib/commandPalette.ts` · `components/CommandPalette.tsx`)
 ⌘K / Ctrl+K (was quick capture — capture is now an entry INSIDE it) opens a
 palette from which every surface is reachable by name: tabs, the four OSINT

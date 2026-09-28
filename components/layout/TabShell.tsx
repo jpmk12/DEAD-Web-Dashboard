@@ -168,6 +168,12 @@ export default function TabShell() {
     if (VALID_TABS.includes(param as Tab)) setActiveTab(param as Tab);
   }, []);
 
+  // Mirror the active tab onto <body> so components with no path to this
+  // state (the assistant's ChatPanel) can say where the user is looking.
+  useEffect(() => {
+    document.body.dataset.tab = activeTab;
+  }, [activeTab]);
+
   const loadWatchlist = useCallback(() => {
     fetch("/api/user-prefs")
       .then((r) => r.json())

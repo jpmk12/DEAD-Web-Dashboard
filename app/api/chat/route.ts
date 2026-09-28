@@ -9,6 +9,8 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { formatInTz, timeInTz, formatFloatingDate, longDateInTz } from "@/lib/date";
+import { getOeSnapshotFor } from "@/lib/oeContext";
+import { renderOeContext, surfaceLine } from "@/lib/oeContextFormat";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +75,7 @@ export async function POST(request: Request) {
     return new Response("Invalid request body", { status: 400 });
   }
 
-  const { messages, calendarContext, tasks, articles, newsletters, tz: bodyTz } = body as Record<string, unknown>;
+  const { messages, calendarContext, tasks, articles, newsletters, tz: bodyTz, surface } = body as Record<string, unknown>;
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return new Response("messages must be a non-empty array", { status: 400 });
@@ -106,11 +108,16 @@ export async function POST(request: Request) {
   const safeNewsletters = Array.isArray(newsletters) ? (newsletters as NewsletterSummary[]).slice(0, 10) : [];
 
   const userEmail = normEmail(session.user?.email);
-  const [userPrefs, memory, recentDocs] = await Promise.all([
+  // The OE snapshot is the dashboard's own computed picture (posture, base
+  // LEDs, I&W, alerts, what changed, calls due) — see lib/oeContext.ts. It is
+  // bounded: a cold server yields "unavailable this turn" rather than a wait.
+  const [userPrefs, memory, recentDocs, oeSnapshot] = await Promise.all([
     getUserPrefs(userEmail),
     getMemory(userEmail).catch(() => null),
     getRecentDocsForContext(5).catch(() => []),
+    getOeSnapshotFor(userEmail).catch(() => null),
   ]);
+  const oeContext = renderOeContext(oeSnapshot) + surfaceLine(typeof surface === "string" ? surface : null);
   const userContext = buildUserContext(userPrefs);
   const memoryContext = memory ? buildMemoryContext(memory) : "";
 
@@ -150,13 +157,14 @@ export async function POST(request: Request) {
   // input cost of the cacheable block by ~90% on warm reads. With memory +
   // user_context typically running 1-2k tokens, this is a real saving on
   // every chat turn after the first.
-  const cacheableBlock = `You are a personal scheduling and productivity assistant.${userContext}${memoryContext}${docsContext}
+  const cacheableBlock = `You are the assistant inside an air-mobility commander's dashboard: part scheduler, part operations analyst. You hold the user's calendar and tasks, recent reading, their notes, AND a snapshot of the operational environment the dashboard itself computes (force posture, base SITREPs, I&W boards, alerts, what changed). Use whichever the question needs; when it is about risk, posture, bases or "what should I be watching", reason from the OE block and name the surface the answer lives on.${userContext}${memoryContext}${docsContext}
 
 You can:
 - Find free time slots and detect conflicts / double-bookings in the calendar
 - Add events to the calendar, and MOVE, EDIT, or DELETE existing ones
 - Suggest meeting times, reschedules, and ways to resolve conflicts
 - Create tasks and to-do items
+- Read the OE snapshot back: what is red and why, what moved since the last look, which I&W calls are due — and connect it to the calendar (e.g. a trip into a country that just went red)
 
 Each upcoming calendar event is listed with a [N] handle. To act on an EXISTING event, reference it by that exact handle.
 
@@ -211,7 +219,7 @@ USER'S UPCOMING CALENDAR:
 ${formatEvents(sanitizedContext, tz)}
 
 USER'S PENDING TASKS:
-${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}`;
+${formatTasks(sanitizedTasks)}${newsContext}${newsletterContext}${oeContext}`;
 
   // AI feature gate. Returns a one-chunk stream so the client doesn't need
   // to know about a different response shape.

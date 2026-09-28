@@ -20,7 +20,7 @@ interface ChatPanelProps {
 const WELCOME: ChatMessageType = {
   role: "assistant",
   content:
-    "I'm your scheduling and task assistant. I can see your calendar and tasks — ask me to find free time, add an event, or move, reschedule, or cancel something.",
+    "I can see your calendar, tasks, and the dashboard's current OE picture — force posture, base SITREPs, I&W boards, alerts, and what changed since you last looked. Ask what to worry about, why something is red, or to find free time, add, move, or cancel something.",
 };
 
 // ── Thread persistence ──────────────────────────────────────────────────────
@@ -527,6 +527,9 @@ export default function ChatPanel({
           // (same contract as the morning brief) so scheduling chat matches
           // where the user actually is, not a stale pinned pref.
           tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          // Which surface the user is looking at (TabShell mirrors the active
+          // tab onto <body data-tab>), so "this" in a question has a referent.
+          surface: typeof document !== "undefined" ? document.body.dataset.tab ?? null : null,
           calendarContext: calendarEvents,
           tasks,
           articles,
