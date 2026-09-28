@@ -1590,7 +1590,8 @@ INFORM Risk (`data360api.worldbank.org`), WHO (`who.int` Disease Outbreak News +
 OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
 METAR + TAF; also the node flight-category rings via `/api/airfield-weather`),
 Yahoo Finance (`query1.finance.yahoo.com`, energy/commodity quotes; Stooq
-`stooq.com` is a best-effort fallback only), Nager.Date
+`stooq.com` is a best-effort fallback only), Federal Register
+(`www.federalregister.gov`, U.S. sanctions/export-control/tariff actions), Nager.Date
 (`date.nager.at`, public holidays), IODA
 (`api.ioda.inetintel.cc.gatech.edu`, internet connectivity signals), USGS
 water services (`waterservices.usgs.gov`, gauge stages), FAA NAS status
@@ -1651,6 +1652,29 @@ watermark. Auth: session OR the capture bearer token. The extension
 (default 15 min, options-configurable) and raises OS notifications; seen-ids in
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
+
+### Economy: U.S. regulatory actions (`lib/federalRegister.ts` · `lib/regulatorySignals.ts`)
+The Economy tab's missing data class — the sanctions / export-control /
+tariff ACTIONS themselves, not news about them — from the **Federal
+Register API** (`www.federalregister.gov/api/v1/documents.json`, keyless
+JSON). Four parallel queries over a 45-day window (OFAC · BIS · USTR/ITC/CBP
+with a tariff term · presidential documents with a sanctions/tariff term),
+merged by document number, 6-h cache (the Register publishes daily), any
+failed query named in `failed` and on the panel — an empty list never reads
+as "no actions". `lib/regulatorySignals.ts` is PURE + tested: class by the
+ISSUING AGENCY first (`AGENCY_CLASS` slugs), title vocabulary only for
+ambiguous issuers; `instrumentOf` (Section 232/301, IEEPA, Entity List, SDN,
+EAR/ITAR…); `countriesIn` word-bounded + adjective forms, with `-ian`
+withheld after a final "r" (Niger ≠ Nigerian); `enrich`/`summarize`/
+`regulatoryLines`. Surfaces: `RegulatoryBoard` on the Economy tab (class +
+"touches watch" chips, ⚑ on rows naming a watched country) and a
+`U.S. REGULATORY ACTIONS` block in the Economic Access Read prompt.
+**U.S. side ONLY, by construction** — the panel and the prompt both say so;
+foreign counter-measures still arrive via news. **Contract unverified from
+the sandbox** (egress blocks the host): agency slugs are pinned from the
+public API docs; `/api/markets/regulatory?diag=1` (owner-only) runs the
+real queries from production and returns status + snippet per query — a
+renamed slug shows there as a 400. No new dep (esbuild `0`).
 
 ### Preferences: sectioned + URL-addressable (`?prefs=<section>`)
 `PreferencesDrawer` shows ONE section at a time — `activeGroup` ∈ mission /

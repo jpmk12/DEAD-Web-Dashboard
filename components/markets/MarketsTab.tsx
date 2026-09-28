@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NewsItem } from "@/lib/types";
 import EconomicAccessPanel from "./EconomicAccessPanel";
 import ChokepointBoard from "@/components/markets/ChokepointBoard";
+import RegulatoryBoard from "@/components/markets/RegulatoryBoard";
 import { EconomyIcon } from "@/lib/icons";
 
 interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string; link?: string; source?: "yahoo" | "stooq" | null }
@@ -84,6 +85,10 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
       {/* Graded interdiction, above the AI read: the read should be explaining
           evidence the user can already see, not introducing it. */}
       <ChokepointBoard active />
+
+      {/* U.S. regulatory actions — the sanctions / export-control / tariff
+          record, classified and flagged against the watch. */}
+      <RegulatoryBoard active />
 
       {/* AI Economic Access Read */}
       <EconomicAccessPanel articles={articles} />

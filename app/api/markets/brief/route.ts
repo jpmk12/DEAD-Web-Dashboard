@@ -11,6 +11,8 @@ import { todayInTz } from "@/lib/date";
 import { NewsItem } from "@/lib/types";
 import { getEnergyQuotes } from "@/lib/energyPrices";
 import { scoreChokepoints } from "@/lib/chokepoints";
+import { getRegulatoryDocs } from "@/lib/federalRegister";
+import { enrich, summarize, regulatoryLines } from "@/lib/regulatorySignals";
 
 export const dynamic = "force-dynamic";
 
@@ -100,9 +102,19 @@ export async function POST(request: Request) {
   const chokes = scoreChokepoints(articles as NewsItem[]).filter((c) => c.count > 0)
     .map((c) => `${c.name}: ${c.count} item(s)${c.latest ? ` — "${c.latest.title.slice(0, 90)}"` : ""}`).slice(0, 8).join("\n");
 
+  // U.S. regulatory record (Federal Register) — the sanctions / export-control
+  // / tariff actions themselves, not news about them. U.S. side only.
+  const watchedList = basingCountries.split(",").map((s) => s.trim()).filter(Boolean);
+  const reg = await getRegulatoryDocs().catch(() => null);
+  const regActions = reg ? enrich(reg.docs, watchedList, new Date().toISOString().slice(0, 10)) : [];
+  const regBlock = reg && reg.live
+    ? `${summarize(regActions).line ?? "no actions in the window"}\n${regulatoryLines(regActions, 8).join("\n")}`
+    : "unavailable this pass";
+
   const userContent = [
     basingCountries && `WATCHED COUNTRIES (basing/access focus): ${basingCountries}`,
     energyLine && `ENERGY/COMMODITY PRICES: ${energyLine}`,
+    `U.S. REGULATORY ACTIONS (Federal Register, last 45 days; U.S. side only — foreign counter-measures are in the news below if anywhere):\n${regBlock}`,
     chokes && `CHOKEPOINT NEWS SIGNALS:\n${chokes}`,
     `TODAY'S NEWS:\n${articleSummary}`,
   ].filter(Boolean).join("\n\n");
