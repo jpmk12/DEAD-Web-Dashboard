@@ -9,6 +9,7 @@ import type { FamilyPerson, FamilyProfile } from "@/lib/familyProfile";
 import type { ProposedEvent } from "@/lib/familyDates";
 import FamilyRosterEditor from "@/components/family/FamilyRosterEditor";
 import HouseholdPane from "@/components/family/HouseholdPane";
+import SenderDiscoveryCard from "@/components/family/SenderDiscoveryCard";
 
 // The Family tab: school and household mail reported as obligations with dates
 // rather than as messages. The deadline is the unit of this interface — an
@@ -297,6 +298,22 @@ export default function FamilyTab({ active }: { active: boolean }) {
         </p>
       )}
 
+      {/* Discovery on the school side too — collapsed, because this pane is
+          for reading the week, not configuring it; expanded on Household. */}
+      <details className="group rounded-xl border border-slate-800 bg-slate-900/30">
+        <summary className="cursor-pointer select-none list-none flex items-center gap-2 px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300">
+          <span className="text-slate-600 group-open:rotate-90 transition-transform">▸</span>
+          ⌕ Find school &amp; activity senders I have not declared
+        </summary>
+        <div className="px-2 pb-2">
+          <SenderDiscoveryCard
+            heading="⌕ Senders that look like school or activities"
+            intro="A newsletter you never declared is a deadline you will never see — this pane only reads senders you named."
+            onAccepted={() => load()}
+          />
+        </div>
+      </details>
+
       {/* ── while you are away ──
           Above "needs you" because it changes what you do about those items,
           not just whether you know about them. */}
@@ -415,14 +432,18 @@ export default function FamilyTab({ active }: { active: boolean }) {
       <div className="grid grid-cols-1 lg:grid-cols-[1.55fr_1fr] gap-5 items-start">
         {/* ── per person ── */}
         <div className="space-y-4">
-          {(digest?.people ?? []).map((pd) => {
-            const e = personById.get(pd.personId);
-            if (!e) return null;
+          {Array.from(personById.values()).map((e) => {
+            // Iterate the ROSTER, not the model's output: a child with tracked
+            // deadlines but no summary this pass still gets a card. The
+            // summary is merged in when the model produced one.
+            const pd = digest?.people?.find((p) => p.personId === e.person.id) ?? null;
             // Outstanding only: a person's badge should count what still
             // needs doing, not everything ever extracted for them.
-            const mine = tracked.filter((d) => d.personId === pd.personId && d.phase !== "done" && d.phase !== "dismissed").length;
+            const mineList = tracked.filter((d) => d.personId === e.person.id && d.phase !== "done" && d.phase !== "dismissed");
+            const mine = mineList.length;
+            const lapsedMine = mineList.filter((d) => d.phase === "lapsed").length;
             return (
-              <div key={pd.personId} className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
+              <div key={e.person.id} className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
                 <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-slate-800 bg-slate-800/30">
                   <span className={`w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold flex-shrink-0 ${e.tint.av}`}>
                     {e.person.name.charAt(0)}
@@ -435,15 +456,28 @@ export default function FamilyTab({ active }: { active: boolean }) {
                     </span>
                   </span>
                   {mine > 0 && (
-                    <span className="ml-auto text-[9px] font-bold uppercase tracking-wider text-red-300 bg-red-500/12 rounded px-1.5 py-0.5">
-                      {mine} deadline{mine === 1 ? "" : "s"}
+                    <span className={`ml-auto text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 ${lapsedMine > 0 ? "text-red-300 bg-red-500/12" : "text-amber-300 bg-amber-500/10"}`}>
+                      {mine} open{lapsedMine > 0 ? ` · ${lapsedMine} late` : ""}
                     </span>
                   )}
                 </div>
-                {pd.summary && <p className="px-3.5 py-3 text-[12.5px] text-slate-300 leading-relaxed">{pd.summary}</p>}
-                {pd.upcoming.length > 0 && (
+                {pd?.summary && <p className="px-3.5 py-3 text-[12.5px] text-slate-300 leading-relaxed">{pd.summary}</p>}
+                {/* This person's tracked deadlines — the persisted record, which
+                    outlives the mail window the summary above was read from. */}
+                {mineList.length > 0 && (
                   <div className="border-t border-slate-800/60 px-3.5 py-2">
-                    {pd.upcoming.map((u, i) => (
+                    {mineList.slice(0, 5).map((d) => (
+                      <div key={d.id} className="flex items-baseline gap-2.5 py-1 text-[11.5px]">
+                        <span className={`w-16 flex-shrink-0 text-center rounded border py-px text-[9px] font-bold uppercase tracking-wider font-mono ${(PHASE_TONE[d.phase] ?? PHASE_TONE.open).cls}`}>{phaseText(d)}</span>
+                        <span className="min-w-0 text-slate-300 truncate">{d.title}</span>
+                      </div>
+                    ))}
+                    {mineList.length > 5 && <p className="text-[10px] text-slate-600 pt-1">+{mineList.length - 5} more above in Needs you</p>}
+                  </div>
+                )}
+                {(pd?.upcoming?.length ?? 0) > 0 && (
+                  <div className="border-t border-slate-800/60 px-3.5 py-2">
+                    {pd!.upcoming.map((u, i) => (
                       <div key={i} className="flex items-baseline gap-2.5 py-1 text-[11.5px] text-slate-300">
                         <span className="w-16 flex-shrink-0 font-mono text-[10.5px] text-slate-500">{u.whenLabel || fmtDate(u.whenISO)}</span>
                         <span className="min-w-0">

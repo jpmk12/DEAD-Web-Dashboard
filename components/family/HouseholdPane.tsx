@@ -3,18 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { HouseholdDigest } from "@/lib/household";
 import { formatUsdCents, runwayPct } from "@/lib/householdSignals";
-import type { SenderCandidate, ProposalCategory } from "@/lib/senderDiscovery";
 import { toast } from "@/lib/feedback";
-import { SENDER_CATEGORIES, SENDER_CATEGORY_LABEL, SENDER_CATEGORY_TRACKS } from "@/lib/familyProfile";
+import SenderDiscoveryCard from "@/components/family/SenderDiscoveryCard";
 
-// Biller first: it is the category with the most machinery behind it (cadence,
-// silence watch, amount history), so it leads the dropdown.
-const ALL_CATEGORIES: ProposalCategory[] = ["biller", ...SENDER_CATEGORIES];
-const CAT_LABEL: Record<string, string> = { biller: "Bill", ...SENDER_CATEGORY_LABEL };
-const TRACKS: Record<string, string> = {
-  biller: "amounts, cadence and a silence watch if it stops writing",
-  ...SENDER_CATEGORY_TRACKS,
-};
 
 // Household: bills, documents and the admin that keeps people well.
 //
@@ -53,35 +44,6 @@ export default function HouseholdPane({ active }: { active: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(0);
-  // Discovery is null until the user has scanned at least once — an empty array
-  // means "scanned, found nothing", and the two read very differently.
-  const [discovery, setDiscovery] = useState<SenderCandidate[] | null>(null);
-  const [discovering, setDiscovering] = useState(false);
-  // Per-domain category override; absent means "use the classifier's guess".
-  const [pick, setPick] = useState<Record<string, ProposalCategory>>({});
-  const [adding, setAdding] = useState<string | null>(null);
-
-  const runDiscovery = async () => {
-    setDiscovering(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/family/discover", { method: "POST" });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(j?.error || "Scan failed");
-      setDiscovery(Array.isArray(j?.candidates) ? j.candidates : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Scan failed");
-    } finally {
-      setDiscovering(false);
-    }
-  };
-
-  const dismissDomain = async (domain: string) => {
-    setDiscovery((prev) => (prev ?? []).filter((c) => c.domain !== domain));
-    const r = await fetch(`/api/family/discover?domain=${encodeURIComponent(domain)}`, { method: "DELETE" }).catch(() => null);
-    if (r?.ok) toast.info(`Won't propose ${domain} again`);
-    else toast.error("Could not save that dismissal");
-  };
 
   useEffect(() => { setNowMs(Date.now()); }, []);
 
@@ -100,29 +62,6 @@ export default function HouseholdPane({ active }: { active: boolean }) {
 
   // Same error guard as the school pane: without it a failed request retries
   // forever, each pass costing a Gmail fetch and a model call.
-  const acceptDomain = async (c: SenderCandidate, category: ProposalCategory) => {
-    setAdding(c.domain);
-    setError(null);
-    try {
-      const res = await fetch("/api/family/discover", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain: c.domain, label: c.name, category }),
-      });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(j?.error || "Could not add it");
-      // Drop the accepted row and reload the digest, so the new sender's mail is
-      // read on this pass rather than looking like nothing happened.
-      setDiscovery((prev) => (prev ?? []).filter((x) => x.domain !== c.domain));
-      toast.ok(`Tracking ${c.name}`, `as ${CAT_LABEL[category]} — its dates start appearing on the next digest`);
-      load();
-    } catch (e) {
-      toast.error("Could not add that sender", e);
-      setError(e instanceof Error ? e.message : "Could not add it");
-    } finally {
-      setAdding(null);
-    }
-  };
 
   useEffect(() => {
     if (!active || d || loading || error) return;
@@ -213,96 +152,12 @@ export default function HouseholdPane({ active }: { active: boolean }) {
         </div>
       )}
 
-      {/* ── discovery ──
-          The one search that looks outside the declared roster, so it runs ONLY
-          on this button: no poll, no page load, no digest. Headers only (the
-          route uses Gmail's metadata format), bounded window, and everything
-          already declared is excluded from the query. */}
-      <div className="border border-slate-800 bg-slate-900/40 rounded-xl overflow-hidden">
-        <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-slate-300">⌕ Find billers I have not declared</span>
-          <button
-            onClick={runDiscovery}
-            disabled={discovering}
-            className="ml-auto text-[9.5px] font-bold uppercase tracking-wider rounded px-2.5 py-1 border border-sky-500/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 disabled:opacity-40"
-          >
-            {discovering ? "Scanning…" : "Scan"}
-          </button>
-        </div>
-
-        {discovery === null ? (
-          <p className="px-3.5 py-2 text-[10px] text-slate-600 leading-snug">
-            You cannot be reminded of a bill you forgot you had — everything else on this pane only looks at senders
-            you named. This checks the last 120 days for billing-shaped subjects from senders you have NOT declared.
-            It reads subject lines and addresses only, never message bodies, and runs only when you press Scan.
-          </p>
-        ) : discovery.length === 0 ? (
-          <p className="px-3.5 py-2 text-[10px] text-slate-600 leading-snug">
-            Nothing new in the last 120 days. That is not a guarantee there is no undeclared biller — only that none
-            wrote with a billing-shaped subject in the window scanned.
-          </p>
-        ) : (
-          <>
-            {discovery.map((c) => {
-              const chosen = pick[c.domain] ?? c.category;
-              return (
-                <div key={c.domain} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/50">
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[12.5px] font-semibold text-slate-100">{c.name}</span>
-                    <span className="block text-[10px] font-mono text-slate-500">{c.domain}</span>
-                    <span className="block text-[10.5px] text-slate-500 mt-0.5">{c.reason}</span>
-                    {c.confidence === "close" && c.alternate && (
-                      <span className="block text-[9.5px] text-amber-400/80 mt-0.5">
-                        Close call — could equally be {CAT_LABEL[c.alternate]}. Worth a look before adding.
-                      </span>
-                    )}
-                    {c.examples.length > 0 && (
-                      <span className="block text-[9.5px] text-slate-600 mt-0.5 truncate">e.g. &ldquo;{c.examples[0]}&rdquo;</span>
-                    )}
-                    <span className="block text-[9.5px] text-slate-600 mt-0.5">
-                      Tracks {TRACKS[chosen]}.
-                    </span>
-                  </span>
-
-                  {/* The classifier proposes; the dropdown lets you dispose. A
-                      mis-filed sender costs one click here and is expensive to
-                      leave silently wrong. */}
-                  <select
-                    value={chosen}
-                    onChange={(e) => setPick((p) => ({ ...p, [c.domain]: e.target.value as ProposalCategory }))}
-                    className="flex-shrink-0 bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-slate-300"
-                  >
-                    {ALL_CATEGORIES.map((k) => (
-                      <option key={k} value={k}>{CAT_LABEL[k]}</option>
-                    ))}
-                  </select>
-
-                  <button
-                    onClick={() => acceptDomain(c, chosen)}
-                    disabled={adding !== null}
-                    className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-emerald-500/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
-                  >
-                    {adding === c.domain ? "…" : "＋ Track"}
-                  </button>
-                  <button
-                    onClick={() => dismissDomain(c.domain)}
-                    disabled={adding !== null}
-                    className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-slate-700 text-slate-500 hover:text-slate-300 disabled:opacity-40"
-                  >
-                    Never
-                  </button>
-                </div>
-              );
-            })}
-            <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
-              ＋ Track writes the sender straight into your roster in the category shown, so its dates start being
-              tracked on the next digest. A new biller starts as <span className="font-mono">irregular</span> — the
-              scan cannot know a cadence, and the silence watch must never accuse a biller it has only just met.
-              Declining is permanent.
-            </p>
-          </>
-        )}
-      </div>
+      {/* ── discovery — shared with the School pane (SenderDiscoveryCard) ── */}
+      <SenderDiscoveryCard
+        heading="⌕ Find billers I have not declared"
+        intro="You cannot be reminded of a bill you forgot you had — everything else on this pane only looks at senders you named."
+        onAccepted={() => load()}
+      />
 
       {/* ── account jeopardy ──
           First, because it is the only block here where something is already
