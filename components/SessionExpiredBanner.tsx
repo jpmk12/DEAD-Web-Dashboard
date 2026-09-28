@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession, signIn } from "next-auth/react";
+import { useSession } from "next-auth/react";
 
 // When the Google token can't be refreshed (revoked/expired refresh token, or a
 // session predating offline access), the session carries
@@ -16,12 +16,12 @@ export default function SessionExpiredBanner() {
       <span>
         Your Google session expired — calendar, email, weather and OSINT data can&apos;t load until you sign in again.
       </span>
-      <button
-        onClick={() => signIn("google")}
+      <a
+        href="/login"
         className="font-bold uppercase tracking-wider bg-red-500 hover:bg-red-400 text-slate-950 px-2.5 py-1 rounded-md transition-colors touch-manipulation"
       >
         Sign in again
-      </button>
+      </a>
     </div>
   );
 }

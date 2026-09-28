@@ -4,7 +4,7 @@ import { signIn } from "next-auth/react";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-function LoginPanelContent() {
+function LoginPanelContent({ signInSlot }: { signInSlot?: React.ReactNode }) {
   const params = useSearchParams();
   const callbackUrl = params.get("callbackUrl") ?? "/";
   const error = params.get("error");
@@ -38,20 +38,24 @@ function LoginPanelContent() {
         </div>
       )}
 
-      <button
-        onClick={() => signIn("google", { callbackUrl })}
-        className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-md transition-colors"
-      >
-        Sign in with Google
-      </button>
+      {/* Prefer the server-action form (works with no client JS); fall back to
+          the client call only when no server form was supplied. */}
+      {signInSlot ?? (
+        <button
+          onClick={() => signIn("google", { callbackUrl })}
+          className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-md transition-colors"
+        >
+          Sign in with Google
+        </button>
+      )}
     </div>
   );
 }
 
-export default function LoginPanel() {
+export default function LoginPanel({ signInSlot }: { signInSlot?: React.ReactNode }) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
-      <LoginPanelContent />
+      <LoginPanelContent signInSlot={signInSlot} />
     </Suspense>
   );
 }

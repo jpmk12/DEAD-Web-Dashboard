@@ -1671,3 +1671,32 @@ no notice; and a bill that STOPS arriving raises nothing at all.
   failed school digest and no way to reach Household. The roster is fetched
   independently of either digest so the editor stays reachable when one fails.
 - Mockup: `docs/mockups/household.html` → `docs/household.png`.
+
+### Sign-in works without client JavaScript
+`signIn()` from `next-auth/react` is a CLIENT call — it fetches
+`/api/auth/csrf`, then POSTs to `/api/auth/signin/google`. On a locked-down
+machine where script execution is filtered (or that csrf fetch is blocked) the
+click produces **literally nothing**, which is how it presents: "the Login with
+Google button does not work" while `accounts.google.com` itself loads fine.
+Reachability of Google is therefore NOT the diagnostic — if Google loads and
+the button is inert, the fault is our client JS, not the network.
+
+- `components/GoogleSignInForm.tsx` is a **Server Action inside a plain
+  `<form>`** using the server `signIn` exported from `lib/auth.ts`. Next.js
+  progressively enhances it: with JS it posts in the background, without JS the
+  browser submits natively and the server issues the redirect. Everything after
+  that is ordinary top-level navigation, which a restricted browser does not
+  interfere with.
+- It is passed into `LoginPanel` as `signInSlot` (children) because LoginPanel
+  is `"use client"` and cannot import a Server Action module itself. The old
+  client button survives only as the fallback when no slot is supplied.
+- The in-app re-auth prompts (SessionExpiredBanner, NewsFeed, EmailTab,
+  calendar SignInButton) are now plain `<a href="/login">` anchors. As client
+  `signIn()` calls they failed the same way, but worse — the user was already
+  stranded mid-session with a button that did nothing.
+- A device-pairing / RFC-8628 flow was designed for the case where
+  accounts.google.com is genuinely unreachable, and deliberately NOT built:
+  Google turned out to be reachable. If it is ever needed, note the real cost
+  is not the pairing itself but that ~60 routes gate on `session?.accessToken`
+  (the Google token), so a tokenless session 401s everywhere until "needs a
+  session" is split from "needs Google".

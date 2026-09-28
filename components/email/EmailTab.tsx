@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSession, signIn } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { EmailMessage, EmailPriority, ActionItem, VipSuggestion } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { Mail } from "@/lib/icons";
@@ -314,12 +314,12 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
         <p className="text-sm text-slate-500 max-w-xs">
           Sign in with Google to view and triage your emails with AI-powered summaries.
         </p>
-        <button
-          onClick={() => signIn("google")}
+        <a
+          href="/login"
           className="flex items-center gap-2 bg-slate-800 border border-slate-700 text-slate-200 px-5 py-2.5 rounded-lg font-medium hover:border-green-700 hover:text-green-400 transition-all text-sm"
         >
           Sign in with Google
-        </button>
+        </a>
       </div>
     );
   }

@@ -1,6 +1,5 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 
 export default function SignInButton() {
   return (
@@ -10,12 +9,12 @@ export default function SignInButton() {
       <p className="text-sm text-slate-500 max-w-xs">
         Sign in with Google to view your upcoming events and get AI-powered planning help.
       </p>
-      <button
-        onClick={() => signIn("google")}
+      <a
+        href="/login"
         className="flex items-center gap-2 bg-slate-800 border border-slate-700 text-slate-200 px-5 py-2.5 rounded-lg font-medium hover:border-green-700 hover:text-green-400 transition-all text-sm"
       >
         Sign in with Google
-      </button>
+      </a>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSession, signIn } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { NewsItem, SavedItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
@@ -290,12 +290,12 @@ export default function NewsFeed({
             Sign in with Google to load your personalised news feed.
           </p>
         </div>
-        <button
-          onClick={() => signIn("google")}
+        <a
+          href="/login"
           className="flex items-center gap-2 bg-slate-800 border border-slate-700 text-slate-200 px-5 py-2.5 rounded-lg font-medium hover:border-emerald-700 hover:text-emerald-400 transition-all text-sm"
         >
           Sign in with Google
-        </button>
+        </a>
       </div>
     );
   }
