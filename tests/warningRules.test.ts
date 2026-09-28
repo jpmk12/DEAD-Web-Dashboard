@@ -105,3 +105,22 @@ describe("chokepointState — graded, not counted", () => {
     expect(r.why).toMatch(/unavailable/);
   });
 });
+
+describe("chokepointState — AIS corroboration", () => {
+  const read = (o: Partial<{ acts: number; threats: number; analysis: number; events: number; score: number; transit: "unconfigured" | "unknown" | "learning" | "normal" | "suppressed" | "elevated" }>) =>
+    ({ acts: 0, threats: 0, analysis: 0, events: 0, score: 0, ...o });
+
+  it("suppressed traffic lifts the text state one step and adds confidence", () => {
+    expect(chokepointState(read({ transit: "suppressed" }), 0).state).toBe("watching");
+    expect(chokepointState(read({ threats: 1, transit: "suppressed" }), 0).state).toBe("active");
+    expect(chokepointState(read({ acts: 1, transit: "suppressed" }), 0).state).toBe("confirmed");
+    expect(chokepointState(read({ acts: 1, transit: "suppressed" }), 0).confidence).toBeGreaterThan(chokepointState(read({ acts: 1 }), 0).confidence);
+  });
+
+  it("normal, unknown or learning traffic changes nothing — it never clears a reported act", () => {
+    for (const t of ["normal", "unknown", "learning", "elevated", "unconfigured"] as const) {
+      expect(chokepointState(read({ acts: 1, transit: t }), 0).state).toBe("active");
+      expect(chokepointState(read({ transit: t }), 0).state).toBe("dormant");
+    }
+  });
+});

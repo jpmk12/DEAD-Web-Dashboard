@@ -8,15 +8,23 @@ import { readActivity, type GeoEvent, type ChokepointText, type ActivityRead } f
 import { getConflictPoints } from "./conflictEvents";
 import { getAcledEvents } from "./acled";
 import { gdeltLocalNews } from "./localNews";
+import { ensureChokepointConnection, type AisStatus } from "./aisStream";
+import { getChokepointTransits, type ChokepointTransit } from "./chokepointAis";
 
 export interface ChokepointRead extends Chokepoint, ActivityRead {
   totalEvents: number;
+  /** Live AIS transit picture (what ships DO), attached at read time — not
+   *  part of the 15-min cached text/event read. Absent for non-maritime
+   *  chokepoints. */
+  transit?: ChokepointTransit;
 }
 
 export interface ChokepointReadsBody {
   signals: ChokepointRead[];
   generatedAt: string;
   sources: { conflictEvents: number; acledEvents: number };
+  /** AIS bridge status — so an all-UNKNOWN transit column can be explained. */
+  ais?: AisStatus;
 }
 
 const TTL = 15 * 60 * 1000;
@@ -25,14 +33,31 @@ let inflight: { key: string; p: Promise<ChokepointReadsBody> } | null = null;
 
 export async function getChokepointReads(ids?: string[]): Promise<ChokepointReadsBody> {
   const points = ids?.length ? CHOKEPOINTS.filter((c) => ids.includes(c.id)) : CHOKEPOINTS;
-  if (points.length === 0) return { signals: [], generatedAt: new Date().toISOString(), sources: { conflictEvents: 0, acledEvents: 0 } };
+  if (points.length === 0) return { signals: [], generatedAt: new Date().toISOString(), sources: { conflictEvents: 0, acledEvents: 0 }, ais: { configured: false, connected: false } };
   const key = points.map((p) => p.id).sort().join(",");
-  if (cache && cache.key === key && Date.now() - cache.at < TTL) return cache.body;
-  if (inflight && inflight.key === key) return inflight.p;
-  const p = compute(points).then((body) => { cache = { at: Date.now(), key, body }; return body; })
-    .finally(() => { if (inflight?.key === key) inflight = null; });
-  inflight = { key, p };
-  return p;
+  let body: ChokepointReadsBody;
+  if (cache && cache.key === key && Date.now() - cache.at < TTL) body = cache.body;
+  else if (inflight && inflight.key === key) body = await inflight.p;
+  else {
+    const p = compute(points).then((b) => { cache = { at: Date.now(), key, body: b }; return b; })
+      .finally(() => { if (inflight?.key === key) inflight = null; });
+    inflight = { key, p };
+    body = await p;
+  }
+  return withTransits(body);
+}
+
+// Every read keeps the AIS bridge alive (chokepoint boxes only, unless a map
+// already holds a home subscription) and attaches the live transit picture.
+// The text/event read is cached; the transit numbers are always current.
+async function withTransits(body: ChokepointReadsBody): Promise<ChokepointReadsBody> {
+  const ais = ensureChokepointConnection();
+  const transits = await getChokepointTransits({ configured: ais.configured, connected: ais.connected }).catch(() => ({} as Record<string, ChokepointTransit>));
+  return {
+    ...body,
+    ais,
+    signals: body.signals.map((s) => (transits[s.id] ? { ...s, transit: transits[s.id] } : s)),
+  };
 }
 
 async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {

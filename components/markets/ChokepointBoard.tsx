@@ -15,13 +15,34 @@ import type { ActivityRead, InterdictionClass, Modality } from "@/lib/chokepoint
 // reported" is information, and a board that silently drops quiet chokepoints
 // cannot be distinguished from one whose feed died.
 
+interface Transit {
+  state: "unconfigured" | "unknown" | "learning" | "normal" | "suppressed" | "elevated";
+  line: string;
+  lastHour: number;
+  distinctToday: number;
+  observedMinutesToday: number;
+  baselinePerHour: number | null;
+  baselineDays: number;
+}
+
 interface Signal extends ActivityRead {
   id: string;
   name: string;
   why: string;
   radiusKm?: number;
   totalEvents: number;
+  transit?: Transit;
 }
+
+// What ships DO, beside what people SAY. Colour only for a judged state.
+const TRANSIT_CHIP: Record<Transit["state"], { text: string; cls: string }> = {
+  unconfigured: { text: "AIS off", cls: "text-slate-600 border-slate-800" },
+  unknown: { text: "AIS listening", cls: "text-slate-500 border-slate-700" },
+  learning: { text: "AIS baseline forming", cls: "text-slate-400 border-slate-600" },
+  normal: { text: "traffic normal", cls: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" },
+  suppressed: { text: "traffic suppressed", cls: "text-red-200 border-red-500/55 bg-red-500/15" },
+  elevated: { text: "traffic elevated", cls: "text-amber-200 border-amber-500/50 bg-amber-500/10" },
+};
 
 const CLASS_LABEL: Record<InterdictionClass, string> = {
   strike: "strike", seizure: "seizure", mining: "mining", closure: "closure",
@@ -89,12 +110,32 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
                   {CLASS_LABEL[s.lead.cls]}
                 </span>
               )}
+              {s.transit && s.transit.state !== "unconfigured" && (
+                <span className={`hidden sm:inline flex-shrink-0 text-[8px] font-bold uppercase tracking-wider px-1 rounded border ${TRANSIT_CHIP[s.transit.state].cls}`} title={s.transit.line}>
+                  {TRANSIT_CHIP[s.transit.state].text}
+                </span>
+              )}
               <span className="flex-shrink-0 text-slate-600 text-[10px]">{isOpen ? "▾" : "▸"}</span>
             </button>
 
             {isOpen && (
               <div className="px-3.5 pb-2.5 space-y-2">
                 <p className="text-[10px] text-slate-500 leading-snug">{s.why}</p>
+
+                {s.transit && (
+                  <div className="text-[10.5px]">
+                    <span className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border mr-1.5 ${TRANSIT_CHIP[s.transit.state].cls}`}>
+                      AIS · {TRANSIT_CHIP[s.transit.state].text}
+                    </span>
+                    <span className="text-slate-300">{s.transit.line}</span>
+                    {s.transit.state !== "unconfigured" && (
+                      <span className="block text-[9.5px] text-slate-600 mt-0.5">
+                        {s.transit.distinctToday} distinct vessels today over {s.transit.observedMinutesToday} min listened · {s.transit.lastHour} in the last hour
+                        {s.transit.baselinePerHour !== null ? ` · normal ${s.transit.baselinePerHour.toFixed(1)}/h from ${s.transit.baselineDays} observed days` : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {s.lead ? (
                   <div className="text-[11px]">
@@ -142,6 +183,7 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
         Graded, not counted: an act outscores a declared intention, which outscores commentary — and georeferenced
         incidents from UCDP/ACLED are joined by distance, so an attack nobody wrote a headline about still registers.
         A score of 0 means nothing interdiction-shaped was reported, not that the route is safe.
+        {" "}AIS transit counts compare today&rsquo;s vessels-per-listened-hour with each strait&rsquo;s own baseline; they read UNKNOWN until the bridge has listened long enough, and the count only runs while the server is up.
       </p>
     </div>
   );

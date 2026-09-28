@@ -13,6 +13,7 @@
 // version the deployment platform might run.
 
 import WS from "ws";
+import { chokepointBoundingBoxes, hasChokepointBoxes, noteVesselPosition, noteAisListening } from "./chokepointAis";
 
 export interface Vessel {
   mmsi: number;
@@ -55,15 +56,23 @@ function bboxFor(lat: number, lon: number, km: number): [number, number, number,
   return [lat - latDelta, lon - lonDelta, lat + latDelta, lon + lonDelta];
 }
 
-function subscribe(apiKey: string, bbox: [number, number, number, number]) {
+// One subscription carries the home box (when a map asked for one) PLUS the
+// tight counting boxes over every maritime chokepoint (lib/chokepointAis),
+// so transit counts accrue whenever the bridge is up at all.
+function subscribe(apiKey: string, bbox: [number, number, number, number] | null) {
   if (!ws || ws.readyState !== WS.OPEN) return;
+  const boxes: [[number, number], [number, number]][] = [
+    ...(bbox ? [[[bbox[0], bbox[1]], [bbox[2], bbox[3]]] as [[number, number], [number, number]]] : []),
+    ...chokepointBoundingBoxes(),
+  ];
+  if (boxes.length === 0) return;
   // Guard the send: ws masks outgoing frames, and a masking fault must not
   // bubble out as an uncaught exception that takes down the process.
   try {
     ws.send(
       JSON.stringify({
         APIKey: apiKey,
-        BoundingBoxes: [[[bbox[0], bbox[1]], [bbox[2], bbox[3]]]],
+        BoundingBoxes: boxes,
         FilterMessageTypes: ["PositionReport", "ShipStaticData"],
       }),
     );
@@ -102,6 +111,7 @@ function handleMessage(raw: string) {
       existing.heading = typeof r.TrueHeading === "number" && r.TrueHeading !== 511 ? r.TrueHeading : null;
       existing.updatedAt = Date.now();
       vessels.set(mmsi, existing);
+      noteVesselPosition(mmsi, r.Latitude, r.Longitude, existing.updatedAt);
     }
   } else if (m.MessageType === "ShipStaticData") {
     const s = m.Message?.ShipStaticData as undefined | { Name?: string; Type?: number };
@@ -121,16 +131,33 @@ function handleMessage(raw: string) {
   }
 }
 
-export function ensureAisConnection(lat: number, lon: number, radiusKm: number): { configured: boolean; connected: boolean; error?: string } {
-  const apiKey = process.env.AISSTREAM_API_KEY;
-  if (!apiKey) return { configured: false, connected: false };
+export interface AisStatus { configured: boolean; connected: boolean; error?: string }
 
+export function isAisConnected(): boolean { return !!ws && ws.readyState === WS.OPEN; }
+
+/** Home-centred subscription (the Crisis map's Vessels layer). */
+export function ensureAisConnection(lat: number, lon: number, radiusKm: number): AisStatus {
+  if (!process.env.AISSTREAM_API_KEY) return { configured: false, connected: false };
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
     return { configured: true, connected: false, error: "Invalid coords" };
   }
-
   const bbox = bboxFor(lat, lon, radiusKm);
-  const bboxKey = bbox.map((n) => n.toFixed(2)).join(",");
+  return ensure(bbox, bbox.map((n) => n.toFixed(2)).join(","));
+}
+
+/** Chokepoint-only subscription: keeps transit counts accruing while the app
+ *  is in use even if nobody has the Vessels layer on. Never downgrades a
+ *  live home subscription (its boxes already include the chokepoints). */
+export function ensureChokepointConnection(): AisStatus {
+  if (!process.env.AISSTREAM_API_KEY) return { configured: false, connected: false };
+  if (!hasChokepointBoxes()) return { configured: true, connected: false, error: "no chokepoint boxes" };
+  if (ws && ws.readyState === WS.OPEN && lastBbox) return { configured: true, connected: true };
+  return ensure(null, "chokepoints");
+}
+
+function ensure(bbox: [number, number, number, number] | null, bboxKey: string): AisStatus {
+  const apiKey = process.env.AISSTREAM_API_KEY;
+  if (!apiKey) return { configured: false, connected: false };
 
   // Already connected to the right bbox.
   if (ws && ws.readyState === WS.OPEN && lastBbox === bboxKey) {
@@ -181,6 +208,7 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
       lastError = null;        // clear any stale error from a prior failed attempt
       subscribe(apiKey, bbox);
       connecting = false;
+      noteAisListening(true);
     });
     sock.addEventListener("message", (ev) => {
       const data = typeof ev.data === "string" ? ev.data : (ev.data as Buffer).toString();
@@ -202,6 +230,7 @@ export function ensureAisConnection(lat: number, lon: number, radiusKm: number):
         console.error("[aisStream]", lastError);
       }
       connecting = false;
+      noteAisListening(false);
       if (ws === sock) { ws = null; lastBbox = null; }
     });
     sock.addEventListener("error", (ev) => {

@@ -85,6 +85,15 @@ describe("demandHorizon — recency and caps", () => {
     expect(c(old).drivers[0].text).toMatch(/standing/);
   });
 
+  it("counts suppressed AIS traffic at a chokepoint, alone or on top of reporting", () => {
+    const alone = demandHorizon({ ...empty, chokepoints: [{ name: "Hormuz", aor: "CENTCOM", score: 0, acts: 0, threats: 0, transit: "suppressed" }] });
+    const both = demandHorizon({ ...empty, chokepoints: [{ name: "Hormuz", aor: "CENTCOM", score: 70, acts: 1, threats: 0, transit: "suppressed" }] });
+    const c = (r: ReturnType<typeof demandHorizon>) => r.find((x) => x.aor === "CENTCOM")!;
+    expect(c(alone).drivers[0].delta).toBe(8);
+    expect(c(both).drivers[0].delta).toBe(26);
+    expect(c(both).drivers[0].text).toMatch(/AIS traffic suppressed/);
+  });
+
   it("weights an escalation above a chronic red", () => {
     const esc = demandHorizon({ ...empty, posture: [{ label: "Iraq", aor: "CENTCOM", composite: "red", escalated: true, chronic: false }] });
     const chr = demandHorizon({ ...empty, posture: [{ label: "Iraq", aor: "CENTCOM", composite: "red", escalated: false, chronic: true }] });

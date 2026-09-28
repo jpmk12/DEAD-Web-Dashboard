@@ -1653,6 +1653,35 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### AIS transit counts at chokepoints (Economy E — `lib/chokepointAis.ts` · `lib/chokepointTransit.ts`)
+What ships DO beside what people SAY. `Chokepoint.aisBox` (tight
+[latMin, lonMin, latMax, lonMax] over the strait itself — NOT the wide
+`radiusKm` used for events; none for the overflight pseudo-chokepoint) is
+subscribed by the AISStream bridge on EVERY connection: `aisStream.subscribe`
+now sends the home box (if a map asked for one) PLUS all chokepoint boxes in
+one subscription, and `ensureChokepointConnection()` opens a chokepoint-only
+subscription (never downgrading a live home one) from `getChokepointReads()`
+— so counts accrue whenever the Economy tab, I&W sensors or demand horizon
+run, not only when the Vessels layer is on. `chokepointAis.ts` keeps per-
+chokepoint distinct-MMSI-today + trailing-hour sets and the **minutes
+actually listened** (`noteAisListening` on open/close), upserts
+`chokepoint_transits_daily (day, chokepoint_id, distinct_mmsi,
+observed_minutes)` with GREATEST every ~3 min, and builds the baseline as
+mean **distinct-per-observed-hour over prior days with ≥3 h coverage**.
+`transitSignal()` (PURE, tested): `unconfigured` → `unknown` until ≥45 min
+listened today (a low count from a short listen is not low traffic) →
+`learning` until 5 observed days → `normal` / `suppressed` (≤0.6× own
+normal) / `elevated` (≥1.6×). Attached at read time as `ChokepointRead.transit`
+(the text/event read stays 15-min cached; transit numbers are live) with
+`body.ais` status. Consumers: `ChokepointBoard` chip + expanded line;
+`warningRules.chokepointState` — **suppressed lifts the text state one step
+and adds confidence, never lowers; normal never clears a reported act**;
+`demandHorizon` +8 (alone or on top). Limits stated on the board: counts run
+only while the server process is up (a deploy resets the in-memory sets; the
+DB row keeps the day's high-water mark). Vessels seen in chokepoint boxes
+also enter the shared `vessels` map, so the Crisis map's Vessels layer shows
+them too. Requires `AISSTREAM_API_KEY` (confirmed set in prod).
+
 ### I&W chokepoint indicator = the graded read (Economy D)
 The chokepoint indicator on every AOI board (`chokepoint_interdiction`;
 CENTCOM's legacy `hormuz_interdiction_signal`) no longer counts GDELT items

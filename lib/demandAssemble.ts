@@ -110,7 +110,7 @@ async function assemble(): Promise<DemandHorizonBody> {
     getChokepointReads().then((cp) => {
       sources.chokepoint = true;
       for (const s of cp.signals) {
-        input.chokepoints.push({ name: s.name, aor: aorFromCoords(s.lat, s.lon), score: s.score, acts: s.acts, threats: s.threats });
+        input.chokepoints.push({ name: s.name, aor: aorFromCoords(s.lat, s.lon), score: s.score, acts: s.acts, threats: s.threats, transit: s.transit?.state });
       }
     }).catch(() => {}),
   ]);

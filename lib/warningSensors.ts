@@ -276,7 +276,7 @@ function finalize(
       return cp.terms.some((t) => h.toLowerCase().includes(t)) && readInterdiction(h) !== null;
     }).length;
     const lite = chokeNews
-      ? { acts: chokeNews.acts, threats: chokeNews.threats, analysis: chokeNews.analysis, events: chokeNews.totalEvents, score: chokeNews.score }
+      ? { acts: chokeNews.acts, threats: chokeNews.threats, analysis: chokeNews.analysis, events: chokeNews.totalEvents, score: chokeNews.score, transit: chokeNews.transit?.state }
       : null;
     const { state: hState, confidence: hConf, why } = chokepointState(lite, userHits);
     if (chokeNews || userHits > 0) {

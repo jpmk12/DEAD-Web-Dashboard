@@ -37,7 +37,7 @@ export interface DemandBoard { label: string; aor: Aor; level: WarningLevel; tra
 export interface DemandDisaster { title: string; aor: Aor; severity: "red" | "orange" | "green" | "unknown"; hadrScore: number; timeISO: string; nearBase: boolean }
 export interface DemandAdvisory { country: string; aor: Aor; ordered: boolean; authorized: boolean; pubDate: string }
 export interface DemandPosture { label: string; aor: Aor; composite: string; escalated: boolean; chronic: boolean }
-export interface DemandChokepoint { name: string; aor: Aor; score: number; acts: number; threats: number }
+export interface DemandChokepoint { name: string; aor: Aor; score: number; acts: number; threats: number; /** AIS transit state when keyed. */ transit?: string }
 
 export interface DemandInput {
   today: string;                 // yyyy-mm-dd
@@ -148,13 +148,16 @@ export function demandHorizon(input: DemandInput): DemandOutlook[] {
     add(p.aor, { source: "posture", delta, text: `Posture ${p.label} ${p.composite.toUpperCase()} (${tag})` });
   }
 
-  // Chokepoints — a declared act outranks a declared intention.
+  // Chokepoints — a declared act outranks a declared intention; suppressed
+  // AIS traffic (what ships DO) adds on top, and on its own is a signal.
   for (const c of input.chokepoints) {
     let delta = 0;
     if (c.acts > 0 || c.score >= 60) delta = 18;
     else if (c.threats > 0 || c.score >= 30) delta = 9;
+    const suppressed = c.transit === "suppressed";
+    if (suppressed) delta += 8;
     if (delta === 0) continue;
-    add(c.aor, { source: "chokepoint", delta, text: `${c.name} interdiction — ${c.acts} act${c.acts === 1 ? "" : "s"}, ${c.threats} threat${c.threats === 1 ? "" : "s"}` });
+    add(c.aor, { source: "chokepoint", delta, text: `${c.name} interdiction — ${c.acts} act${c.acts === 1 ? "" : "s"}, ${c.threats} threat${c.threats === 1 ? "" : "s"}${suppressed ? ", AIS traffic suppressed" : ""}` });
   }
 
   // One row per watched AOR plus any AOR with drivers; UNKNOWN only if driven.

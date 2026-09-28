@@ -98,9 +98,27 @@ export function mobilityObservedHigh(count: number, baseline: MobilityBaseline):
 // approaches with no interdiction text at all are watching — something is
 // happening there, but nobody has called it interdiction. Own-source-only
 // still caps at watching.
-export interface ChokepointReadLite { acts: number; threats: number; analysis: number; events: number; score: number }
+export interface ChokepointReadLite {
+  acts: number; threats: number; analysis: number; events: number; score: number;
+  /** AIS transit state when keyed (lib/chokepointTransit): "suppressed" is
+   *  what ships DO when a strait is interdicted, and corroborates the text. */
+  transit?: "unconfigured" | "unknown" | "learning" | "normal" | "suppressed" | "elevated";
+}
 
 export function chokepointState(read: ChokepointReadLite | null, userHits: number): { state: ObservedState; confidence: number; why: string } {
+  const base = chokepointTextState(read, userHits);
+  // AIS corroboration: suppressed traffic lifts a text-derived state one step
+  // (dormant → watching, watching → active, active → confirmed) and adds
+  // confidence; it never lowers one, and "normal" traffic does not clear a
+  // reported act — ships keep sailing through threats until they don't.
+  if (read?.transit === "suppressed") {
+    const up: Record<ObservedState, ObservedState> = { dormant: "watching", watching: "active", active: "confirmed", confirmed: "confirmed" };
+    return { state: up[base.state], confidence: Math.min(0.9, base.confidence + 0.15), why: `${base.why}; AIS traffic suppressed vs its own normal` };
+  }
+  return base;
+}
+
+function chokepointTextState(read: ChokepointReadLite | null, userHits: number): { state: ObservedState; confidence: number; why: string } {
   if (!read) {
     if (userHits >= 1) return { state: "watching", confidence: 0.45, why: "own sources only (read unavailable)" };
     return { state: "dormant", confidence: 0, why: "read unavailable" };

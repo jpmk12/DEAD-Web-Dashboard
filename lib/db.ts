@@ -36,6 +36,18 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (day, icao)
   ) ENGINE=InnoDB`,
 
+  // Daily AIS transit count per chokepoint (lib/chokepointAis): distinct MMSI
+  // seen in the strait's counting box and the minutes the bridge was actually
+  // listening that day — the denominator that keeps a short listen from
+  // reading as low traffic. Baseline = per-observed-hour rate over prior days.
+  `CREATE TABLE IF NOT EXISTS chokepoint_transits_daily (
+    day              VARCHAR(10) NOT NULL,
+    chokepoint_id    VARCHAR(32) NOT NULL,
+    distinct_mmsi    INT         NOT NULL DEFAULT 0,
+    observed_minutes INT         NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, chokepoint_id)
+  ) ENGINE=InnoDB`,
+
   // Daily Indications & Warning rollup — one row per warning problem per UTC day
   // (latest computed score wins). Powers the baseline (trailing-mean raw_score,
   // so the board scores ANOMALY not level) and the trajectory series. Same
