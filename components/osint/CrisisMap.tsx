@@ -5,7 +5,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { cellToBoundary } from "h3-js";
-import { BASEMAPS, DARKEN_CLASS, TILE_FAIL_LIMIT } from "@/lib/basemaps";
+import {
+  BASEMAP_STYLES, DARKEN_CLASS, DEFAULT_STYLE, ESRI_REFERENCE_OVERLAY,
+  TILE_FAIL_LIMIT, providerFor, styleById, wantsLabels,
+  type BasemapStyleId,
+} from "@/lib/basemaps";
 import { AMC_HUBS } from "@/lib/amcHubs";
 import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
@@ -294,17 +298,32 @@ export default function CrisisMap() {
   // Basemap health. `tileOk` latches true on the first tile that loads, which is
   // what separates "this provider is refusing us" from "no tiles exist for that
   // corner of the world at this zoom".
-  const [basemapIdx, setBasemapIdx] = useState(0);
+  // `styleId` is the user's PICK; `failedCount` is how many providers in that
+  // style's chain have been ruled out. Kept apart so a wrong-looking map can be
+  // attributed to a setting or to an outage, never ambiguously both.
+  const [styleId, setStyleId] = useState<BasemapStyleId>(DEFAULT_STYLE);
+  const [failedCount, setFailedCount] = useState(0);
   const tileOkRef = useRef(false);
   const tileErrors = useRef(0);
-  const basemap = BASEMAPS[Math.min(basemapIdx, BASEMAPS.length - 1)];
+  const style = styleById(styleId);
+  const basemap = providerFor(style, failedCount);
+  const showLabels = wantsLabels(style, basemap);
   const onTileLoad = useCallback(() => { tileOkRef.current = true; }, []);
   const onTileError = useCallback(() => {
     if (tileOkRef.current) return; // tiles ARE arriving — coverage gaps, not refusal
     tileErrors.current += 1;
     if (tileErrors.current < TILE_FAIL_LIMIT) return;
     tileErrors.current = 0;
-    setBasemapIdx((i) => (i + 1 < BASEMAPS.length ? i + 1 : i));
+    setFailedCount((n) => (n + 1 < style.providers.length ? n + 1 : n));
+  }, [style.providers.length]);
+  // Switching style starts the health judgement over — the new chain's first
+  // provider has not been tried, and carrying a previous chain's failure count
+  // would silently skip it.
+  const pickStyle = useCallback((id: BasemapStyleId) => {
+    setStyleId(id);
+    setFailedCount(0);
+    tileOkRef.current = false;
+    tileErrors.current = 0;
   }, []);
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
@@ -359,6 +378,11 @@ export default function CrisisMap() {
         if (typeof vw === "string" && vw) setViewName(vw);
         const aor = st[UI_KEYS.crisisAor];
         if (typeof aor === "string" && (aor === "ALL" || AORS.includes(aor as Aor))) setAorFilter(aor as Aor | "ALL");
+        // Basemap style. Validated against the known list rather than cast —
+        // a stale id from an older build must fall back to the default, not
+        // leave the map with no provider.
+        const bm = st[UI_KEYS.crisisBasemap];
+        if (typeof bm === "string" && BASEMAP_STYLES.some((s) => s.id === bm)) setStyleId(bm as BasemapStyleId);
       })
       .finally(() => { didHydrate.current = true; });
   }, []);
@@ -366,6 +390,7 @@ export default function CrisisMap() {
     try { localStorage.setItem(TOGGLE_KEY, JSON.stringify(on)); } catch { /* ignore */ }
     if (didHydrate.current) patchUiState({ [UI_KEYS.crisisLayers]: on });
   }, [on]);
+  useEffect(() => { if (didHydrate.current) patchUiState({ [UI_KEYS.crisisBasemap]: styleId }); }, [styleId]);
   useEffect(() => { if (didHydrate.current) patchUiState({ [UI_KEYS.crisisView]: viewName }); }, [viewName]);
   useEffect(() => { if (didHydrate.current) patchUiState({ [UI_KEYS.crisisAor]: aorFilter }); }, [aorFilter]);
 
@@ -830,6 +855,40 @@ export default function CrisisMap() {
                 <span className="text-[9px] text-slate-500 ml-2 font-mono">{activeCount} on</span>
                 <button onClick={() => setLayersOpen(false)} className="ml-auto text-slate-500 hover:text-slate-200 text-xs">✕</button>
               </div>
+
+              {/* Basemap style. Above the data toggles because it is a different
+                  kind of choice — what the world looks like, not what is drawn
+                  on it. All three are keyless (see lib/basemaps). */}
+              <div className="mb-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Basemap</span>
+                  {failedCount > 0 && (
+                    <span
+                      className="text-[9px] font-mono text-sky-300"
+                      title={`${style.providers[0].name} would not serve tiles, so this style fell back to ${basemap.name}. Data layers are unaffected.`}
+                    >
+                      · {basemap.name} (fallback)
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {BASEMAP_STYLES.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => pickStyle(s.id)}
+                      title={s.hint}
+                      className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${
+                        s.id === styleId
+                          ? "bg-violet-500/20 text-violet-200 border-violet-500/40"
+                          : "border-slate-700 text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[9px] text-slate-600 mt-1.5 leading-snug">{style.hint}</p>
+              </div>
               {LAYER_GROUPS.map((g) => (
                 <div key={g.label} className="mb-2.5">
                   <div className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">{g.label}</div>
@@ -912,10 +971,10 @@ export default function CrisisMap() {
         <button onClick={() => setFullscreen((v) => !v)} title="Toggle fullscreen" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-slate-200">{fullscreen ? "Exit" : "Full"}</button>
         <button onClick={runRead} title="Claude MOBILITY-DEMAND read — where airlift/HADR/NEO demand is emerging (distinct from the side panel's force-protection 'Force read')" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">Demand read</button>
         <span className="flex-1" />
-        {basemapIdx > 0 && (
+        {failedCount > 0 && (
           <span
             className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-sky-500/10 text-sky-300 border-sky-500/40"
-            title={`${BASEMAPS[0].name} would not serve tiles, so the basemap fell back to ${basemap.name}. Only the background imagery changed — every data layer is unaffected.`}
+            title={`${style.providers[0].name} would not serve tiles for the "${style.label}" basemap, so it fell back to ${basemap.name}. Only the background imagery changed — every data layer is unaffected.`}
           >
             basemap: {basemap.name}
           </span>
@@ -975,6 +1034,17 @@ export default function CrisisMap() {
               className={basemap.darken ? DARKEN_CLASS : undefined}
               eventHandlers={{ load: onTileLoad, tileerror: onTileError }}
             />
+            {/* Imagery carries no place names, which makes a threat map much
+                harder to read — lay Esri's reference boundaries/labels over it.
+                Not health-checked: if it fails you lose labels, not the map. */}
+            {showLabels && (
+              <TileLayer
+                key={ESRI_REFERENCE_OVERLAY.id}
+                url={ESRI_REFERENCE_OVERLAY.url}
+                maxZoom={ESRI_REFERENCE_OVERLAY.maxZoom}
+                zIndex={3}
+              />
+            )}
             {on.radar && radarFrames.map((f, i) => (
               <TileLayer
                 key={f.path}

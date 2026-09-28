@@ -7,6 +7,7 @@ export const UI_KEYS = {
   crisisLayers: "crisisMap.layers",
   crisisView: "crisisMap.view",
   crisisAor: "crisisMap.aor",
+  crisisBasemap: "crisisMap.basemap",
   newsletterQuietDismissed: "newsletter.quietDismissed",
 } as const;
 

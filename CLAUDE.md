@@ -958,15 +958,48 @@ on screen, because "the OSINT map isn't displaying" is indistinguishable from
   red "signed out — sign in again" badge, cleared at the top of each refresh
   cycle so re-login clears it.
 - **Basemap refusal** — the basemap is the one layer whose failure means
-  "there is no map". `lib/basemaps.ts` (PURE data, shared by `CrisisMap` and
-  the Regional pane's `IncidentMiniMap` — one list, one fix) is a chain: OSM
-  → Esri dark canvas → OpenTopoMap. A provider that logs `TILE_FAIL_LIMIT`
-  tile errors *without ever loading one* is judged to be refusing us (ordinary
-  coverage gaps produce errors AND loads) and the map advances, showing a
-  `basemap: <name>` badge. Light providers carry `DARKEN_CLASS`
-  (`.crisis-basemap-darken`, globals.css — invert+hue-rotate on the tile pane
-  only; the marker panes are its siblings, so marker colours survive).
-  Esri's URL is `{z}/{y}/{x}` — row before column, unlike every other entry.
+  "there is no map". `lib/basemaps.ts` (PURE data, unit-tested, shared by
+  `CrisisMap` and the Regional pane's `IncidentMiniMap` — one list, one fix)
+  keeps **two dimensions deliberately separate**: `BasemapStyleId`
+  (`dark|satellite|street`) is the user's PICK, persisted cross-device via
+  `UI_KEYS.crisisBasemap`; `failedCount` is how many providers in that style's
+  chain have been ruled out. Mixing them is how you lose the ability to say
+  whether a wrong-looking map is a setting or an outage. A provider that logs
+  `TILE_FAIL_LIMIT` tile errors *without ever loading one* is judged to be
+  refusing us (ordinary coverage gaps produce errors AND loads) and the chain
+  advances, showing a `basemap: <name>` badge. Changing style resets the
+  judgement — carrying a previous chain's count would skip the new style's
+  first provider untried.
+  - Chains: **dark** Esri dark canvas → OSM-darkened · **satellite** Esri world
+    imagery → Esri dark → OSM-darkened · **street** Esri street → OSM. Imagery
+    degrades to *cartography*, not to a street map — a satellite style falling
+    back to streets is surprising.
+  - **INVARIANT (test-enforced): every chain has ≥2 entries and ENDS on
+    `tile.openstreetmap.org`.** Esri leads all three (real cartography for every
+    look, keyless on the legacy MapServer endpoints) but is one vendor; the last
+    resort must be the host with no key concept. An earlier draft ended the
+    street chain on OpenTopoMap and a test written from this comment caught it.
+  - `providerFor` **clamps** rather than indexing past the end — a blank map is
+    the outcome this module exists to prevent, so it can never return undefined.
+  - Satellite adds `ESRI_REFERENCE_OVERLAY` (place names/boundaries) on top,
+    because imagery alone has no labels. It is NOT health-checked and is dropped
+    once imagery has fallen back — the cartographic tiles already have labels,
+    and drawing both doubles every place name.
+  - Esri URLs are `{z}/{y}/{x}` — **row before column**, unlike every other
+    entry; getting it backwards yields a map that loads but is transposed.
+  - Light providers carry `DARKEN_CLASS` (`.crisis-basemap-darken`, globals.css
+    — invert+hue-rotate on the tile pane only; the marker panes are its
+    siblings, so marker colours survive). `darken` is a property of the ENTRY,
+    not the URL: plain OSM appears twice, darkened inside the dark styles and
+    as-is inside street.
+  - **Google Maps was considered and declined.** Pulling Google tiles into
+    Leaflet (`mt1.google.com/vt/…`) breaches the Maps ToS and gets IP-blocked —
+    the CARTO problem with legal exposure added. Maps Platform proper is a
+    rewrite of ~55 react-leaflet elements (Google has no `CircleMarker`, no
+    `Tooltip`; the radar loop becomes `ImageMapType` overlays) AND makes the
+    basemap a metered dependency needing a key plus a billing account. Esri's
+    keyless endpoints deliver the same dark-and-satellite look. Revisit only on
+    explicit request.
 
   **CARTO is REMOVED, not demoted, and must not be re-added.**
   `basemaps.cartocdn.com/dark_all` was the primary for both maps. It withdrew

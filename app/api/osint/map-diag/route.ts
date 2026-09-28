@@ -81,9 +81,13 @@ export async function GET() {
   const probes = await Promise.all([
     // The basemap — the ONE failure that means "there is no map" rather than
     // "one layer has no data". Probed in provider-chain order.
-    probe("basemap 1 (OSM)", "https://tile.openstreetmap.org/3/4/3.png", { ua: BROWSER_UA }),
-    probe("basemap 2 (Esri dark)", "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/3/3/4", { ua: BROWSER_UA }),
-    probe("basemap 3 (OpenTopoMap)", "https://a.tile.opentopomap.org/3/4/3.png", { ua: BROWSER_UA }),
+    // One row per provider that can render a basemap style. Esri leads each
+    // style; OSM is the backstop in all of them.
+    probe("basemap dark (Esri dark canvas)", "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/3/3/4", { ua: BROWSER_UA }),
+    probe("basemap satellite (Esri imagery)", "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/3/4", { ua: BROWSER_UA }),
+    probe("basemap satellite labels (Esri reference)", "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/3/3/4", { ua: BROWSER_UA }),
+    probe("basemap street (Esri street)", "https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/3/3/4", { ua: BROWSER_UA }),
+    probe("basemap backstop (OSM)", "https://tile.openstreetmap.org/3/4/3.png", { ua: BROWSER_UA }),
     // Negative control, kept deliberately: CARTO answers its nag tile with
     // HTTP 200 and content-type image/*, so this row is expected to look
     // HEALTHY while being useless. It is here so the next person to read this
@@ -118,8 +122,11 @@ export async function GET() {
   const keyDemands = probes.filter(
     (p) => /api[ _-]?(key|token)|unauthori[sz]ed|requires? (an )?(api )?(key|token)|subscription/i.test(p.body ?? ""),
   );
-  // Only the providers actually in the chain count — see the CARTO row above.
-  const basemapOk = probes.some((p) => /^basemap \d/.test(p.layer) && p.status === 200);
+  // Only providers actually in a chain count — see the CARTO row above. The
+  // backstop alone being up is enough for the map to draw something.
+  const basemapOk = probes.some(
+    (p) => p.layer.startsWith("basemap ") && !p.layer.includes("CARTO") && p.status === 200,
+  );
 
   return NextResponse.json({
     checkedAt: new Date().toISOString(),
