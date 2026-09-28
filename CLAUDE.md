@@ -1653,6 +1653,25 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### I&W chokepoint indicator = the graded read (Economy D)
+The chokepoint indicator on every AOI board (`chokepoint_interdiction`;
+CENTCOM's legacy `hormuz_interdiction_signal`) no longer counts GDELT items
+containing "clos"/"mine"/"seiz" substrings. `warningSensors` §5 now reads
+`getChokepointReads([geo.chokepoint.id])` — the SAME 15-min-cached graded
+`readActivity` the Economy tab's `ChokepointBoard` renders (modality act >
+threat > analysis + UCDP/ACLED events near the point), so the board and the
+indicator cannot disagree about the strait, and the duplicate GDELT query is
+gone. `ProblemGeo.chokepoint` gained `id` (CENTCOM_GEO → "hormuz";
+`problemFromSeed` → `cp.id`). The state mapping is a PURE rule,
+`warningRules.chokepointState` (tested): reported act → active (confirmed
+with own-source agreement); declared threat → watching (active with
+agreement); analysis alone never passes watching and needs ≥2 pieces;
+≥3 kinetic events with no interdiction text → watching; own-source-only caps
+at watching; read unavailable → dormant + `health.live=false` (UNKNOWN ≠
+clear). User-source corroboration goes through `readInterdiction` (the
+interdiction grammar), never a bare mention. Provenance carries the `why`
+and the lead headline.
+
 ### Economy: U.S. regulatory actions (`lib/federalRegister.ts` · `lib/regulatorySignals.ts`)
 The Economy tab's missing data class — the sanctions / export-control /
 tariff ACTIONS themselves, not news about them — from the **Federal

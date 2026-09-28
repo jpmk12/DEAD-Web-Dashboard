@@ -9,7 +9,9 @@ import type { IndicatorObservation, ObservedState } from "./warning";
 import { getConflictPoints } from "./conflictEvents";
 import { getDisasters, haversineKm } from "./disasters";
 import { getConflictNewsByCountry, scoreConflictNews } from "./conflictNews";
-import { gdeltLocalNews } from "./localNews";
+import { getChokepointReads, type ChokepointRead } from "./chokepointReads";
+import { readInterdiction } from "./chokepointSignals";
+import { chokepointState } from "./warningRules";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { getFirNotams } from "./airspace";
 import { isMobilityType, isTankerType } from "./aircraftTypes";
@@ -145,13 +147,15 @@ export async function gatherObservations(
     withTimeout(getConflictPoints(), 10_000),
     withTimeout(getDisasters(), 10_000),
     withTimeout(getConflictNewsByCountry(geo.countries), 12_000),
-    geo.chokepoint ? withTimeout(gdeltLocalNews(geo.chokepoint.searchTerm), 10_000) : Promise.resolve(null),
+    // The SAME graded read the Economy tab's chokepoint board shows (15-min
+    // cached, one GDELT query per chokepoint shared with that board).
+    geo.chokepoint ? withTimeout(getChokepointReads([geo.chokepoint.id]), 12_000) : Promise.resolve(null),
     withTimeout(getAllStateAdvisories(), 10_000),
     withTimeout(fetchMilAircraft(), 10_000),
     geo.firs.length ? withTimeout(getFirNotams(geo.firs), 12_000) : Promise.resolve(null),
     gatherUserSourceNews(geo).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>() })),
   ]);
-  const chokeNews = chokeNewsRaw ?? [];
+  const chokeNews: ChokepointRead | null = chokeNewsRaw?.signals?.[0] ?? null;
   const userNews = userSrc?.items ?? [];
   const userSources = userSrc?.sources ?? new Set<string>();
   const userSrcLabel = userSources.size ? ` + your ${[...userSources].join("/")}` : "";
@@ -238,7 +242,7 @@ function finalize(
   divergence: DivergenceState,
   advisories: Awaited<ReturnType<typeof getAllStateAdvisories>> | null,
   neoTriggers: { orderedDeparture: boolean; authorizedDeparture: boolean; level: number | null }[],
-  chokeNews: NewsItem[],
+  chokeNews: ChokepointRead | null,
   firRes: Awaited<ReturnType<typeof getFirNotams>> | null,
   userNews: NewsItem[],
   userSrcLabel: string,
@@ -257,26 +261,33 @@ function finalize(
     health.push({ indicatorId: "neo_departure_posture", live: false, note: "State advisory feed unreachable" });
   }
 
-  // 5) chokepoint interdiction ← closure/mining/seizure reporting for the
-  // problem's chokepoint (skipped entirely when the AOI has none), from GDELT
-  // AND the user's own sources (corroboration; own-source-only caps at watch).
+  // 5) chokepoint interdiction ← the GRADED activity read for the problem's
+  // chokepoint (skipped entirely when the AOI has none): modality-graded text
+  // (reported act > declared threat > analysis) plus georeferenced kinetic
+  // events in the approaches — the same read the Economy tab shows, so the
+  // board and the I&W indicator can never disagree about the strait. The
+  // user's own sources corroborate through the same interdiction grammar
+  // (readInterdiction), never a bare mention; own-source-only caps at watch
+  // (warningRules.chokepointState).
   if (geo.chokepoint) {
     const cp = geo.chokepoint;
-    const INTERDICT = ["clos", "mine", "mining", "seiz", "seized", "block", "impound", "attack", "harass"];
-    const scan = (arr: NewsItem[]): number => arr.filter((a) => {
-      const h = `${a.title} ${a.summary ?? ""}`.toLowerCase();
-      return cp.terms.some((t) => h.includes(t)) && INTERDICT.some((t) => h.includes(t));
+    const userHits = userNews.filter((a) => {
+      const h = `${a.title} ${a.summary ?? ""}`;
+      return cp.terms.some((t) => h.toLowerCase().includes(t)) && readInterdiction(h) !== null;
     }).length;
-    const gdeltHits = scan(chokeNews ?? []);
-    const userHits = scan(userNews);
-    let hState: ObservedState; let hConf: number;
-    if (gdeltHits >= 1 && userHits >= 1) { hState = "active"; hConf = 0.75; }   // corroborated
-    else if (gdeltHits >= 2) { hState = "active"; hConf = 0.6; }
-    else if (gdeltHits === 1) { hState = "watching"; hConf = 0.55; }
-    else if (userHits >= 1) { hState = "watching"; hConf = 0.45; }              // own-source only
-    else { hState = "dormant"; hConf = 0; }
-    observations.push(obs(cp.indicatorId, "conflictNews", hState, hConf, `GDELT DOC '${cp.name}' + interdiction scan${userSrcLabel}`, gdeltHits + userHits));
-    health.push({ indicatorId: cp.indicatorId, live: true });
+    const lite = chokeNews
+      ? { acts: chokeNews.acts, threats: chokeNews.threats, analysis: chokeNews.analysis, events: chokeNews.totalEvents, score: chokeNews.score }
+      : null;
+    const { state: hState, confidence: hConf, why } = chokepointState(lite, userHits);
+    if (chokeNews || userHits > 0) {
+      observations.push(obs(
+        cp.indicatorId, "conflictNews", hState, hConf,
+        `${cp.name} graded read — ${why}${chokeNews?.lead ? ` · lead: "${chokeNews.lead.title.slice(0, 80)}"` : ""}${userSrcLabel}`,
+        (lite ? lite.acts + lite.threats : 0) + userHits,
+      ));
+    }
+    if (chokeNews) health.push({ indicatorId: cp.indicatorId, live: true });
+    else health.push({ indicatorId: cp.indicatorId, live: false, note: `${cp.name} read unavailable (GDELT/conflict feeds)` });
   }
 
   // 6) airspace_gps_disruption ← Gulf FIR closure/overflight NOTAMs (best-effort).

@@ -82,3 +82,41 @@ export function mobilityObservedHigh(count: number, baseline: MobilityBaseline):
   }
   return count >= MOBILITY_FALLBACK_SURGE;
 }
+
+// ── (d) Chokepoint interdiction — graded, not counted ───────────────────────
+// The chokepoint indicator used to count GDELT items containing any of a few
+// substrings ("clos", "mine", "seiz"…), so a think-piece about mining the
+// strait scored like a tanker actually struck. It now reads the SAME graded
+// activity read the Economy tab's chokepoint board shows (lib/chokepointSignals
+// readActivity: modality act / threat / analysis + georeferenced events near
+// the point), and this rule turns that read into an observed state.
+//
+// Discipline (mirrors the user-source rule above): a REPORTED ACT is active;
+// with the user's own sources agreeing it is confirmed. A DECLARED THREAT is
+// watching; agreement lifts it to active. ANALYSIS alone never passes
+// watching, and needs two pieces to reach it. Kinetic events in the
+// approaches with no interdiction text at all are watching — something is
+// happening there, but nobody has called it interdiction. Own-source-only
+// still caps at watching.
+export interface ChokepointReadLite { acts: number; threats: number; analysis: number; events: number; score: number }
+
+export function chokepointState(read: ChokepointReadLite | null, userHits: number): { state: ObservedState; confidence: number; why: string } {
+  if (!read) {
+    if (userHits >= 1) return { state: "watching", confidence: 0.45, why: "own sources only (read unavailable)" };
+    return { state: "dormant", confidence: 0, why: "read unavailable" };
+  }
+  if (read.acts >= 1) {
+    return userHits >= 1
+      ? { state: "confirmed", confidence: 0.8, why: `${read.acts} reported act${read.acts === 1 ? "" : "s"}, corroborated by your sources` }
+      : { state: "active", confidence: 0.7, why: `${read.acts} reported act${read.acts === 1 ? "" : "s"}` };
+  }
+  if (read.threats >= 1) {
+    return userHits >= 1
+      ? { state: "active", confidence: 0.6, why: `${read.threats} declared threat${read.threats === 1 ? "" : "s"}, corroborated by your sources` }
+      : { state: "watching", confidence: 0.55, why: `${read.threats} declared threat${read.threats === 1 ? "" : "s"}` };
+  }
+  if (read.events >= 3) return { state: "watching", confidence: 0.5, why: `${read.events} kinetic events in the approaches, no interdiction reporting` };
+  if (read.analysis >= 2) return { state: "watching", confidence: 0.3, why: `${read.analysis} analysis pieces, no reported act or threat` };
+  if (userHits >= 1) return { state: "watching", confidence: 0.45, why: "own sources only" };
+  return { state: "dormant", confidence: 0, why: "nothing interdiction-shaped reported" };
+}

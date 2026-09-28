@@ -6,6 +6,7 @@ import {
   conflictImpliesDemand,
   mobilityObservedHigh,
   MOBILITY_FALLBACK_SURGE,
+  chokepointState,
 } from "../lib/warningRules";
 
 const NOW = Date.UTC(2026, 6, 13, 12, 0);
@@ -69,5 +70,38 @@ describe("mobilityObservedHigh — surge is relative to the AOR's own normal", (
     expect(mobilityObservedHigh(10, { mean: null, samples: 0 })).toBe(false);
     expect(mobilityObservedHigh(10, { mean: 8, samples: 2 })).toBe(false);   // too few samples
     expect(mobilityObservedHigh(MOBILITY_FALLBACK_SURGE, { mean: null, samples: 0 })).toBe(true);
+  });
+});
+
+describe("chokepointState — graded, not counted", () => {
+  const read = (o: Partial<{ acts: number; threats: number; analysis: number; events: number; score: number }>) =>
+    ({ acts: 0, threats: 0, analysis: 0, events: 0, score: 0, ...o });
+
+  it("a reported act is active; with own-source agreement it is confirmed", () => {
+    expect(chokepointState(read({ acts: 1 }), 0).state).toBe("active");
+    expect(chokepointState(read({ acts: 1 }), 1).state).toBe("confirmed");
+  });
+
+  it("a declared threat is watching; agreement lifts it to active", () => {
+    expect(chokepointState(read({ threats: 2 }), 0).state).toBe("watching");
+    expect(chokepointState(read({ threats: 2 }), 1).state).toBe("active");
+  });
+
+  it("analysis alone never passes watching and needs two pieces to reach it", () => {
+    expect(chokepointState(read({ analysis: 1 }), 0).state).toBe("dormant");
+    expect(chokepointState(read({ analysis: 5 }), 0).state).toBe("watching");
+    expect(chokepointState(read({ analysis: 5 }), 3).state).toBe("watching");
+  });
+
+  it("kinetic events in the approaches without interdiction text are watching", () => {
+    expect(chokepointState(read({ events: 3 }), 0).state).toBe("watching");
+    expect(chokepointState(read({ events: 2 }), 0).state).toBe("dormant");
+  });
+
+  it("own-source-only caps at watching, and an unavailable read is dormant not clear", () => {
+    expect(chokepointState(read({}), 4).state).toBe("watching");
+    const r = chokepointState(null, 0);
+    expect(r.state).toBe("dormant");
+    expect(r.why).toMatch(/unavailable/);
   });
 });

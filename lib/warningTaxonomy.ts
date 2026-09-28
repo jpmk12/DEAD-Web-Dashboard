@@ -85,7 +85,7 @@ export const CENTCOM_IRAN: WarningProblemDef = {
       warningProblem: "centcom_iran",
       description:
         "Strait of Hormuz interdiction signal — closure declarations, mining, tanker seizure or harassment reporting.",
-      sourceFeed: "GDELT DOC Hormuz + interdiction scan, corroborated by your X/newsletters/OSINT feeds [+ AIS anomaly when keyed]",
+      sourceFeed: "Graded Hormuz activity read (reported act > declared threat > analysis; UCDP/ACLED events in the approaches) — the Economy tab's chokepoint board — corroborated by your X/newsletters/OSINT feeds [+ AIS anomaly when keyed]",
       weight: 0.7,
       falsifier: "No Hormuz closure / seizure / mining reporting corroborated by ≥2 sources in a rolling 72h window.",
       provenance: "Open maritime-security reporting; historical Iran Hormuz-threat pattern.",
@@ -114,7 +114,7 @@ export interface ProblemGeo {
   firs: string[];
   terms: RegExp;                 // mention gate for free-text (X/newsletters/feeds)
   conflictIndicatorId: string;   // CENTCOM keeps its legacy indicator ids
-  chokepoint: { indicatorId: string; name: string; searchTerm: string; terms: string[] } | null;
+  chokepoint: { id: string; indicatorId: string; name: string; searchTerm: string; terms: string[] } | null;
 }
 
 export const CENTCOM_GEO: ProblemGeo = {
@@ -133,7 +133,7 @@ export const CENTCOM_GEO: ProblemGeo = {
   firs: ["OBBB", "OTDF", "OMAE", "OIIX", "OKAC", "ORBB", "OEJD", "OYSC"],
   terms: /\b(iran|iranian|tehran|irgc|iraq|iraqi|israel|israeli|\bidf\b|yemen|houthi|hormuz|persian gulf|arabian gulf|strait of hormuz|red sea|bab.?el.?mandeb|saudi|riyadh|qatar|doha|bahrain|manama|kuwait|\buae\b|emirates|abu dhabi|dubai|oman|muscat|syria|lebanon|hezbollah|hizbollah|centcom)\b/i,
   conflictIndicatorId: "conflict_intensity_gulf",
-  chokepoint: { indicatorId: "hormuz_interdiction_signal", name: "Strait of Hormuz", searchTerm: "Strait of Hormuz", terms: ["hormuz", "strait"] },
+  chokepoint: { id: "hormuz", indicatorId: "hormuz_interdiction_signal", name: "Strait of Hormuz", searchTerm: "Strait of Hormuz", terms: ["hormuz", "strait"] },
 };
 
 // Seed shape emitted by lib/missionProfile deriveTracking().warningProblems —
@@ -227,7 +227,7 @@ export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblem
       ...(cp ? [{
         id: "chokepoint_interdiction", warningProblem: seed.id,
         description: `${cp.name} interdiction signal — closure declarations, mining, seizure or harassment reporting.`,
-        sourceFeed: `GDELT DOC ${cp.name} + interdiction scan, corroborated by your X/newsletters/OSINT feeds`, weight: 0.7,
+        sourceFeed: `Graded ${cp.name} activity read (reported act > declared threat > analysis; conflict events in the approaches) — the Economy tab's chokepoint board — corroborated by your X/newsletters/OSINT feeds`, weight: 0.7,
         falsifier: `No ${cp.name} closure / seizure / mining reporting corroborated by ≥2 sources in a rolling 72h window.`,
         provenance: "Open maritime/transit-security reporting.",
       }] : []),
@@ -237,7 +237,7 @@ export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblem
   const geo: ProblemGeo = {
     bbox, countries: seed.countries, hubs, firs, terms,
     conflictIndicatorId: "conflict_intensity",
-    chokepoint: cp ? { indicatorId: "chokepoint_interdiction", name: cp.name, searchTerm: cp.name, terms: cp.keywords.map((k) => k.toLowerCase()) } : null,
+    chokepoint: cp ? { id: cp.id, indicatorId: "chokepoint_interdiction", name: cp.name, searchTerm: cp.name, terms: cp.keywords.map((k) => k.toLowerCase()) } : null,
   };
   return { def, geo };
 }
