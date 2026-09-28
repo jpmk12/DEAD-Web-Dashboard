@@ -1,0 +1,57 @@
+import { describe, it, expect } from "vitest";
+import { renderClock, renderClocks, DEFAULT_CLOCKS, utcOffsetMinutes, formatUtcOffset } from "../lib/worldClocks";
+
+// 2026-09-28 02:30Z — Monday in Zulu; still Sunday evening in New Jersey (EDT, UTC−4).
+const NOW = Date.UTC(2026, 8, 28, 2, 30);
+
+describe("renderClock — one instant, many zones", () => {
+  it("renders the local time, weekday and offset for each zone", () => {
+    const nj = renderClock(NOW, { label: "New Jersey", tz: "America/New_York" }, "UTC");
+    expect(nj.time).toBe("22:30");
+    expect(nj.weekday).toBe("Sun");
+    expect(nj.utcOffset).toBe("UTC−4");
+    expect(nj.isNight).toBe(true);
+
+    const teh = renderClock(NOW, { label: "Tehran", tz: "Asia/Tehran" }, "UTC");
+    expect(teh.time).toBe("06:00");
+    expect(teh.utcOffset).toBe("UTC+3:30");
+    expect(teh.isNight).toBe(false);
+
+    const z = renderClock(NOW, { label: "Zulu", tz: "UTC" }, "UTC");
+    expect(z.time).toBe("02:30");
+    expect(z.utcOffset).toBe("UTC");
+  });
+
+  it("reports the calendar-day offset relative to the device zone", () => {
+    // Device in New Jersey (Sunday): Beijing is already Monday.
+    const bj = renderClock(NOW, { label: "Beijing", tz: "Asia/Shanghai" }, "America/New_York");
+    expect(bj.weekday).toBe("Mon");
+    expect(bj.dayOffset).toBe(1);
+    // Device in Beijing (Monday): New Jersey is still Sunday.
+    const nj = renderClock(NOW, { label: "New Jersey", tz: "America/New_York" }, "Asia/Shanghai");
+    expect(nj.dayOffset).toBe(-1);
+    expect(renderClock(NOW, { label: "Zulu", tz: "UTC" }, "UTC").dayOffset).toBe(0);
+  });
+
+  it("marks an unknown zone invalid rather than throwing or guessing", () => {
+    const bad = renderClock(NOW, { label: "Nowhere", tz: "Mars/Olympus" }, "UTC");
+    expect(bad.valid).toBe(false);
+    expect(bad.time).toBe("--:--");
+  });
+
+  it("renders the five defaults", () => {
+    const rows = renderClocks(NOW, DEFAULT_CLOCKS, "UTC");
+    expect(rows.map((r) => r.label)).toEqual(["New Jersey", "Moscow", "Tehran", "Beijing", "Zulu"]);
+    expect(rows.every((r) => r.valid)).toBe(true);
+  });
+});
+
+describe("utcOffset helpers", () => {
+  it("computes half-hour offsets and formats them", () => {
+    expect(utcOffsetMinutes(new Date(NOW), "Asia/Tehran")).toBe(210);
+    expect(utcOffsetMinutes(new Date(NOW), "Europe/Moscow")).toBe(180);
+    expect(formatUtcOffset(-240)).toBe("UTC−4");
+    expect(formatUtcOffset(345)).toBe("UTC+5:45");
+    expect(formatUtcOffset(0)).toBe("UTC");
+  });
+});

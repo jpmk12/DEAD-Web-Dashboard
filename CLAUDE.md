@@ -1767,6 +1767,19 @@ split into one file per section is NOT done** — the file is still one
 is what makes that split mechanical later (each section's JSX + its state
 slice), and nothing else depends on it.
 
+### Glance world clocks (`lib/worldClocks.ts` · `components/glance/WorldClocks.tsx`)
+A clock row under the Glance greeting, above the status row: **New Jersey
+(America/New_York) · Moscow · Tehran · Beijing (Asia/Shanghai) · Zulu** by
+default (`DEFAULT_CLOCKS`). PURE + tested: `renderClock(nowMs, def,
+deviceTz)` derives everything with Intl from ONE instant (time, weekday,
+`dayOffset` ±1 vs the device's calendar day, day/night by local hour,
+`utcOffset` incl. half-hours like Tehran's UTC+3:30; an invalid zone renders
+`--:--` and `valid:false`, never throws). Client-only render (same hydration
+rule as the greeting), ticks on the minute boundary so all clocks flip
+together. "edit" adds/removes zones (datalist of common IANA ids, validated
+via `isValidTz`) and persists per browser in `localStorage["glance.clocks"]`
+— not cross-device on purpose (trivial, and the default set is the point).
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns

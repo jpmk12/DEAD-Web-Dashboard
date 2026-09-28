@@ -6,6 +6,7 @@ import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import StatusRow from "@/components/glance/StatusRow";
+import WorldClocks from "@/components/glance/WorldClocks";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
@@ -915,6 +916,9 @@ export default function GlanceTab({
           )}
         </div>
       </div>
+
+      {/* ── World clocks: home station, the capitals that set the tempo, Zulu ── */}
+      <WorldClocks />
 
       {/* ── Hero: live status row ──
           Posture · Bases · I&W · Demand · Alerts · Family — each a live tile
