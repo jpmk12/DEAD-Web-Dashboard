@@ -1,4 +1,5 @@
 // Household digest assembler (server-only).
+import { scanJeopardy, jeopardyLine, type JeopardyFinding } from "./accountJeopardy";
 //
 // Division of labour, deliberately: the model reads bill text and returns
 // FACTS (amount, due date, account tail, a wellbeing item). Everything that
@@ -47,6 +48,9 @@ export interface HouseholdDigest {
   silence: SilenceItem[];
   documents: DocumentRunway[];
   wellbeing: WellbeingItem[];
+  // Deterministic, pre-model: declined payments, lapses, final notices.
+  jeopardy: JeopardyFinding[];
+  jeopardyLine: string | null;
   coverage: { billers: number; scanned: number; windowDays: number; noCadenceYet: number };
   disabled?: boolean;
   empty?: "no-billers" | "no-mail";
@@ -87,7 +91,7 @@ export async function assembleHouseholdDigest(
 
   const blank = (extra: Partial<HouseholdDigest>): HouseholdDigest => ({
     generatedAt: now.toISOString(),
-    bills: [], silence: [], documents, wellbeing: [],
+    bills: [], silence: [], documents, wellbeing: [], jeopardy: [], jeopardyLine: null,
     coverage: { billers: profile.billers.length, scanned: 0, windowDays: WINDOW_DAYS, noCadenceYet: 0 },
     ...extra,
   });
@@ -118,6 +122,18 @@ export async function assembleHouseholdDigest(
       coverage: { billers: profile.billers.length, scanned: mail.length, windowDays: WINDOW_DAYS, noCadenceYet: countNoCadence(profile.billers, prior) },
     });
   }
+
+  // Account jeopardy — a deterministic phrase scan over the mail we ALREADY
+  // fetched, before any model call. These are the highest-consequence items in
+  // the pane and previously surfaced only if the model happened to mention one
+  // in a paragraph; an unmentioned lapsed policy was indistinguishable from no
+  // lapsed policy. Subject + a bounded body slice, no widening of the query.
+  const jeopardy = scanJeopardy(attributed.map(({ msg, biller }) => ({
+    id: msg.id,
+    label: biller.label,
+    text: `${msg.subject ?? ""}\n${(msg.body ?? "").slice(0, 1500)}`,
+    seenDate: (msg.date || "").slice(0, 10),
+  })));
 
   let facts: { bills: Record<string, RawBill>; wellbeing: WellbeingItem[] } = { bills: {}, wellbeing: [] };
   if (attributed.length > 0) {
@@ -178,6 +194,8 @@ export async function assembleHouseholdDigest(
     bills: sortBills(bills),
     silence: silenceWatch(profile.billers, prior, nowMs),
     documents,
+    jeopardy,
+    jeopardyLine: jeopardyLine(jeopardy),
     wellbeing: facts.wellbeing,
     coverage: {
       billers: profile.billers.length,

@@ -148,6 +148,40 @@ export default function HouseholdPane({ active }: { active: boolean }) {
         </div>
       )}
 
+      {/* ── account jeopardy ──
+          First, because it is the only block here where something is already
+          going wrong rather than merely worth watching. Deterministic (no model
+          call), so it survives an AI outage — see lib/accountJeopardy. */}
+      {(d.jeopardy?.length ?? 0) > 0 && (
+        <div className="border border-red-500/40 bg-red-950/15 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-3.5 py-2 border-b border-red-500/25 bg-red-500/[.07]">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-red-300">⚠ Needs action now</span>
+            <span className="ml-auto text-[10px] text-slate-500">{d.jeopardyLine}</span>
+          </div>
+          {d.jeopardy.map((f) => (
+            <div key={f.sourceId} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/70 first:border-t-0">
+              <span className={`mt-0.5 w-[74px] flex-shrink-0 text-center text-[9px] font-bold uppercase tracking-wider rounded py-0.5 border ${
+                f.severity === "red"
+                  ? "text-red-200 border-red-500/55 bg-red-500/15"
+                  : "text-amber-200 border-amber-500/45 bg-amber-500/10"
+              }`}>
+                {f.kind.replace(/-/g, " ")}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12.5px] font-semibold text-slate-100">{f.label}</span>
+                <span className="block text-[10.5px] text-slate-500">
+                  {f.meaning} · matched &ldquo;{f.phrase}&rdquo;{f.seenDate ? ` · ${f.seenDate}` : ""}
+                </span>
+              </span>
+            </div>
+          ))}
+          <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
+            A fixed phrase scan over mail from the billers you declared — no model call, so it still works when AI
+            is off. It can only see senders you named, so an empty block is not an all-clear.
+          </p>
+        </div>
+      )}
+
       {/* ── silence watch ── */}
       {d.silence.length > 0 && (
         <div className="border border-violet-500/40 bg-violet-950/10 rounded-xl overflow-hidden">
