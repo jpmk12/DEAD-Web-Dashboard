@@ -164,8 +164,16 @@ export default function TabShell() {
   }, []);
 
   useEffect(() => {
-    const param = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const param = params.get("tab");
     if (VALID_TABS.includes(param as Tab)) setActiveTab(param as Tab);
+    // `?prefs=<section>` opens Preferences on that section — the URL-
+    // addressable settings a recommendation card or a pasted link can use.
+    const prefs = params.get("prefs");
+    if (prefs) {
+      setPrefsOpen(true);
+      setTimeout(() => window.dispatchEvent(new CustomEvent("prefs:focus-group", { detail: prefs })), 150);
+    }
   }, []);
 
   // Mirror the active tab onto <body> so components with no path to this

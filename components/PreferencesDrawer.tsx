@@ -2674,45 +2674,47 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Collapsible-group state. Default for first-time users: only "you" is
-  // open (gives an entry point). Returning users get whatever they last
-  // had open, restored from localStorage in the effect below.
+  // Sectioned settings: ONE section is shown at a time, chosen from a left
+  // rail (desktop) or the pill row (phone), and the choice is URL-addressable
+  // as `?prefs=<key>` so a recommendation card, the palette, or a pasted link
+  // can land on the exact setting. This replaced the six-collapsible flat
+  // scroll: the last-open section is remembered per browser; the URL wins
+  // over memory when present.
   type GroupKey = "mission" | "you" | "connections" | "email" | "sources" | "ai";
-  const [openGroups, setOpenGroups] = useState<Record<GroupKey, boolean>>({
-    mission: false, you: true, connections: false, email: false, sources: false, ai: false,
-  });
+  const GROUP_KEYS: GroupKey[] = ["mission", "you", "connections", "email", "sources", "ai"];
+  const isGroupKey = (v: unknown): v is GroupKey => typeof v === "string" && (GROUP_KEYS as string[]).includes(v);
+  const [activeGroup, setActiveGroup] = useState<GroupKey>("you");
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("prefs-groups-state");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          setOpenGroups({
-            mission:     parsed.mission === true,
-            you:         parsed.you === true,
-            connections: parsed.connections === true,
-            email:       parsed.email === true,
-            sources:     parsed.sources === true,
-            ai:          parsed.ai === true,
-          });
-        }
-      }
-    } catch { /* fall through to defaults */ }
+      const fromUrl = new URLSearchParams(window.location.search).get("prefs");
+      if (isGroupKey(fromUrl)) { setActiveGroup(fromUrl); return; }
+      const remembered = localStorage.getItem("prefs-active-group");
+      if (isGroupKey(remembered)) setActiveGroup(remembered);
+    } catch { /* defaults */ }
   }, []);
-  const persistGroups = (next: Record<GroupKey, boolean>) => {
-    try { localStorage.setItem("prefs-groups-state", JSON.stringify(next)); } catch { /* noop */ }
+  const writeUrl = (k: GroupKey | null) => {
+    try {
+      const url = new URL(window.location.href);
+      if (k) url.searchParams.set("prefs", k); else url.searchParams.delete("prefs");
+      window.history.replaceState(window.history.state, "", url.toString());
+    } catch { /* noop */ }
   };
-  const toggleGroup = (k: GroupKey) => {
-    setOpenGroups((prev) => { const next = { ...prev, [k]: !prev[k] }; persistGroups(next); return next; });
-  };
-  const openAndScrollTo = (k: GroupKey) => {
-    setOpenGroups((prev) => { const next = { ...prev, [k]: true }; persistGroups(next); return next; });
-    // Defer so the expanded panel exists before scrollIntoView fires.
+  const selectGroup = (k: GroupKey) => {
+    setActiveGroup(k);
+    try { localStorage.setItem("prefs-active-group", k); } catch { /* noop */ }
+    writeUrl(k);
     setTimeout(() => {
       const el = document.getElementById(`prefs-group-${k}`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
+      if (el) el.scrollIntoView({ block: "start" });
+    }, 40);
   };
+  // The URL carries the section only while the drawer is open.
+  useEffect(() => { if (open) writeUrl(activeGroup); else writeUrl(null); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [open]);
+  // Derived view of the old collapsible model so the section markup below
+  // (carets, pills, gates) keeps working: exactly one group is "open".
+  const openGroups = Object.fromEntries(GROUP_KEYS.map((k) => [k, k === activeGroup])) as Record<GroupKey, boolean>;
+  const toggleGroup = (k: GroupKey) => selectGroup(k);
+  const openAndScrollTo = (k: GroupKey) => selectGroup(k);
   // `prefs:focus-group` (detail = group key) — the shell dispatches this just
   // after opening the drawer so the command palette can land on a section.
   useEffect(() => {
@@ -2966,7 +2968,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
       />
 
       {/* Drawer */}
-      <div className="fixed top-0 right-0 h-full w-full max-w-md lg:max-w-lg bg-slate-950 border-l border-slate-800 z-50 flex flex-col shadow-2xl">
+      <div className="fixed top-0 right-0 h-full w-full max-w-md lg:max-w-3xl bg-slate-950 border-l border-slate-800 z-50 flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -2998,15 +3000,15 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           </div>
         </div>
 
-        {/* Quick-jump pill row — sticky to the top of the scroll container.
-            Click a pill to open its group AND smooth-scroll to it. Active
-            (open) groups get the emerald style. */}
-        <div className="flex-shrink-0 border-b border-slate-800 bg-slate-950 px-5 py-2 flex items-center gap-1 overflow-x-auto">
+        {/* Section selector — pill row on phones (the rail below is desktop).
+            One section shows at a time; the selection is in the URL. */}
+        <div className="lg:hidden flex-shrink-0 border-b border-slate-800 bg-slate-950 px-5 py-2 flex items-center gap-1 overflow-x-auto">
           {GROUPS.map((g) => (
             <button
               key={g.key}
               type="button"
-              onClick={() => openAndScrollTo(g.key)}
+              onClick={() => selectGroup(g.key)}
+              aria-current={openGroups[g.key] ? "page" : undefined}
               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded transition-all border flex-shrink-0 ${
                 openGroups[g.key]
                   ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
@@ -3018,13 +3020,36 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           ))}
         </div>
 
-        {/* Content — five collapsible groups. Each renders its sections
-            linearly inside; the existing section forms haven't changed,
-            they've just moved into their categorical home. */}
+        <div className="flex-1 min-h-0 flex">
+        {/* Desktop rail — the settings index, with each section's live
+            one-line summary so a problem (stale feeds, AI off) is visible
+            before the section is opened. */}
+        <nav aria-label="Settings sections" className="hidden lg:flex flex-col w-[220px] flex-shrink-0 border-r border-slate-800 bg-slate-950 py-3 overflow-y-auto">
+          {GROUPS.map((g) => (
+            <button
+              key={g.key}
+              type="button"
+              onClick={() => selectGroup(g.key)}
+              aria-current={openGroups[g.key] ? "page" : undefined}
+              className={`text-left px-4 py-2.5 border-l-2 transition-colors ${
+                openGroups[g.key]
+                  ? "border-l-emerald-400 bg-emerald-500/[0.07]"
+                  : "border-l-transparent hover:bg-slate-900"
+              }`}
+            >
+              <span className={`block text-[11px] font-bold uppercase tracking-wider ${openGroups[g.key] ? "text-emerald-300" : "text-slate-300"}`}>{g.label}</span>
+              <span className="block text-[10px] text-slate-600 truncate mt-0.5">{groupSubtitle(g.key)}</span>
+            </button>
+          ))}
+          <p className="mt-auto px-4 pt-3 text-[9px] text-slate-700 font-mono">?prefs={activeGroup}</p>
+        </nav>
+
+        {/* Content — one section at a time; the section forms are unchanged,
+            only their visibility is driven by the selector. */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
           {/* ─── Mission Profile ─────────────────────────────────── */}
-          <section id="prefs-group-mission" className="border border-slate-800 rounded-lg overflow-hidden">
+          <section id="prefs-group-mission" className={`border border-slate-800 rounded-lg overflow-hidden ${activeGroup === "mission" ? "" : "hidden"}`}>
             <button
               type="button"
               onClick={() => toggleGroup("mission")}
@@ -3042,7 +3067,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           </section>
 
           {/* ─── You ─────────────────────────────────────────────── */}
-          <section id="prefs-group-you" className="border border-slate-800 rounded-lg overflow-hidden">
+          <section id="prefs-group-you" className={`border border-slate-800 rounded-lg overflow-hidden ${activeGroup === "you" ? "" : "hidden"}`}>
             <button
               type="button"
               onClick={() => toggleGroup("you")}
@@ -3219,7 +3244,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           </section>
 
           {/* ─── Connections & appearance ─────────────────────────── */}
-          <section id="prefs-group-connections" className="border border-slate-800 rounded-lg overflow-hidden">
+          <section id="prefs-group-connections" className={`border border-slate-800 rounded-lg overflow-hidden ${activeGroup === "connections" ? "" : "hidden"}`}>
             <button
               type="button"
               onClick={() => toggleGroup("connections")}
@@ -3299,7 +3324,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           </section>
 
           {/* ─── Email rules ──────────────────────────────────────── */}
-          <section id="prefs-group-email" className="border border-slate-800 rounded-lg overflow-hidden">
+          <section id="prefs-group-email" className={`border border-slate-800 rounded-lg overflow-hidden ${activeGroup === "email" ? "" : "hidden"}`}>
             <button
               type="button"
               onClick={() => toggleGroup("email")}
@@ -3339,7 +3364,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           </section>
 
           {/* ─── Content sources ──────────────────────────────────── */}
-          <section id="prefs-group-sources" className="border border-slate-800 rounded-lg overflow-hidden">
+          <section id="prefs-group-sources" className={`border border-slate-800 rounded-lg overflow-hidden ${activeGroup === "sources" ? "" : "hidden"}`}>
             <button
               type="button"
               onClick={() => toggleGroup("sources")}
@@ -3378,7 +3403,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           </section>
 
           {/* ─── AI & memory ──────────────────────────────────────── */}
-          <section id="prefs-group-ai" className="border border-slate-800 rounded-lg overflow-hidden">
+          <section id="prefs-group-ai" className={`border border-slate-800 rounded-lg overflow-hidden ${activeGroup === "ai" ? "" : "hidden"}`}>
             <button
               type="button"
               onClick={() => toggleGroup("ai")}
@@ -3400,6 +3425,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               </div>
             )}
           </section>
+        </div>
         </div>
 
         {/* Save footer */}

@@ -1652,6 +1652,26 @@ watermark. Auth: session OR the capture bearer token. The extension
 `chrome.storage.local`. Transport-agnostic — a future PWA/web-push pass reuses
 the endpoint unchanged.
 
+### Preferences: sectioned + URL-addressable (`?prefs=<section>`)
+`PreferencesDrawer` shows ONE section at a time — `activeGroup` ∈ mission /
+you / connections / email / sources / ai — chosen from a **desktop left
+rail** (220 px, each entry carries `groupSubtitle` so stale feeds / AI-off
+are visible before opening) or the **phone pill row**; the drawer widened
+to `lg:max-w-3xl`. The selection is written to the URL as `?prefs=<key>`
+(`history.replaceState`, only while open; removed on close) and remembered
+in `localStorage["prefs-active-group"]` (URL wins over memory). `TabShell`
+reads `?prefs=` on mount → opens the drawer → fires `prefs:focus-group`; the
+palette's `prefs:open` uses the same path. So a recommendation card can
+deep-link to the setting it changes with a plain `?prefs=sources` href.
+Implementation note: the old collapsible model is kept as a DERIVED view
+(`openGroups` = exactly one true; `toggleGroup`/`openAndScrollTo` alias
+`selectGroup`), so the six existing `<section id="prefs-group-…">` blocks
+are untouched except for a `hidden` class when inactive. **The physical
+split into one file per section is NOT done** — the file is still one
+3.4k-line component with ~100 shared state vars; the sectioned model above
+is what makes that split mechanical later (each section's JSX + its state
+slice), and nothing else depends on it.
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns
