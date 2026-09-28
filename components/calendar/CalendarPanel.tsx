@@ -8,6 +8,7 @@ import { Calendar } from "@/lib/icons";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import SignInButton from "./SignInButton";
 import { useEventActions, EventActionCluster, EventActionPanels } from "./eventActions";
+import { familyDatesByDay, FAMILY_DATE_GLYPH, type FamilyDate } from "@/lib/familyCalendar";
 
 const CACHE_KEY = "calendar:events";
 
@@ -251,6 +252,26 @@ export default function CalendarPanel({ onEventsLoaded }: CalendarPanelProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  // Family dates — deadlines, bill due dates, document expiries, expected-by
+  // dates — as a second, read-only layer. These were already stored and never
+  // reached the week view; the household ran on four lists that never met the
+  // calendar. Owner-only server-side (crew gets []), so no gating here.
+  const [famDates, setFamDates] = useState<FamilyDate[]>([]);
+  const [showFamily, setShowFamily] = useState(true);
+  useEffect(() => {
+    try { setShowFamily(localStorage.getItem("calendar.showFamily") !== "0"); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("calendar.showFamily", showFamily ? "1" : "0"); } catch { /* ignore */ }
+  }, [showFamily]);
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    fetch("/api/family/dates")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (Array.isArray(d?.items)) setFamDates(d.items); })
+      .catch(() => {});
+  }, [status, refreshKey]);
+
   const onEventsLoadedRef = useRef(onEventsLoaded);
   useEffect(() => { onEventsLoadedRef.current = onEventsLoaded; });
 
@@ -319,6 +340,10 @@ export default function CalendarPanel({ onEventsLoaded }: CalendarPanelProps) {
   }
 
   const groups = groupByDate(events);
+  const eventsByDay = new Map(groups);
+  const famByDay = showFamily ? familyDatesByDay(famDates) : new Map<string, FamilyDate[]>();
+  // Union of days, ascending. Family dates are already windowed by the lib.
+  const dayKeys = Array.from(new Set([...eventsByDay.keys(), ...famByDay.keys()])).sort();
 
   return (
     <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -332,6 +357,18 @@ export default function CalendarPanel({ onEventsLoaded }: CalendarPanelProps) {
           <span className="text-xs text-slate-600 font-mono">{session?.user?.email}</span>
           {lastUpdated && !loading && (
             <span className="text-[10px] text-slate-700 font-mono">{formatUpdated(lastUpdated)}</span>
+          )}
+          {famDates.length > 0 && (
+            <button
+              onClick={() => setShowFamily((v) => !v)}
+              aria-pressed={showFamily}
+              title="Show tracked family deadlines, bill due dates and document expiries on the calendar"
+              className={`text-[10px] font-bold uppercase tracking-wider rounded px-2 py-0.5 border transition-colors ${
+                showFamily ? "border-violet-500/50 bg-violet-500/10 text-violet-300" : "border-slate-700 text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              ⚑ Family ({famDates.length})
+            </button>
           )}
           <button
             onClick={() => setRefreshKey((k) => k + 1)}
@@ -386,13 +423,15 @@ export default function CalendarPanel({ onEventsLoaded }: CalendarPanelProps) {
           </div>
         )}
 
-        {!loading && !error && groups.length === 0 && (
+        {!loading && !error && dayKeys.length === 0 && (
           <p className="text-sm text-slate-600 text-center py-16 font-mono uppercase tracking-wider">
             No upcoming events
           </p>
         )}
 
-        {!loading && !error && groups.map(([dateKey, dayEvents]) => {
+        {!loading && !error && dayKeys.map((dateKey) => {
+          const dayEvents = eventsByDay.get(dateKey) ?? [];
+          const fam = famByDay.get(dateKey) ?? [];
           const { primary, secondary, isToday } = getDayLabel(dateKey);
           return (
             <div key={dateKey} className="border-b border-slate-800/60 last:border-0">
@@ -419,6 +458,26 @@ export default function CalendarPanel({ onEventsLoaded }: CalendarPanelProps) {
               <div className="px-5">
                 {dayEvents.map((event) => (
                   <AgendaEvent key={event.id} event={event} />
+                ))}
+                {/* Family dates for this day — a quieter register than events,
+                    and one tap through to the tab that owns them. */}
+                {fam.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => window.dispatchEvent(new CustomEvent("app:navigate", { detail: "family" }))}
+                    title="Open the Family tab"
+                    className={`w-full flex items-center gap-2.5 py-1.5 text-left border-l-2 pl-2.5 my-1 rounded-r hover:bg-slate-800/40 ${
+                      f.tone === "late" ? "border-red-500/70"
+                      : f.tone === "soon" ? "border-amber-500/70"
+                      : f.tone === "handled" ? "border-slate-700 opacity-50"
+                      : "border-violet-500/50"
+                    }`}
+                  >
+                    <span className="text-[11px] text-violet-300 w-3 text-center flex-shrink-0" aria-hidden="true">{FAMILY_DATE_GLYPH[f.kind]}</span>
+                    <span className={`text-[12px] flex-1 min-w-0 truncate ${f.tone === "handled" ? "line-through text-slate-500" : "text-slate-200"}`}>{f.title}</span>
+                    {f.note && <span className="hidden sm:inline text-[10px] text-slate-500 truncate max-w-[220px]">{f.note}</span>}
+                    {f.tone === "late" && <span className="text-[9px] font-bold uppercase tracking-wider text-red-300 flex-shrink-0">late</span>}
+                  </button>
                 ))}
               </div>
             </div>
