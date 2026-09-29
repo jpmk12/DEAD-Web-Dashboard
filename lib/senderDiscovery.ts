@@ -188,7 +188,14 @@ export function discoverSenders(
   observed: ObservedSender[],
   declaredPatterns: string[],
   dismissed: string[] = [],
-  opts: { minSightings?: number; max?: number } = {},
+  opts: {
+    minSightings?: number; max?: number;
+    /** Seeding from a Gmail LABEL the user made: the label is the evidence, so
+     *  a sender with no category-shaped subject is still proposed, in this
+     *  category, with the label named as the reason. Never set for the
+     *  ordinary scan — there, volume without a phrase earns nothing. */
+    fallbackCategory?: ProposalCategory; fallbackReason?: string;
+  } = {},
 ): SenderCandidate[] {
   const minSightings = opts.minSightings ?? MIN_SIGHTINGS;
   const dismissedSet = new Set(dismissed.map((d) => d.toLowerCase()));
@@ -236,7 +243,15 @@ export function discoverSenders(
     const ranked = [...g.hits.entries()]
       .map(([cat, set]) => ({ cat, n: set.size }))
       .sort((a, b) => b.n - a.n || CATEGORIES.indexOf(a.cat) - CATEGORIES.indexOf(b.cat));
-    if (ranked.length === 0 || ranked[0].n === 0) continue;
+    if (ranked.length === 0 || ranked[0].n === 0) {
+      if (!opts.fallbackCategory) continue;
+      out.push({
+        domain, name: g.name, count: g.count, signals: [], examples: g.examples,
+        category: opts.fallbackCategory, confidence: "close",
+        reason: opts.fallbackReason ?? `${g.count} messages`,
+      });
+      continue;
+    }
 
     const winner = ranked[0];
     const runnerUp = ranked[1];
@@ -282,4 +297,19 @@ export function discoveryQuery(declaredPatterns: string[], days = 120): string {
     .map((p) => `-from:(${p})`)
     .join(" ");
   return `(${subjects}) ${window} ${exclude}`.trim();
+}
+
+/** The query for seeding from a Gmail LABEL the user already maintains
+ *  ("School", "Bills"). Their own filing is the evidence, so there is no
+ *  subject shape — just the label, a window, and the same exclusion of what
+ *  is already declared. Still headers only at the route. */
+export function labelQuery(label: string, declaredPatterns: string[], days = 365): string {
+  const name = label.trim().replace(/"/g, "");
+  const window = `newer_than:${Math.max(7, Math.min(730, Math.round(days)))}d`;
+  const exclude = declaredPatterns
+    .map((p) => (p.includes("@") ? p : `@${p}`))
+    .filter(Boolean)
+    .map((p) => `-from:(${p})`)
+    .join(" ");
+  return `label:"${name}" ${window} ${exclude}`.trim();
 }

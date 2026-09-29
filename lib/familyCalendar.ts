@@ -22,6 +22,7 @@
 
 import type { StoredDeadline } from "./familyDeadlines";
 import type { FamilyDocument, DocExpectationEntry, FamilyBiller } from "./familyProfile";
+import { resolveLeadDays } from "./familyProposals";
 
 export type FamilyDateKind = "deadline" | "bill" | "document" | "document-expiry" | "expected";
 
@@ -128,13 +129,16 @@ export function familyDates(
   // 3. Documents — the actionable date (expiry − lead) and the expiry itself.
   for (const doc of input.documents) {
     if (!ISO.test(doc.expiresISO)) continue;
-    if (doc.leadDays && doc.leadDays > 0) {
-      const act = shift(doc.expiresISO, -doc.leadDays);
+    // Declared lead wins; otherwise the type default (a passport is unusable
+    // six months out whether or not anyone typed 183).
+    const lead = resolveLeadDays(doc);
+    if (lead > 0) {
+      const act = shift(doc.expiresISO, -lead);
       if (act && inWindow(act)) {
         out.push({
           id: `doc:${doc.id}:act`, dateISO: act, kind: "document",
           title: `${doc.label} — renew by`,
-          note: `${doc.leadDays}-day lead; expires ${doc.expiresISO}`,
+          note: `${lead}-day lead${doc.leadDays ? "" : " (type default)"}; expires ${doc.expiresISO}`,
           tone: toneFor(act, today, false),
         });
       }

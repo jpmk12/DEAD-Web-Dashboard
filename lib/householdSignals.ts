@@ -12,6 +12,7 @@
 // in its own right.
 
 import type { BillCadence, FamilyBiller, FamilyDocument } from "./familyProfile";
+import { resolveLeadDays } from "./familyProposals";
 
 export interface BillSighting {
   billerId: string;
@@ -22,11 +23,14 @@ export interface BillSighting {
 // Expected gap between messages, and the slack we allow before calling a
 // biller silent. Slack is generous on purpose: one late statement is normal,
 // and a false "your bill is missing" teaches the user to ignore the panel.
+// `auto` carries no expectation of its own: the caller resolves it to an
+// observed cadence first (lib/billHistory.effectiveCadence). An unresolved
+// auto is treated like irregular — never accused.
 const CADENCE_DAYS: Record<BillCadence, number | null> = {
-  monthly: 31, quarterly: 92, annual: 366, irregular: null,
+  monthly: 31, quarterly: 92, annual: 366, irregular: null, auto: null,
 };
 const SLACK_DAYS: Record<BillCadence, number> = {
-  monthly: 10, quarterly: 21, annual: 45, irregular: 0,
+  monthly: 10, quarterly: 21, annual: 45, irregular: 0, auto: 0,
 };
 
 export const cadenceDays = (c: BillCadence): number | null => CADENCE_DAYS[c];
@@ -130,14 +134,16 @@ export interface DocumentRunway {
 // Runway on a declared document. `leadDays` is what makes this honest: a
 // passport's printed expiry overstates its usable life, because most
 // destinations demand six months' validity. Sorting and colour follow the
-// ACTIONABLE date, not the printed one.
+// ACTIONABLE date, not the printed one. When no lead was declared the type
+// default applies (resolveLeadDays — 183 for a passport, 30 for a licence or
+// registration), so the field only needs typing to override it.
 export function documentRunway(docs: FamilyDocument[], nowMs: number): DocumentRunway[] {
   return docs
     .flatMap((doc): DocumentRunway[] => {
       const ms = toMs(doc.expiresISO);
       if (!Number.isFinite(ms)) return [];
       const daysLeft = Math.ceil((ms - nowMs) / dayMs);
-      const actionableDaysLeft = daysLeft - (doc.leadDays ?? 0);
+      const actionableDaysLeft = daysLeft - resolveLeadDays(doc);
       const level: DocumentRunway["level"] =
         actionableDaysLeft <= 45 ? "red" : actionableDaysLeft <= 180 ? "amber" : "calm";
       return [{ doc, daysLeft, actionableDaysLeft, level }];

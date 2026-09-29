@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { FamilyProfile, FamilyPerson, FamilySender, FamilyBiller, FamilyDocument, BillCadence, DocExpectationEntry } from "@/lib/familyProfile";
 import { slug } from "@/lib/familyProfile";
+import { defaultLeadDays } from "@/lib/familyProposals";
 
 // Declare the household. This roster is not cosmetic — it becomes the Gmail
 // search the digest runs, so an empty roster reads no mail at all, and adding
@@ -14,11 +15,12 @@ export default function FamilyRosterEditor({
   const [people, setPeople] = useState<FamilyPerson[]>(profile.people);
   const [senders, setSenders] = useState<FamilySender[]>(profile.senders);
   const [household, setHousehold] = useState(profile.includeHousehold);
+  const [autoDiscover, setAutoDiscover] = useState(profile.autoDiscover !== false);
   const [billers, setBillers] = useState<FamilyBiller[]>(profile.billers ?? []);
   const [documents, setDocuments] = useState<FamilyDocument[]>(profile.documents ?? []);
   const [bPattern, setBPattern] = useState("");
   const [bLabel, setBLabel] = useState("");
-  const [bCadence, setBCadence] = useState<BillCadence>("monthly");
+  const [bCadence, setBCadence] = useState<BillCadence>("auto");
   const [bAuto, setBAuto] = useState(false);
   const [dLabel, setDLabel] = useState("");
   // Expected documents: label + the phrase to recognise it + the date it should
@@ -68,7 +70,7 @@ export default function FamilyRosterEditor({
       id: `b-${slug(pattern)}-${xs.length}`, pattern,
       label: bLabel.trim() || pattern, cadence: bCadence, autopay: bAuto,
     }]);
-    setBPattern(""); setBLabel(""); setBCadence("monthly"); setBAuto(false);
+    setBPattern(""); setBLabel(""); setBCadence("auto"); setBAuto(false);
   };
 
   const addExpectation = () => {
@@ -104,7 +106,7 @@ export default function FamilyRosterEditor({
       const res = await fetch("/api/family/roster", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: { people, senders, includeHousehold: household, billers, documents, expectations } }),
+        body: JSON.stringify({ profile: { people, senders, includeHousehold: household, billers, documents, expectations, autoDiscover } }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Save failed");
       onSaved();
@@ -185,7 +187,9 @@ export default function FamilyRosterEditor({
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Billers (Household pane)</p>
             <p className="text-[10px] text-slate-600 mb-1.5 leading-relaxed">
               Cadence is what lets the silence watch tell &ldquo;quarterly&rdquo; apart from &ldquo;stopped&rdquo;.
-              Mark autopay so the pane can lead with the bills that will <i>not</i> pay themselves.
+              Leave it on <span className="font-mono text-slate-500">auto</span> and it is learned from the statements
+              themselves once four agree; declare it only when you know better. Mark autopay so the pane can lead
+              with the bills that will <i>not</i> pay themselves.
             </p>
             <div className="space-y-1 mb-2">
               {billers.map((b, i) => (
@@ -204,6 +208,7 @@ export default function FamilyRosterEditor({
               <input value={bPattern} onChange={(e) => setBPattern(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addBiller(); }}
                 placeholder="xcelenergy.com" className={`${field} flex-1 min-w-[10rem] font-mono`} />
               <select value={bCadence} onChange={(e) => setBCadence(e.target.value as BillCadence)} className={`${field} w-24`}>
+                <option value="auto">auto</option>
                 <option value="monthly">monthly</option><option value="quarterly">quarterly</option>
                 <option value="annual">annual</option><option value="irregular">irregular</option>
               </select>
@@ -218,16 +223,19 @@ export default function FamilyRosterEditor({
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Documents with an expiry</p>
             <p className="text-[10px] text-slate-600 mb-1.5 leading-relaxed">
-              Typed in once — a passport expiry never arrives by email. <b className="text-slate-500">Lead days</b> is
-              how far before expiry it stops being usable: 183 for a passport, because most destinations demand six
-              months&rsquo; validity.
+              Typed once, or accepted from a renewal notice the tab already read. <b className="text-slate-500">Lead
+              days</b> is how far before expiry it stops being usable, and defaults by type — 183 for a passport
+              (most destinations demand six months&rsquo; validity), 30 for a licence, registration or policy.
+              Type a number only to override.
             </p>
             <div className="space-y-1 mb-2">
               {documents.map((d, i) => (
                 <div key={d.id} className="flex items-center gap-2 text-[11.5px] bg-slate-800/40 rounded px-2.5 py-1.5">
                   <span className="text-slate-300 font-semibold truncate">{d.label}</span>
                   <span className="font-mono text-[10px] text-slate-500">{d.expiresISO}</span>
-                  {d.leadDays ? <span className="text-[9px] text-slate-500">{d.leadDays}d lead</span> : null}
+                  <span className="text-[9px] text-slate-500">
+                    {d.leadDays ? `${d.leadDays}d lead` : defaultLeadDays(d.label) ? `${defaultLeadDays(d.label)}d lead (default)` : ""}
+                  </span>
                   <button onClick={() => setDocuments((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
                 </div>
               ))}
@@ -236,7 +244,8 @@ export default function FamilyRosterEditor({
             <div className="flex flex-wrap gap-1.5 items-center">
               <input value={dLabel} onChange={(e) => setDLabel(e.target.value)} placeholder="Passport — Emma" className={`${field} flex-1 min-w-[10rem]`} />
               <input value={dExpires} onChange={(e) => setDExpires(e.target.value)} placeholder="2027-02-14" className={`${field} w-28 font-mono`} />
-              <input value={dLead} onChange={(e) => setDLead(e.target.value)} placeholder="lead days" className={`${field} w-24`} />
+              <input value={dLead} onChange={(e) => setDLead(e.target.value)}
+                placeholder={defaultLeadDays(dLabel) ? `lead (default ${defaultLeadDays(dLabel)})` : "lead days"} className={`${field} w-32`} />
               <button onClick={addDocument} disabled={!dLabel.trim() || !dExpires.trim()} className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-2 py-1 disabled:opacity-30">Add</button>
             </div>
           </div>
@@ -274,6 +283,13 @@ export default function FamilyRosterEditor({
           <label className="flex items-start gap-2 text-[11px] text-slate-300">
             <input type="checkbox" checked={household} onChange={(e) => setHousehold(e.target.checked)} className="accent-emerald-500 mt-0.5" />
             <span>Include household items — appointments, travel, insurance, visiting family — alongside school.</span>
+          </label>
+          <label className="flex items-start gap-2 text-[11px] text-slate-300">
+            <input type="checkbox" checked={autoDiscover} onChange={(e) => setAutoDiscover(e.target.checked)} className="accent-emerald-500 mt-0.5" />
+            <span>
+              Look for undeclared senders by itself, about weekly, when this tab is opened.
+              <span className="block text-[10px] text-slate-500">Subject lines and addresses only, never bodies — the same scan as the Scan button, without having to remember to press it. Off = the button is the only trigger.</span>
+            </span>
           </label>
 
           {err && <p className="text-[11px] text-red-400">{err}</p>}

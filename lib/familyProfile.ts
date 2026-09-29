@@ -59,10 +59,14 @@ export interface FamilySender {
   category?: SenderCategory;  // absent on pre-category rows — treated as "school"
 }
 
-// How often a biller is expected to write. Declared, not inferred: three
-// months of history cannot distinguish "quarterly" from "stopped", and that
-// distinction is the entire point of the silence watch.
-export type BillCadence = "monthly" | "quarterly" | "annual" | "irregular";
+// How often a biller is expected to write. `auto` (the default) means "learn
+// it from the sighting history": once four sightings agree on a band,
+// lib/billHistory's observedCadence names it and the silence watch runs on
+// that; until then the biller is treated like `irregular` (never accused).
+// A declared cadence still wins outright — three months of history cannot
+// distinguish "quarterly" from "stopped", and a user who knows can say so.
+export type BillCadence = "auto" | "monthly" | "quarterly" | "annual" | "irregular";
+export const BILL_CADENCES: BillCadence[] = ["auto", "monthly", "quarterly", "annual", "irregular"];
 
 export interface FamilyBiller {
   id: string;
@@ -109,10 +113,15 @@ export interface FamilyProfile {
   billers: FamilyBiller[];
   documents: FamilyDocument[];
   expectations: DocExpectationEntry[];
+  // Run the headers-only sender discovery scan by itself, about weekly, when
+  // the Family tab is opened. Still a POST, still subjects and addresses only;
+  // the only thing that changes is that the user no longer has to remember to
+  // press Scan. Off = the button is the only trigger.
+  autoDiscover: boolean;
 }
 
 export const EMPTY_FAMILY_PROFILE: FamilyProfile = {
-  people: [], senders: [], includeHousehold: true, billers: [], documents: [], expectations: [],
+  people: [], senders: [], includeHousehold: true, billers: [], documents: [], expectations: [], autoDiscover: true,
 };
 
 const CAPS = { people: 12, senders: 40, billers: 40, documents: 30, expectations: 30 };
@@ -167,14 +176,17 @@ export function sanitizeFamilyProfile(raw: unknown): FamilyProfile {
     })
     .slice(0, CAPS.senders);
 
-  const CADENCES = new Set<BillCadence>(["monthly", "quarterly", "annual", "irregular"]);
+  const CADENCES = new Set<BillCadence>(BILL_CADENCES);
   const billers: FamilyBiller[] = (Array.isArray(r.billers) ? r.billers : [])
     .flatMap((b): FamilyBiller[] => {
       if (!b || typeof b !== "object") return [];
       const o = b as Record<string, unknown>;
       const pattern = str(o.pattern, 120).toLowerCase();
       if (!pattern || !/^[a-z0-9@._+-]+$/.test(pattern)) return [];
-      const cadence = CADENCES.has(o.cadence as BillCadence) ? (o.cadence as BillCadence) : "monthly";
+      // Absent or malformed → auto (learn from history), never a guessed
+      // "monthly" that would arm the silence watch on a biller we know
+      // nothing about.
+      const cadence = CADENCES.has(o.cadence as BillCadence) ? (o.cadence as BillCadence) : "auto";
       return [{
         id: str(o.id, 40) || `b-${slug(pattern)}`,
         pattern,
@@ -229,7 +241,10 @@ export function sanitizeFamilyProfile(raw: unknown): FamilyProfile {
     })
     .slice(0, CAPS.expectations);
 
-  return { people, senders, includeHousehold: r.includeHousehold !== false, billers, documents, expectations };
+  return {
+    people, senders, includeHousehold: r.includeHousehold !== false, billers, documents, expectations,
+    autoDiscover: r.autoDiscover !== false,
+  };
 }
 
 export function slug(s: string): string {

@@ -2131,6 +2131,71 @@ no notice; and a bill that STOPS arriving raises nothing at all.
   independently of either digest so the editor stays reachable when one fails.
 - Mockup: `docs/mockups/household.html` → `docs/household.png`.
 
+### Family: fewer things to type (proposals · auto cadence · weekly scan · label seeding)
+Built because declaring everything by hand was the tab's biggest cost. Four
+pieces; the first two cost nothing new in privacy or model spend.
+- **Proposals mined from mail already read** (`lib/familyProposals.ts`, PURE,
+  tested). Both digests already put declared senders' bodies in front of the
+  model; `PROPOSALS_PROMPT` (appended to BOTH system prompts so they stay in
+  step — **same call, no second call**) asks for `mentions` (other
+  organisations the mail names: a portal, a club, a clinic, an insurer) and
+  `documents` (things with a PRINTED expiry/renewal date). `normalizeSender
+  Mentions` re-validates category against the roster vocabulary, collapses an
+  address to its domain, drops free-mail hosts / already-declared / dismissed,
+  merges by domain counting distinct sightings; a name with no visible domain
+  survives as a name-only row (informational, cannot be accepted by tap).
+  `normalizeDocumentProposals` **drops any row without an explicit ISO date**
+  (a document row IS a date — "never a guessed date" with more force), drops
+  past dates and declared duplicates, and attaches the type-default lead.
+  Carried as `proposals` on `FamilyDigest`/`HouseholdDigest`; rendered by
+  `ProposalsCard` on both panes (Track → the existing `PUT /api/family/
+  discover`, now also `{kind:"document", label, expiresISO, leadDays}`;
+  Never → `DELETE ?key=mention:…|doc:…`, sharing `dismissed_watch_
+  suggestions` with sender discovery's `sender:` namespace so a domain
+  declined in one place is declined in both). Accept/dismiss reset both
+  digest caches so the row leaves on the next read.
+- **Cadence is learned, not asked.** `BillCadence` gained **`auto`** (the
+  sanitizer default for a missing/malformed value — never a guessed
+  `monthly` that would arm the silence watch on a stranger; discovery-
+  accepted billers start `auto` too). `billHistory.effectiveCadence(biller,
+  samples)`: declared wins as-is; `auto` → the CONFIDENT `observedCadence`
+  (same 4-sighting / 60%-in-band bar) → `observed`, else `forming` (null →
+  the assembler substitutes `irregular`, so the watch makes no claim).
+  `household.ts` resolves every biller before `silenceWatch` and returns
+  `cadences[billerId] = {cadence, source, label}` for the row chips
+  ("monthly ·obs") and the silence-watch line. `observedCadence.disagrees` is
+  false for `auto` (nothing to disagree with). `coverage.noCadenceYet` now
+  counts `forming` billers.
+- **Lead days default by type.** `defaultLeadDays(label)` — passport 183,
+  visa 90, licence/registration/insurance/policy/permit/ID 30, else 0 —
+  applied through `resolveLeadDays(doc)` in `documentRunway` AND
+  `familyCalendar` (declared `leadDays` always wins). The roster editor
+  shows "(default N)" in the placeholder and on rows; the field is typed only
+  to override. A test that relied on a passport having NO lead now uses a
+  label with no default.
+- **Weekly automatic discovery** — the one item that loosens a boundary, on
+  the user's explicit say-so. `FamilyProfile.autoDiscover` (default true;
+  roster checkbox). `SenderDiscoveryCard` runs the SAME POST on mount when
+  `localStorage["family.discover.lastAuto"]` is older than 7 days, stamping
+  BEFORE the request so the two mounted cards (School + Household) cannot
+  both fire and a failure does not retry every open. Still headers-only,
+  still a deliberate POST from the user's session; the route comment and the
+  senderDiscovery.ts preamble say "on demand" — read that as "never on a
+  poll or a digest". The School pane's card mounts inside the folded
+  `<details>` precisely so the weekly scan runs without the disclosure open.
+- **Seed from a Gmail label.** `GET /api/family/discover?labels=1` lists the
+  user's own labels (`gmail.listUserLabels`, type `user` only, names only);
+  `POST {label}` runs `labelQuery` (the label + 365 d + the usual `-from:`
+  exclusion) through `discoverSenders` with `minSightings:1` and
+  `fallbackCategory:"other"` — the user's own filing is the evidence, so a
+  sender with no category-shaped subject is still proposed (marked `close`,
+  reason "in your “X” label"). The ordinary scan never sets a fallback:
+  there, volume without a phrase earns nothing. **Track all** accepts every
+  row with the category shown (sequential PUTs; failures stay for retry).
+- Considered and NOT built: seeding people/activities from calendar events
+  (too speculative — a recurring "practice" event names nobody's sender),
+  and any widening of BODY reading past declared senders.
+
 ### Family/Household learning layer (six surfaces)
 A survey for "what should the Family tab learn / capture" found a **serious hole
 first**: `gmailQueryFor` scopes the school digest to `newer_than:14d` and

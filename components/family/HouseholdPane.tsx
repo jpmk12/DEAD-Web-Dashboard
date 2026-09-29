@@ -5,6 +5,7 @@ import type { HouseholdDigest } from "@/lib/household";
 import { formatUsdCents, runwayPct } from "@/lib/householdSignals";
 import { toast } from "@/lib/feedback";
 import SenderDiscoveryCard from "@/components/family/SenderDiscoveryCard";
+import ProposalsCard from "@/components/family/ProposalsCard";
 
 
 // Household: bills, documents and the admin that keeps people well.
@@ -39,7 +40,7 @@ const RUNWAY_BAR: Record<string, string> = {
 };
 const SEV_DOT: Record<string, string> = { red: "bg-red-500", amber: "bg-amber-500", calm: "bg-emerald-500" };
 
-export default function HouseholdPane({ active }: { active: boolean }) {
+export default function HouseholdPane({ active, autoDiscover = false }: { active: boolean; autoDiscover?: boolean }) {
   const [d, setD] = useState<HouseholdDigest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,11 +85,19 @@ export default function HouseholdPane({ active }: { active: boolean }) {
     return (
       <div className="max-w-xl mx-auto py-12 text-center">
         <p className="text-sm text-slate-300 mb-1.5">No billers declared yet.</p>
-        <p className="text-xs text-slate-500 leading-relaxed">
-          Add billers and documents under <b className="text-slate-400">Roster</b>. Each biller needs a cadence —
-          how often it should write — because that is what lets the silence watch tell &ldquo;quarterly&rdquo;
-          apart from &ldquo;stopped&rdquo;. Documents are typed in once; a passport expiry never arrives by email.
+        <p className="text-xs text-slate-500 leading-relaxed mb-4">
+          Add billers and documents under <b className="text-slate-400">Roster</b>, or let the scan below propose
+          them. A biller&rsquo;s cadence is learned from its statements once four agree; the silence watch stays
+          quiet until then. Documents come from a renewal notice the tab read, or are typed in once.
         </p>
+        <div className="text-left">
+          <SenderDiscoveryCard
+            heading="⌕ Find billers I have not declared"
+            intro="You cannot be reminded of a bill you forgot you had."
+            onAccepted={() => load(true)}
+            autoDiscover={autoDiscover}
+          />
+        </div>
       </div>
     );
   }
@@ -141,6 +150,11 @@ export default function HouseholdPane({ active }: { active: boolean }) {
                     {b.delta.pct > 0 ? "▲" : "▼"} {Math.abs(b.delta.pct)}% vs avg
                   </span>
                 )}
+                {d.cadences?.[b.billerId] && (
+                  <span className="flex-shrink-0 text-[9px] font-mono text-slate-500 hidden sm:inline" title={d.cadences[b.billerId].label}>
+                    {d.cadences[b.billerId].cadence ?? "learning"}{d.cadences[b.billerId].source === "observed" ? " ·obs" : ""}
+                  </span>
+                )}
                 <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider border rounded-full px-2.5 py-0.5 ${
                   b.autopay ? "text-emerald-400 border-emerald-500/40 bg-emerald-500/8" : "text-orange-300 border-orange-500/45 bg-orange-500/10"
                 }`}>
@@ -152,11 +166,15 @@ export default function HouseholdPane({ active }: { active: boolean }) {
         </div>
       )}
 
+      {/* ── proposals mined from the bill mail itself (same model call) ── */}
+      {d.proposals && <ProposalsCard proposals={d.proposals} onChanged={() => load(true)} />}
+
       {/* ── discovery — shared with the School pane (SenderDiscoveryCard) ── */}
       <SenderDiscoveryCard
         heading="⌕ Find billers I have not declared"
         intro="You cannot be reminded of a bill you forgot you had — everything else on this pane only looks at senders you named."
-        onAccepted={() => load()}
+        onAccepted={() => load(true)}
+        autoDiscover={autoDiscover}
       />
 
       {/* ── account jeopardy ──
@@ -285,7 +303,7 @@ export default function HouseholdPane({ active }: { active: boolean }) {
               <span className="flex-1 min-w-0">
                 <span className="block text-[13px] font-bold text-slate-100">{s.biller.label}</span>
                 <span className="block text-[10.5px] text-slate-500">
-                  {s.biller.cadence} cadence · last seen {fmtDay(s.lastSeenISO)}. Paperless lapse, address change, or autopay cancelled?
+                  {d.cadences?.[s.biller.id]?.label ?? s.biller.cadence} cadence · last seen {fmtDay(s.lastSeenISO)}. Paperless lapse, address change, or autopay cancelled?
                 </span>
               </span>
             </div>
@@ -353,9 +371,9 @@ export default function HouseholdPane({ active }: { active: boolean }) {
           <p>{d.coverage.billers} biller{d.coverage.billers === 1 ? "" : "s"} watched · {d.coverage.scanned} message{d.coverage.scanned === 1 ? "" : "s"} read in the last {d.coverage.windowDays} days.</p>
           {d.coverage.noCadenceYet > 0 && (
             <p className="text-amber-300/90">
-              {d.coverage.noCadenceYet} biller{d.coverage.noCadenceYet === 1 ? " has" : "s have"} fewer than three
-              statements on record — the silence watch stays quiet about {d.coverage.noCadenceYet === 1 ? "it" : "them"}
-              {" "}rather than guessing a cadence.
+              {d.coverage.noCadenceYet} biller{d.coverage.noCadenceYet === 1 ? " is" : "s are"} still learning
+              {d.coverage.noCadenceYet === 1 ? " its" : " their"} cadence (fewer than four statements agree) — the silence
+              watch stays quiet about {d.coverage.noCadenceYet === 1 ? "it" : "them"} rather than guessing.
             </p>
           )}
           <p className="text-slate-600 text-[10px]">

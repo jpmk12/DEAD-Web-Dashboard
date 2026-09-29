@@ -90,7 +90,9 @@ describe("familyDates — documents", () => {
   });
 
   it("shows only the expiry when there is no lead", () => {
-    const r = familyDates({ ...empty, documents: [doc({ leadDays: undefined, expiresISO: d(20) })] }, TODAY);
+    // A label with no type default — a passport would pick up its 183-day
+    // default lead (lib/familyProposals.resolveLeadDays) and show both.
+    const r = familyDates({ ...empty, documents: [doc({ label: "Library card", leadDays: undefined, expiresISO: d(20) })] }, TODAY);
     expect(r).toHaveLength(1);
     expect(r[0].kind).toBe("document-expiry");
   });

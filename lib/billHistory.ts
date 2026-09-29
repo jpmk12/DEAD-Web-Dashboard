@@ -60,7 +60,7 @@ export const MIN_GAPS = 3;
 export const CADENCE_CONSISTENCY = 0.6;
 
 /** Bands for naming an observed gap. Generous, because statements slip. */
-const BANDS: { cadence: Exclude<BillCadence, "irregular">; min: number; max: number }[] = [
+const BANDS: { cadence: Exclude<BillCadence, "irregular" | "auto">; min: number; max: number }[] = [
   { cadence: "monthly", min: 20, max: 45 },
   { cadence: "quarterly", min: 75, max: 110 },
   { cadence: "annual", min: 300, max: 430 },
@@ -71,8 +71,9 @@ export interface ObservedCadence {
   /** Median days between sightings. */
   medianGap: number;
   gaps: number;
-  /** The band the median fell in, or null when it fits none. */
-  observed: BillCadence | null;
+  /** The band the median fell in, or null when it fits none. Never `auto` —
+   *  that is a declaration, not an observation. */
+  observed: Exclude<BillCadence, "auto"> | null;
   /** True when `observed` is a real cadence that disagrees with the declaration. */
   disagrees: boolean;
   /** One sentence, always safe to render. */
@@ -114,12 +115,13 @@ export function observedCadence(
   // most of the gaps must ALSO sit in the band before we name it.
   const inBand = band ? gaps.filter((g) => g >= band.min && g <= band.max).length : 0;
   const consistent = !!band && inBand / gaps.length >= CADENCE_CONSISTENCY;
-  const observed: BillCadence | null = consistent ? band!.cadence : null;
+  const observed: Exclude<BillCadence, "auto"> | null = consistent ? band!.cadence : null;
 
   // Only a CONFIDENT observation contradicts a declaration. A median that fits
   // no band means this biller is irregular in practice, which is information
-  // but not grounds to overwrite what the user said.
-  const disagrees = observed !== null && biller.cadence !== "irregular" && observed !== biller.cadence;
+  // but not grounds to overwrite what the user said. `auto` declares nothing,
+  // so there is nothing to disagree with.
+  const disagrees = observed !== null && biller.cadence !== "irregular" && biller.cadence !== "auto" && observed !== biller.cadence;
 
   const reason = observed
     ? `writes about every ${medianGap} days (${observed}) across ${gaps.length} cycles` +
@@ -127,6 +129,40 @@ export function observedCadence(
     : `${gaps.length} cycles, ${medianGap} days on median, too scattered to call a cadence`;
 
   return { biller, medianGap, gaps: gaps.length, observed, disagrees, reason };
+}
+
+// ─────────────────────────── effective cadence ──────────────────────────
+
+export interface EffectiveCadence {
+  /** The cadence the silence watch should run on; null = no claim possible. */
+  cadence: Exclude<BillCadence, "auto"> | null;
+  /** Where it came from: what you typed, what the history shows, or nothing yet. */
+  source: "declared" | "observed" | "forming";
+  /** Sentence for the row: "monthly (observed across 5 cycles)". */
+  label: string;
+}
+
+/**
+ * Resolve `auto` against the sighting history. A declared cadence is returned
+ * as-is (the user knows something the history cannot). For `auto`, a
+ * CONFIDENT observed cadence (same bar as observedCadence) is used; otherwise
+ * the biller is `forming` and the silence watch stays quiet — a biller the
+ * app has only just met is never accused of stopping.
+ */
+export function effectiveCadence(biller: FamilyBiller, samples: BillSample[]): EffectiveCadence {
+  const declared = biller.cadence;
+  if (declared !== "auto") {
+    return { cadence: declared, source: "declared", label: declared };
+  }
+  const obs = observedCadence(biller, samples);
+  if (obs?.observed) {
+    return { cadence: obs.observed, source: "observed", label: `${obs.observed} (observed across ${obs.gaps} cycles)` };
+  }
+  const n = samples.filter((s) => s.billerId === biller.id).length;
+  return {
+    cadence: null, source: "forming",
+    label: obs ? "irregular so far (too scattered to call)" : `learning — ${n} of ${MIN_GAPS + 1} statements seen`,
+  };
 }
 
 // ───────────────────────────── amount creep ─────────────────────────────

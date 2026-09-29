@@ -10,6 +10,7 @@ import type { ProposedEvent } from "@/lib/familyDates";
 import FamilyRosterEditor from "@/components/family/FamilyRosterEditor";
 import HouseholdPane from "@/components/family/HouseholdPane";
 import SenderDiscoveryCard from "@/components/family/SenderDiscoveryCard";
+import ProposalsCard from "@/components/family/ProposalsCard";
 
 // The Family tab: school and household mail reported as obligations with dates
 // rather than as messages. The deadline is the unit of this interface — an
@@ -307,7 +308,7 @@ export default function FamilyTab({ active }: { active: boolean }) {
         </button>
       </div>
 
-      {pane === "household" && <HouseholdPane active={active && pane === "household"} />}
+      {pane === "household" && <HouseholdPane active={active && pane === "household"} autoDiscover={profile?.autoDiscover !== false} />}
 
       {pane === "school" && schoolState}
 
@@ -318,8 +319,14 @@ export default function FamilyTab({ active }: { active: boolean }) {
         </p>
       )}
 
+      {/* Proposals mined from the school mail itself — the portal, the club,
+          the coach's organisation the newsletter named. Same model call. */}
+      {digest?.proposals && <ProposalsCard proposals={digest.proposals} onChanged={() => { setRoster(null); load(true); }} />}
+
       {/* Discovery on the school side too — collapsed, because this pane is
-          for reading the week, not configuring it; expanded on Household. */}
+          for reading the week, not configuring it; expanded on Household. The
+          card still mounts (so the weekly automatic scan can run) — only the
+          disclosure is folded. */}
       <details className="group rounded-xl border border-slate-800 bg-slate-900/30">
         <summary className="cursor-pointer select-none list-none flex items-center gap-2 px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300">
           <span className="text-slate-600 group-open:rotate-90 transition-transform">▸</span>
@@ -329,7 +336,8 @@ export default function FamilyTab({ active }: { active: boolean }) {
           <SenderDiscoveryCard
             heading="⌕ Senders that look like school or activities"
             intro="A newsletter you never declared is a deadline you will never see — this pane only reads senders you named."
-            onAccepted={() => load()}
+            onAccepted={() => { setRoster(null); load(true); }}
+            autoDiscover={profile?.autoDiscover !== false}
           />
         </div>
       </details>

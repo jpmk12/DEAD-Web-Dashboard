@@ -276,6 +276,19 @@ export async function fetchMessageHeaders(
   return out;
 }
 
+// The user's own labels (type "user" — never the system ones), names only.
+// Used by the Family tab's "seed from label" so a roster can be filled from
+// filing the user already did. Reads label metadata, never a message.
+export async function listUserLabels(accessToken: string): Promise<{ id: string; name: string }[]> {
+  const gmail = buildClient(accessToken);
+  const res = await gmail.users.labels.list({ userId: "me" });
+  return (res.data.labels ?? [])
+    .filter((l) => l.type === "user" && l.id && l.name)
+    .map((l) => ({ id: String(l.id), name: String(l.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 100);
+}
+
 export async function getMessageForReply(accessToken: string, id: string): Promise<ReplyContext | null> {
   const gmail = buildClient(accessToken);
   const res = await gmail.users.messages.get({ userId: "me", id, format: "full" });
