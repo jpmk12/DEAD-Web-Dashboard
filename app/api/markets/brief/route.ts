@@ -120,7 +120,11 @@ export async function POST(request: Request) {
     : "unavailable this pass";
 
   // The actor board — the deterministic evidence the read must rest on.
-  const ew = await getEconomicWarfare().catch(() => null);
+  // Bounded: the board is normally warm (the tab's board fetch runs first);
+  // a cold one is reported as unavailable rather than idling this request
+  // into the gateway timeout.
+  const ewRaw = await getEconomicWarfare({ maxWaitMs: 8_000 }).catch(() => null);
+  const ew = ewRaw && !ewRaw.pending ? ewRaw : null;
   const actorBlock = ew && ew.actors.length
     ? ew.actors.map((b) => {
         const a = b.assessment;

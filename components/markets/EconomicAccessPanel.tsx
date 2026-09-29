@@ -45,7 +45,7 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ articles }),
       });
-      const d = await res.json();
+      const d = await res.json().catch(() => ({ error: `The server answered HTTP ${res.status} without a body — usually a gateway timeout on a cold start. Try refresh in a minute.` }));
       if (d.error) setError(d.disabled ? "Economic Warfare Read is off (Preferences → AI Controls)." : d.error);
       else if (d.brief) { setBrief(d.brief); clientCache.set(CACHE_KEY, d.brief, CACHE_TTL.NEWS); }
     } catch {
@@ -55,10 +55,20 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
     }
   };
 
+  // First auto-generate waits for the actor board to land (it is the read's
+  // evidence and warms the server cache the read needs), with a fallback
+  // timer so a board error cannot strand the read.
+  const [boardReady, setBoardReady] = useState(false);
   useEffect(() => {
-    if (!brief && articles.length > 0) generate();
+    const on = () => setBoardReady(true);
+    window.addEventListener("econ:board-ready", on);
+    const t = setTimeout(on, 45_000);
+    return () => { window.removeEventListener("econ:board-ready", on); clearTimeout(t); };
+  }, []);
+  useEffect(() => {
+    if (!brief && articles.length > 0 && boardReady) generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [articles.length]);
+  }, [articles.length, boardReady]);
 
   const list = (label: string, items: string[]) => items.length > 0 && (
     <div>
@@ -84,7 +94,7 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
       </div>
 
       {error && <p className="text-[11px] text-slate-500 italic">{error}</p>}
-      {!error && !brief && <p className="text-[11px] text-slate-600 font-mono">{articles.length === 0 ? "Waiting for today's news to load…" : "Generating…"}</p>}
+      {!error && !brief && <p className="text-[11px] text-slate-600 font-mono">{articles.length === 0 ? "Waiting for today's news to load…" : !boardReady ? "Waiting for the actor board…" : "Generating…"}</p>}
 
       {brief && (
         <div className="space-y-3">

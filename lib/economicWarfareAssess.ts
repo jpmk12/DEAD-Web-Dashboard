@@ -80,6 +80,9 @@ export interface EconomicWarfareBody {
   windowDays: number;
   sources: { gdelt: boolean; ownSources: string[]; federalRegister: boolean; foreign: boolean; chokepoints: boolean; energy: boolean };
   note: string;
+  /** True when the assembly is still running and this body is a stub or a
+   *  stale previous pass — the client should ask again. */
+  pending?: boolean;
 }
 
 const TTL = 10 * 60 * 1000;
@@ -88,11 +91,37 @@ let inflight: Promise<EconomicWarfareBody> | null = null;
 
 export function resetEconomicWarfareCache(): void { cache = null; }
 
-export async function getEconomicWarfare(): Promise<EconomicWarfareBody> {
+/**
+ * Latency rule (the SITREP-read 502 lesson, same as getOeSnapshot): a warm
+ * cache answers instantly; a cold one STARTS the assembly in the background
+ * and this call returns whatever settles within `maxWaitMs`. If nothing
+ * does, it returns a `pending` stub — the caller shows "assembling" and asks
+ * again — rather than idling the request past the platform gateway timeout,
+ * which surfaces to the user as an HTML 502 that no JSON parser survives.
+ */
+export async function getEconomicWarfare(opts: { maxWaitMs?: number } = {}): Promise<EconomicWarfareBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
-  if (inflight) return inflight;
-  inflight = compute().then((b) => { cache = { at: Date.now(), body: b }; return b; }).finally(() => { inflight = null; });
-  return inflight;
+  if (!inflight) inflight = compute().then((b) => { cache = { at: Date.now(), body: b }; return b; }).finally(() => { inflight = null; });
+  const maxWait = opts.maxWaitMs ?? 20_000;
+  const settled = await withTimeout(inflight, maxWait);
+  if (settled) return settled;
+  // Still assembling. Serve the last body if there is one (stale beats
+  // nothing), else an honest stub.
+  if (cache) return { ...cache.body, pending: true };
+  return pendingStub();
+}
+
+function pendingStub(): EconomicWarfareBody {
+  const now = new Date().toISOString();
+  return {
+    actors: [], moves: [], energy: [],
+    timeline: { days: [], dots: [], sequences: [] }, leverage: {},
+    foreign: { waves: [], live: { EU: false, UK: false }, failed: [] },
+    generatedAt: now, windowDays: 14,
+    sources: { gdelt: false, ownSources: [], federalRegister: false, foreign: false, chokepoints: false, energy: false },
+    note: "Assembling the actor register — the first pass after a deploy reads every feed cold and can take a minute. Ask again shortly.",
+    pending: true,
+  };
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -138,8 +167,10 @@ async function compute(): Promise<EconomicWarfareBody> {
   const [reg, energy, cps, foreign] = await Promise.all([
     withTimeout(getRegulatoryDocs(), 15_000),
     withTimeout(getEnergyQuotes(), 12_000),
-    cpIds.length ? withTimeout(getChokepointReads(cpIds), 20_000) : Promise.resolve(null),
-    withTimeout(getForeignSanctions(), 30_000),
+    cpIds.length ? withTimeout(getChokepointReads(cpIds), 15_000) : Promise.resolve(null),
+    // The EU list is tens of MB. Its fetch keeps running (and caches 24 h in
+    // its own lib) if this pass gives up on it; the next pass gets it warm.
+    withTimeout(getForeignSanctions(), 8_000),
   ]);
   const waves = foreign ? designationWaves(foreign.rows, day, 45) : [];
   const notices = (await withTimeout(getCapturedNotices(300), 6000)) ?? [];
@@ -153,6 +184,15 @@ async function compute(): Promise<EconomicWarfareBody> {
   const ownSources = new Set<string>();
   let gdeltLive = false;
 
+  // The user's own sources are gathered ONCE (match-all gate) and filtered
+  // per actor below — before this, the X/newsletter/captured-article/OSINT-
+  // feed fan-out ran once PER ACTOR, eight times over on a cold start.
+  const ownAll = actors.length
+    ? await gatherUserSourceNews({ terms: /./ }).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>() }))
+    : { items: [] as NewsItem[], sources: new Set<string>() };
+  const ownSourceOf = (n: NewsItem): string =>
+    n.source.startsWith("𝕏") ? "X" : n.source.startsWith("✉") ? "newsletters" : n.source.startsWith("📄") ? "analysis" : "OSINT feeds";
+
   const boards: ActorBoard[] = [];
   const allMoves: EconomicWarfareBody["moves"] = [];
   const incidents: ShippingIncident[] = [];
@@ -162,9 +202,10 @@ async function compute(): Promise<EconomicWarfareBody> {
   // query is cached 60 min, so after the first pass this loop is free; on the
   // first pass a burst would only earn 429s.
   for (const actor of actors) {
-    const news = await withTimeout(gdeltSearch(actorQuery(actor), { cacheKey: `econ:${actor.id}`, timespan: "7d", maxrecords: 40, keep: 30, source: "wire", category: "econ" }), 15_000);
+    const news = await withTimeout(gdeltSearch(actorQuery(actor), { cacheKey: `econ:${actor.id}`, timespan: "7d", maxrecords: 40, keep: 30, source: "wire", category: "econ" }), 8_000);
     if (news && news.length) gdeltLive = true;
-    const own = await gatherUserSourceNews({ terms: actor.terms }).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>() }));
+    const ownItems = ownAll.items.filter((n) => actor.terms.test(`${n.title} ${n.summary ?? ""}`));
+    const own = { items: ownItems, sources: new Set(ownItems.map(ownSourceOf)) };
     for (const s of own.sources) ownSources.add(s);
 
     const texts: ActorText[] = [

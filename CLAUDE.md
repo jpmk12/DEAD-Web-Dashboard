@@ -1604,6 +1604,27 @@ built on the existing engine rather than a new one:
   panel (`EconomicAccessPanel`, now titled "Economic Warfare Read") can mark a
   dissent. Client cache key bumped to `markets:brief:v2` so an old-shape
   object cannot render blank. No new dep anywhere (esbuild `0`).
+- **Latency rule (the SITREP-read 502, relearned 2026-09-29)**: the first
+  Economy read after a deploy answered "Couldn't generate the economic
+  read" — the panel's catch-all for a NON-JSON reply, i.e. the platform
+  gateway timed the request out while `/api/markets/brief` awaited the full
+  cold assembly (eight sequential GDELT queries, the own-source fan-out
+  repeated per actor, a 30-s wait on the multi-MB EU CSV). Now:
+  `getEconomicWarfare({ maxWaitMs })` serves a warm cache instantly, and on
+  a cold one STARTS the assembly in the background and returns what settles
+  within the wait — else the last body flagged `pending`, else a `pending`
+  stub whose `note` says it is assembling. The route waits 20 s; the board
+  polls every 8 s while `pending` (≤12 tries) and fires a window
+  `econ:board-ready` event on a real body; `/api/markets/brief` waits 8 s
+  and treats `pending` as "unavailable this pass — call UNKNOWN";
+  `EconomicAccessPanel` auto-generates only after `econ:board-ready` (45-s
+  fallback) and names the HTTP status when a reply is not JSON. Inside
+  `compute()`: own sources are gathered ONCE (match-all gate, filtered per
+  actor), GDELT per actor is bounded to 8 s, chokepoint reads 15 s, and the
+  EU/UK fetch gets 8 s in this pass (its own lib keeps loading and caches
+  24 h, so the next pass has it). Any new consumer of the board must pass
+  a `maxWaitMs` and handle `pending` — never await the bare assembly from a
+  request handler.
 - **Chokepoint strip** (mockup item 3, done 2026-09-29): `ChokepointBoard`
   is one row of eight tiles (score · short name · lead-class chip · AIS
   chip; `lg:grid-cols-8`, pairs on a phone) and ONE detail panel beneath

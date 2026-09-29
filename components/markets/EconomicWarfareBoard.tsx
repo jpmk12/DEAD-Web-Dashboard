@@ -157,12 +157,24 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
 
   useEffect(() => { if (active && !armed) setArmed(true); }, [active, armed]);
 
+  // A cold server answers `pending` within its bounded wait rather than
+  // idling into the gateway timeout; we keep asking (up to ~2 min) and tell
+  // the read panel once a real body has landed.
   const load = useCallback(() => {
     setError(null);
-    fetch("/api/markets/economic-warfare")
-      .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => { if (d && Array.isArray(d.actors)) setBody(d); })
-      .catch((e) => setError(e instanceof Error ? e.message : "failed"));
+    let tries = 0;
+    const attempt = () => {
+      fetch("/api/markets/economic-warfare")
+        .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((d) => {
+          if (!d || !Array.isArray(d.actors)) return;
+          setBody(d);
+          if (d.pending && tries++ < 12) setTimeout(attempt, 8000);
+          else if (!d.pending) window.dispatchEvent(new CustomEvent("econ:board-ready"));
+        })
+        .catch((e) => setError(e instanceof Error ? e.message : "failed"));
+    };
+    attempt();
   }, []);
 
   useEffect(() => { if (armed) load(); }, [armed, load, refreshKey]);
@@ -175,6 +187,9 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
     );
   }
   if (!body) return <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-600 font-mono">Reading the actor register…</div>;
+  if (body.pending && body.actors.length === 0) {
+    return <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-500 font-mono animate-pulse">{body.note}</div>;
+  }
 
   const rows = body.moves.filter((m) => (!actor || m.actorId === actor) && (inst === "all" || m.instrument === inst));
   const byMods = { act: rows.filter((m) => m.modality === "act").length, threat: rows.filter((m) => m.modality === "threat").length };
@@ -186,7 +201,7 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
         <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
           <span className="text-[11px] font-bold uppercase tracking-widest text-orange-300">Actors</span>
-          <span className="text-[10px] text-slate-600">{body.actors.length} tracked · worst {LEVEL_LABEL[worst]}</span>
+          <span className="text-[10px] text-slate-600">{body.actors.length} tracked · worst {LEVEL_LABEL[worst]}{body.pending ? " · refreshing…" : ""}</span>
           <span className="ml-auto text-[9.5px] text-slate-600 font-mono hidden sm:inline">
             {[body.sources.gdelt ? "GDELT" : null, body.sources.federalRegister ? "Fed. Register" : null, body.sources.foreign ? `EU/UK lists${body.foreign.failed.length ? ` (${body.foreign.failed.join("/")} down)` : ""}` : "EU/UK lists down", body.sources.chokepoints ? "chokepoints" : null, ...body.sources.ownSources].filter(Boolean).join(" · ") || "no live sensor"}
           </span>
