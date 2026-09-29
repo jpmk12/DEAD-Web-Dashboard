@@ -1775,7 +1775,7 @@ user picked from `docs/mockups/clocks.html` (rendered to
 `docs/clocks-options.png`): one tile per zone, UTC offset above, the time as
 the largest numerals on the page, label + weekday/☀☾ BELOW the time; night
 tiles recede, Zulu glows emerald with a `Z` suffix, the device's own zone
-gets a sky border. Grid is `min(6, max(3, n))` columns. PURE + tested: `renderClock(nowMs, def,
+gets a sky border. Grid is RESPONSIVE — `grid-cols-3 sm:grid-cols-4 lg:grid-cols-6` for the six defaults (a forced six-up grid overflowed the digits on a phone); digits step 24→26→30 px with the breakpoints; tiles are `min-w-0 overflow-hidden`. PURE + tested: `renderClock(nowMs, def,
 deviceTz)` derives everything with Intl from ONE instant (time, weekday,
 `dayOffset` ±1 vs the device's calendar day, day/night by local hour,
 `utcOffset` incl. half-hours like Tehran's UTC+3:30; an invalid zone renders

@@ -54,14 +54,18 @@ export default function WorldClocks() {
 
   if (now === null) return null;
   const rows = renderClocks(now, clocks, deviceTz);
-  const cols = Math.min(6, Math.max(3, rows.length));
+  // Phones get three tiles a row (six clocks = two tidy rows); tablets four;
+  // desktops all six. A forced six-up grid squeezed the digits past their
+  // tiles on a phone.
+  const cols = rows.length <= 3
+    ? "grid-cols-3"
+    : rows.length <= 4
+      ? "grid-cols-2 sm:grid-cols-4"
+      : "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6";
 
   return (
     <section aria-label="World clocks">
-      <div
-        className="grid gap-2.5"
-        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-      >
+      <div className={`grid gap-2 sm:gap-2.5 ${cols}`}>
         {rows.map((c) => {
           const zulu = c.tz === "UTC";
           const here = c.tz === deviceTz;
@@ -76,17 +80,17 @@ export default function WorldClocks() {
             <div
               key={`${c.label}|${c.tz}`}
               title={`${c.tz}${c.dayOffset ? ` · ${c.dayOffset > 0 ? "tomorrow" : "yesterday"} relative to you` : ""}${here ? " · your zone" : ""}`}
-              className={`relative rounded-xl border px-2 pt-2.5 pb-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${tone}`}
+              className={`relative min-w-0 overflow-hidden rounded-xl border px-1.5 sm:px-2 pt-2.5 pb-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${tone}`}
             >
               <span className="block text-[8.5px] font-mono tracking-[0.12em] text-slate-600 leading-none">{c.utcOffset || "—"}</span>
               <span
-                className={`block font-mono text-[26px] sm:text-[30px] font-black leading-none tabular-nums mt-1.5 ${
+                className={`block font-mono text-[24px] sm:text-[26px] lg:text-[30px] font-black leading-none tabular-nums tracking-tight mt-1.5 ${
                   !c.valid ? "text-red-300" : zulu ? "text-emerald-300 drop-shadow-[0_0_14px_rgba(52,211,153,0.35)]" : c.isNight ? "text-slate-300" : "text-slate-50 drop-shadow-[0_0_14px_rgba(148,163,184,0.15)]"
                 }`}
               >
                 {c.time}{zulu && <span className="text-[12px] font-bold text-slate-500 ml-0.5">Z</span>}
               </span>
-              <span className="block mt-2 text-[10px] sm:text-[10.5px] font-extrabold uppercase tracking-[0.18em] text-slate-300 truncate">{c.label}</span>
+              <span className="block mt-2 text-[9.5px] sm:text-[10.5px] font-extrabold uppercase tracking-[0.1em] sm:tracking-[0.18em] text-slate-300 truncate">{c.label}</span>
               <span className="block text-[9.5px] text-slate-500 mt-0.5">
                 {c.weekday}{c.dayOffset > 0 ? " +1" : c.dayOffset < 0 ? " −1" : ""} <span aria-hidden>{c.isNight ? "☾" : "☀"}</span>
               </span>
