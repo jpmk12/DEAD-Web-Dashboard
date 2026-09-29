@@ -29,6 +29,11 @@ import { Users,
   Globe,
   Coins,
   Search,
+  Sun,
+  Moon,
+  Sunrise,
+  Sunset,
+  FolderHeart,
   type LucideIcon,
 } from "lucide-react";
 
@@ -59,6 +64,14 @@ export const PreferencesIcon = Settings;
 export const AssistantIcon = Bot; // floating AI assistant
 export const MenuIcon = Menu; // phone hamburger
 export const ReachIcon = Globe; // Glance "Global Reach Watch" card
+
+// Glance world clocks — the part of the local day at each place. One glyph
+// per phase so a tile reads at a glance: sun = their working day, moon =
+// their night, sunrise/sunset = the shoulders.
+export const DAY_PHASE_ICONS = { day: Sun, night: Moon, dawn: Sunrise, dusk: Sunset } as const;
+
+// Email → "file under Family" (applies a Gmail label and tracks the sender).
+export const FamilyFileIcon = FolderHeart;
 
 // News view-mode toggles.
 export const FeedViewIcon = List;

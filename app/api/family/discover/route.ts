@@ -6,6 +6,7 @@ import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
 import { fetchMessageHeaders, listUserLabels } from "@/lib/gmail";
 import { discoverSenders, discoveryQuery, labelQuery, dismissKey, type ProposalCategory } from "@/lib/senderDiscovery";
 import { SENDER_CATEGORIES, slug, type SenderCategory } from "@/lib/familyProfile";
+import { categoryForLabel } from "@/lib/familyLabels";
 import { resetFamilyCache } from "@/lib/family";
 import { resetHouseholdCache } from "@/lib/household";
 
@@ -88,8 +89,9 @@ export async function POST(req: Request) {
       declared, dismissed,
       // One sighting is enough and a category-less sender is still proposed:
       // the user's own filing is the evidence. Category is a guess the row
-      // lets them change — "other" when nothing in the subjects says more.
-      { minSightings: 1, max: 25, fallbackCategory: "other", fallbackReason: `in your “${label}” label` },
+      // lets them change — a Family/* label implies its bucket, anything
+      // else falls to "other" when the subjects say nothing more.
+      { minSightings: 1, max: 25, fallbackCategory: categoryForLabel(label) ?? "other", fallbackReason: `in your “${label}” label` },
     );
     return NextResponse.json({
       candidates, seededFrom: label,

@@ -17,13 +17,28 @@ export const DEFAULT_CLOCKS: ClockDef[] = [
   { label: "Beijing", tz: "Asia/Shanghai" },
 ];
 
+/** Coarse part of the local day, by clock hour — not by sunrise tables. The
+ *  point is "is it their day or their night", and a planning-grade band is
+ *  what a glance can read; dawn and dusk exist so a 06:30 in Tehran is not
+ *  drawn as deep night. Bands: night 20–04, dawn 05–06, day 07–17, dusk 18–19. */
+export type DayPhase = "night" | "dawn" | "day" | "dusk";
+
+export function phaseForHour(hour: number): DayPhase {
+  if (hour >= 5 && hour < 7) return "dawn";
+  if (hour >= 7 && hour < 18) return "day";
+  if (hour >= 18 && hour < 20) return "dusk";
+  return "night";
+}
+
 export interface ClockView extends ClockDef {
   time: string;        // "14:05"
   weekday: string;     // "Mon"
   hour: number;        // 0-23 in that zone
   /** That zone's calendar day relative to the device's: -1, 0, +1. */
   dayOffset: number;
-  isNight: boolean;    // 18:00–05:59 local
+  /** Which part of the local day it is there. */
+  phase: DayPhase;
+  isNight: boolean;    // phase === "night"
   /** "UTC+3", "UTC−4:30", "UTC" */
   utcOffset: string;
   valid: boolean;
@@ -56,16 +71,17 @@ export function formatUtcOffset(minutes: number): string {
 
 export function renderClock(nowMs: number, def: ClockDef, deviceTz: string): ClockView {
   if (!isValidTz(def.tz)) {
-    return { ...def, time: "--:--", weekday: "", hour: 0, dayOffset: 0, isNight: false, utcOffset: "", valid: false };
+    return { ...def, time: "--:--", weekday: "", hour: 0, dayOffset: 0, phase: "day", isNight: false, utcOffset: "", valid: false };
   }
   const d = new Date(nowMs);
   const time = new Intl.DateTimeFormat("en-GB", { timeZone: def.tz, hourCycle: "h23", hour: "2-digit", minute: "2-digit" }).format(d);
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone: def.tz, weekday: "short" }).format(d);
   const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: def.tz, hourCycle: "h23", hour: "2-digit" }).format(d));
   const dayOffset = isValidTz(deviceTz) ? dayNumber(d, def.tz) - dayNumber(d, deviceTz) : 0;
+  const phase = phaseForHour(hour);
   return {
-    ...def, time, weekday, hour, dayOffset,
-    isNight: hour < 6 || hour >= 18,
+    ...def, time, weekday, hour, dayOffset, phase,
+    isNight: phase === "night",
     utcOffset: formatUtcOffset(utcOffsetMinutes(d, def.tz)),
     valid: true,
   };

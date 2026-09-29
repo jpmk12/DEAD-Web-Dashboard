@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderClock, renderClocks, DEFAULT_CLOCKS, utcOffsetMinutes, formatUtcOffset } from "../lib/worldClocks";
+import { renderClock, renderClocks, DEFAULT_CLOCKS, utcOffsetMinutes, formatUtcOffset, phaseForHour } from "../lib/worldClocks";
 
 // 2026-09-28 02:30Z — Monday in Zulu; still Sunday evening in New Jersey (EDT, UTC−4).
 const NOW = Date.UTC(2026, 8, 28, 2, 30);
@@ -16,6 +16,8 @@ describe("renderClock — one instant, many zones", () => {
     expect(teh.time).toBe("06:00");
     expect(teh.utcOffset).toBe("UTC+3:30");
     expect(teh.isNight).toBe(false);
+    expect(teh.phase).toBe("dawn");
+    expect(nj.phase).toBe("night");
 
     const z = renderClock(NOW, { label: "Zulu", tz: "UTC" }, "UTC");
     expect(z.time).toBe("02:30");
@@ -54,6 +56,15 @@ describe("renderClock — one instant, many zones", () => {
       { label: "Zulu", tz: "UTC" },
     ], "UTC");
     expect(rows.map((r) => r.label)).toEqual(["Zulu", "Moscow", "Amman", "Beijing", "Nowhere"]);
+  });
+});
+
+describe("phaseForHour", () => {
+  it("bands the local hour into night / dawn / day / dusk", () => {
+    expect([0, 4, 20, 23].map(phaseForHour)).toEqual(["night", "night", "night", "night"]);
+    expect([5, 6].map(phaseForHour)).toEqual(["dawn", "dawn"]);
+    expect([7, 12, 17].map(phaseForHour)).toEqual(["day", "day", "day"]);
+    expect([18, 19].map(phaseForHour)).toEqual(["dusk", "dusk"]);
   });
 });
 

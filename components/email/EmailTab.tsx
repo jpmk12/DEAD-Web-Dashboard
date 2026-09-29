@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { EmailMessage, EmailPriority, ActionItem, VipSuggestion } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { Mail } from "@/lib/icons";
+import { toast } from "@/lib/feedback";
 import EmailCard from "./EmailCard";
 import AddAccountButton from "./AddAccountButton";
 import BulkActionBar from "./BulkActionBar";
@@ -230,6 +231,39 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
 
   const handleMarkRead = () => markEmailsRead(emails.filter((e) => selected.has(e.id)));
   const handleMarkAllVisibleRead = () => markEmailsRead(visible);
+
+  // Bulk "file under Family": one label per account call; the senders ride
+  // along so the route can track each distinct domain in the roster.
+  const fileUnderFamily = async (category: string) => {
+    const targets = emails.filter((e) => selected.has(e.id));
+    if (!targets.length) return;
+    setMarkingRead(true);
+    try {
+      const results = await Promise.all(
+        (["primary", "secondary"] as const)
+          .map((account) => targets.filter((e) => e.account === account))
+          .filter((list) => list.length > 0)
+          .map(async (list) => {
+            const r = await fetch("/api/gmail/label", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ids: list.map((e) => e.id), account: list[0].account, category, senders: list.map((e) => e.from) }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || !d.ok) throw new Error(d?.error || "Label failed");
+            return d as { label: string; applied: number; tracked: { domain: string; added: boolean }[] };
+          }),
+      );
+      const applied = results.reduce((n, r) => n + (r.applied ?? 0), 0);
+      const added = results.flatMap((r) => r.tracked ?? []).filter((t) => t.added).map((t) => t.domain);
+      toast.ok(`Filed ${applied} under ${results[0]?.label ?? "Family"}`, added.length ? `now tracking ${added.join(", ")}` : undefined);
+      setSelected(new Set());
+    } catch (e) {
+      toast.error("Could not file those emails", e);
+    } finally {
+      setMarkingRead(false);
+    }
+  };
 
   const addActionToTasks = async (key: string, action: ActionItem) => {
     if (taskStatus.get(key) === "added" || taskStatus.get(key) === "pending") return;
@@ -603,6 +637,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
       <BulkActionBar
         count={selected.size}
         onMarkRead={handleMarkRead}
+        onFileFamily={fileUnderFamily}
         onClear={() => setSelected(new Set())}
         loading={markingRead}
       />

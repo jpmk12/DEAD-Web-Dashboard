@@ -289,6 +289,45 @@ export async function listUserLabels(accessToken: string): Promise<{ id: string;
     .slice(0, 100);
 }
 
+// Find a user label by name, creating it (and any missing parents of a
+// nested "A/B" name) if absent. Returns the label id. Names compare
+// case-insensitively because Gmail treats "family/school" and "Family/School"
+// as the same label and refuses the duplicate.
+export async function ensureLabel(accessToken: string, name: string): Promise<string> {
+  const gmail = buildClient(accessToken);
+  const list = await gmail.users.labels.list({ userId: "me" });
+  const existing = new Map<string, string>();
+  for (const l of list.data.labels ?? []) if (l.name && l.id) existing.set(l.name.toLowerCase(), l.id);
+
+  const parts = name.split("/").map((p) => p.trim()).filter(Boolean);
+  let path = "";
+  let id = "";
+  for (const part of parts) {
+    path = path ? `${path}/${part}` : part;
+    const hit = existing.get(path.toLowerCase());
+    if (hit) { id = hit; continue; }
+    const created = await gmail.users.labels.create({
+      userId: "me",
+      requestBody: { name: path, labelListVisibility: "labelShow", messageListVisibility: "show" },
+    });
+    id = String(created.data.id ?? "");
+    if (!id) throw new Error(`Could not create label ${path}`);
+    existing.set(path.toLowerCase(), id);
+  }
+  return id;
+}
+
+/** Apply a label (by name, created if needed) to messages. allSettled so one
+ *  failed modify does not abort the rest; returns how many took. */
+export async function applyLabel(accessToken: string, ids: string[], name: string): Promise<{ labelId: string; applied: number }> {
+  const labelId = await ensureLabel(accessToken, name);
+  const gmail = buildClient(accessToken);
+  const results = await Promise.allSettled(ids.map((id) =>
+    gmail.users.messages.modify({ userId: "me", id, requestBody: { addLabelIds: [labelId] } }),
+  ));
+  return { labelId, applied: results.filter((r) => r.status === "fulfilled").length };
+}
+
 export async function getMessageForReply(accessToken: string, id: string): Promise<ReplyContext | null> {
   const gmail = buildClient(accessToken);
   const res = await gmail.users.messages.get({ userId: "me", id, format: "full" });

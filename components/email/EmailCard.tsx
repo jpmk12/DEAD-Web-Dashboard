@@ -1,6 +1,9 @@
 import { EmailMessage, EmailPriority } from "@/lib/types";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { useState } from "react";
+import { FAMILY_LABELS } from "@/lib/familyLabels";
+import { FamilyFileIcon } from "@/lib/icons";
+import { toast } from "@/lib/feedback";
 
 interface EmailCardProps {
   email: EmailMessage;
@@ -59,6 +62,31 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [draft, setDraft] = useState<DraftState>({ phase: "idle" });
   const [convert, setConvert] = useState<ConvertState>({ phase: "idle" });
+  // "File under Family": one tap applies a Gmail label (Family/School …) AND
+  // tracks the sender in the Family roster, so the Family tab reads this
+  // sender from now on with nothing typed.
+  const [fileMenu, setFileMenu] = useState(false);
+  const [filed, setFiled] = useState<{ label: string; tracked: boolean } | "busy" | null>(null);
+
+  const fileUnderFamily = async (category: string, labelName: string) => {
+    setFileMenu(false);
+    setFiled("busy");
+    try {
+      const res = await fetch("/api/gmail/label", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [email.id], account: email.account, category, senders: [email.from] }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) throw new Error(d?.error || "Could not file it");
+      const tracked = Array.isArray(d.tracked) && d.tracked.some((t: { added?: boolean }) => t.added);
+      setFiled({ label: d.label ?? labelName, tracked });
+      toast.ok(`Filed under ${d.label ?? labelName}`, tracked ? `${sender.email.split("@")[1] ?? "sender"} now tracked by the Family tab` : "sender already tracked, or a personal address");
+    } catch (e) {
+      setFiled(null);
+      toast.error("Could not file that email", e);
+    }
+  };
 
   // Convert this email → a Google Task or Calendar event. Claude pre-fills from
   // the email; the user reviews/edits inline before it's created (with a
@@ -269,6 +297,38 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
             >
               {convert.phase === "loading" && convert.kind === "event" ? "…" : "📅"}
             </button>
+            <span className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); if (filed && filed !== "busy") return; setFileMenu((v) => !v); }}
+                disabled={filed === "busy"}
+                title={filed && filed !== "busy" ? `Filed under ${filed.label}` : "File under Family — labels it in Gmail and tracks the sender on the Family tab"}
+                aria-haspopup="menu"
+                aria-expanded={fileMenu}
+                className={`w-6 h-6 flex items-center justify-center rounded-md transition-all ${
+                  filed && filed !== "busy" ? "text-rose-300 bg-rose-500/10"
+                  : filed === "busy" ? "text-rose-300/60 cursor-wait"
+                  : "text-slate-600 hover:text-rose-300 hover:bg-rose-500/10"
+                }`}
+              >
+                <FamilyFileIcon size={14} strokeWidth={2.25} />
+              </button>
+              {fileMenu && (
+                <div role="menu" onClick={(e) => e.stopPropagation()}
+                  className="absolute right-0 top-full mt-1 z-30 min-w-[230px] rounded-lg border border-slate-700 bg-slate-950 shadow-2xl p-1.5">
+                  <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.16em] text-rose-300">File under Family</p>
+                  {FAMILY_LABELS.map((l) => (
+                    <button key={l.category} role="menuitem" onClick={() => fileUnderFamily(l.category, l.name)}
+                      className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-800 flex items-baseline gap-2">
+                      <span className="text-[11.5px] font-semibold text-slate-200">{l.name.replace("Family/", "")}</span>
+                      <span className="text-[9.5px] text-slate-500 truncate">{l.hint}</span>
+                    </button>
+                  ))}
+                  <p className="px-2 pt-1.5 pb-1 text-[9px] text-slate-600 leading-snug border-t border-slate-800 mt-1">
+                    Applies the Gmail label and tracks <span className="font-mono text-slate-500">{sender.email.split("@")[1] ?? "the sender"}</span> in that roster bucket.
+                  </p>
+                </div>
+              )}
+            </span>
             <button
               onClick={saveToDocs}
               disabled={saveState === "saving" || saveState === "saved"}
@@ -292,7 +352,14 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
           </div>
         </div>
 
-        <p className="text-sm font-medium text-slate-300 truncate mb-1">{email.subject}</p>
+        <p className="text-sm font-medium text-slate-300 truncate mb-1">
+          {filed && filed !== "busy" && (
+            <span className="inline-flex items-center gap-1 mr-1.5 align-middle text-[9px] font-bold uppercase tracking-wider text-rose-300 border border-rose-500/40 bg-rose-500/10 rounded px-1.5 py-px">
+              {filed.label}{filed.tracked ? " · tracked" : ""}
+            </span>
+          )}
+          {email.subject}
+        </p>
         <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{email.summary || email.snippet}</p>
 
         {/* Drafted-reply review panel — edit inline, then save to Gmail Drafts. */}

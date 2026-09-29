@@ -1824,6 +1824,20 @@ together. "edit" adds/removes zones (datalist of common IANA ids, validated
 via `isValidTz`) and persists per browser in `localStorage["glance.clocks"]`
 — not cross-device on purpose (trivial, and the default set is the point).
 
+### Glance clocks carry the part of the day (`phaseForHour` · `DAY_PHASE_ICONS`)
+Each clock tile shows where in the local day that place is, two ways: a
+lucide glyph in the top-right corner (Sun / Moon / Sunrise / Sunset from
+`lib/icons.tsx DAY_PHASE_ICONS`) and the tile's **sky** — day on neutral
+slate, night receding into indigo-black, dawn and dusk warming the top edge —
+plus the word under the weekday. `phaseForHour(hour)` (PURE, tested) bands
+the clock hour: night 20–04, dawn 05–06, day 07–17, dusk 18–19. Deliberately
+by hour, not by sunrise tables: the question is "their day or their night",
+and a planning-grade band is what a glance can read. `isNight` is now
+`phase === "night"`. Zulu's emerald and the device zone's sky border keep
+priority over the phase border; the sky still shows the phase underneath.
+The Morning Brief section moved to sit **directly under the clocks** (still
+a collapsible), ahead of the status row, by request.
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns
@@ -2195,6 +2209,22 @@ pieces; the first two cost nothing new in privacy or model spend.
 - Considered and NOT built: seeding people/activities from calendar events
   (too speculative — a recurring "practice" event names nobody's sender),
   and any widening of BODY reading past declared senders.
+
+### Email → "File under Family" (`lib/familyLabels.ts` · `/api/gmail/label` · `lib/familyRosterOps.ts`)
+The seamless way to seed the Family roster: on any email card (the ♥-folder
+button) or the bulk bar's "File under Family…" select, pick a bucket and ONE
+tap does two things — applies the Gmail label (`Family/School`,
+`Family/Activities`, `Family/Bills`, `Family/Medical`, `Family/Travel`,
+`Family/Admin`; created on first use, parent `Family` first, via
+`gmail.ensureLabel` — names compare case-insensitively because Gmail refuses
+a case-variant duplicate) and, **owner only**, tracks each sender's domain in
+the matching roster bucket through `trackSenders()` (the shared write:
+billers start `auto`, duplicates are never written twice, both digest caches
+reset). Free-mail domains are labelled but never tracked (that is a person).
+The client sends ids + From lines it already holds; the route reads nothing.
+`familyLabels.ts` is PURE and is the one place the label names live —
+`categoryForLabel` lets "Seed from label" pre-select the bucket for a
+`Family/*` label. Works on both accounts (secondary via the cookie token).
 
 ### Family/Household learning layer (six surfaces)
 A survey for "what should the Family tab learn / capture" found a **serious hole

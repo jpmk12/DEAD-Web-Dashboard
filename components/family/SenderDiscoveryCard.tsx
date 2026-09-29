@@ -55,9 +55,10 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
   // Per-domain category override; absent means "use the classifier's guess".
   const [pick, setPick] = useState<Record<string, ProposalCategory>>({});
   const [adding, setAdding] = useState<string | null>(null);
-  // Labels: fetched on first click of the seed control, never on mount.
+  // Labels: fetched on first focus of the seed control, never on mount. A
+  // native <select> rather than a hand-rolled popover — it lays itself out,
+  // scrolls, and reads on a phone.
   const [labels, setLabels] = useState<string[] | null>(null);
-  const [labelsOpen, setLabelsOpen] = useState(false);
   const autoFired = useRef(false);
 
   const runDiscovery = async (label?: string) => {
@@ -100,7 +101,6 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
   }, [autoDiscover]);
 
   const loadLabels = async () => {
-    setLabelsOpen((v) => !v);
     if (labels !== null) return;
     try {
       const r = await fetch("/api/family/discover?labels=1");
@@ -163,25 +163,21 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
         <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30 flex-wrap">
           <span className="text-[11px] font-bold uppercase tracking-widest text-slate-300">{heading}</span>
           {autoNote && <span className="text-[9.5px] text-slate-600">· {autoNote}</span>}
-          <span className="ml-auto flex items-center gap-1.5 relative">
-            <button
-              onClick={loadLabels}
+          <span className="ml-auto flex items-center gap-1.5">
+            <select
+              value=""
+              onFocus={loadLabels}
+              onMouseDown={loadLabels}
+              onChange={(e) => { if (e.target.value) runDiscovery(e.target.value); }}
               disabled={discovering}
-              className="text-[9.5px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-40"
               title="Propose every undeclared sender in one of your own Gmail labels"
+              className="max-w-[190px] bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-300 disabled:opacity-40"
             >
-              Seed from label ▾
-            </button>
-            {labelsOpen && (
-              <span className="absolute right-0 top-full mt-1 z-20 flex flex-col bg-slate-950 border border-slate-700 rounded-lg p-1 shadow-xl min-w-[180px] max-h-64 overflow-y-auto">
-                {labels === null && <span className="text-[10px] text-slate-500 px-2 py-1">loading…</span>}
-                {labels?.length === 0 && <span className="text-[10px] text-slate-500 px-2 py-1">no user labels in this account</span>}
-                {labels?.map((l) => (
-                  <button key={l} onClick={() => { setLabelsOpen(false); runDiscovery(l); }}
-                    className="text-left text-[10.5px] px-2 py-1 rounded hover:bg-slate-800 text-slate-300 truncate">{l}</button>
-                ))}
-              </span>
-            )}
+              <option value="">Seed from label…</option>
+              {labels === null && <option value="" disabled>loading labels…</option>}
+              {labels?.length === 0 && <option value="" disabled>no user labels in this account</option>}
+              {labels?.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
             <button
               onClick={() => runDiscovery()}
               disabled={discovering}

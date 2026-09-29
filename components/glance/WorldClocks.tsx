@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { renderClocks, DEFAULT_CLOCKS, isValidTz, type ClockDef } from "@/lib/worldClocks";
+import { renderClocks, DEFAULT_CLOCKS, isValidTz, type ClockDef, type DayPhase } from "@/lib/worldClocks";
+import { DAY_PHASE_ICONS } from "@/lib/icons";
 
 // The clock row under the Glance greeting — "big digits" design: one tile
 // per zone, UTC offset above, the time as the largest numerals on the page,
-// the place name and weekday/day-night beneath. Night tiles recede; Zulu is
-// the reference and glows emerald; the tile for the device's own zone gets a
-// sky border so "here" is never in doubt.
+// the place name and weekday beneath. Each tile carries the part of the
+// local day as a small lucide glyph in its corner AND as its sky: day tiles
+// sit on neutral slate, night tiles recede into indigo-black, dawn and dusk
+// warm the top edge — so "is it their day or their night" reads from across
+// the room before the digits do. Zulu is the reference and glows emerald;
+// the tile for the device's own zone gets a sky border so "here" is never
+// in doubt.
 //
 // Client-only (the same hydration rule as the greeting — the server's zone
 // is not the reader's), ticking once a minute on the minute so every tile
@@ -27,6 +32,14 @@ function loadClocks(): ClockDef[] {
 }
 
 const ZONES = ["UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Pacific/Honolulu", "Europe/London", "Europe/Berlin", "Europe/Moscow", "Asia/Tehran", "Asia/Amman", "Asia/Riyadh", "Asia/Qatar", "Asia/Dubai", "Asia/Kabul", "Asia/Karachi", "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul", "Australia/Sydney"];
+
+// The sky per phase: background wash, the glyph's colour, and the digits.
+const PHASE: Record<DayPhase, { sky: string; glyph: string; digits: string; label: string }> = {
+  day:   { sky: "border-slate-700 bg-gradient-to-b from-slate-800 to-slate-950",                      glyph: "text-amber-300",  digits: "text-slate-50 drop-shadow-[0_0_14px_rgba(148,163,184,0.15)]", label: "daytime" },
+  night: { sky: "border-slate-800 bg-gradient-to-b from-[#0d1330] to-slate-950",                      glyph: "text-indigo-300", digits: "text-slate-300", label: "night" },
+  dawn:  { sky: "border-orange-500/25 bg-gradient-to-b from-orange-500/[0.14] via-slate-900 to-slate-950", glyph: "text-orange-300", digits: "text-slate-100", label: "dawn" },
+  dusk:  { sky: "border-violet-500/25 bg-gradient-to-b from-orange-400/[0.12] via-[#171433] to-slate-950", glyph: "text-orange-400", digits: "text-slate-200", label: "dusk" },
+};
 
 export default function WorldClocks() {
   const [now, setNow] = useState<number | null>(null);
@@ -69,34 +82,44 @@ export default function WorldClocks() {
         {rows.map((c) => {
           const zulu = c.tz === "UTC";
           const here = c.tz === deviceTz;
-          const tone = zulu
-            ? "border-emerald-500/50 bg-gradient-to-b from-emerald-500/[0.08] to-slate-950"
-            : here
-              ? "border-sky-500/40 bg-gradient-to-b from-slate-800 to-slate-950"
-              : c.isNight
-                ? "border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950"
-                : "border-slate-700 bg-gradient-to-b from-slate-800 to-slate-950";
+          const phase = PHASE[c.phase];
+          const Glyph = DAY_PHASE_ICONS[c.phase];
+          // Zulu and "here" keep their identity borders; the sky still shows
+          // the phase underneath.
+          const border = zulu ? "border-emerald-500/50" : here ? "border-sky-500/45" : "";
+          const sky = zulu
+            ? "bg-gradient-to-b from-emerald-500/[0.08] to-slate-950"
+            : phase.sky.replace(/^border-\S+\s/, "");
+          const digits = !c.valid ? "text-red-300" : zulu ? "text-emerald-300 drop-shadow-[0_0_14px_rgba(52,211,153,0.35)]" : phase.digits;
           return (
             <div
               key={`${c.label}|${c.tz}`}
-              title={`${c.tz}${c.dayOffset ? ` · ${c.dayOffset > 0 ? "tomorrow" : "yesterday"} relative to you` : ""}${here ? " · your zone" : ""}`}
-              className={`relative min-w-0 overflow-hidden rounded-xl border px-1.5 sm:px-2 pt-2.5 pb-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${tone}`}
+              title={`${c.tz} · ${phase.label}${c.dayOffset ? ` · ${c.dayOffset > 0 ? "tomorrow" : "yesterday"} relative to you` : ""}${here ? " · your zone" : ""}`}
+              className={`relative min-w-0 overflow-hidden rounded-xl border px-1.5 sm:px-2 pt-2.5 pb-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${border || phase.sky.match(/^border-\S+/)?.[0] || "border-slate-700"} ${sky}`}
             >
+              {/* The part of the day, in the corner — glyph AND sky so it reads
+                  without the legend. Night glyphs are dimmer than day ones on
+                  purpose: a moon should recede. */}
+              {c.valid && (
+                <Glyph
+                  size={13}
+                  strokeWidth={2.25}
+                  aria-label={phase.label}
+                  className={`absolute top-1.5 right-1.5 ${phase.glyph} ${c.phase === "night" ? "opacity-70" : "opacity-90"}`}
+                />
+              )}
               <span className="block text-[8.5px] font-mono tracking-[0.12em] text-slate-600 leading-none">{c.utcOffset || "—"}</span>
-              <span
-                className={`block font-mono text-[24px] sm:text-[26px] lg:text-[30px] font-black leading-none tabular-nums tracking-tight mt-1.5 ${
-                  !c.valid ? "text-red-300" : zulu ? "text-emerald-300 drop-shadow-[0_0_14px_rgba(52,211,153,0.35)]" : c.isNight ? "text-slate-300" : "text-slate-50 drop-shadow-[0_0_14px_rgba(148,163,184,0.15)]"
-                }`}
-              >
+              <span className={`block font-mono text-[24px] sm:text-[26px] lg:text-[30px] font-black leading-none tabular-nums tracking-tight mt-1.5 ${digits}`}>
                 {c.time}{zulu && <span className="text-[12px] font-bold text-slate-500 ml-0.5">Z</span>}
               </span>
               <span className="block mt-2 text-[9.5px] sm:text-[10.5px] font-extrabold uppercase tracking-[0.1em] sm:tracking-[0.18em] text-slate-300 truncate">{c.label}</span>
               <span className="block text-[9.5px] text-slate-500 mt-0.5">
-                {c.weekday}{c.dayOffset > 0 ? " +1" : c.dayOffset < 0 ? " −1" : ""} <span aria-hidden>{c.isNight ? "☾" : "☀"}</span>
+                {c.weekday}{c.dayOffset > 0 ? " +1" : c.dayOffset < 0 ? " −1" : ""}
+                <span className={`ml-1 ${phase.glyph} opacity-80`}>{phase.label}</span>
               </span>
               {editing && (
                 <button type="button" onClick={() => persist(clocks.filter((x) => !(x.label === c.label && x.tz === c.tz)))}
-                  className="absolute top-1 right-1.5 text-slate-600 hover:text-red-300 text-sm leading-none" aria-label={`Remove ${c.label} clock`}>×</button>
+                  className="absolute top-1 left-1.5 text-slate-600 hover:text-red-300 text-sm leading-none" aria-label={`Remove ${c.label} clock`}>×</button>
               )}
             </div>
           );

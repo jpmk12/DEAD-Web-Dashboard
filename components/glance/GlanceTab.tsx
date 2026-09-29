@@ -920,26 +920,10 @@ export default function GlanceTab({
       {/* ── World clocks: home station, the capitals that set the tempo, Zulu ── */}
       <WorldClocks />
 
-      {/* ── Hero: live status row ──
-          Posture · Bases · I&W · Demand · Alerts · Family — each a live tile
-          that deep-links. The north star's verb is "see changes"; a hero of
-          day-cached prose could not show one. The per-base LED strip that
-          used to sit below the brief is folded into the Bases tile (the
-          Watch pane keeps the full strip). */}
-      <StatusRow forceWatch={forceWatch} sitreps={sitreps} onNavigate={onNavigate} />
-
-      {/* ── What moved since you last looked ── */}
-      <OeDeltaCard />
-
-      {/* ── Where demand is going over the next week ──
-          The forecast the north star names; deterministic from the sensors
-          already on the board. */}
-      <div id="glance-demand" className="scroll-mt-24">
-        <DemandHorizonCard />
-      </div>
-
-      {/* ── Morning brief — demoted to a collapsible; the headline stays
-          visible, the prose lives in the modal. ── */}
+      {/* ── Morning brief — right under the clocks, by request: the first
+          sentence of the day sits with the first look at the day. Still a
+          collapsible (headline always visible, focus bullets fold, prose in
+          the modal); the live status row follows. ── */}
       <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
         <div className="flex items-start justify-between gap-3 px-4 py-3">
           <button
@@ -986,6 +970,25 @@ export default function GlanceTab({
           </ul>
         )}
       </section>
+
+
+      {/* ── Hero: live status row ──
+          Posture · Bases · I&W · Demand · Alerts · Family — each a live tile
+          that deep-links. The north star's verb is "see changes"; a hero of
+          day-cached prose could not show one. The per-base LED strip that
+          used to sit below the brief is folded into the Bases tile (the
+          Watch pane keeps the full strip). */}
+      <StatusRow forceWatch={forceWatch} sitreps={sitreps} onNavigate={onNavigate} />
+
+      {/* ── What moved since you last looked ── */}
+      <OeDeltaCard />
+
+      {/* ── Where demand is going over the next week ──
+          The forecast the north star names; deterministic from the sensors
+          already on the board. */}
+      <div id="glance-demand" className="scroll-mt-24">
+        <DemandHorizonCard />
+      </div>
 
       {/* ── Global Reach Watch: NEO / disasters / weather, de-crowded ── */}
       {reach.length > 0 && (
