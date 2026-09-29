@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>economy redesign</title><link rel="stylesheet" href="shot.css">
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>economy redesign</title><link rel="stylesheet" href="shot.css">
 <style>
   .pane{max-width:1180px;margin:22px auto;padding:0 20px}
   .hdr{display:flex;align-items:flex-end;gap:14px;margin-bottom:14px}
@@ -66,19 +66,64 @@
   .spark{height:18px;margin-top:5px;display:flex;align-items:flex-end;gap:2px}
   .spark i{flex:1;background:#334155;border-radius:1px}
   .spark i.d{background:#ef4444}
+  .rn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:16px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .rn{margin:2px 0 0;flex-shrink:0}
+  /* expanded evidence drawer under a board row */
+  .drawer td{background:rgba(2,6,23,.55);padding:10px 14px 12px 14px}
+  .dr{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:14px}
+  .dr h4{margin:0 0 5px;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2)}
+  .src{display:flex;gap:8px;font-size:10.5px;padding:3px 0;color:var(--txt2)}
+  .src .m{flex-shrink:0;font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid;border-radius:4px;padding:1px 5px;height:fit-content;margin-top:2px}
+  .src .m.act{color:#fecaca;border-color:rgba(239,68,68,.55)}.src .m.threat{color:#fde68a;border-color:rgba(245,158,11,.5)}.src .m.analysis{color:#94a3b8;border-color:#475569}
+  .src .w{color:var(--mut);font-size:9.5px}
+  .kv{font-size:10.5px;color:var(--txt2);display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(30,41,59,.5)}
+  .kv b{font-family:ui-monospace,Menlo,monospace;font-weight:700}
+  .fal{font-size:10.5px;color:var(--mut);line-height:1.45}
+  .fal b{color:#fcd34d;font-size:9px;letter-spacing:.12em;text-transform:uppercase;margin-right:5px}
+  .dact{display:flex;gap:6px;margin-top:8px}
+  .dact span{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:3px 8px;color:#94a3b8}
+  .dact span.p{border-color:rgba(52,211,153,.5);color:var(--acc)}
+  .since{display:flex;gap:8px;align-items:center;font-size:10.5px;color:var(--mut);margin:-6px 0 12px}
+  .since b{color:#fca5a5}.since i{font-style:normal;color:#6ee7b7}
+  @media (max-width:520px){
+    html,body{width:390px;max-width:390px;overflow-x:hidden}
+    .pane{padding:0 12px;margin:14px auto;max-width:390px;box-sizing:border-box;overflow:hidden}
+    .board tr:first-child{display:none}
+    .board td{white-space:normal}
+    .hdr .ns{max-width:none}
+    .actor .lvl{position:static;display:inline-block;margin:4px 0 0}
+    .actor .who{display:flex;align-items:center;gap:6px}
+    .hdr{flex-direction:column;align-items:flex-start;gap:6px}
+    .actors{grid-template-columns:1fr 1fr}
+    .board table,.board thead,.board tbody,.board tr,.board td,.board th{display:block}
+    .board thead{display:none}
+    .board tr{border-top:1px solid var(--bd);padding:8px 0}
+    .board td{padding:2px 12px;border:0}
+    .board td:first-child{font-weight:800;font-size:12.5px;padding-top:6px}
+    .strip{flex-wrap:wrap}.cp{flex:1 1 30%}
+    .two{grid-template-columns:1fr}
+    .dr{grid-template-columns:1fr}
+    .notes ol{grid-template-columns:1fr}
+    .tl .lab{font-size:8px}
+  }
 </style></head>
 <body>
 <div class="pane">
   <div class="hdr">
-    <h2>⚔ Economic Warfare Watch</h2>
+    <h2>⚔ Economic Warfare Watch <span class="rn">1</span></h2>
     <span class="ns">Which actors in your AORs are using economic leverage right now, against whom, with what instrument — and whether it is escalating. Colour is earned; a quiet tile is "nothing reported", not "safe".</span>
     <span class="pjump" style="margin-left:auto">↻ 10 min · ⇩ export</span>
   </div>
 
+  <div class="since">Δ since you last looked (yesterday 21:40): <b>Iran WATCH → WARNING</b> · <i>Russia improving</i> · 2 new US designations · Hormuz AIS −20 % → −38 %</div>
   <!-- 1. Actor tiles: one per tracked actor, the I&W discipline applied to economic instruments -->
   <div class="actors">
     <div class="actor warn">
-      <div class="who">Iran</div><span class="lvl warn">Warning</span>
+      <div class="who">Iran <span class="rn">2</span></div><span class="lvl warn">Warning</span>
       <div class="anom" style="color:#fdba74">+0.42<small>vs 30d baseline · ↗</small></div>
       <div class="inst"><span class="on">⚓ shipping</span><span class="mid">⛽ energy</span><span>¤ finance</span><span>⇄ trade</span></div>
       <div class="drv">2 tanker seizures in 9 d (Hormuz) · AIS transits −38 % vs own normal · OPEC+ quota rhetoric</div>
@@ -105,10 +150,37 @@
 
   <!-- 2. Coercion board: actor → target → instrument, graded by modality, corroborated by what ships and prices DO -->
   <div class="panel board">
-    <div class="phead"><span class="ptitle" style="color:#fdba74">Coercion board — who is squeezing whom</span><span class="pjump">act › threat › analysis · corroborated by AIS &amp; prices</span></div>
+    <div class="phead"><span class="ptitle" style="color:#fdba74">Coercion board — who is squeezing whom <span class="rn">3</span></span><span class="pjump">act › threat › analysis · corroborated by AIS &amp; prices</span></div>
     <table>
       <tr><th style="width:90px">Actor</th><th style="width:110px">Target</th><th style="width:110px">Instrument</th><th style="width:90px">Grade</th><th>Evidence</th><th style="width:180px">Corroboration</th><th style="width:130px">Affects</th></tr>
       <tr><td><b>Iran</b></td><td>Commercial shipping</td><td>⚓ interdiction</td><td><span class="mod act">reported act</span></td><td>IRGCN boards Marshall-flagged tanker off Jask; second seizure in 9 days <span class="hint">· Reuters · 6h</span></td><td class="corr"><b>AIS −38 %</b> transits/h vs own normal · Brent <b>+2.4 %</b> session · war-risk premium up</td><td class="aff">CENTCOM sealift · Al Udeid fuel · Bahrain</td></tr>
+      <tr class="drawer"><td colspan="7">
+        <div class="dr">
+          <div>
+            <h4>Evidence — every source, graded <span class="rn">4</span></h4>
+            <div class="src"><span class="m act">act</span><span>IRGCN boards Marshall-flagged tanker off Jask <span class="w">· Reuters via GDELT · 6h · matched “boarded”</span></span></div>
+            <div class="src"><span class="m act">act</span><span>UKMTO advisory: vessel “under control of unknown forces” <span class="w">· UKMTO · 7h</span></span></div>
+            <div class="src"><span class="m threat">threat</span><span>IRGC Navy: “any hostile hull will be answered” <span class="w">· Tasnim via 𝕏 capture · 2d · own source</span></span></div>
+            <div class="src"><span class="m analysis">analysis</span><span>Seizure tempo highest since 2023 <span class="w">· 📄 captured article (FDD) · 3d · analysis never raises the level alone</span></span></div>
+            <div class="src"><span class="m act">act</span><span>2 georeferenced incidents ≤ 320 km <span class="w">· ACLED · 9d, 1d</span></span></div>
+          </div>
+          <div>
+            <h4>Corroboration — what ships &amp; prices did</h4>
+            <div class="kv"><span>Hormuz transits / listened hour</span><b style="color:#fca5a5">4.1 vs 6.6 normal (−38 %)</b></div>
+            <div class="kv"><span>Baseline coverage</span><b>11 observed days</b></div>
+            <div class="kv"><span>Brent (session)</span><b style="color:#fcd34d">+2.4 %</b></div>
+            <div class="kv"><span>Bab-el-Mandeb (control)</span><b style="color:#6ee7b7">normal</b></div>
+            <div class="kv"><span>Own-source agreement</span><b>yes → confirmed</b></div>
+          </div>
+          <div>
+            <h4>Judgement</h4>
+            <p class="fal"><b>Level</b> WARNING — act + corroborated suppression; no closure, no mining.</p>
+            <p class="fal"><b>Falsifier</b> transits ≥ 0.85× normal for 5 observed days with no new seizure → Watch.</p>
+            <p class="fal"><b>Affects</b> CENTCOM sealift routing · Al Udeid / Bahrain fuel contracts · war-risk premium.</p>
+            <div class="dact"><span class="p">＋ log a call</span><span>open on map</span><span>export row</span></div>
+          </div>
+        </div>
+      </td></tr>
       <tr><td><b>Iran</b></td><td>Gulf states / OPEC+</td><td>⛽ energy leverage</td><td><span class="mod threat">declared threat</span></td><td>Oil minister: "supply will reflect the security situation" <span class="hint">· IRNA via GDELT · 1d</span></td><td class="corr">Brent +2.4 % · no export volume change observed</td><td class="aff">Jet-fuel cost · sustainment</td></tr>
       <tr><td><b>Houthis</b></td><td>Israel-linked hulls</td><td>⚓ interdiction</td><td><span class="mod threat">declared threat</span></td><td>Sarea statement resuming Red Sea targeting <span class="hint">· Al Masirah via 𝕏 capture · 2d</span></td><td class="corr">Bab-el-Mandeb transits <b>normal</b> · 0 georeferenced strikes 14 d</td><td class="aff">Suez routing · EUCOM⇄CENTCOM</td></tr>
       <tr><td><b>United States</b></td><td>Iran · PRC entities</td><td>⊘ sanctions / export controls</td><td><span class="mod act">reported act</span></td><td>OFAC: 14 SDN designations (shadow fleet) · BIS: 6 Entity List additions <span class="hint">· Federal Register · 3d</span></td><td class="corr">— (US-side action; foreign counter-measure feed pending)</td><td class="aff">Watch for retaliation vs overflight / basing</td></tr>
@@ -117,8 +189,8 @@
   </div>
 
   <!-- 3. Chokepoints, as a strip with sparklines: what ships DO -->
-  <div class="strip">
-    <div class="cp"><div class="n">Hormuz</div><div class="s" style="color:#fca5a5">78</div><div class="ais" style="color:#fca5a5">AIS suppressed · 4.1/h vs 6.6 normal</div><div class="spark"><i style="height:70%"></i><i style="height:74%"></i><i style="height:68%"></i><i style="height:72%"></i><i style="height:60%"></i><i class="d" style="height:44%"></i><i class="d" style="height:38%"></i></div></div>
+  <div class="strip" id="strip">
+    <div class="cp"><div class="n">Hormuz <span class="rn">5</span></div><div class="s" style="color:#fca5a5">78</div><div class="ais" style="color:#fca5a5">AIS suppressed · 4.1/h vs 6.6 normal</div><div class="spark"><i style="height:70%"></i><i style="height:74%"></i><i style="height:68%"></i><i style="height:72%"></i><i style="height:60%"></i><i class="d" style="height:44%"></i><i class="d" style="height:38%"></i></div></div>
     <div class="cp"><div class="n">Bab-el-Mandeb</div><div class="s" style="color:#fcd34d">41</div><div class="ais" style="color:#6ee7b7">AIS normal · 3.0/h</div><div class="spark"><i style="height:50%"></i><i style="height:52%"></i><i style="height:48%"></i><i style="height:55%"></i><i style="height:50%"></i><i style="height:51%"></i><i style="height:49%"></i></div></div>
     <div class="cp"><div class="n">Suez</div><div class="s" style="color:#cbd5e1">12</div><div class="ais" style="color:#94a3b8">AIS baseline forming</div><div class="spark"><i style="height:40%"></i><i style="height:42%"></i><i style="height:41%"></i><i style="height:43%"></i><i style="height:40%"></i><i style="height:39%"></i><i style="height:42%"></i></div></div>
     <div class="cp"><div class="n">Turkish Straits</div><div class="s" style="color:#64748b">0</div><div class="ais" style="color:#6ee7b7">AIS normal</div><div class="spark"><i style="height:60%"></i><i style="height:58%"></i><i style="height:61%"></i><i style="height:59%"></i><i style="height:60%"></i><i style="height:62%"></i><i style="height:60%"></i></div></div>
@@ -129,7 +201,7 @@
   <div class="two">
     <!-- 4. Leverage map: what each actor COULD pull — structural, refreshed rarely -->
     <div class="panel lev">
-      <div class="phead"><span class="ptitle">Leverage — what they hold, what we hold</span><span class="pjump">structural · not warning</span></div>
+      <div class="phead"><span class="ptitle">Leverage — what they hold, what we hold <span class="rn">6</span></span><span class="pjump">structural · not warning</span></div>
       <div class="row"><div class="who">Iran</div><div><div class="k"><span>Hormuz throughput they can threaten</span><span>~20 % of world oil</span></div><div class="bar"><i style="width:82%"></i></div><div class="k" style="margin-top:6px"><span>Our leverage: sanctions coverage of exports</span><span>high</span></div><div class="bar u"><i style="width:76%"></i></div></div><div class="val">⚓ ⛽</div></div>
       <div class="row" style="border-top:1px solid rgba(30,41,59,.6)"><div class="who">Houthis</div><div><div class="k"><span>Red Sea / Suez routing (12 % of trade)</span><span>high</span></div><div class="bar"><i style="width:64%"></i></div><div class="k" style="margin-top:6px"><span>Our leverage</span><span>low · non-state</span></div><div class="bar u"><i style="width:18%"></i></div></div><div class="val">⚓</div></div>
       <div class="row" style="border-top:1px solid rgba(30,41,59,.6)"><div class="who">China</div><div><div class="k"><span>Critical-mineral &amp; component chokehold</span><span>very high</span></div><div class="bar"><i style="width:90%"></i></div><div class="k" style="margin-top:6px"><span>Our leverage: export controls · market access</span><span>high</span></div><div class="bar u"><i style="width:70%"></i></div></div><div class="val">⊘ ⇄</div></div>
@@ -139,7 +211,7 @@
 
     <!-- 5. 30-day action timeline: moves and counter-moves -->
     <div class="panel tl">
-      <div class="phead" style="margin:-14px -12px 0"><span class="ptitle">Moves &amp; counter-moves — last 30 days</span><span class="pjump">FR · foreign · shipping · markets</span></div>
+      <div class="phead" style="margin:-14px -12px 0"><span class="ptitle">Moves &amp; counter-moves — last 30 days <span class="rn">7</span></span><span class="pjump">FR · foreign · shipping · markets</span></div>
       <div class="axis">
         <span class="tick us" style="left:6%"></span><span class="lab up" style="left:6%">OFAC SDN ×14</span>
         <span class="tick them" style="left:18%"></span><span class="lab dn" style="left:18%">IRGCN seizure #1</span>
@@ -157,10 +229,25 @@
 
   <!-- 6. The AI read, reframed, with falsifiers -->
   <div class="read">
-    <div class="k">✦ Economic warfare read — CENTCOM</div>
+    <div class="k">✦ Economic warfare read — CENTCOM <span class="rn">8</span></div>
     <p>Iran has moved from threat to act against commercial shipping in Hormuz: two seizures in nine days with transits down 38 % against the strait's own baseline, and the energy-leverage rhetoric that usually precedes a quota fight. This is a WARNING, not an alert — no closure, no mining, and Bab-el-Mandeb remains normal. Expect war-risk premiums to lift jet-fuel contract cost within two weeks; watch for a US counter-designation and an Iranian answer against overflight or Bahrain basing.</p>
     <div class="fals"><b>Falsifier</b> Transits recover to ≥ 0.85× normal for 5 consecutive observed days with no new seizure → downgrade to Watch.</div>
     <div class="fals"><b>Decision linkage</b> Fuel-cost assumptions for CENTCOM sustainment · sealift routing via the Cape · crew-rest planning for extended legs.</div>
+  </div>
+
+  <div class="notes">
+    <h3>Review notes — what each part is for</h3>
+    <ol>
+      <li><span class="rn">1</span><span><b>Reframed header + Δ line.</b> The tab opens with who moved since your last look, in the same "net change, not a log" grammar as Glance. The old "Strategic Economics" title and the energy strip go; Brent lives inside corroboration now.</span></li>
+      <li><span class="rn">2</span><span><b>Actor tiles.</b> One per tracked actor (from Mission Profile AOIs + watched countries; non-state actors curated). Level, anomaly vs a 30-day baseline, trajectory, and instrument chips lit only by graded evidence. Same engine as the I&amp;W boards, so learning mode caps at Watch and colour is earned.</span></li>
+      <li><span class="rn">3</span><span><b>Coercion board.</b> The unit is actor → target → instrument. Every row states its grade (act › threat › analysis), its evidence with source and age, what ships and prices did, and which of your lines it touches. A mention counter never appears on this tab.</span></li>
+      <li><span class="rn">4</span><span><b>Evidence drawer.</b> Tapping a row opens every source that fed it, each graded, plus the corroboration numbers and the judgement with its falsifier. "＋ log a call" writes to the same decision log the I&amp;W boards use, so hit rates accrue here too.</span></li>
+      <li><span class="rn">5</span><span><b>Chokepoint strip.</b> The existing graded board compressed to one row with a 7-day AIS sparkline per strait; detail is one tap away. Suppressed traffic is the one sensor that cannot be spun.</span></li>
+      <li><span class="rn">6</span><span><b>Leverage map.</b> Structural capacity, curated with a source note and refreshed quarterly. Labelled "not warning" and never coloured: a capacity that glows every day is the Christmas-tree failure.</span></li>
+      <li><span class="rn">7</span><span><b>Moves &amp; counter-moves.</b> Thirty days on one axis, four dot kinds. Sequence is the predictive signal: a counter-move days after a designation is a pattern; a standing seizure tempo is posture.</span></li>
+      <li><span class="rn">8</span><span><b>The read.</b> Per AOR, with a level call, a falsifier and a decision linkage, in the I&amp;W discipline. Generated on open, day-cached, never on page load.</span></li>
+      <li><span class="rn">9</span><span><b>Honest gaps.</b> Foreign counter-measures need a feed (EU + UK sanctions CSVs are keyless; PRC MOFCOM notices would be a browser capture). Until then the "United States" rows have no counter-move partner and say so.</span></li>
+    </ol>
   </div>
 </div>
 <div class="mockcap">illustrative render · economy redesign</div>
