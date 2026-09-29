@@ -39,9 +39,9 @@ describe("renderClock — one instant, many zones", () => {
     expect(bad.time).toBe("--:--");
   });
 
-  it("renders the five defaults", () => {
+  it("renders the six defaults", () => {
     const rows = renderClocks(NOW, DEFAULT_CLOCKS, "UTC");
-    expect(rows.map((r) => r.label)).toEqual(["New Jersey", "Moscow", "Tehran", "Beijing", "Zulu"]);
+    expect(rows.map((r) => r.label)).toEqual(["New Jersey", "Moscow", "Tehran", "Amman", "Beijing", "Zulu"]);
     expect(rows.every((r) => r.valid)).toBe(true);
   });
 });

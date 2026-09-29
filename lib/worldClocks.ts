@@ -12,6 +12,7 @@ export const DEFAULT_CLOCKS: ClockDef[] = [
   { label: "New Jersey", tz: "America/New_York" },
   { label: "Moscow", tz: "Europe/Moscow" },
   { label: "Tehran", tz: "Asia/Tehran" },
+  { label: "Amman", tz: "Asia/Amman" },
   { label: "Beijing", tz: "Asia/Shanghai" },
   { label: "Zulu", tz: "UTC" },
 ];

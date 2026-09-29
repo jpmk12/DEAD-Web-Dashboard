@@ -1769,8 +1769,13 @@ slice), and nothing else depends on it.
 
 ### Glance world clocks (`lib/worldClocks.ts` · `components/glance/WorldClocks.tsx`)
 A clock row under the Glance greeting, above the status row: **New Jersey
-(America/New_York) · Moscow · Tehran · Beijing (Asia/Shanghai) · Zulu** by
-default (`DEFAULT_CLOCKS`). PURE + tested: `renderClock(nowMs, def,
+(America/New_York) · Moscow · Tehran · Amman · Beijing (Asia/Shanghai) ·
+Zulu** by default (`DEFAULT_CLOCKS`). Design = the "big digits" option the
+user picked from `docs/mockups/clocks.html` (rendered to
+`docs/clocks-options.png`): one tile per zone, UTC offset above, the time as
+the largest numerals on the page, label + weekday/☀☾ BELOW the time; night
+tiles recede, Zulu glows emerald with a `Z` suffix, the device's own zone
+gets a sky border. Grid is `min(6, max(3, n))` columns. PURE + tested: `renderClock(nowMs, def,
 deviceTz)` derives everything with Intl from ONE instant (time, weekday,
 `dayOffset` ±1 vs the device's calendar day, day/night by local hour,
 `utcOffset` incl. half-hours like Tehran's UTC+3:30; an invalid zone renders
