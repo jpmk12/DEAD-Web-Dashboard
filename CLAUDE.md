@@ -1625,6 +1625,11 @@ built on the existing engine rather than a new one:
   24 h, so the next pass has it). Any new consumer of the board must pass
   a `maxWaitMs` and handle `pending` — never await the bare assembly from a
   request handler.
+- **Order on the tab (by request, 2026-09-29)**: Economic Warfare Read →
+  actor board (tiles · timeline · leverage · coercion board) → energy strip
+  → chokepoint strip → regulatory board → news filter. The read sits first
+  because it is the answer; it still waits for `econ:board-ready` before its
+  first generate, so page order does not change what the model is given.
 - **Chokepoint strip** (mockup item 3, done 2026-09-29): `ChokepointBoard`
   is one row of eight tiles (score · short name · lead-class chip · AIS
   chip; `lg:grid-cols-8`, pairs on a phone) and ONE detail panel beneath

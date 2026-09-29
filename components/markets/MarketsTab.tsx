@@ -58,8 +58,12 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
         </button>
       </div>
 
-      {/* The actor board leads: the north star's question starts with the
-          actor, and everything below is the evidence it rests on. */}
+      {/* The read leads (by request): the answer first, then the actor board
+          it was written from, then the evidence beneath that. The panel waits
+          for the board to land before its first generate, so order on the
+          page does not change what the model is given. */}
+      <EconomicAccessPanel articles={articles} />
+
       <EconomicWarfareBoard active refreshKey={refreshKey} />
 
       {/* Energy / fuel strip — Brent drives jet-fuel/sustainment cost */}
@@ -94,9 +98,6 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
       {/* U.S. regulatory actions — the sanctions / export-control / tariff
           record, classified and flagged against the watch. */}
       <RegulatoryBoard active />
-
-      {/* AI Economic Warfare Read */}
-      <EconomicAccessPanel articles={articles} />
 
       {/* Sanctions / overflight / basing news */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
