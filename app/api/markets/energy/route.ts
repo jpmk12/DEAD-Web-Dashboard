@@ -4,7 +4,7 @@ import { getEnergyQuotes, diagnoseEnergy } from "@/lib/energyPrices";
 
 export const dynamic = "force-dynamic";
 
-// Energy & commodity quotes (Brent/WTI/natgas/gold) for the Strategic Economics
+// Energy & commodity quotes (Brent/WTI/natgas/gold) for the Economy (Economic Warfare Watch)
 // tab — the fuel/sustainment-cost signal. Keyless (Yahoo Finance, Stooq
 // fallback), cached 15min server-side. `?debug=1` (owner only) returns per-
 // source HTTP status so a blank panel shows its real cause.

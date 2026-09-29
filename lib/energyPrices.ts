@@ -1,4 +1,4 @@
-// Energy & commodity prices for the Strategic Economics tab — the fuel/
+// Energy & commodity prices for the Economy (Economic Warfare Watch) tab — the fuel/
 // sustainment-cost signal that bears on mobility (Brent ≈ jet-fuel cost driver;
 // natgas/gold as macro stress). Keyless, HTTPS, cached. Server-only.
 //

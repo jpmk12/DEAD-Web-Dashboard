@@ -101,8 +101,10 @@ prod) feeding the counter-pressure indicator, the coercion board and the
 EU/UK timeline lane — PRC MOFCOM remains the honest gap. G: `/api/markets/
 brief` now returns `{read, actors[{level, call, falsifier, decisionLinkage}],
 fuelLogistics, watchItems}` with the deterministic board as its evidence.
-The chokepoint strip (mockup item 3) was NOT compressed — the full
-`ChokepointBoard` stays below as the detail layer.
+The chokepoint strip (mockup item 3) is now one row of tiles with a single
+detail panel. PRC MOFCOM notices — the gap named under F — arrive by browser
+capture (`tools/x-auto-capture/mofcom.js` → `/api/capture/notices`) and are
+credited to the China actor as its own official record.
 
 A–C deliver the north star's *understand*; B's baseline plus D's sequence
 deliver *predict*. E and F are the structural and foreign halves that make

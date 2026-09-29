@@ -1604,6 +1604,47 @@ built on the existing engine rather than a new one:
   panel (`EconomicAccessPanel`, now titled "Economic Warfare Read") can mark a
   dissent. Client cache key bumped to `markets:brief:v2` so an old-shape
   object cannot render blank. No new dep anywhere (esbuild `0`).
+- **Chokepoint strip** (mockup item 3, done 2026-09-29): `ChokepointBoard`
+  is one row of eight tiles (score · short name · lead-class chip · AIS
+  chip; `lg:grid-cols-8`, pairs on a phone) and ONE detail panel beneath
+  for the selected tile — same data, same route, the evidence layer under
+  the actor board instead of a screen of its own.
+- **MOFCOM notice capture (the China AOI's official record)** — PRC
+  Ministry of Commerce export-control / unreliable-entity / anti-dumping
+  notices have no API and the site is hostile to datacenter fetches, so
+  they arrive the LiveUAMap way: captured in the user's own browser by the
+  `tools/x-auto-capture/` extension. `mofcom.js` (`collectMofcom`) keys off
+  the CMS's article-permalink shape (`/article/…/2YYYMMDD….shtml`, the date
+  is in the path) and a nearby `YYYY-MM-DD` label — never CSS classes — on
+  a list page, and on a single notice also captures the body (so the parser
+  sees the controlled items). `background.js` routes `mofcom.gov.cn` targets
+  to it and posts `dead-notices` to **`POST /api/capture/notices`** (same
+  bearer-or-session auth as x-import). `lib/noticeCapture.ts` (PURE,
+  tested) validates: https permalinks only, **every permalink must be on
+  the claimed host family** (`NOTICE_HOST_ALLOW` — a crafted file cannot
+  smuggle a notice under a ministry's name), date kept only as `YYYY-MM-DD`
+  else null (never guessed), body kept only if ≥40 chars. `lib/
+  noticeStore.ts` + `captured_notices` (180-day / newest-500 rolling — a
+  notice is a standing record, longer than events). **The join to the
+  board**: `NOTICE_HOSTS` in `lib/economicWarfare.ts` maps the host family
+  to an actor (`mofcom.gov.cn` → `china`); `readOfficialNotice()` grades
+  title+body with a CHINESE vocabulary first (稀土/镓/锗/石墨 → trade ·
+  mineral control; 不可靠实体清单 → sanctions · unreliable entity list;
+  出口管制/两用物项/禁止出口 → sanctions · export control; 反制/制裁 →
+  countermeasure; 反倾销/反补贴/关税 → trade · tariff; substring match is
+  correct for Chinese) and the English phrase grammar second. **A published
+  notice is a reported ACT by the issuer** (the standing a Federal Register
+  document has on the U.S. side); one out for comment (征求意见/意见稿/
+  "draft for comment") is a declared intent, tiered like a threat. The
+  assembler adds each graded notice as a `by` move (source "MOFCOM
+  notice", wire-grade evidence, so it can confirm) and a per-actor sensor
+  row ("MOFCOM notices" — live if any capture ≤30 d, else "capture the
+  announcements page with the extension"). Target list entry:
+  `https://www.mofcom.gov.cn/zwgk/gkzcfb/` (or the English policy-release
+  list, or a single notice's permalink). **Selectors are unverified against
+  the live site from the sandbox** — the first real capture fixes them in
+  `mofcom.js`, the same capture-then-build loop as X/DAIP. Extension files
+  are static under `tools/` (no esbuild).
 
 ### Indications & Warning (OSINT "I&W" sub-pane — the sensor→fusion→display spine)
 A doctrine-grounded I&W board: warning is about **anomaly & trajectory, not
@@ -1834,7 +1875,7 @@ EAR/ITAR…); `countriesIn` word-bounded + adjective forms, with `-ian`
 withheld after a final "r" (Niger ≠ Nigerian); `enrich`/`summarize`/
 `regulatoryLines`. Surfaces: `RegulatoryBoard` on the Economy tab (class +
 "touches watch" chips, ⚑ on rows naming a watched country) and a
-`U.S. REGULATORY ACTIONS` block in the Economic Access Read prompt.
+`U.S. REGULATORY ACTIONS` block in the Economic Warfare Read prompt.
 **U.S. side ONLY, by construction** — the panel and the prompt both say so;
 foreign counter-measures still arrive via news. **Contract unverified from
 the sandbox** (egress blocks the host): agency slugs are pinned from the

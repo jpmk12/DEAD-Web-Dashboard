@@ -52,7 +52,7 @@ export const TAB_ICONS: Record<Tab, LucideIcon> = {
   family: Users,
 };
 
-// Strategic Economics tab header.
+// Economy (Economic Warfare Watch) tab header.
 export const EconomyIcon = Coins;
 
 // Primary actions / feature identities.

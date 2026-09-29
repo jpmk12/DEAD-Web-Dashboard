@@ -23,7 +23,7 @@
 
 import { deriveWarning, scoreIndicators, type WarningAssessment } from "./warning";
 import {
-  resolveActors, actorProblem, movesFor, rankMoves, evidenceByInstrument, instrumentState,
+  resolveActors, actorProblem, movesFor, rankMoves, evidenceByInstrument, instrumentState, targetOf, TEXT_WINDOW_DAYS, NOTICE_HOSTS,
   counterPressureState, observation, instrumentForRegulatoryClass, econProblemId, ageDaysOf,
   INSTRUMENTS, INSTRUMENT_META, COUNTER_PRESSURE_ID, MAX_ACTORS,
   type Actor, type CoercionMove, type ActorText, type Instrument, type GradedEvidence,
@@ -36,6 +36,8 @@ import { getForeignSanctions } from "./foreignSanctions";
 import { designationWaves, type DesignationWave } from "./foreignSanctionsParse";
 import { buildTimeline, type TimelineDot, type Sequence, type ShippingIncident } from "./economicTimeline";
 import { leverageFor, type LeverageEntry } from "./leverage";
+import { getCapturedNotices } from "./noticeStore";
+import { actorForNoticeHost, readOfficialNotice } from "./economicWarfare";
 import { enrich, CLASS_LABEL, type RegulatoryAction } from "./regulatorySignals";
 import { getEnergyQuotes, type EnergyQuote } from "./energyPrices";
 import { gdeltSearch } from "./localNews";
@@ -140,6 +142,7 @@ async function compute(): Promise<EconomicWarfareBody> {
     withTimeout(getForeignSanctions(), 30_000),
   ]);
   const waves = foreign ? designationWaves(foreign.rows, day, 45) : [];
+  const notices = (await withTimeout(getCapturedNotices(300), 6000)) ?? [];
 
   const watched = [...new Set(actors.flatMap((a) => a.countries))];
   const actions: RegulatoryAction[] = reg ? enrich(reg.docs, watched, day) : [];
@@ -169,6 +172,23 @@ async function compute(): Promise<EconomicWarfareBody> {
       ...own.items.map((n) => ({ title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate, own: true })),
     ];
     const moves = movesFor(actor, texts, todayMs);
+
+    // The actor's OWN official record (browser-captured ministry notices —
+    // MOFCOM for China): a published notice is a reported act BY the actor,
+    // the same standing a Federal Register document has on the U.S. side.
+    const own_notices = notices.filter((n) => actorForNoticeHost(n.host)?.actorId === actor.id);
+    for (const n of own_notices) {
+      const age = ageDaysOf(n.publishedOn ?? undefined, todayMs);
+      if (age != null && age > TEXT_WINDOW_DAYS) continue;
+      const r = readOfficialNotice(`${n.title} ${n.body ?? ""}`);
+      if (!r) continue;
+      const label = actorForNoticeHost(n.host)?.label ?? "official notice";
+      moves.push({
+        id: `${actor.id}:notice:${n.id}`, actorId: actor.id, actorLabel: actor.label, direction: "by",
+        target: targetOf(`${n.title} ${n.body ?? ""}`, r.instrument, actor), instrument: r.instrument, cls: r.cls, modality: r.modality, weight: r.weight,
+        title: n.title, link: n.url, source: label, pubDate: n.publishedOn ?? undefined, ageDays: age, own: false, phrase: r.phrase,
+      });
+    }
     const evidence = evidenceByInstrument(moves);
 
     // Shipping by geography: a graded act at a strait this actor is the
@@ -266,6 +286,7 @@ async function compute(): Promise<EconomicWarfareBody> {
         ...(actor.chokepointIds.length ? [{ sensor: "chokepoint read", live: cpReads.length > 0 }] : []),
         { sensor: "Federal Register", live: !!reg?.live },
         { sensor: "EU/UK lists", live: !!(foreign && (foreign.live.EU || foreign.live.UK)), note: foreign?.failed.length ? `${foreign.failed.join("/")} unavailable` : undefined },
+        ...(noticeHostFor(actor.id) ? [{ sensor: `${noticeHostFor(actor.id)} notices`, live: own_notices.some((n) => (ageDaysOf(n.capturedAt, todayMs) ?? 999) <= 30), note: own_notices.length ? `${own_notices.length} captured` : "capture the announcements page with the extension" }] : []),
       ],
     });
 
@@ -301,4 +322,5 @@ async function compute(): Promise<EconomicWarfareBody> {
   };
 }
 
+const noticeHostFor = (actorId: string): string | null => NOTICE_HOSTS.find((n) => n.actorId === actorId)?.label.replace(/ notice$/, "") ?? null;
 const rankState = (s: string): number => ({ dormant: 0, watching: 1, active: 2, confirmed: 3 } as Record<string, number>)[s] ?? 0;

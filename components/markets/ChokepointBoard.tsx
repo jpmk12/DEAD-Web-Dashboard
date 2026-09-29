@@ -14,6 +14,12 @@ import type { ActivityRead, InterdictionClass, Modality } from "@/lib/chokepoint
 // A zero row is shown with its score, not hidden: "nothing interdiction-shaped
 // reported" is information, and a board that silently drops quiet chokepoints
 // cannot be distinguished from one whose feed died.
+//
+// Compressed to a STRIP (REVIEW-ECONOMY mockup item 3): one row of eight
+// tiles (score · short name · lead-class chip · AIS chip), and the detail
+// (why, AIS line, lead headline, georeferenced incidents) opens beneath for
+// ONE selected tile. The actor board above is the headline; this is the
+// evidence layer, so it must not take a screen of its own.
 
 interface Transit {
   state: "unconfigured" | "unknown" | "learning" | "normal" | "suppressed" | "elevated";
@@ -81,6 +87,8 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
   if (!signals) return null;
   const live = signals.filter((s) => s.score > 0);
 
+  const sel = signals.find((s) => s.id === open) ?? null;
+
   return (
     <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
       <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
@@ -90,94 +98,99 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
         </span>
       </div>
 
-      {signals.map((s) => {
-        const isOpen = open === s.id;
-        return (
-          <div key={s.id} className="border-t border-slate-800/60 first:border-t-0">
+      {/* One row of tiles — the strip. Detail is one click away, below. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-px bg-slate-800/60">
+        {signals.map((s) => {
+          const isOpen = open === s.id;
+          return (
             <button
+              key={s.id}
               onClick={() => setOpen(isOpen ? null : s.id)}
-              className="w-full flex items-center gap-3 px-3.5 py-2 text-left hover:bg-slate-800/20"
+              className={`text-left bg-slate-900/80 px-2.5 py-2 min-w-0 hover:bg-slate-800/40 ${isOpen ? "bg-slate-800/60 ring-1 ring-inset ring-sky-500/40" : ""}`}
+              title={s.line ?? s.why}
             >
-              <span className={`w-[30px] flex-shrink-0 text-right text-[13px] font-bold font-mono ${scoreTone(s.score)}`}>
-                {s.score}
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[12.5px] font-semibold text-slate-100 truncate">{s.name}</span>
-                <span className="block text-[10px] text-slate-500 truncate">{s.line ?? s.why}</span>
-              </span>
-              {s.lead && (
-                <span className={`flex-shrink-0 text-[8px] font-bold uppercase tracking-wider px-1 rounded border ${MODALITY_CHIP[s.lead.modality].cls}`}>
-                  {CLASS_LABEL[s.lead.cls]}
-                </span>
-              )}
-              {s.transit && s.transit.state !== "unconfigured" && (
-                <span className={`hidden sm:inline flex-shrink-0 text-[8px] font-bold uppercase tracking-wider px-1 rounded border ${TRANSIT_CHIP[s.transit.state].cls}`} title={s.transit.line}>
-                  {TRANSIT_CHIP[s.transit.state].text}
-                </span>
-              )}
-              <span className="flex-shrink-0 text-slate-600 text-[10px]">{isOpen ? "▾" : "▸"}</span>
+              <div className="flex items-baseline gap-1.5">
+                <span className={`text-[15px] font-bold font-mono leading-none ${scoreTone(s.score)}`}>{s.score}</span>
+                <span className="text-[10.5px] font-semibold text-slate-200 truncate">{s.name.replace(/ \/.*$/, "").replace(/ \(.*\)$/, "")}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1 min-h-[14px]">
+                {s.lead && (
+                  <span className={`text-[7.5px] font-bold uppercase tracking-wider px-1 rounded border ${MODALITY_CHIP[s.lead.modality].cls}`}>{CLASS_LABEL[s.lead.cls]}</span>
+                )}
+                {s.transit && s.transit.state !== "unconfigured" && (
+                  <span className={`text-[7.5px] font-bold uppercase tracking-wider px-1 rounded border ${TRANSIT_CHIP[s.transit.state].cls}`}>{s.transit.state === "unknown" ? "AIS" : s.transit.state === "learning" ? "AIS·learn" : s.transit.state}</span>
+                )}
+                {!s.lead && (!s.transit || s.transit.state === "unconfigured") && <span className="text-[8px] text-slate-700">quiet</span>}
+              </div>
             </button>
+          );
+        })}
+      </div>
 
-            {isOpen && (
-              <div className="px-3.5 pb-2.5 space-y-2">
-                <p className="text-[10px] text-slate-500 leading-snug">{s.why}</p>
+      {sel && (() => {
+        const s = sel;
+        return (
+          <div className="px-3.5 py-2.5 space-y-2 border-t border-slate-800">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[12.5px] font-semibold text-slate-100">{s.name}</span>
+              <span className="text-[10px] text-slate-500">{s.line ?? "nothing interdiction-shaped reported"}</span>
+            </div>
+            <p className="text-[10px] text-slate-500 leading-snug">{s.why}</p>
 
-                {s.transit && (
-                  <div className="text-[10.5px]">
-                    <span className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border mr-1.5 ${TRANSIT_CHIP[s.transit.state].cls}`}>
-                      AIS · {TRANSIT_CHIP[s.transit.state].text}
-                    </span>
-                    <span className="text-slate-300">{s.transit.line}</span>
-                    {s.transit.state !== "unconfigured" && (
-                      <span className="block text-[9.5px] text-slate-600 mt-0.5">
-                        {s.transit.distinctToday} distinct vessels today over {s.transit.observedMinutesToday} min listened · {s.transit.lastHour} in the last hour
-                        {s.transit.baselinePerHour !== null ? ` · normal ${s.transit.baselinePerHour.toFixed(1)}/h from ${s.transit.baselineDays} observed days` : ""}
-                      </span>
-                    )}
-                  </div>
+            {s.transit && (
+              <div className="text-[10.5px]">
+                <span className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border mr-1.5 ${TRANSIT_CHIP[s.transit.state].cls}`}>
+                  AIS · {TRANSIT_CHIP[s.transit.state].text}
+                </span>
+                <span className="text-slate-300">{s.transit.line}</span>
+                {s.transit.state !== "unconfigured" && (
+                  <span className="block text-[9.5px] text-slate-600 mt-0.5">
+                    {s.transit.distinctToday} distinct vessels today over {s.transit.observedMinutesToday} min listened · {s.transit.lastHour} in the last hour
+                    {s.transit.baselinePerHour !== null ? ` · normal ${s.transit.baselinePerHour.toFixed(1)}/h from ${s.transit.baselineDays} observed days` : ""}
+                  </span>
                 )}
+              </div>
+            )}
 
-                {s.lead ? (
-                  <div className="text-[11px]">
-                    <span className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border mr-1.5 ${MODALITY_CHIP[s.lead.modality].cls}`}>
-                      {MODALITY_CHIP[s.lead.modality].text}
-                    </span>
-                    {s.lead.link
-                      ? <a href={s.lead.link} target="_blank" rel="noopener noreferrer" className="text-slate-200 hover:text-orange-300 underline decoration-slate-700">{s.lead.title}</a>
-                      : <span className="text-slate-200">{s.lead.title}</span>}
-                    <span className="block text-[9.5px] text-slate-600 mt-0.5">
-                      matched &ldquo;{s.lead.phrase}&rdquo;{s.lead.source ? ` · ${s.lead.source}` : ""}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-[10.5px] text-slate-600">
-                    No interdiction-shaped reporting. A mention of the name alone scores nothing here.
-                  </p>
-                )}
+            {s.lead ? (
+              <div className="text-[11px]">
+                <span className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border mr-1.5 ${MODALITY_CHIP[s.lead.modality].cls}`}>
+                  {MODALITY_CHIP[s.lead.modality].text}
+                </span>
+                {s.lead.link
+                  ? <a href={s.lead.link} target="_blank" rel="noopener noreferrer" className="text-slate-200 hover:text-orange-300 underline decoration-slate-700">{s.lead.title}</a>
+                  : <span className="text-slate-200">{s.lead.title}</span>}
+                <span className="block text-[9.5px] text-slate-600 mt-0.5">
+                  matched &ldquo;{s.lead.phrase}&rdquo;{s.lead.source ? ` · ${s.lead.source}` : ""}
+                </span>
+              </div>
+            ) : (
+              <p className="text-[10.5px] text-slate-600">
+                No interdiction-shaped reporting. A mention of the name alone scores nothing here.
+              </p>
+            )}
 
-                {s.events.length > 0 && (
-                  <div>
-                    <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">
-                      Georeferenced incidents within {s.radiusKm ?? 300} km
-                      {s.totalEvents > s.events.length ? ` · showing ${s.events.length} of ${s.totalEvents}` : ""}
-                    </p>
-                    {s.events.map((e) => (
-                      <div key={e.id} className="flex items-start gap-2 text-[10.5px] py-0.5">
-                        <span className="font-mono text-slate-600 flex-shrink-0 w-[58px]">
-                          {e.ageDays === null ? "undated" : e.ageDays === 0 ? "today" : `${e.ageDays}d ago`}
-                        </span>
-                        <span className="text-slate-300 flex-1 min-w-0">{e.title}</span>
-                        <span className="font-mono text-slate-600 flex-shrink-0">{e.distanceKm} km</span>
-                        {e.source && <span className="text-[9px] text-slate-600 flex-shrink-0">{e.source}</span>}
-                      </div>
-                    ))}
+            {s.events.length > 0 && (
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">
+                  Georeferenced incidents within {s.radiusKm ?? 300} km
+                  {s.totalEvents > s.events.length ? ` · showing ${s.events.length} of ${s.totalEvents}` : ""}
+                </p>
+                {s.events.map((e) => (
+                  <div key={e.id} className="flex items-start gap-2 text-[10.5px] py-0.5">
+                    <span className="font-mono text-slate-600 flex-shrink-0 w-[58px]">
+                      {e.ageDays === null ? "undated" : e.ageDays === 0 ? "today" : `${e.ageDays}d ago`}
+                    </span>
+                    <span className="text-slate-300 flex-1 min-w-0">{e.title}</span>
+                    <span className="font-mono text-slate-600 flex-shrink-0">{e.distanceKm} km</span>
+                    {e.source && <span className="text-[9px] text-slate-600 flex-shrink-0">{e.source}</span>}
                   </div>
-                )}
+                ))}
               </div>
             )}
           </div>
         );
-      })}
+      })()}
 
       <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
         Graded, not counted: an act outscores a declared intention, which outscores commentary — and georeferenced

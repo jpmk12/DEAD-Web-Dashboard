@@ -158,7 +158,7 @@ export function summarize(actions: RegulatoryAction[]): RegulatorySummary {
   return { total: actions.length, byClass, recent, touchingWatch, line };
 }
 
-/** Compact lines for the AI Economic Access Read: the watch-touching and
+/** Compact lines for the AI Economic Warfare Read: the watch-touching and
  *  most recent actions, never more than `max`. */
 export function regulatoryLines(actions: RegulatoryAction[], max = 8): string[] {
   const pick = [...actions.filter((a) => a.touchesWatch), ...actions.filter((a) => !a.touchesWatch)].slice(0, max);

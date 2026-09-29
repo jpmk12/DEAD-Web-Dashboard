@@ -95,7 +95,7 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
           record, classified and flagged against the watch. */}
       <RegulatoryBoard active />
 
-      {/* AI Economic Access Read */}
+      {/* AI Economic Warfare Read */}
       <EconomicAccessPanel articles={articles} />
 
       {/* Sanctions / overflight / basing news */}

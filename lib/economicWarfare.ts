@@ -657,6 +657,59 @@ export function evidenceByInstrument(moves: CoercionMove[]): Record<Instrument, 
   return out;
 }
 
+// ───────────────────────────── official notices ─────────────────────────────
+
+/** Issuing host family → the actor whose own record it is. A notice from a
+ *  host not listed here is stored but credited to nobody. */
+export const NOTICE_HOSTS: { host: RegExp; actorId: string; label: string }[] = [
+  { host: /(^|\.)mofcom\.gov\.cn$/i, actorId: "china", label: "MOFCOM notice" },
+];
+
+export function actorForNoticeHost(host: string): { actorId: string; label: string } | null {
+  const h = (host || "").toLowerCase();
+  const hit = NOTICE_HOSTS.find((n) => n.host.test(h));
+  return hit ? { actorId: hit.actorId, label: hit.label } : null;
+}
+
+// The vocabulary a MOFCOM notice is written in — Chinese first (the primary
+// site), English second (english.mofcom.gov.cn mirrors the important ones).
+// Substring match is correct for Chinese (no word boundaries); the English
+// side goes through the ordinary phrase grammar.
+const NOTICE_CLASSES: { instrument: Instrument; cls: string; weight: number; zh: string[] }[] = [
+  { instrument: "trade", cls: "mineral / component control", weight: 85, zh: ["稀土", "镓", "锗", "锑", "石墨", "钨", "超硬材料", "锂电池", "关键矿产"] },
+  { instrument: "sanctions", cls: "unreliable entity list", weight: 80, zh: ["不可靠实体清单"] },
+  { instrument: "sanctions", cls: "export control", weight: 80, zh: ["出口管制", "管制物项", "管制清单", "两用物项", "禁止出口", "禁止向", "出口许可"] },
+  { instrument: "sanctions", cls: "countermeasure / designation", weight: 75, zh: ["反制", "制裁", "反外国制裁"] },
+  { instrument: "trade", cls: "embargo", weight: 90, zh: ["禁运"] },
+  { instrument: "trade", cls: "import ban", weight: 75, zh: ["禁止进口", "暂停进口", "暂停.{0,6}进口"] },
+  { instrument: "trade", cls: "tariff", weight: 60, zh: ["反倾销", "反补贴", "加征关税", "关税", "保障措施"] },
+];
+
+export interface NoticeRead { instrument: Instrument; cls: string; modality: Modality; weight: number; phrase: string }
+
+/** Grade an official notice by its title + body. A published notice is a
+ *  reported ACT; one put out for comment (征求意见 / "draft") is a declared
+ *  intent — the earliest signal, tiered like a threat. A notice that names
+ *  no instrument (a trade-fair announcement) earns nothing. */
+export function readOfficialNotice(text: string): NoticeRead | null {
+  if (!text) return null;
+  const modality: Modality = /征求意见|意见稿|draft for comment|for public comment|solicit(?:ing|s)? (?:public )?(?:comment|opinion)/i.test(text) ? "threat" : "act";
+  let best: NoticeRead | null = null;
+  for (const c of NOTICE_CLASSES) {
+    const hit = c.zh.find((z) => new RegExp(z).test(text));
+    if (!hit) continue;
+    const weight = Math.round(c.weight * MODALITY_FACTOR[modality]);
+    if (!best || weight > best.weight) best = { instrument: c.instrument, cls: c.cls, modality, weight, phrase: hit };
+  }
+  if (best) return best;
+  // English mirror: the ordinary grammar, but modality is the notice's own
+  // (a published English notice is still an act even if its title says "may").
+  const en = readInstruments(text)[0];
+  if (!en) return null;
+  const weight = Math.round((en.weight / MODALITY_FACTOR[en.modality]) * MODALITY_FACTOR[modality]);
+  return { instrument: en.instrument, cls: en.cls, modality, weight, phrase: en.phrase };
+}
+
 /** Map a Federal Register class to the instrument it plays on. */
 export function instrumentForRegulatoryClass(cls: string): Instrument {
   if (cls === "tariff") return "trade";

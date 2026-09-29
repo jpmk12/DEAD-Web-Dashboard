@@ -9,6 +9,7 @@
 import { collectXPosts } from "./collector.js";
 import { extractArticle } from "./article.js";
 import { collectLiveuamap } from "./liveuamap.js";
+import { collectMofcom } from "./mofcom.js";
 
 const DEFAULTS = {
   dashboardUrl: "",
@@ -125,11 +126,23 @@ function waitForTabLoad(tabId, timeoutMs) {
 }
 
 // Route a capture target by host: LiveUAMap region maps use the event collector
-// + the events ingest; everything else is treated as an X list.
+// + the events ingest; MOFCOM (PRC Ministry of Commerce) pages use the notice
+// collector + the notices ingest; everything else is treated as an X list.
 function targetKind(url) {
-  try { return /(^|\.)liveuamap\.com$/.test(new URL(url).hostname) ? "liveuamap" : "x"; }
-  catch (e) { return "x"; }
+  try {
+    const h = new URL(url).hostname;
+    if (/(^|\.)liveuamap\.com$/.test(h)) return "liveuamap";
+    if (/(^|\.)mofcom\.gov\.cn$/.test(h)) return "mofcom";
+    return "x";
+  } catch (e) { return "x"; }
 }
+const COLLECTORS = { liveuamap: collectLiveuamap, mofcom: collectMofcom, x: collectXPosts };
+const ENDPOINTS = { liveuamap: "/api/capture/events", mofcom: "/api/capture/notices", x: "/api/osint/x-import" };
+const EMPTY_MSG = {
+  liveuamap: "No events collected — is this a LiveUAMap region page?",
+  mofcom: "No notices collected — is this a MOFCOM announcements list or notice page?",
+  x: "No posts collected — check the URL and that you're logged into X.",
+};
 
 // Capture + upload ONE target URL. Returns a per-target result.
 async function captureOne(url, c) {
@@ -144,15 +157,15 @@ async function captureOne(url, c) {
     const dur = Math.max(5, Number(c.durationSec) || 25) * 1000;
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: kind === "liveuamap" ? collectLiveuamap : collectXPosts,
+      func: COLLECTORS[kind],
       args: [dur, Number(c.maxPosts) || (kind === "liveuamap" ? 300 : 200)],
     });
     const capture = results && results[0] && results[0].result;
     if (!capture || !capture.items || capture.items.length === 0) {
-      return { ok: false, error: kind === "liveuamap" ? "No events collected — is this a LiveUAMap region page?" : "No posts collected — check the URL and that you're logged into X.", url };
+      return { ok: false, error: EMPTY_MSG[kind], url };
     }
 
-    const endpoint = c.dashboardUrl.replace(/\/+$/, "") + (kind === "liveuamap" ? "/api/capture/events" : "/api/osint/x-import");
+    const endpoint = c.dashboardUrl.replace(/\/+$/, "") + ENDPOINTS[kind];
     const up = await fetch(endpoint, {
       method: "POST",
       headers: {

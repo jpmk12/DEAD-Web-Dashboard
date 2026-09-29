@@ -36,6 +36,13 @@ collected posts → your own dashboard, authorized by a per-user token.
        .liveuamap.com) → geolocated conflict/incident events. LiveUAMap blocks
        datacenter IPs, so it can only be captured from your own browser — no
        login needed, it's a public site.
+     - **MOFCOM** (PRC Ministry of Commerce) announcement lists or single
+       notices (`https://www.mofcom.gov.cn/zwgk/gkzcfb/`, the English
+       `https://english.mofcom.gov.cn/…` policy-release pages, or one notice's
+       permalink) → official export-control / unreliable-entity / anti-dumping
+       records, credited to the **China** actor on the Economy tab's economic-
+       warfare board. MOFCOM has no API; this is the only way those notices
+       reach the dashboard. Public site, no login.
    - **Capture every (hours)** — how often to run. `6` is a good cadence for
      active threat-watching; `24` = once daily. Floor is 3h (more often is
      diminishing returns and more automation footprint).

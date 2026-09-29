@@ -287,12 +287,17 @@ system itself (shipping at a chokepoint).
 - **Economic Warfare Read** (`/api/markets/brief`): the model reads the
   deterministic board and returns, per actor, a level call (dissent from the
   board is stated), a falsifier and a decision linkage.
+- **MOFCOM notices** (`/api/capture/notices`, `lib/noticeCapture.ts`,
+  `lib/noticeStore.ts`): PRC Ministry of Commerce export-control /
+  unreliable-entity / anti-dumping notices captured in the user's browser
+  by the extension (`tools/x-auto-capture/mofcom.js`) and credited to the
+  China actor as reported acts; Chinese vocabulary graded first.
 - **Grammar** (`lib/economicWarfare.ts`, pure, tested): phrases per
   instrument graded by the chokepoint board's modality markers; direction
   ("US sanctions ON Iran" → Iran is the target) decided before a read is
   credited; own-source-only caps at Watch; nothing is scored by mention count.
 - Below it: energy strip (Yahoo), the chokepoint interdiction board with AIS
-  transits, the U.S. regulatory actions board, the AI Economic Access Read,
+  transits, the U.S. regulatory actions board, the AI Economic Warfare Read,
   and the sanctions/overflight/basing news filter.
 
 ### 7. Weather
@@ -529,6 +534,7 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/push/subscribe            GET (configured + VAPID public key + device count) / POST (store this browser's subscription) / DELETE
 /api/demand-horizon            GET — deterministic 7-day demand outlook per COCOM (rise/hold/fall, drivers, confidence, sources answered)
 /api/markets/regulatory        GET — U.S. Federal Register sanctions / export-control / tariff actions, classified + flagged vs the watch (?diag=1 owner-only)
+/api/capture/notices           POST dead-notices JSON (bearer or session) · GET status · DELETE clear — MOFCOM notice capture
 /api/markets/economic-warfare  GET — per-actor economic-warfare boards (I&W engine, warning_daily `econ-<actor>`) + coercion board + 30-day timeline + leverage + EU/UK waves; deterministic, 10-min cached (?diag=1 owner-only: EU/UK list fetch status)
 /api/team/crew                 GET (crew counts by qual, derived availability, posture vs demand) / POST (upsert row · op:"seed") / DELETE ?qual= — shared, no names
 /api/oe-brief                  GET — OE snapshot + open decisions for the one-page standalone HTML brief (rendered client-side)

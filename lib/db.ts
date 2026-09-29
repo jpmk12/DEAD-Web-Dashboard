@@ -453,6 +453,23 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_capev_time (captured_at)
   ) ENGINE=InnoDB`,
 
+  // Captured official notices (browser-capture of a ministry's announcements
+  // page — first source PRC MOFCOM, which has no API). A notice is a standing
+  // record, so it keeps longer than events (180 days / newest 500).
+  `CREATE TABLE IF NOT EXISTS captured_notices (
+    id           VARCHAR(40)  NOT NULL,
+    url          VARCHAR(600) NOT NULL,
+    title        VARCHAR(300) NOT NULL,
+    body         TEXT         NULL,
+    published_on VARCHAR(10)  NULL,
+    host         VARCHAR(120) NOT NULL,
+    source       VARCHAR(40)  NOT NULL DEFAULT 'notices',
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    captured_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_capnt_time (captured_at)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS signal_seen (
     id   VARCHAR(40) NOT NULL PRIMARY KEY,
     date VARCHAR(10) NOT NULL,
