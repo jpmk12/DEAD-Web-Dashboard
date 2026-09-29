@@ -54,6 +54,7 @@ interface GlanceSitrep {
 
 interface Briefing {
   headline: string;
+  generatedAtMs?: number;
   schedule: string[];
   keyDevelopments: string[];
   topStories: string[];
@@ -891,12 +892,6 @@ export default function GlanceTab({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
-          <SinceChip count={newStories} label="new stories" onClick={() => onNavigate("news")} />
-          <SinceChip count={newEmails} label="priority email" onClick={() => onNavigate("email")} />
-          <SinceChip count={osintSignals} label="signals" tone="red" onClick={() => onNavigate("osint")} />
-          {newStories + newEmails + osintSignals === 0 && (
-            <span className="text-slate-500">You&apos;re all caught up</span>
-          )}
           <button
             onClick={exportOeBrief}
             disabled={exporting}
@@ -920,44 +915,58 @@ export default function GlanceTab({
       {/* ── World clocks: home station, the capitals that set the tempo, Zulu ── */}
       <WorldClocks />
 
-      {/* ── Morning brief — right under the clocks, by request: the first
-          sentence of the day sits with the first look at the day. Still a
-          collapsible (headline always visible, focus bullets fold, prose in
-          the modal); the live status row follows. ── */}
+      {/* ── Morning brief — right under the clocks: the first sentence of
+          the day sits with the first look at the day. ONE line on desktop
+          (two on a phone) so the status row beneath never moves when the
+          model writes a long headline; "N focus" unfolds the bullets, Full
+          brief opens the modal. ── */}
       <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
-        <div className="flex items-start justify-between gap-3 px-4 py-3">
+        <div className="flex flex-wrap lg:flex-nowrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5">
+          <span className="flex items-center gap-1.5 text-emerald-400 text-[11px] font-bold uppercase tracking-widest flex-shrink-0">
+            <BriefIcon size={14} strokeWidth={2.5} className="leading-none" /> Brief
+          </span>
           <button
             type="button"
             onClick={() => setBriefOpen((v) => !v)}
             aria-expanded={briefOpen}
-            className="min-w-0 text-left flex-1"
+            title={briefing?.headline ?? ""}
+            className="basis-full lg:basis-auto lg:flex-1 min-w-0 text-left text-[13.5px] font-semibold text-slate-100 leading-snug line-clamp-2 lg:line-clamp-1"
           >
-            <span className="flex items-center gap-2 text-emerald-400 text-[11px] font-bold uppercase tracking-widest">
-              <BriefIcon size={14} strokeWidth={2.5} className="leading-none" /> Morning Brief
-              <span className="text-slate-600 text-[10px] normal-case tracking-normal font-normal">{briefOpen ? "▴" : "▾"}</span>
-            </span>
-            <span className="block text-[13.5px] font-semibold text-slate-100 leading-snug mt-1">
-              {briefing
-                ? briefing.headline
-                : warming
-                  ? "Pulling your news, mail and calendar together…"
-                  : "Your brief is being generated from today's news and newsletters."}
-            </span>
+            {briefing
+              ? briefing.headline
+              : warming
+                ? "Pulling your news, mail and calendar together…"
+                : "Your brief is being generated from today's news and newsletters."}
           </button>
-          <div className="flex gap-2 flex-shrink-0">
+          <span className="text-[10px] font-mono text-slate-600 flex-shrink-0 hidden sm:inline">
+            {briefing?.generatedAtMs
+              ? new Date(briefing.generatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+              : ""}
+          </span>
+          {briefing && (briefing.suggestedFocus?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => setBriefOpen((v) => !v)}
+              aria-expanded={briefOpen}
+              className="text-[10px] font-semibold text-slate-500 hover:text-emerald-300 flex-shrink-0 whitespace-nowrap"
+            >
+              {briefOpen ? "▾" : "▸"} {Math.min(3, briefing.suggestedFocus.length)} focus
+            </button>
+          )}
+          <span className="flex gap-2 flex-shrink-0 ml-auto">
             <button
               onClick={onOpenBrief}
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all whitespace-nowrap"
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md transition-all whitespace-nowrap"
             >
               Full brief
             </button>
             <button
               onClick={onOpenDigest}
-              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-300 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-all whitespace-nowrap"
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-300 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md transition-all whitespace-nowrap"
             >
               Digest
             </button>
-          </div>
+          </span>
         </div>
         {briefOpen && briefing && briefing.suggestedFocus?.length > 0 && (
           <ul className="px-4 pb-3 space-y-1.5 border-t border-emerald-500/15 pt-2.5">
@@ -971,90 +980,20 @@ export default function GlanceTab({
         )}
       </section>
 
-
       {/* ── Hero: live status row ──
           Posture · Bases · I&W · Demand · Alerts · Family — each a live tile
           that deep-links. The north star's verb is "see changes"; a hero of
           day-cached prose could not show one. The per-base LED strip that
           used to sit below the brief is folded into the Bases tile (the
           Watch pane keeps the full strip). */}
-      <StatusRow forceWatch={forceWatch} sitreps={sitreps} onNavigate={onNavigate} />
+      <StatusRow forceWatch={forceWatch} sitreps={sitreps} tasks={{ due: dueTasks.length, overdue: overdueTaskCount, asks: urgent.filter((u) => u.id.startsWith("email-")).length }} onNavigate={onNavigate} />
 
       {/* ── What moved since you last looked ── */}
       <OeDeltaCard />
 
-      {/* ── Where demand is going over the next week ──
-          The forecast the north star names; deterministic from the sensors
-          already on the board. */}
-      <div id="glance-demand" className="scroll-mt-24">
-        <DemandHorizonCard />
-      </div>
-
-      {/* ── Global Reach Watch: NEO / disasters / weather, de-crowded ── */}
-      {reach.length > 0 && (
-        <section className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-4 card-hover">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2 text-amber-400 text-[11px] font-bold uppercase tracking-widest">
-              <ReachIcon size={15} strokeWidth={2.5} className="leading-none" /> Global Reach Watch
-            </div>
-            <span
-              className="text-[10px] text-slate-600 font-mono hidden sm:block"
-              title="Crises that could pull airlift (HADR/NEO) plus weather that could impede it, ranked by proximity to your bases. Tap a row to open the Weather tab."
-            >
-              crises &amp; weather affecting reach
-            </span>
-          </div>
-          {/* Category filter chips — counts always visible even when collapsed */}
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {([["all", "All", reach.length], ...REACH_CAT_ORDER.map((c) => [c, `${REACH_CAT_META[c].icon} ${REACH_CAT_META[c].label}`, reachCounts[c]] as [ReachCat, string, number])] as [("all" | ReachCat), string, number][])
-              .filter(([key, , n]) => key === "all" || n > 0)
-              .map(([key, label, n]) => (
-                <button
-                  key={key}
-                  onClick={() => setReachFilter(key)}
-                  className={`text-[10px] font-mono rounded px-2 py-0.5 border transition-colors inline-flex items-center gap-1 ${reachFilter === key ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
-                >
-                  {label} <span className="opacity-60">{n}</span>
-                </button>
-              ))}
-          </div>
-          <ul className="space-y-1.5">
-            {reachEntries.map((e) => {
-              if (e.kind === "item") return <li key={e.item.id}>{reachRow(e.item)}</li>;
-              const open = reachGroupsOpen.has(e.cat);
-              const nouns = new Set(e.items.map((i) => i.glabel));
-              const FALLBACK_NOUN: Record<ReachCat, string> = { neo: "evacuation/NEO advisory", disaster: "disaster", weather: "weather hazard", conflict: "conflict alert", gps: "GPS/EW alert", airspace: "airspace NOTAM" };
-              const noun = nouns.size === 1 ? [...nouns][0] : FALLBACK_NOUN[e.cat];
-              const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${e.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"} hover:bg-slate-800/40 transition-colors rounded-r`;
-              return (
-                <li key={`grp-${e.cat}`}>
-                  <button
-                    onClick={() => setReachGroupsOpen((prev) => { const n = new Set(prev); n.has(e.cat) ? n.delete(e.cat) : n.add(e.cat); return n; })}
-                    className={`${cls} w-full`}
-                  >
-                    <span className={`mt-0.5 flex-shrink-0 ${e.tone === "red" ? "text-red-400" : "text-amber-400"}`}>{REACH_CAT_META[e.cat].icon}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm text-slate-200 group-hover:text-emerald-400 transition-colors"><span className="text-slate-500 text-[10px] mr-1">{open ? "▾" : "▸"}</span>{e.items.length} {pluralize(noun, e.items.length)}</span>
-                      <span className="block text-[11px] text-slate-500 truncate">{aorBreakdown(e.items)}</span>
-                    </span>
-                  </button>
-                  {open && (
-                    <ul className="space-y-1 mt-1 pl-6">
-                      {e.items.map((it) => <li key={it.id}>{reachRow(it)}</li>)}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {/* ── Two-column body ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Needs you now */}
+      {/* ── Needs you now — your own actions and the red rows, ABOVE the
+          demand horizon and Global Reach: what moved → what needs your
+          hand → where demand is going → the wider picture. ── */}
           <Panel
             title="Needs you now"
             accent
@@ -1168,6 +1107,77 @@ export default function GlanceTab({
             )}
           </Panel>
 
+      {/* ── Where demand is going over the next week ──
+          The forecast the north star names; deterministic from the sensors
+          already on the board. */}
+      <div id="glance-demand" className="scroll-mt-24">
+        <DemandHorizonCard />
+      </div>
+
+      {/* ── Global Reach Watch: NEO / disasters / weather, de-crowded ── */}
+      {reach.length > 0 && (
+        <section className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-4 card-hover">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2 text-amber-400 text-[11px] font-bold uppercase tracking-widest">
+              <ReachIcon size={15} strokeWidth={2.5} className="leading-none" /> Global Reach Watch
+            </div>
+            <span
+              className="text-[10px] text-slate-600 font-mono hidden sm:block"
+              title="Crises that could pull airlift (HADR/NEO) plus weather that could impede it, ranked by proximity to your bases. Tap a row to open the Weather tab."
+            >
+              crises &amp; weather affecting reach
+            </span>
+          </div>
+          {/* Category filter chips — counts always visible even when collapsed */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {([["all", "All", reach.length], ...REACH_CAT_ORDER.map((c) => [c, `${REACH_CAT_META[c].icon} ${REACH_CAT_META[c].label}`, reachCounts[c]] as [ReachCat, string, number])] as [("all" | ReachCat), string, number][])
+              .filter(([key, , n]) => key === "all" || n > 0)
+              .map(([key, label, n]) => (
+                <button
+                  key={key}
+                  onClick={() => setReachFilter(key)}
+                  className={`text-[10px] font-mono rounded px-2 py-0.5 border transition-colors inline-flex items-center gap-1 ${reachFilter === key ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+                >
+                  {label} <span className="opacity-60">{n}</span>
+                </button>
+              ))}
+          </div>
+          <ul className="space-y-1.5">
+            {reachEntries.map((e) => {
+              if (e.kind === "item") return <li key={e.item.id}>{reachRow(e.item)}</li>;
+              const open = reachGroupsOpen.has(e.cat);
+              const nouns = new Set(e.items.map((i) => i.glabel));
+              const FALLBACK_NOUN: Record<ReachCat, string> = { neo: "evacuation/NEO advisory", disaster: "disaster", weather: "weather hazard", conflict: "conflict alert", gps: "GPS/EW alert", airspace: "airspace NOTAM" };
+              const noun = nouns.size === 1 ? [...nouns][0] : FALLBACK_NOUN[e.cat];
+              const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${e.tone === "red" ? "border-l-red-500/70" : "border-l-amber-500/70"} hover:bg-slate-800/40 transition-colors rounded-r`;
+              return (
+                <li key={`grp-${e.cat}`}>
+                  <button
+                    onClick={() => setReachGroupsOpen((prev) => { const n = new Set(prev); n.has(e.cat) ? n.delete(e.cat) : n.add(e.cat); return n; })}
+                    className={`${cls} w-full`}
+                  >
+                    <span className={`mt-0.5 flex-shrink-0 ${e.tone === "red" ? "text-red-400" : "text-amber-400"}`}>{REACH_CAT_META[e.cat].icon}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm text-slate-200 group-hover:text-emerald-400 transition-colors"><span className="text-slate-500 text-[10px] mr-1">{open ? "▾" : "▸"}</span>{e.items.length} {pluralize(noun, e.items.length)}</span>
+                      <span className="block text-[11px] text-slate-500 truncate">{aorBreakdown(e.items)}</span>
+                    </span>
+                  </button>
+                  {open && (
+                    <ul className="space-y-1 mt-1 pl-6">
+                      {e.items.map((it) => <li key={it.id}>{reachRow(it)}</li>)}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* ── Two-column body ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main column */}
+        <div className="lg:col-span-2 space-y-6">
           {/* Breaking & critical */}
           <Panel title="Breaking & critical" onJump={() => onNavigate("news")}>
             {breaking.length === 0 ? (
@@ -1341,30 +1351,6 @@ export default function GlanceTab({
 }
 
 // ───────────────────────── small presentational pieces ─────────────────────────
-
-function SinceChip({
-  count,
-  label,
-  tone = "emerald",
-  onClick,
-}: {
-  count: number;
-  label: string;
-  tone?: "emerald" | "red";
-  onClick: () => void;
-}) {
-  if (count <= 0) return null;
-  const color = tone === "red" ? "text-red-400 border-red-500/40" : "text-emerald-400 border-emerald-500/40";
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-1 rounded-full border ${color} bg-slate-800/40 hover:bg-slate-800/70 px-2 py-0.5 transition-colors`}
-    >
-      <span className="font-bold">{count > 99 ? "99+" : count}</span>
-      <span className="text-slate-400">{label}</span>
-    </button>
-  );
-}
 
 function Panel({
   title,

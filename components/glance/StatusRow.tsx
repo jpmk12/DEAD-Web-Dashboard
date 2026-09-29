@@ -23,20 +23,24 @@ interface DemandLite { aor: string; direction: string; score: number; confidence
 interface AlertLite { id: string; severity: string; title: string }
 interface FamilyWeek { empty?: boolean; lapsed?: unknown[]; dueSoon?: unknown[]; undated?: number; conflicts?: unknown[] }
 
-type Tone = "red" | "amber" | "unknown" | "green" | "quiet";
+type Tone = "red" | "amber" | "unknown" | "green" | "quiet" | "violet";
 const TONE: Record<Tone, { border: string; value: string; dot: string }> = {
   red:     { border: "border-red-500/50 bg-red-500/[0.06]",     value: "text-red-300",     dot: "bg-red-500" },
   amber:   { border: "border-amber-500/45 bg-amber-500/[0.05]", value: "text-amber-300",   dot: "bg-amber-500" },
   unknown: { border: "border-slate-600 bg-slate-800/30",        value: "text-slate-300",   dot: "bg-slate-500" },
   green:   { border: "border-emerald-500/30 bg-emerald-500/[0.04]", value: "text-emerald-300", dot: "bg-emerald-500" },
   quiet:   { border: "border-slate-800 bg-slate-900/40",        value: "text-slate-400",   dot: "bg-slate-700" },
+  // Your own actions — the ownership accent the Needs-you-now group uses.
+  violet:  { border: "border-violet-500/45 bg-violet-500/[0.06]", value: "text-violet-200", dot: "bg-violet-500" },
 };
 
 interface Tile { key: string; label: string; value: string; sub: string; tone: Tone; onClick: () => void; title: string }
 
 const emit = (name: string, detail?: unknown) => window.dispatchEvent(new CustomEvent(name, { detail }));
 
-export default function StatusRow({ forceWatch, sitreps, onNavigate }: { forceWatch: ForceAssessment[]; sitreps: SitrepLite[]; onNavigate: Nav }) {
+interface TaskCounts { due: number; overdue: number; asks: number }
+
+export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate }: { forceWatch: ForceAssessment[]; sitreps: SitrepLite[]; tasks?: TaskCounts; onNavigate: Nav }) {
   const [iw, setIw] = useState<IwLite[] | null>(null);
   const [demand, setDemand] = useState<DemandLite[] | null>(null);
   const [alerts, setAlerts] = useState<AlertLite[] | null>(null);
@@ -65,12 +69,11 @@ export default function StatusRow({ forceWatch, sitreps, onNavigate }: { forceWa
     const red = forceWatch.filter((a) => a.composite === "red");
     const amber = forceWatch.filter((a) => a.composite === "amber").length;
     const unknown = forceWatch.filter((a) => a.composite === "unknown").length;
-    const escalated = forceWatch.filter((a) => a.previousComposite).length;
     const tone: Tone = red.length ? "red" : amber ? "amber" : unknown && !forceWatch.some((a) => a.composite === "green") ? "unknown" : forceWatch.length ? "green" : "quiet";
     tiles.push({
       key: "posture", label: "Posture", tone,
       value: forceWatch.length === 0 ? "—" : red.length ? `${red.length} RED` : amber ? `${amber} amber` : "green",
-      sub: forceWatch.length === 0 ? "no watch set" : [amber && red.length ? `${amber} amber` : "", unknown ? `${unknown} unknown` : "", escalated ? `${escalated} changed today` : "", `${forceWatch.length} watched`].filter(Boolean).join(" · "),
+      sub: forceWatch.length === 0 ? "no watch set" : [amber && red.length ? `${amber} amber` : "", unknown ? `${unknown} unknown` : "", `${forceWatch.length} watched`].filter(Boolean).join(" · "),
       title: red.length ? red.map((r) => `${r.label}: ${r.topDriver}`).join("\n") : "Force-protection posture across the watch",
       onClick: () => { onNavigate("osint"); emit("osint:set-pane", "regional"); },
     });
@@ -123,6 +126,19 @@ export default function StatusRow({ forceWatch, sitreps, onNavigate }: { forceWa
     });
   }
 
+  // Tasks — your own actions. The only thing on the page that was without a
+  // tile; overdue counts first, then what email is asking of you.
+  if (tasks) {
+    const tone: Tone = tasks.overdue ? "red" : tasks.due ? "violet" : tasks.asks ? "violet" : "quiet";
+    tiles.push({
+      key: "tasks", label: "Tasks", tone,
+      value: tasks.due ? `${tasks.due} due` : tasks.asks ? `${tasks.asks} ask${tasks.asks === 1 ? "" : "s"}` : "clear",
+      sub: [tasks.overdue ? `${tasks.overdue} overdue` : "", tasks.due && tasks.asks ? `${tasks.asks} email ask${tasks.asks === 1 ? "" : "s"}` : "", !tasks.due && !tasks.asks ? "nothing with your name on it" : ""].filter(Boolean).join(" · ") || "due today",
+      title: "Your actions — tasks due or overdue, and email that needs your answer",
+      onClick: () => onNavigate("calendar"),
+    });
+  }
+
   // Alerts.
   {
     const reds = (alerts ?? []).filter((a) => a.severity === "red").length;
@@ -154,7 +170,7 @@ export default function StatusRow({ forceWatch, sitreps, onNavigate }: { forceWa
   }
 
   return (
-    <section aria-label="Status" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+    <section aria-label="Status" className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2">
       {tiles.map((t) => {
         const c = TONE[t.tone];
         return (

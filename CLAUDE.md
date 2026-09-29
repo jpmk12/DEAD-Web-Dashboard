@@ -1838,6 +1838,27 @@ priority over the phase border; the sky still shows the phase underneath.
 The Morning Brief section moved to sit **directly under the clocks** (still
 a collapsible), ahead of the status row, by request.
 
+### Glance layout pass (from `docs/mockups/glance-proposed.html`, approved 2026-09-29)
+Five changes, all presentation: (1) the header's since-you-looked chips
+(new stories / priority email / signals) are GONE — they duplicated the
+status tiles; `newStories`/`newEmails`/`osintSignals` still feed the radar
+metrics. (2) The brief is **one line** on desktop (`line-clamp-1`, two on a
+phone via `line-clamp-2`), with the generated time, a "▸ N focus" toggle
+that unfolds the bullets, and the Full brief / Digest buttons — so the
+status row never moves when the model writes a long headline. (3) A
+**Tasks tile** (violet, the ownership accent) in `StatusRow`: `tasks={{due,
+overdue, asks}}` from Glance's `dueTasks`/`overdueTaskCount` and the email
+rows in `urgent`; overdue turns it red; click → Calendar. (4) The Posture
+tile no longer says "changed today" — the Δ card beneath lists every
+change. (5) **Needs You Now** was lifted out of the two-column body to sit
+directly under the OE delta, above the demand horizon: what moved → what
+needs your hand → where demand is going → the wider picture. The status
+grid is `grid-cols-2 sm:grid-cols-4 lg:grid-cols-[repeat(auto-fit,
+minmax(140px,1fr))]` so seven or eight tiles share the row on desktop and
+pair up on a phone. Order on Glance is now: header → clocks → brief →
+StatusRow → OeDeltaCard → Needs You Now → DemandHorizonCard → Global Reach
+→ two-column body (Breaking, Today, Tomorrow, …). `hero.html` mirrors it.
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns
