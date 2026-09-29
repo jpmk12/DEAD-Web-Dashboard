@@ -32,6 +32,10 @@ import { chokepointState } from "./warningRules";
 import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory } from "./warningStore";
 import { getChokepointReads, type ChokepointRead } from "./chokepointReads";
 import { getRegulatoryDocs } from "./federalRegister";
+import { getForeignSanctions } from "./foreignSanctions";
+import { designationWaves, type DesignationWave } from "./foreignSanctionsParse";
+import { buildTimeline, type TimelineDot, type Sequence, type ShippingIncident } from "./economicTimeline";
+import { leverageFor, type LeverageEntry } from "./leverage";
 import { enrich, CLASS_LABEL, type RegulatoryAction } from "./regulatorySignals";
 import { getEnergyQuotes, type EnergyQuote } from "./energyPrices";
 import { gdeltSearch } from "./localNews";
@@ -64,9 +68,15 @@ export interface EconomicWarfareBody {
   /** The coercion board — every actor's moves (by and against), ranked. */
   moves: (CoercionMove & { corroboration: string[]; affects: string })[];
   energy: { symbol: string; label: string; changePct: number | null; price: number | null }[];
+  /** Moves & counter-moves over the last 30 days, and the sequences found. */
+  timeline: { days: string[]; dots: TimelineDot[]; sequences: Sequence[] };
+  /** Structural, not warning — curated capacity per actor, never coloured. */
+  leverage: Record<string, LeverageEntry>;
+  /** EU / UK designation waves in the window (the foreign half of the record). */
+  foreign: { waves: DesignationWave[]; live: { EU: boolean; UK: boolean }; failed: string[] };
   generatedAt: string;
   windowDays: number;
-  sources: { gdelt: boolean; ownSources: string[]; federalRegister: boolean; chokepoints: boolean; energy: boolean };
+  sources: { gdelt: boolean; ownSources: string[]; federalRegister: boolean; foreign: boolean; chokepoints: boolean; energy: boolean };
   note: string;
 }
 
@@ -123,11 +133,13 @@ async function compute(): Promise<EconomicWarfareBody> {
   const actors = resolveActors(tracked).slice(0, MAX_ACTORS);
 
   const cpIds = [...new Set(actors.flatMap((a) => a.chokepointIds))];
-  const [reg, energy, cps] = await Promise.all([
+  const [reg, energy, cps, foreign] = await Promise.all([
     withTimeout(getRegulatoryDocs(), 15_000),
     withTimeout(getEnergyQuotes(), 12_000),
     cpIds.length ? withTimeout(getChokepointReads(cpIds), 20_000) : Promise.resolve(null),
+    withTimeout(getForeignSanctions(), 30_000),
   ]);
+  const waves = foreign ? designationWaves(foreign.rows, day, 45) : [];
 
   const watched = [...new Set(actors.flatMap((a) => a.countries))];
   const actions: RegulatoryAction[] = reg ? enrich(reg.docs, watched, day) : [];
@@ -140,6 +152,8 @@ async function compute(): Promise<EconomicWarfareBody> {
 
   const boards: ActorBoard[] = [];
   const allMoves: EconomicWarfareBody["moves"] = [];
+  const incidents: ShippingIncident[] = [];
+  const leverage: Record<string, LeverageEntry> = {};
 
   // Actors are read sequentially: GDELT enforces 1 request / 5 s and each
   // query is cached 60 min, so after the first pass this loop is free; on the
@@ -196,8 +210,24 @@ async function compute(): Promise<EconomicWarfareBody> {
     }
 
     const naming = actions.filter((a) => a.countries.some((c) => actor.countries.includes(c)));
-    const cp = counterPressureState(naming.map((a) => a.ageDays));
-    observations.push(observation(COUNTER_PRESSURE_ID, "federalRegister", cp, observedAt, "Federal Register", naming.length));
+    const actorWaves = waves.filter((w) => w.country && actor.countries.includes(w.country));
+    const waveAges = actorWaves.map((w) => Math.max(0, Math.round((todayMs - Date.parse(`${w.day}T00:00:00Z`)) / 86_400_000)));
+    const cp = counterPressureState([...naming.map((a) => a.ageDays), ...waveAges]);
+    observations.push(observation(COUNTER_PRESSURE_ID, "federalRegister", cp, observedAt, `Federal Register${actorWaves.length ? " + EU/UK lists" : ""}`, naming.length + actorWaves.length));
+    for (const w of actorWaves) {
+      const age = Math.max(0, Math.round((todayMs - Date.parse(`${w.day}T00:00:00Z`)) / 86_400_000));
+      if (age > 14) continue;
+      moves.push({
+        id: `${actor.id}:${w.source.toLowerCase()}:${w.programme}:${w.day}`, actorId: actor.id, actorLabel: actor.label, direction: "against", target: actor.label,
+        instrument: "sanctions", cls: `${w.source} designations · ${w.programme}`, modality: "act", weight: 65,
+        title: `${w.count} new ${w.source} listing${w.count === 1 ? "" : "s"} under ${w.programme}`,
+        link: w.source === "EU" ? "https://www.sanctionsmap.eu/" : "https://www.gov.uk/government/publications/the-uk-sanctions-list",
+        source: w.source === "EU" ? "EU consolidated list" : "UK sanctions list", pubDate: w.day, ageDays: age, own: false, phrase: `${w.source} ${w.programme}`,
+      });
+    }
+    for (const r of cpReads) for (const e of r.events) incidents.push({ date: e.date, title: e.title, chokepointName: r.name, actorId: actor.id, actorLabel: actor.label });
+    const lev = leverageFor(actor.id);
+    if (lev) leverage[actor.id] = lev;
     for (const a of naming.filter((x) => x.ageDays <= 14)) {
       moves.push({
         id: `${actor.id}:fr:${a.documentNumber}`, actorId: actor.id, actorLabel: actor.label, direction: "against", target: actor.label,
@@ -223,6 +253,7 @@ async function compute(): Promise<EconomicWarfareBody> {
       corroboration.push(`Brent ${brent.changePct >= 0 ? "+" : ""}${brent.changePct}% on the session`);
     }
     if (naming.length) corroboration.push(`${naming.length} U.S. action${naming.length === 1 ? "" : "s"} naming ${actor.label} in 45d`);
+    if (actorWaves.length) corroboration.push(`${actorWaves.reduce((n, w) => n + w.count, 0)} EU/UK listings in 45d`);
 
     boards.push({
       actor: { id: actor.id, label: actor.label, kind: actor.kind, aor: actor.aor, reason: actor.reason, chokepointIds: actor.chokepointIds },
@@ -234,6 +265,7 @@ async function compute(): Promise<EconomicWarfareBody> {
         { sensor: "own sources", live: own.items.length > 0, note: own.items.length ? [...own.sources].join(", ") : "nothing relevant" },
         ...(actor.chokepointIds.length ? [{ sensor: "chokepoint read", live: cpReads.length > 0 }] : []),
         { sensor: "Federal Register", live: !!reg?.live },
+        { sensor: "EU/UK lists", live: !!(foreign && (foreign.live.EU || foreign.live.UK)), note: foreign?.failed.length ? `${foreign.failed.join("/")} unavailable` : undefined },
       ],
     });
 
@@ -250,13 +282,19 @@ async function compute(): Promise<EconomicWarfareBody> {
   const LEVEL: Record<string, number> = { alert: 3, warning: 2, watch: 1, calm: 0 };
   boards.sort((a, b) => LEVEL[b.assessment.level] - LEVEL[a.assessment.level] || b.assessment.anomaly - a.assessment.anomaly || a.actor.label.localeCompare(b.actor.label));
 
+  const rankedMoves = rankMoves(allMoves).map((m) => allMoves.find((x) => x.id === m.id)!);
+  const timeline = buildTimeline({ moves: rankedMoves, incidents, brent: brent?.series, today: day });
+
   return {
     actors: boards,
-    moves: rankMoves(allMoves).map((m) => allMoves.find((x) => x.id === m.id)!).slice(0, 40),
+    moves: rankedMoves.slice(0, 40),
     energy: (energy ?? []).map((q) => ({ symbol: q.symbol, label: q.label, changePct: q.changePct, price: q.price })),
+    timeline,
+    leverage,
+    foreign: { waves, live: foreign?.live ?? { EU: false, UK: false }, failed: foreign?.failed ?? ["EU", "UK"] },
     generatedAt: observedAt,
     windowDays: 14,
-    sources: { gdelt: gdeltLive, ownSources: [...ownSources], federalRegister: !!reg?.live, chokepoints: !!cps, energy: energyLines.length > 0 },
+    sources: { gdelt: gdeltLive, ownSources: [...ownSources], federalRegister: !!reg?.live, foreign: !!(foreign && (foreign.live.EU || foreign.live.UK)), chokepoints: !!cps, energy: energyLines.length > 0 },
     note: actors.length === 0
       ? "No tracked countries — declare AOIs or watched countries in Preferences → Mission Profile to populate the actor register."
       : "Graded, not counted; attribution by/against is heuristic (the evidence is shown); a strait act is credited to its presumed coercer by geography; a fresh actor is held at Watch until its baseline forms.",

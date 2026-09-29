@@ -313,6 +313,9 @@ const CURATED: CuratedActor[] = [
   { id: "houthis", label: "Houthis (Ansar Allah)", kind: "nonstate", aor: "CENTCOM", countries: ["Yemen"], extraTerms: ["houthi", "houthis", "ansar allah", "ansarallah", "sanaa"], chokepointIds: ["babelmandeb"], triggerCountries: ["Yemen", "Saudi Arabia", "Iran", "Israel", "Egypt"] },
 ];
 
+/** Ids of the curated actors (the leverage map is keyed by these). */
+export const CURATED_ACTOR_IDS: string[] = CURATED.map((c) => c.id);
+
 /** Name + the common adjective forms, same suffix rule as regulatorySignals
  *  (a final "r" withholds "-ian": Niger ≠ Nigerian). */
 function nameTerms(name: string): string[] {

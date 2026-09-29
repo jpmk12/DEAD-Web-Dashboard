@@ -20,6 +20,9 @@ export interface EnergyQuote {
   asOf: string;     // date the quote is for (YYYY-MM-DD)
   link: string;     // human quote page (clickable in the UI)
   source: "yahoo" | "stooq" | null;
+  /** Daily closes over the fetched range (Yahoo only), oldest first — the
+   *  Economy timeline's market-move dots. Absent on the Stooq fallback. */
+  series?: { date: string; close: number }[];
 }
 
 interface SymbolDef { id: string; label: string; yahoo: string; stooq: string }
@@ -44,9 +47,9 @@ function pct(price: number, prev: number | undefined): number | null {
 
 // PURE: parse Yahoo v8 chart JSON → latest price + day-over-day change.
 // Exported for unit testing.
-export function parseYahooChart(json: unknown): { price: number; changePct: number | null; date: string } | null {
+export function parseYahooChart(json: unknown): { price: number; changePct: number | null; date: string; series: { date: string; close: number }[] } | null {
   const result = (json as { chart?: { result?: unknown[] } })?.chart?.result?.[0] as
-    { meta?: Record<string, unknown>; indicators?: { quote?: { close?: unknown[] }[] } } | undefined;
+    { meta?: Record<string, unknown>; timestamp?: unknown[]; indicators?: { quote?: { close?: unknown[] }[] } } | undefined;
   const meta = result?.meta;
   if (!meta) return null;
 
@@ -70,7 +73,19 @@ export function parseYahooChart(json: unknown): { price: number; changePct: numb
 
   const t = Number(meta.regularMarketTime);
   const date = Number.isFinite(t) ? new Date(t * 1000).toISOString().slice(0, 10) : "";
-  return { price, changePct: pct(price, prev), date };
+
+  // Dated series: timestamps and closes are parallel arrays; a null close
+  // (holiday bar) is skipped with its timestamp so the pairing holds.
+  const series: { date: string; close: number }[] = [];
+  const stamps = Array.isArray(result?.timestamp) ? result!.timestamp!.map(Number) : [];
+  if (stamps.length && Array.isArray(closesRaw) && stamps.length === closesRaw.length) {
+    for (let i = 0; i < stamps.length; i++) {
+      const c = Number(closesRaw[i]);
+      if (!Number.isFinite(stamps[i]) || !Number.isFinite(c)) continue;
+      series.push({ date: new Date(stamps[i] * 1000).toISOString().slice(0, 10), close: c });
+    }
+  }
+  return { price, changePct: pct(price, prev), date, series };
 }
 
 // PURE: parse a Stooq daily history CSV (q/d/l/?i=d) → latest close + day-over-
@@ -94,9 +109,9 @@ export function parseDailyClose(text: string): { price: number; changePct: numbe
   return { price: last.close, changePct: prev ? pct(last.close, prev.close) : null, date: last.date };
 }
 
-async function fromYahoo(sym: string): Promise<{ price: number; changePct: number | null; date: string } | null> {
+async function fromYahoo(sym: string): Promise<ReturnType<typeof parseYahooChart>> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1mo`;
     const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" }, 10_000);
     if (!res.ok) return null;
     return parseYahooChart(await res.json());
@@ -117,7 +132,7 @@ export async function getEnergyQuotes(): Promise<EnergyQuote[]> {
   const out: EnergyQuote[] = await Promise.all(SYMBOLS.map(async (s) => {
     const base = { symbol: s.id, label: s.label, link: yahooQuotePage(s.yahoo) };
     const y = await fromYahoo(s.yahoo);
-    if (y) return { ...base, price: y.price, changePct: y.changePct, asOf: y.date, source: "yahoo" as const };
+    if (y) return { ...base, price: y.price, changePct: y.changePct, asOf: y.date, source: "yahoo" as const, series: y.series };
     const st = await fromStooq(s.stooq);
     if (st) return { ...base, price: st.price, changePct: st.changePct, asOf: st.date, source: "stooq" as const };
     return { ...base, price: null, changePct: null, asOf: "", source: null };

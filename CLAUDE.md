@@ -1557,8 +1557,53 @@ built on the existing engine rather than a new one:
   coercion board (actor → target → instrument → grade → evidence → age/
   source; actor + instrument filters; a row opens to matched phrase,
   attribution, corroboration, affects, falsifier). The old boards stay
-  below as the evidence. Not built yet: D timeline, E leverage map, F
-  foreign counter-measure feed, G read reframe. No new dep (esbuild `0`).
+  below as the evidence.
+- **Timeline (D)** `lib/economicTimeline.ts` (PURE, tested): 30 day columns,
+  five lanes (`us · foreign · actor · shipping · market`), one dot per DATED
+  act/threat/pressure move, chokepoint incident, or Brent day move ≥3%
+  (`EnergyQuote.series` — the Yahoo fetch now asks `range=1mo` and
+  `parseYahooChart` returns the dated closes; day-over-day maths unchanged).
+  Analysis pieces and undated rows are never plotted — a date is never
+  guessed. `findSequences` names `retaliation` (pressure → actor move ≤10 d)
+  and `counter` (actor move → pressure ≤10 d) per actor; a response dot is
+  used once, so one seizure is not retaliation for five designations.
+  Rendered as an inline SVG strip (`TimelineStrip`) with the sequences
+  listed beneath; colour is the KIND of move, never a level.
+- **Leverage map (E)** `lib/leverage.ts` (PURE data, tested): per curated
+  actor, `threatens[]` / `weHold[]` with a relative bar, the real number in
+  `note`, a `source`, and `asOf` (refresh quarterly). Folded by default,
+  slate bars only, labelled "structural · not warning" — it must never feed
+  a level (REVIEW-ECONOMY "what not to do"). Keyed by `CURATED_ACTOR_IDS`;
+  a generic actor simply has no entry.
+- **Foreign counter-measures (F)** `lib/foreignSanctionsParse.ts` (PURE,
+  tested on synthetic rows in the documented layouts) + `lib/
+  foreignSanctions.ts` (server, 24-h cache, 25-s timeouts, fail-safe): the
+  EU FSF full CSV (`;`-delimited, keyed by HEADER NAME — `Entity_LogicalId`
+  / `Entity_Regulation_Programme` / `Entity_Regulation_PublicationDate`,
+  alias rows deduped per entity+programme, `EU_PROGRAMME_COUNTRY` maps codes
+  → the targeted country, UKR → Russia, thematic regimes → null) and the UK
+  OFSI ConList CSV (`,`-delimited with quotes, `Group ID` / `Regime` /
+  `Listed On` dd/mm/yyyy, `ukRegimeCountry`). `designationWaves` reduces to
+  NEW listings per (source, programme) in 45 days; waves naming an actor's
+  country join the `counter_pressure` ages, become `against` rows on the
+  coercion board (source "EU consolidated list" / "UK sanctions list") and
+  the `foreign` timeline lane. **Both URLs are pinned from the publishers'
+  pages and UNVERIFIED from the sandbox** (egress blocks both) — `/api/
+  markets/economic-warfare?diag=1` (owner-only) fetches from production and
+  reports status/bytes/parsed/snippet per source; `parsed: 0` with a 200
+  means a renamed column. A dead list is named in `failed` and reads
+  UNKNOWN on every surface. PRC MOFCOM has no feed and is deliberately not
+  here (browser capture if ever).
+- **Read reframe (G)** `/api/markets/brief` (same `markets_brief` gate,
+  3-h day cache): the prompt now hands the model the DETERMINISTIC actor
+  board (level, anomaly, learning flag, drivers, top moves by/against,
+  corroboration) plus the Federal Register and EU/UK waves, and returns
+  `{read, actors[{actor, level, boardLevel, call, falsifier,
+  decisionLinkage}], fuelLogistics, watchItems}`. The route re-validates
+  `level` against the four values and attaches the board's own level so the
+  panel (`EconomicAccessPanel`, now titled "Economic Warfare Read") can mark a
+  dissent. Client cache key bumped to `markets:brief:v2` so an old-shape
+  object cannot render blank. No new dep anywhere (esbuild `0`).
 
 ### Indications & Warning (OSINT "I&W" sub-pane — the sensor→fusion→display spine)
 A doctrine-grounded I&W board: warning is about **anomaly & trajectory, not

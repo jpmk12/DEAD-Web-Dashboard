@@ -272,6 +272,21 @@ system itself (shipping at a chokepoint).
   state, Brent move, U.S. actions naming the actor) → what it affects.
   Filter by actor tile and instrument; each row opens to its matched phrase,
   by/against attribution, corroboration and the instrument's falsifier.
+- **Moves & counter-moves timeline** (`lib/economicTimeline.ts`, pure): 30
+  days in five lanes (U.S. action · EU/UK · actor move · shipping incident ·
+  Brent move ≥3%); a counter-move within ten days of a pressure move is
+  named as a `retaliation` or `counter` sequence. Analysis and undated rows
+  are never plotted.
+- **Leverage map** (`lib/leverage.ts`): curated, sourced, dated capacity per
+  actor (what they can threaten · what we hold), folded, never coloured —
+  structural, not warning.
+- **Foreign counter-measures** (`lib/foreignSanctions*.ts`): EU consolidated
+  list + UK sanctions list, parsed to new-listing waves per regime, feeding
+  the counter-pressure indicator, the coercion board and the timeline.
+  `?diag=1` on the route verifies the fetch from production.
+- **Economic Warfare Read** (`/api/markets/brief`): the model reads the
+  deterministic board and returns, per actor, a level call (dissent from the
+  board is stated), a falsifier and a decision linkage.
 - **Grammar** (`lib/economicWarfare.ts`, pure, tested): phrases per
   instrument graded by the chokepoint board's modality markers; direction
   ("US sanctions ON Iran" → Iran is the target) decided before a read is
@@ -514,7 +529,7 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/push/subscribe            GET (configured + VAPID public key + device count) / POST (store this browser's subscription) / DELETE
 /api/demand-horizon            GET — deterministic 7-day demand outlook per COCOM (rise/hold/fall, drivers, confidence, sources answered)
 /api/markets/regulatory        GET — U.S. Federal Register sanctions / export-control / tariff actions, classified + flagged vs the watch (?diag=1 owner-only)
-/api/markets/economic-warfare  GET — per-actor economic-warfare boards (I&W engine, warning_daily `econ-<actor>`) + the ranked coercion board; deterministic, 10-min cached
+/api/markets/economic-warfare  GET — per-actor economic-warfare boards (I&W engine, warning_daily `econ-<actor>`) + coercion board + 30-day timeline + leverage + EU/UK waves; deterministic, 10-min cached (?diag=1 owner-only: EU/UK list fetch status)
 /api/team/crew                 GET (crew counts by qual, derived availability, posture vs demand) / POST (upsert row · op:"seed") / DELETE ?qual= — shared, no names
 /api/oe-brief                  GET — OE snapshot + open decisions for the one-page standalone HTML brief (rendered client-side)
 /api/osint/feeds               GET / PUT — targeted OSINT-feed editing (Sources pane)

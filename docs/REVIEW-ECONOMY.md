@@ -83,16 +83,26 @@ Mockup: `docs/mockups/economy.html` → `docs/economy-redesign.png`.
 | ✅ A. `lib/economicWarfare.ts` (PURE): instrument taxonomy + phrase grammar per instrument, graded by the existing `gradeModality`; actor attribution from the watched-country list + curated non-state actors | M | `chokepointSignals.readInterdiction` pattern | phrase lists per instrument |
 | ✅ B. Actor assembler (server, 10-min cache): joins chokepoint reads, Federal Register rows, energy moves, GDELT/own-source news → per-actor observations → the **existing `lib/warning.ts` engine** for score/anomaly/level | M | `warning.ts`, `warningStore` daily rollup (new problem ids `econ-<actor>`) | `econ_daily` rows via the same lazy pattern |
 | ✅ C. Coercion board + actor tiles UI | M | `ChokepointBoard`, `WarningBoard` styling | `EconomicWarfareBoard.tsx` |
-| D. Timeline | S | Federal Register dates, chokepoint event ages, energy series | one SVG strip |
-| E. Leverage map | S | — | curated JSON in `lib/leverage.ts` with source notes |
-| F. Foreign counter-measure feed | M–L | — | **honest gap**: EU consolidated sanctions list is a keyless XML/CSV (data.europa.eu); UK OFSI publishes CSV; PRC MOFCOM notices have no API (would be a browser capture, same as LiveUAMap). Start with EU + UK CSVs, diff daily. |
-| G. Read reframe | S | `/api/markets/brief` | prompt + `{level, falsifier, decisionLinkage}` shape |
+| ✅ D. Timeline | S | Federal Register dates, chokepoint event ages, energy series | one SVG strip |
+| ✅ E. Leverage map | S | — | curated JSON in `lib/leverage.ts` with source notes |
+| ✅ F. Foreign counter-measure feed | M–L | — | **honest gap**: EU consolidated sanctions list is a keyless XML/CSV (data.europa.eu); UK OFSI publishes CSV; PRC MOFCOM notices have no API (would be a browser capture, same as LiveUAMap). Start with EU + UK CSVs, diff daily. |
+| ✅ G. Read reframe | S | `/api/markets/brief` | prompt + `{level, falsifier, decisionLinkage}` shape |
 
-**Status (2026-09-29): A–C shipped** — `lib/economicWarfare.ts` (grammar +
+**Status (2026-09-29): A–G shipped.** A–C: `lib/economicWarfare.ts` (grammar +
 actor register + state ladder, tested), `lib/economicWarfareAssess.ts`
 (assembler on the I&W engine, `warning_daily` ids `econ-<actor>`),
-`components/markets/EconomicWarfareBoard.tsx` mounted at the top of the tab.
-D–G remain.
+`components/markets/EconomicWarfareBoard.tsx` at the top of the tab.
+D: `lib/economicTimeline.ts` (30-day dots in five lanes + retaliation/
+counter sequences, tested) rendered as an SVG strip. E: `lib/leverage.ts`
+(curated, sourced, `asOf`-stamped; folded panel that never colours). F:
+`lib/foreignSanctionsParse.ts` (EU FSF + UK OFSI CSV parsers, tested on
+synthetic rows) + `lib/foreignSanctions.ts` (24-h cache, `?diag=1` from
+prod) feeding the counter-pressure indicator, the coercion board and the
+EU/UK timeline lane — PRC MOFCOM remains the honest gap. G: `/api/markets/
+brief` now returns `{read, actors[{level, call, falsifier, decisionLinkage}],
+fuelLogistics, watchItems}` with the deterministic board as its evidence.
+The chokepoint strip (mockup item 3) was NOT compressed — the full
+`ChokepointBoard` stays below as the detail layer.
 
 A–C deliver the north star's *understand*; B's baseline plus D's sequence
 deliver *predict*. E and F are the structural and foreign halves that make
