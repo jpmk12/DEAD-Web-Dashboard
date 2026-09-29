@@ -5,6 +5,7 @@ import { NewsItem } from "@/lib/types";
 import EconomicAccessPanel from "./EconomicAccessPanel";
 import ChokepointBoard from "@/components/markets/ChokepointBoard";
 import RegulatoryBoard from "@/components/markets/RegulatoryBoard";
+import EconomicWarfareBoard from "@/components/markets/EconomicWarfareBoard";
 import { EconomyIcon } from "@/lib/icons";
 
 interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string; link?: string; source?: "yahoo" | "stooq" | null }
@@ -48,14 +49,18 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
             <EconomyIcon size={15} strokeWidth={2.25} className="text-emerald-400" />
           </div>
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Strategic Economics</h2>
-            <p className="text-[10px] text-slate-600 font-mono">economic trends affecting access · basing · overflight</p>
+            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Economic Warfare Watch</h2>
+            <p className="text-[10px] text-slate-600 font-mono">who is using economic leverage against whom · graded · baselined · sourced</p>
           </div>
         </div>
         <button onClick={() => setRefreshKey((k) => k + 1)} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 font-mono transition-colors">
           <span className="text-base leading-none">↻</span> Refresh
         </button>
       </div>
+
+      {/* The actor board leads: the north star's question starts with the
+          actor, and everything below is the evidence it rests on. */}
+      <EconomicWarfareBoard active refreshKey={refreshKey} />
 
       {/* Energy / fuel strip — Brent drives jet-fuel/sustainment cost */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
@@ -110,7 +115,7 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
         )}
       </div>
 
-      <p className="text-[9px] text-slate-700 text-right">Energy via Stooq · chokepoint/news signals from your feeds · economic SA, not market advice.</p>
+      <p className="text-[9px] text-slate-700 text-right">Energy via Yahoo Finance · actor / chokepoint / regulatory signals from open feeds and your own sources · economic SA, not market advice.</p>
     </div>
   );
 }

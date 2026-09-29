@@ -49,7 +49,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 
 // AOR relevance for free-text (X posts, newsletters, OSINT feeds aren't geo-
 // tagged) — a mention gate (geo.terms) so only AOI-relevant items feed the score.
-const aorRelevant = (geo: ProblemGeo, n: NewsItem): boolean => geo.terms.test(`${n.title} ${n.summary ?? ""}`);
+const aorRelevant = (geo: Pick<ProblemGeo, "terms">, n: NewsItem): boolean => geo.terms.test(`${n.title} ${n.summary ?? ""}`);
 
 // The user's OWN curated sources — imported X captures, newsletters, and the
 // configured OSINT RSS/Telegram feeds. These often break a warning indicator
@@ -57,7 +57,9 @@ const aorRelevant = (geo: ProblemGeo, n: NewsItem): boolean => geo.terms.test(`$
 // can trip a WATCH, but only CORROBORATE (never alone confirm) — the scoring
 // blends them so a social-only signal caps at watching. All fail-safe; the
 // `sources` set drives provenance. Bounded so the fan-out can't hang the request.
-async function gatherUserSourceNews(geo: ProblemGeo): Promise<{ items: NewsItem[]; sources: Set<string> }> {
+// Exported (mention gate only) so the economic-warfare assembler reads the
+// same sources under the same cap.
+export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Promise<{ items: NewsItem[]; sources: Set<string> }> {
   const sources = new Set<string>();
   const items: NewsItem[] = [];
 

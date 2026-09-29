@@ -251,13 +251,34 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 - **v2**: astro strip (sunrise/sunset/civil twilight Z + moon % illumination, pure math), per-runway-end crosswind/headwind chips from the live METAR (advisory thresholds), fuel NOTAMs filtered to the field, bird/BASH group + dawn-dusk elevated windows, a last-7-days LED history strip (`sitrep_status_daily`) with worse-than-yesterday markers, and the live Infrastructure card above.
 - **v3**: **multi-base LED tile strip** (every configured base: 4 LEDs + driver line + worse-than-yesterday; worst axis colours the border; fed by `GET /api/sitrep/summary` — deterministic rollups over the cached assemblies), **Morning Brief "⚑ Base SITREP" block** (same summary route fetched live on brief open — bases needing attention get full LED blocks, quiet ones collapse to one "all green" line; never baked into the cached brief), and the **closure-window timeline** in the Ops card (NOTAM B)/C) times → 48-h bars per asset with the TAF category strip on the same axis + runway-closure × forecast-IFR conflict call-outs; unparseable windows stay text rows).
 
-### 6. Markets
+### 6. Economy (Economic Warfare Watch)
 
-**Purpose**: Editable ticker watchlist + DOD daily contract awards feed.
+**Purpose**: understand and predict when the countries or AORs you track are
+engaging in economic warfare — using economic leverage (energy, trade,
+finance, sanctions/export controls, overflight) or attacking the economic
+system itself (shipping at a chokepoint).
 
-- **Watchlist**: TradingView symbols (`EXCHANGE:TICKER`) stored in `user_prefs.marketsWatchlist`. Default: 5 defense primes (LMT/RTX/NOC/GD/BA)
-- **TradingView widget**: tabbed overview with Watchlist / Indices / Energy & Metals
-- **DOD contracts panel**: parsed from defense.gov RSS via `/api/markets/contracts`. Branch badge (ARMY/NAVY/USAF/USMC/Space Force/DLA/MDA), dollar amounts formatted (B/M/K)
+- **Actor board** (`/api/markets/economic-warfare`, `EconomicWarfareBoard`):
+  one tile per tracked actor (Mission Profile AOI countries + watched
+  countries + base host nations; curated non-state actors such as the Houthis
+  join when a trigger country is tracked). Each tile carries an I&W level,
+  the anomaly against that actor's own 30-day baseline (`warning_daily`,
+  problem ids `econ-<actor>`), a trajectory, and instrument chips — ⚓
+  shipping · ⛽ energy · ⊘ sanctions/export controls · ⇄ trade · ¤ finance ·
+  ✈ overflight — lit only where a graded signal exists, plus a "⇐ U.S."
+  counter-pressure chip from the Federal Register.
+- **Coercion board**: actor → target → instrument → grade (reported act /
+  declared threat / analysis only) → evidence → corroboration (AIS transit
+  state, Brent move, U.S. actions naming the actor) → what it affects.
+  Filter by actor tile and instrument; each row opens to its matched phrase,
+  by/against attribution, corroboration and the instrument's falsifier.
+- **Grammar** (`lib/economicWarfare.ts`, pure, tested): phrases per
+  instrument graded by the chokepoint board's modality markers; direction
+  ("US sanctions ON Iran" → Iran is the target) decided before a read is
+  credited; own-source-only caps at Watch; nothing is scored by mention count.
+- Below it: energy strip (Yahoo), the chokepoint interdiction board with AIS
+  transits, the U.S. regulatory actions board, the AI Economic Access Read,
+  and the sanctions/overflight/basing news filter.
 
 ### 7. Weather
 
@@ -493,6 +514,7 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/push/subscribe            GET (configured + VAPID public key + device count) / POST (store this browser's subscription) / DELETE
 /api/demand-horizon            GET — deterministic 7-day demand outlook per COCOM (rise/hold/fall, drivers, confidence, sources answered)
 /api/markets/regulatory        GET — U.S. Federal Register sanctions / export-control / tariff actions, classified + flagged vs the watch (?diag=1 owner-only)
+/api/markets/economic-warfare  GET — per-actor economic-warfare boards (I&W engine, warning_daily `econ-<actor>`) + the ranked coercion board; deterministic, 10-min cached
 /api/team/crew                 GET (crew counts by qual, derived availability, posture vs demand) / POST (upsert row · op:"seed") / DELETE ?qual= — shared, no names
 /api/oe-brief                  GET — OE snapshot + open decisions for the one-page standalone HTML brief (rendered client-side)
 /api/osint/feeds               GET / PUT — targeted OSINT-feed editing (Sources pane)

@@ -10,6 +10,7 @@ import { getPostureHistory } from "./forcePostureHistory";
 import { getAllSitrepHistory } from "./sitrepHistory";
 import { getWarningLevelHistory } from "./warningStore";
 import { activeWarningProblems } from "./warningProblems";
+import { econProblemLabel } from "./economicWarfare";
 import type { LevelSeries } from "./oeDelta";
 
 export const OE_WINDOW_DAYS = 14;
@@ -48,9 +49,11 @@ export async function buildOeSeries(windowDays = OE_WINDOW_DAYS): Promise<LevelS
     const def = (p as { def?: { id?: string; label?: string } }).def;
     if (def?.id) labelFor.set(def.id, def.label ?? def.id);
   }
+  // Economic-warfare actor boards share warning_daily under `econ-<actor>`
+  // ids; label them so the delta reads "Economic warfare · Iran", not a slug.
   for (const [problemId, rows] of Object.entries(warning)) {
     series.push({
-      kind: "iw", id: problemId, label: labelFor.get(problemId) ?? problemId,
+      kind: "iw", id: problemId, label: labelFor.get(problemId) ?? econProblemLabel(problemId) ?? problemId,
       points: rows.map((r) => ({ day: r.day, level: r.level })),
     });
   }

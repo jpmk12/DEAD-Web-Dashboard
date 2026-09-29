@@ -1510,6 +1510,56 @@ trends affecting **access, basing, and overflight***. The TradingView widgets +
 - UI (`MarketsTab` + `EconomicAccessPanel`): energy strip, the AI read, a
   chokepoint watch, and a sanctions/overflight/basing news filter. No new dep.
 
+### Economy: the actor board (`lib/economicWarfare.ts` · `lib/economicWarfareAssess.ts` · `EconomicWarfareBoard`)
+The Economy tab's north star changed (2026-09-29) to *understand and predict
+when the countries or AORs I track are engaging in economic warfare*
+(`docs/REVIEW-ECONOMY.md`). That is an I&W problem whose unit is the ACTOR,
+so the tab now leads with one tile per tracked actor and a coercion board,
+built on the existing engine rather than a new one:
+- **`lib/economicWarfare.ts` (PURE, client-safe, tested)** — the instrument
+  grammar (⚓ shipping · ⛽ energy · ⊘ sanctions/export controls · ⇄ trade ·
+  ¤ finance · ✈ overflight): PHRASES per class, never single words, graded
+  by the SAME `gradeModality` as the chokepoint board (shipping reuses
+  `readInterdiction` wholesale so a strait read and an actor read cannot
+  disagree). `attribute()` decides BY/AGAINST before a read is credited —
+  "US imposes sanctions ON Iran" mentions Iran and matches a sanctions
+  phrase, but Iran is the target; the preposition wins over word order. The
+  actor register (`resolveActors`) is the tracked countries in declaration
+  order (AOIs → watched → base hosts), curated for the actors written about
+  by other names (Tehran/IRGC, Kremlin, Beijing/MOFCOM), plus non-state
+  actors that join when a trigger country is tracked (Houthis ← Yemen/Saudi/
+  Iran/Israel/Egypt), capped at 8. `instrumentState` is the chokepoint
+  ladder generalised: wire act → active (confirmed with ≥2 sources or own
+  agreement); threat → watching; analysis needs ≥2 pieces; **own-source-only
+  caps at watching, even for an act**. `counterPressureState` reads only
+  RECENCY of U.S. actions naming the actor — a 40-day-old designation is the
+  standing regime, not new pressure.
+- **`lib/economicWarfareAssess.ts` (server-only, 10-min cache)** — per
+  actor: one topical GDELT query (`gdeltSearch`, the generalised fetch in
+  `lib/localNews.ts`; 7d, cached 60 min, actors read SEQUENTIALLY because
+  GDELT allows one request per 5 s), the user's own sources through the now-
+  exported `gatherUserSourceNews({terms})`, the chokepoint reads at the
+  straits the actor is the presumed coercer of (a graded act there is
+  credited BY GEOGRAPHY, stated on the board; `chokepointState` incl. AIS
+  sets a floor on the shipping state), and the Federal Register for the
+  counter-pressure indicator + the U.S. side of the board. Each actor is an
+  ordinary `WarningProblemDef` (`actorProblem`: 6 instrument indicators +
+  `counter_pressure`, every one with falsifier + provenance) folded through
+  `deriveWarning` against its own baseline in **`warning_daily` under
+  `econ-<actor>`** — no new table; `oeDeltaAssemble` labels those ids via
+  `econProblemLabel` so the OE delta reads "Economic warfare · Iran". Fresh
+  actors start in learning mode (held at Watch) by design. Energy prices are
+  CORROBORATION on rows, never attributed to an actor.
+- **UI** `components/markets/EconomicWarfareBoard.tsx` at the top of
+  `MarketsTab` (header reframed "Economic Warfare Watch"): actor tiles
+  (level pill, anomaly, trajectory, instrument chips lit only for a graded
+  signal, "⇐ U.S." counter-pressure chip, learning note, drivers) and the
+  coercion board (actor → target → instrument → grade → evidence → age/
+  source; actor + instrument filters; a row opens to matched phrase,
+  attribution, corroboration, affects, falsifier). The old boards stay
+  below as the evidence. Not built yet: D timeline, E leverage map, F
+  foreign counter-measure feed, G read reframe. No new dep (esbuild `0`).
+
 ### Indications & Warning (OSINT "I&W" sub-pane — the sensor→fusion→display spine)
 A doctrine-grounded I&W board: warning is about **anomaly & trajectory, not
 level** (Grabo). Color is EARNED by the anomaly crossing a pre-registered

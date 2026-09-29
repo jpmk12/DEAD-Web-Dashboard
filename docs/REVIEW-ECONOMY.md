@@ -80,13 +80,19 @@ Mockup: `docs/mockups/economy.html` → `docs/economy-redesign.png`.
 
 | Step | Effort | Reuses | New |
 |---|---|---|---|
-| A. `lib/economicWarfare.ts` (PURE): instrument taxonomy + phrase grammar per instrument, graded by the existing `gradeModality`; actor attribution from the watched-country list + curated non-state actors | M | `chokepointSignals.readInterdiction` pattern | phrase lists per instrument |
-| B. Actor assembler (server, 10-min cache): joins chokepoint reads, Federal Register rows, energy moves, GDELT/own-source news → per-actor observations → the **existing `lib/warning.ts` engine** for score/anomaly/level | M | `warning.ts`, `warningStore` daily rollup (new problem ids `econ-<actor>`) | `econ_daily` rows via the same lazy pattern |
-| C. Coercion board + actor tiles UI | M | `ChokepointBoard`, `WarningBoard` styling | `EconomicWarfareBoard.tsx` |
+| ✅ A. `lib/economicWarfare.ts` (PURE): instrument taxonomy + phrase grammar per instrument, graded by the existing `gradeModality`; actor attribution from the watched-country list + curated non-state actors | M | `chokepointSignals.readInterdiction` pattern | phrase lists per instrument |
+| ✅ B. Actor assembler (server, 10-min cache): joins chokepoint reads, Federal Register rows, energy moves, GDELT/own-source news → per-actor observations → the **existing `lib/warning.ts` engine** for score/anomaly/level | M | `warning.ts`, `warningStore` daily rollup (new problem ids `econ-<actor>`) | `econ_daily` rows via the same lazy pattern |
+| ✅ C. Coercion board + actor tiles UI | M | `ChokepointBoard`, `WarningBoard` styling | `EconomicWarfareBoard.tsx` |
 | D. Timeline | S | Federal Register dates, chokepoint event ages, energy series | one SVG strip |
 | E. Leverage map | S | — | curated JSON in `lib/leverage.ts` with source notes |
 | F. Foreign counter-measure feed | M–L | — | **honest gap**: EU consolidated sanctions list is a keyless XML/CSV (data.europa.eu); UK OFSI publishes CSV; PRC MOFCOM notices have no API (would be a browser capture, same as LiveUAMap). Start with EU + UK CSVs, diff daily. |
 | G. Read reframe | S | `/api/markets/brief` | prompt + `{level, falsifier, decisionLinkage}` shape |
+
+**Status (2026-09-29): A–C shipped** — `lib/economicWarfare.ts` (grammar +
+actor register + state ladder, tested), `lib/economicWarfareAssess.ts`
+(assembler on the I&W engine, `warning_daily` ids `econ-<actor>`),
+`components/markets/EconomicWarfareBoard.tsx` mounted at the top of the tab.
+D–G remain.
 
 A–C deliver the north star's *understand*; B's baseline plus D's sequence
 deliver *predict*. E and F are the structural and foreign halves that make
