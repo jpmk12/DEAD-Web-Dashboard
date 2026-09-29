@@ -1770,7 +1770,7 @@ slice), and nothing else depends on it.
 ### Glance world clocks (`lib/worldClocks.ts` · `components/glance/WorldClocks.tsx`)
 A clock row under the Glance greeting, above the status row: **New Jersey
 (America/New_York) · Moscow · Tehran · Amman · Beijing (Asia/Shanghai) ·
-Zulu** by default (`DEFAULT_CLOCKS`). Design = the "big digits" option the
+Zulu** by default (`DEFAULT_CLOCKS`), **always rendered west→east by CURRENT UTC offset** (`renderClocks` sorts by `utcOffsetMinutes` — DST moves and user-added zones slot in by themselves; ties keep declared order; an invalid zone goes last). Design = the "big digits" option the
 user picked from `docs/mockups/clocks.html` (rendered to
 `docs/clocks-options.png`): one tile per zone, UTC offset above, the time as
 the largest numerals on the page, label + weekday/☀☾ BELOW the time; night

@@ -39,10 +39,21 @@ describe("renderClock — one instant, many zones", () => {
     expect(bad.time).toBe("--:--");
   });
 
-  it("renders the six defaults", () => {
+  it("renders the six defaults west→east by current UTC offset", () => {
     const rows = renderClocks(NOW, DEFAULT_CLOCKS, "UTC");
-    expect(rows.map((r) => r.label)).toEqual(["New Jersey", "Moscow", "Tehran", "Amman", "Beijing", "Zulu"]);
+    expect(rows.map((r) => r.label)).toEqual(["New Jersey", "Zulu", "Moscow", "Amman", "Tehran", "Beijing"]);
     expect(rows.every((r) => r.valid)).toBe(true);
+  });
+
+  it("sorts by offset regardless of declared order, ties by declared order, invalid last", () => {
+    const rows = renderClocks(NOW, [
+      { label: "Beijing", tz: "Asia/Shanghai" },
+      { label: "Nowhere", tz: "Mars/Olympus" },
+      { label: "Moscow", tz: "Europe/Moscow" },
+      { label: "Amman", tz: "Asia/Amman" },
+      { label: "Zulu", tz: "UTC" },
+    ], "UTC");
+    expect(rows.map((r) => r.label)).toEqual(["Zulu", "Moscow", "Amman", "Beijing", "Nowhere"]);
   });
 });
 

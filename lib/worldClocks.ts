@@ -10,11 +10,11 @@ export interface ClockDef { label: string; tz: string }
 
 export const DEFAULT_CLOCKS: ClockDef[] = [
   { label: "New Jersey", tz: "America/New_York" },
-  { label: "Moscow", tz: "Europe/Moscow" },
-  { label: "Tehran", tz: "Asia/Tehran" },
-  { label: "Amman", tz: "Asia/Amman" },
-  { label: "Beijing", tz: "Asia/Shanghai" },
   { label: "Zulu", tz: "UTC" },
+  { label: "Moscow", tz: "Europe/Moscow" },
+  { label: "Amman", tz: "Asia/Amman" },
+  { label: "Tehran", tz: "Asia/Tehran" },
+  { label: "Beijing", tz: "Asia/Shanghai" },
 ];
 
 export interface ClockView extends ClockDef {
@@ -71,6 +71,13 @@ export function renderClock(nowMs: number, def: ClockDef, deviceTz: string): Clo
   };
 }
 
+/** Rendered west→east by the CURRENT UTC offset (so DST moves are honoured
+ *  and an added zone slots in by itself); ties keep declared order; an
+ *  invalid zone goes last. */
 export function renderClocks(nowMs: number, defs: ClockDef[], deviceTz: string): ClockView[] {
-  return defs.map((c) => renderClock(nowMs, c, deviceTz));
+  const d = new Date(nowMs);
+  return defs
+    .map((c, i) => ({ view: renderClock(nowMs, c, deviceTz), i, off: isValidTz(c.tz) ? utcOffsetMinutes(d, c.tz) : Number.POSITIVE_INFINITY }))
+    .sort((a, b) => a.off - b.off || a.i - b.i)
+    .map((x) => x.view);
 }
