@@ -166,7 +166,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   overflight: "Overflight / airspace NOTAMs by FIR (DoD DAIP, FIR_ARTCC) for your watched countries — enroute closures, TFRs, danger/restricted areas, MOAs. Plotted at FIR centroids; size = NOTAM count, colour = worst alert (red=warning / amber=caution). The #1 mobility-planning gap: 'can I overfly this country'. Requires the DoD CA bundle; empty when unconfigured/unreachable (UNKNOWN, never 'clear').",
   informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
-  forces: "Mobility Watch — your bases/airfields (🛡) and watched countries (🌐, at centroid), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Content sources. Click for the top driver.",
+  forces: "Force posture — your bases/airfields (🛡) and watched countries (🌐, at centroid), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Content sources. Click for the top driver.",
   milair: "Military aircraft currently broadcasting ADS-B (keyless community feed — airplanes.live / adsb.lol). ✈ rotated to heading; click for callsign/type/altitude. Coverage follows the volunteer receiver network (sparse mid-ocean) and many mil aircraft fly dark — 'what's broadcasting', not ground truth. Off by default; filter by AOR. Refreshes ~30 s.",
   ships: "Live maritime vessels (AIS, via AISStream) within ~300 km of your home location. ▲ rotated to heading; click for name/speed/course. Requires AISSTREAM_API_KEY — AIS has no keyless global feed, so unlike Mil air this shows vessels near home, not worldwide. Off by default; refreshes ~30 s.",
   enroute: "AMC en route / mobility hubs.",
@@ -481,7 +481,7 @@ export default function CrisisMap() {
   useEffect(() => { const id = setInterval(() => setRefreshKey((k) => k + 1), 5 * 60 * 1000); return () => clearInterval(id); }, []);
 
   // FIR overflight NOTAMs — fetched for the watched countries (from the Forces
-  // feed), so it follows the Mobility Watch. Separate effect because it depends
+  // feed), so it follows the Force posture. Separate effect because it depends
   // on `forces` (loaded async by the main effect). Only the FIRs we have a
   // centroid for come back (server-resolved); empty when DAIP isn't configured.
   useEffect(() => {
@@ -730,7 +730,7 @@ export default function CrisisMap() {
 
   // AORs to offer as filter chips — drawn from ALL data (not the aor-filtered
   // sets) so the chip row stays stable when a command is selected, and includes
-  // the watched Mobility Watch commands.
+  // the watched Force posture commands.
   const aorsPresent = useMemo(
     () => AORS.filter((a) => forces.some((f) => f.cocom === a) || allDisasters.some((d) => d.aor === a) || neoAll.some((x) => x.a.aor === a)),
     [forces, allDisasters, neoAll],
@@ -952,13 +952,13 @@ export default function CrisisMap() {
               <span><span className="text-emerald-400">⌂</span> home / <span className="text-slate-400">◇</span> tracked</span>
               <span><span style={{ color: "#a3e635" }}>✈</span> mil aircraft</span>
               <span><span style={{ color: "#22d3ee" }}>▲</span> vessel (AIS)</span>
-              <span className="text-slate-300 w-full">Mobility Watch: 🛡 base · 🌐 country — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
+              <span className="text-slate-300 w-full">Force posture: 🛡 base · 🌐 country — ring <span className="text-red-400">red</span>/<span className="text-amber-400">amber</span>/<span className="text-emerald-400">green</span>/<span className="text-slate-400">grey=unknown</span></span>
             </div>
           )}
         </div>
         {/* AOR filter chips — one control for the whole tab: map dots, Mobility
-            Watch, and the ⚠ Watch list all follow this. */}
-        <div className="flex items-center gap-1 flex-wrap" title="Filter the whole tab (map + Mobility Watch + Watch list) to one combatant command">
+            posture board, and the ⚠ Significant-disasters list all follow this. */}
+        <div className="flex items-center gap-1 flex-wrap" title="Filter the whole tab (map + Force posture + Significant-disasters list) to one combatant command">
           <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600">AOR</span>
           <button onClick={() => setAorFilter("ALL")} className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${aorFilter === "ALL" ? "border-sky-500/55 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>All</button>
           {aorsPresent.map((a) => (
@@ -1292,7 +1292,7 @@ export default function CrisisMap() {
       {/* Watch box — the key conditions/alerts + data provenance, below the map. */}
       <section className="bg-slate-900/40 border border-slate-800 rounded-xl">
         <div className="px-3 py-2 border-b border-slate-800 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">⚠ Watch</span>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">⚠ Significant disasters</span>
           <span className="text-[10px] font-mono text-slate-400">
             {redCount > 0 && <><span className="text-red-400">{redCount} red</span> · </>}
             {nearCount} near-base · {neoDep} NEO · <span className={severeWx > 0 ? "text-red-300" : ""}>{severeWx} severe wx</span> · {tropShown.length} tropical

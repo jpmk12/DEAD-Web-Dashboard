@@ -7,6 +7,7 @@ import {
   type DecisionCall, type DecisionEntry, type DecisionOutcome, type HitRate,
 } from "@/lib/decisionLog";
 import { toast } from "@/lib/feedback";
+import { calibrationProposals, type IndicatorCalibration } from "@/lib/indicatorCalibration";
 
 // The decision log, inline on the I&W problem card — where the evidence is.
 //
@@ -42,6 +43,10 @@ export default function DecisionLog({
 }) {
   const [entries, setEntries] = useState<DecisionEntry[]>([]);
   const [rate, setRate] = useState<HitRate | null>(null);
+  // Per-indicator calibration from the same scored entries — which
+  // indicators are earning their place. Proposals only; nothing re-weights.
+  const [calibration, setCalibration] = useState<IndicatorCalibration[]>([]);
+  const [calOpen, setCalOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -63,6 +68,7 @@ export default function DecisionLog({
       .then((d) => {
         if (Array.isArray(d?.entries)) setEntries(d.entries);
         if (d?.hitRate) setRate(d.hitRate);
+        if (Array.isArray(d?.calibration)) setCalibration(d.calibration);
       })
       .catch(() => {});
   }, [problemId]);
@@ -71,6 +77,7 @@ export default function DecisionLog({
 
   const due = entries.filter((e) => isDue(e));
   const openCount = entries.filter(isOpen).length;
+  const proposals = calibrationProposals(calibration);
 
   const submit = async () => {
     const draft = { problemId, call, expectation: expectation.trim(), horizonDays };
@@ -123,12 +130,47 @@ export default function DecisionLog({
           </span>
         )}
         {rate && <span className="text-[9px] font-mono text-slate-500">{rate.label}</span>}
+        {proposals.length > 0 && (
+          <span className="text-[8px] font-bold uppercase tracking-wider px-1 rounded border text-orange-300 border-orange-500/45 bg-orange-500/10">
+            {proposals.length} to re-weight
+          </span>
+        )}
         <span className="ml-auto text-[10px] text-slate-600">{openCount > 0 ? `${openCount} open · ` : ""}{open ? "▾" : "▸"}</span>
       </button>
 
       {open && (
         <div className="mt-2 space-y-2">
           {err && <p className="text-[10px] text-red-400">{err}</p>}
+
+          {/* Calibration — the log read per indicator. Proposals lead and are
+              always visible; the full table folds. The board proposes, the
+              analyst disposes: nothing here changes a weight. */}
+          {calibration.length > 0 && (
+            <div className={`border rounded-lg px-2.5 py-2 ${proposals.length ? "border-orange-500/35 bg-orange-500/[0.04]" : "border-slate-800 bg-slate-950/40"}`}>
+              <button onClick={() => setCalOpen((v) => !v)} className="w-full flex items-center gap-2 text-left">
+                <span className="text-[8.5px] font-bold uppercase tracking-[0.14em] text-slate-500">Indicator calibration</span>
+                <span className="text-[9px] font-mono text-slate-600">
+                  {proposals.length ? `${proposals.length} proposed for down-weighting` : `${calibration.length} indicator${calibration.length === 1 ? "" : "s"} with scored calls — none flagged`}
+                </span>
+                <span className="ml-auto text-[10px] text-slate-600">{calOpen ? "▾" : "▸"}</span>
+              </button>
+              {proposals.map((c) => (
+                <p key={c.indicatorId} className="text-[10.5px] text-orange-200/90 mt-1 leading-snug">
+                  <span className="font-bold">{indicatorLabel(c.indicatorId)}</span> — {c.evidence}
+                </p>
+              ))}
+              {calOpen && (
+                <div className="mt-1.5 space-y-1 border-t border-slate-800/60 pt-1.5">
+                  {calibration.filter((c) => c.verdict !== "downweight").map((c) => (
+                    <p key={c.indicatorId} className="text-[10px] text-slate-400 leading-snug">
+                      <span className={`font-bold ${c.verdict === "earning" ? "text-emerald-300" : "text-slate-300"}`}>{indicatorLabel(c.indicatorId)}</span> — {c.evidence}
+                    </p>
+                  ))}
+                  <p className="text-[9px] text-slate-600">Computed from calls scored against ONE indicator. Whole-board calls are excluded. Weights in the taxonomy are never changed automatically — this is a proposal with its evidence.</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {entries.length === 0 && !adding && (
             <p className="text-[10px] text-slate-600 leading-snug">

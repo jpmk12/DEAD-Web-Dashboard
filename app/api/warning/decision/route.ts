@@ -8,6 +8,7 @@ import {
   validateDraft, hitRate, sortForDisplay, OUTCOMES,
   type DecisionCall, type DecisionOutcome,
 } from "@/lib/decisionLog";
+import { calibrateIndicators } from "@/lib/indicatorCalibration";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,9 @@ export async function GET(req: Request) {
   return NextResponse.json({
     entries: sortForDisplay(entries),
     hitRate: hitRate(entries),
+    // Per-indicator read of the same entries — which indicators are earning
+    // their place. Proposals only; the board never re-weights itself.
+    calibration: calibrateIndicators(entries),
   });
 }
 

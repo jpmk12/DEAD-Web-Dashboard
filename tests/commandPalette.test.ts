@@ -73,6 +73,29 @@ describe("rankCommands — matching", () => {
   });
 });
 
+describe("rankCommands — open-tracking boosts", () => {
+  it("reorders matches you open often, without lifting a non-match", () => {
+    // "iran" matches the country (exact label), the doc (prefix) and the
+    // board (word start). The board is what gets opened every morning: the
+    // boost lifts it above the doc — but never above the exact label, and
+    // never lifts KWRI, which does not match at all.
+    const plain = rankCommands("iran", C).map((c) => c.id);
+    expect(plain.indexOf("doc:1")).toBeLessThan(plain.indexOf("board:mp-1"));
+    const r = rankCommands("iran", C, 14, { "board:mp-1": 20, "base:KWRI": 20 }).map((c) => c.id);
+    expect(r[0]).toBe("country:Iran");
+    expect(r.indexOf("board:mp-1")).toBeLessThan(r.indexOf("doc:1"));
+    expect(r).not.toContain("base:KWRI");
+  });
+
+  it("adds a 'recent' group after navigation on an empty query", () => {
+    const r = rankCommands("", C, 14, { "base:OTBH": 8, "country:Iran": 4 });
+    const recent = r.filter((c) => c.group === "recent");
+    expect(recent.map((c) => c.id)).toEqual(["base:OTBH", "country:Iran"]);
+    expect(r.findIndex((c) => c.group === "recent")).toBeGreaterThan(r.findIndex((c) => c.group === "act"));
+    expect(rankCommands("", C).some((c) => c.group === "recent")).toBe(false);
+  });
+});
+
 describe("groupResults", () => {
   it("groups consecutive items without reordering", () => {
     const g = groupResults(rankCommands("sitrep", C));

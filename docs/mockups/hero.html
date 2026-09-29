@@ -3,29 +3,52 @@
 <style>
   .since{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .since .chip{cursor:default}
-  .strip{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0 18px}
-  .tile{display:flex;align-items:center;gap:8px;border:1px solid var(--bd);border-radius:9px;padding:7px 11px;background:rgba(2,6,23,.5)}
-  .tile.hot{border-color:rgba(248,113,113,.5)}
-  .tile.warm{border-color:rgba(251,191,36,.4)}
-  .tile .icao{font-weight:800;font-size:12px}
-  .tile .leds{display:flex;gap:4px}
-  .tile .drv{font-size:10px;color:var(--mut);max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hero{border:1px solid var(--accbd);background:var(--accbg);border-radius:12px;padding:18px 20px;margin-bottom:20px;box-shadow:0 0 24px -8px rgba(16,185,129,.25)}
-  .hero .k{display:flex;align-items:center;gap:8px;color:var(--acc);font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
-  .hero p.head{font-size:15px;font-weight:600;color:#f1f5f9;line-height:1.55;max-width:72ch;margin:0}
-  .hero .gen{font-size:10px;color:var(--mut);margin-top:6px}
-  .hero .focus{margin:12px 0 0;padding:0;list-style:none}
-  .hero .focus li{font-size:12.5px;color:var(--txt2);padding:3px 0 3px 18px;position:relative}
-  .hero .focus li::before{content:"▸";position:absolute;left:2px;color:var(--acc)}
-  .vgroup{background:rgba(139,92,246,.06);border-bottom:1px solid rgba(139,92,246,.2)}
-  .vhead{display:flex;align-items:center;gap:8px;padding:7px 13px 3px}
-  .vhead .k{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#c4b5fd}
-  .cb{width:15px;height:15px;border-radius:4px;border:1px solid rgba(167,139,250,.6);flex-shrink:0;margin-top:2px}
-  .defer{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:4px;padding:2px 6px;color:var(--mut)}
-  .meta{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;flex-shrink:0}
-  .ev{display:flex;gap:10px;padding:8px 13px;font-size:12px}
-  .ev+.ev{border-top:1px solid rgba(30,41,59,.6)}
-  .ev .tm{color:var(--amber);font-weight:700;flex-shrink:0;width:52px}
+  /* Clock row — the "big digits" tiles */
+  .clocks{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:14px 0 6px}
+  .clk{position:relative;border:1px solid var(--bd2);border-radius:12px;padding:10px 8px 8px;text-align:center;background:linear-gradient(180deg,#1e293b,#020617);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+  .clk.night{border-color:var(--bd);background:linear-gradient(180deg,#0f172a,#020617)}
+  .clk.zulu{border-color:rgba(16,185,129,.5);background:linear-gradient(180deg,rgba(16,185,129,.08),#020617)}
+  .clk.here{border-color:rgba(56,189,248,.4)}
+  .clk .off{font-size:8.5px;letter-spacing:.12em;color:var(--mut2);line-height:1}
+  .clk .tm{display:block;font-size:30px;font-weight:900;line-height:1;letter-spacing:-.02em;margin-top:6px;color:#f8fafc;text-shadow:0 0 14px rgba(148,163,184,.15)}
+  .clk.night .tm{color:#cbd5e1;text-shadow:none}
+  .clk.zulu .tm{color:#6ee7b7;text-shadow:0 0 14px rgba(52,211,153,.35)}
+  .clk .tm small{font-size:12px;font-weight:700;color:var(--mut);margin-left:2px}
+  .clk .nm{display:block;margin-top:8px;font-size:10.5px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#cbd5e1}
+  .clk .dy{display:block;font-size:9.5px;color:var(--mut);margin-top:2px}
+  .editc{text-align:right;font-size:9.5px;color:#334155;margin-bottom:10px}
+  /* Status row — six earned-colour tiles */
+  .status{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-bottom:14px}
+  .st{border:1px solid var(--bd);border-radius:10px;padding:9px 11px;background:rgba(15,23,42,.4)}
+  .st .k{font-size:9px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--mut)}
+  .st .v{font-size:17px;font-weight:800;line-height:1.15;margin-top:3px;color:var(--txt2)}
+  .st .s{font-size:10px;color:var(--mut);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .st.red{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.06)}.st.red .v{color:#fca5a5}
+  .st.amber{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.05)}.st.amber .v{color:#fcd34d}
+  .st.green{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.04)}.st.green .v{color:#6ee7b7}
+  .st.unk{border-color:var(--bd2);background:rgba(30,41,59,.3)}.st.unk .v{color:#cbd5e1}
+  /* OE delta */
+  .delta{border:1px solid var(--bd);border-radius:10px;padding:10px 13px;margin-bottom:14px;background:rgba(15,23,42,.45)}
+  .delta .k{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;display:flex;gap:8px;align-items:center}
+  .delta ul{margin:6px 0 0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
+  .delta li{font-size:12px;color:var(--txt2)}
+  .delta li b{font-weight:700}
+  .worse{color:var(--red)}.better{color:var(--acc)}
+  /* Demand horizon table */
+  .dh table{width:100%;border-collapse:collapse;font-size:12px}
+  .dh td{padding:7px 13px;border-top:1px solid rgba(30,41,59,.6);vertical-align:middle}
+  .dh tr:first-child td{border-top:0}
+  .dh .aor{font-weight:800;letter-spacing:.06em;font-size:11px}
+  .dir{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:2px 7px}
+  .dir.rise{color:#fca5a5;background:rgba(248,113,113,.12)}.dir.hold{color:#94a3b8;background:rgba(148,163,184,.12)}.dir.fall{color:var(--acc);background:rgba(52,211,153,.12)}
+  .crews{display:flex;gap:9px;padding:7px 13px;border-top:1px solid var(--bd);font-size:11px;color:var(--mut);flex-wrap:wrap;align-items:center}
+  .crews b{color:var(--txt2)}
+  /* Collapsed brief */
+  .brief{border:1px solid var(--accbd);background:var(--accbg);border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-start}
+  .brief .k{color:var(--acc);font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;padding-top:2px}
+  .brief p{margin:0;font-size:14px;font-weight:600;color:#f1f5f9;line-height:1.5}
+  .brief .gen{font-size:10px;color:var(--mut);margin-top:4px}
+  .brief .tog{margin-left:auto;font-size:10px;color:var(--mut);white-space:nowrap;padding-top:3px}
   .reach .row .s{white-space:normal}
 </style></head>
 <body>
@@ -34,7 +57,7 @@
   <div class="wrap hrow">
     <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
     <div class="actions">
-      <span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span>
+      <span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span>
     </div>
   </div>
   <div class="wrap"><nav class="tabs">
@@ -43,56 +66,73 @@
     <span class="tab">Calendar</span>
     <span class="tab">Email <span class="badge">3</span></span>
     <span class="tab">OSINT <span class="badge">2</span></span>
-    <span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+    <span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span><span class="tab">Family</span>
   </nav></div>
 </header>
 <main class="wrap">
-  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:4px">
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:2px">
     <div>
       <h2 style="font-size:18px;font-weight:700;letter-spacing:.02em">Good morning, DEAD</h2>
-      <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-top:2px">Sunday, August 9</div>
+      <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-top:2px">Tuesday, September 29</div>
     </div>
     <div class="since">
-      <span class="chip">5 new stories</span><span class="chip">3 priority email</span>
+      <span class="chip">⇩ OE brief</span><span class="chip">5 new stories</span><span class="chip">3 priority email</span>
       <span class="chip" style="color:var(--red);border-color:rgba(239,68,68,.4)">2 signals</span>
-      <span class="chip">＋ Capture</span>
     </div>
   </div>
 
-  <!-- Base SITREP LED strip -->
-  <div class="strip">
-    <div class="tile"><span class="icao mono">KWRI</span><span class="leds"><span class="led g"></span><span class="led g"></span><span class="led g"></span><span class="led g"></span></span></div>
-    <div class="tile warm"><span class="icao mono">KCHS</span><span class="leds"><span class="led g"></span><span class="led a"></span><span class="led g"></span><span class="led g"></span></span><span style="color:var(--amber);font-size:10px;font-weight:800">↑</span><span class="drv">RWY 03/21 closed 1200–1800Z</span></div>
-    <div class="tile"><span class="icao mono">KADW</span><span class="leds"><span class="led g"></span><span class="led g"></span><span class="led g"></span><span class="led u"></span></span></div>
-    <div class="tile hot"><span class="icao mono">OTBH</span><span class="leds"><span class="led a"></span><span class="led g"></span><span class="led r"></span><span class="led g"></span></span><span class="drv">Threat — new escalation reporting in AOR</span></div>
+  <!-- World clocks, west → east by UTC offset -->
+  <div class="clocks">
+    <div class="clk here"><span class="off">UTC−4</span><span class="tm">06:12</span><span class="nm">New Jersey</span><span class="dy">Tue ☀</span></div>
+    <div class="clk zulu"><span class="off">UTC</span><span class="tm">10:12<small>Z</small></span><span class="nm">Zulu</span><span class="dy">Tue ☀</span></div>
+    <div class="clk"><span class="off">UTC+3</span><span class="tm">13:12</span><span class="nm">Moscow</span><span class="dy">Tue ☀</span></div>
+    <div class="clk"><span class="off">UTC+3</span><span class="tm">13:12</span><span class="nm">Amman</span><span class="dy">Tue ☀</span></div>
+    <div class="clk"><span class="off">UTC+3:30</span><span class="tm">13:42</span><span class="nm">Tehran</span><span class="dy">Tue ☀</span></div>
+    <div class="clk night"><span class="off">UTC+8</span><span class="tm">18:12</span><span class="nm">Beijing</span><span class="dy">Tue ☾</span></div>
+  </div>
+  <div class="editc">edit clocks</div>
+
+  <!-- Status row — the hero. Colour is earned. -->
+  <div class="status">
+    <div class="st red"><div class="k">Posture</div><div class="v">1 RED</div><div class="s">2 amber · 1 changed today · 9 watched</div></div>
+    <div class="st amber"><div class="k">Bases</div><div class="v">KCHS amber</div><div class="s">RWY 03/21 closed 1200–1800Z</div></div>
+    <div class="st amber"><div class="k">I&amp;W</div><div class="v">WATCH</div><div class="s">CENTCOM · Iran ↗ +0.18</div></div>
+    <div class="st red"><div class="k">Demand</div><div class="v">CENTCOM ↑</div><div class="s">likely to rise · high confidence</div></div>
+    <div class="st green"><div class="k">7d</div><div class="v">clear</div><div class="s">no ordered departures · 0 conflicts</div></div>
+    <div class="st unk"><div class="k">Family</div><div class="v">1 due</div><div class="s">permission slip · Thu · 1 undated</div></div>
   </div>
 
-  <!-- Morning brief hero -->
-  <div class="hero">
-    <div class="k">▤ Morning Brief</div>
-    <p class="head">Hormuz transit harassment resumed overnight while Gulf base weather stays green — your KCHS runway closure window overlaps the airlift training block this afternoon.</p>
-    <div class="gen mono">generated 6:12 · Chicago · shared across your devices</div>
-    <ul class="focus">
-      <li>Confirm the 14:00 KCHS launch can slip to RWY 15/33 or move left of the closure window.</li>
-      <li>I&amp;W board holds WATCH — review the two new escalation indicators before the 0900 sync.</li>
+  <!-- OE delta — what changed since you last looked -->
+  <div class="delta">
+    <div class="k">Δ Since you last looked <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:500">yesterday 21:40 · net change, not a log</span></div>
+    <ul>
+      <li class="worse">▲ <b>Al Udeid AB</b> posture AMBER → RED — conflict: strike reporting within 400 km</li>
+      <li class="better">▼ <b>Ramstein</b> posture AMBER → GREEN — overflight NOTAM cancelled</li>
+      <li class="worse">▲ <b>KCHS</b> ops LED G → A — runway closure window published</li>
+      <li class="worse">▲ <b>I&amp;W · CENTCOM Iran</b> CALM → WATCH — escalatory strike signal</li>
     </ul>
+  </div>
+
+  <!-- Demand horizon -->
+  <div class="panel dh" style="margin-bottom:16px">
+    <div class="phead"><span class="ptitle">7-day demand horizon</span><span class="pjump">deterministic · no model call</span></div>
+    <table>
+      <tr><td class="aor mono">CENTCOM</td><td><span class="dir rise">▲ Rise</span></td><td style="color:var(--mut)">I&amp;W deteriorating · posture escalated today · Hormuz threat declared</td><td class="mono" style="text-align:right;color:var(--mut)">+41 · high</td></tr>
+      <tr><td class="aor mono">EUCOM</td><td><span class="dir hold">→ Hold</span></td><td style="color:var(--mut)">standing ordered departure (Ukraine) · nothing new</td><td class="mono" style="text-align:right;color:var(--mut)">+6 · low</td></tr>
+      <tr><td class="aor mono">INDOPACOM</td><td><span class="dir fall">▼ Fall</span></td><td style="color:var(--mut)">typhoon HADR response decaying · board improving</td><td class="mono" style="text-align:right;color:var(--mut)">−17 · med</td></tr>
+    </table>
+    <div class="crews"><b>Crews</b> <span>IP 2 of 4</span> · <span>AC 5 of 8</span> · <span>FP 6 of 9</span> · <span class="tag amber">thin</span> <span>CENTCOM demand likely to RISE — 2 of 8 AC crews available ⚠</span><span style="margin-left:auto">updated 3h ago</span></div>
+  </div>
+
+  <!-- Morning brief, demoted to a collapsible -->
+  <div class="brief">
+    <span class="k">▤ Morning Brief</span>
+    <div><p>Hormuz transit harassment resumed overnight while Gulf base weather stays green — your KCHS runway closure window overlaps the airlift training block this afternoon.</p><div class="gen mono">generated 6:12 · New York · focus bullets folded</div></div>
+    <span class="tog">▸ expand</span>
   </div>
 
   <div class="grid g-main">
     <div>
-      <!-- Needs you now -->
-      <div class="panel" style="margin-bottom:20px">
-        <div class="phead"><span class="ptitle accent">Needs You Now</span><span class="tag violet">2 tasks</span></div>
-        <div class="vgroup">
-          <div class="vhead"><span class="k">Your Actions</span><span class="hint">tasks with your name on them</span><span style="margin-left:auto" class="pjump">Tasks →</span></div>
-          <div class="row bl-violet"><span class="cb"></span><div class="body"><div class="t">Sign the Q3 aircrew currency memo</div><div class="s">Overdue</div></div><span class="defer">⏭ tmrw</span><span class="meta" style="color:var(--red)">Overdue</span></div>
-          <div class="row bl-violet"><span class="cb"></span><div class="body"><div class="t">Call TACC about the Wednesday channel mission</div><div class="s">Due today</div></div><span class="defer">⏭ tmrw</span><span class="meta" style="color:var(--violet)">Today</span></div>
-        </div>
-        <div class="row bl-red"><span class="ic" style="color:var(--red)">🛡</span><div class="body"><div class="t">Al Udeid AB</div><div class="s">↑ escalated from AMBER — Conflict: strike reporting within 400 km</div></div><span class="meta" style="color:var(--red)">CENTCOM</span></div>
-        <div class="row bl-red"><span class="ic" style="color:var(--red)">⚠</span><div class="body"><div class="t">Severe Thunderstorm Warning</div><div class="s">JB Charleston, SC</div></div><span class="meta" style="color:var(--red)">Weather</span></div>
-        <div class="row bl-amber"><span class="ic" style="color:var(--amber)">◎</span><div class="body"><div class="t">RE: DV airlift request — Thursday</div><div class="s">Col Mattis — needs your yes/no before the 1500 ATO cut</div></div><span class="meta" style="color:var(--amber)">2h ago</span></div>
-      </div>
-
       <!-- Global reach watch -->
       <div class="panel reach">
         <div class="phead"><span class="ptitle">Global Reach Watch</span><span style="display:flex;gap:5px"><span class="chip skyon">All</span><span class="chip">NEO</span><span class="chip">Disasters</span><span class="chip">Conflict</span><span class="chip">Airspace</span></span></div>
@@ -101,19 +141,12 @@
         <div class="row"><span class="ic" style="color:var(--amber)">✈</span><div class="body"><div class="t">Overflight NOTAMs — Baghdad FIR (ORBB)</div><div class="s">2 caution-class enroute notices active</div></div><span class="tag amber">Airspace</span></div>
       </div>
     </div>
-
     <div>
-      <div class="panel" style="margin-bottom:20px">
-        <div class="phead"><span class="ptitle">Today</span><span class="pjump">View all →</span></div>
-        <div class="ev"><span class="tm mono">0900</span><div>Staff sync — I&amp;W review<div class="hint">Conference line · 8 attendees</div></div></div>
-        <div class="ev"><span class="tm mono">1400</span><div>KCHS local training launch<div class="hint">⚠ overlaps runway closure window</div></div></div>
-        <div class="ev"><span class="tm mono">1600</span><div>TACC channel-mission telecon</div></div>
-      </div>
       <div class="panel">
-        <div class="phead"><span class="ptitle">On Your Radar</span><span class="tag amber">2 new</span></div>
-        <div class="row"><div class="body"><div class="t" style="font-size:12px">I&amp;W · Iran &amp; Hormuz</div><div class="s">WATCH · anomaly +0.18 · ↗ deteriorating</div></div></div>
-        <div class="row"><div class="body"><div class="t" style="font-size:12px">Hormuz chokepoint activity</div><div class="s">4 stories · tanker harassment reporting</div></div></div>
-        <div class="row"><div class="body"><div class="t" style="font-size:12px">Brent crude</div><div class="s mono">$87.40 ▲ 2.1% — fuel/sustainment driver</div></div></div>
+        <div class="phead"><span class="ptitle">Today</span><span class="pjump">View all →</span></div>
+        <div class="row"><span class="ic mono" style="color:var(--amber);width:38px">0900</span><div class="body"><div class="t">Staff sync — I&amp;W review</div><div class="s">Conference line · 8 attendees</div></div></div>
+        <div class="row"><span class="ic mono" style="color:var(--amber);width:38px">1400</span><div class="body"><div class="t">KCHS local training launch</div><div class="s">⚠ overlaps runway closure window</div></div></div>
+        <div class="row"><span class="ic mono" style="color:var(--amber);width:38px">1600</span><div class="body"><div class="t">TACC channel-mission telecon</div><div class="s">&nbsp;</div></div></div>
       </div>
     </div>
   </div>

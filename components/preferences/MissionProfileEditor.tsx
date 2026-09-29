@@ -111,8 +111,8 @@ export default function MissionProfileEditor() {
       <p className="text-[11px] text-slate-500 leading-relaxed">
         Declare what you command — the app derives the tracking (countries, bases, METAR stations, SITREP picks,
         chokepoint watch terms) from its curated hub/gateway network and theater data. Airfields flow into the
-        Mobility Watch + METAR + SITREP; tracked weather locations stay yours for civil places (home, family, TDY).
-        Derived Mobility Watch rows carry an{" "}
+        Force posture + METAR + SITREP; tracked weather locations stay yours for civil places (home, family, TDY).
+        Derived Force posture rows carry an{" "}
         <span className="text-emerald-400 font-mono text-[10px]">AUTO</span> tag; your manual entries are never
         touched, and anything you remove — anywhere — stays removed.
         {!canEdit && <span className="text-amber-400"> Shared team config — editable by the owner.</span>}

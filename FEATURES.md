@@ -501,6 +501,8 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/osint/x-import            POST / GET / DELETE — dead-x-capture ingestion
 /api/settings/x-token          GET / POST / DELETE — capture bearer token (SHA-256 stored)
 /api/warning                   GET — I&W assessments, one per active problem (per primary AOI)
+/api/warning/decision          GET / POST / PATCH / DELETE — decision log; GET also returns per-indicator calibration proposals
+/api/opens                     GET / POST — open-tracking (SITREP base / I&W board / Regional country), feeds the ⌘K palette
 /api/ai-usage                  GET — today / 7d / 30d spend summaries
 
 /api/news                      GET — RSS aggregation + sourceStats (feeds the trend recorder)

@@ -103,6 +103,21 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_wd_problem (problem_id, due_at)
   ) ENGINE=InnoDB`,
 
+  // Open-tracking beyond news: which SITREP bases, I&W boards and Regional
+  // countries each user actually opens. Personal (keyed by user_email, no
+  // legacy '' rows — the table is newer than the multi-user split), counts
+  // only, fire-and-forget writes. Read by the command palette as a rank
+  // boost; nothing else consumes it yet.
+  `CREATE TABLE IF NOT EXISTS surface_opens (
+    surface      VARCHAR(16)  NOT NULL,
+    item_id      VARCHAR(128) NOT NULL,
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    opens        INT          NOT NULL DEFAULT 0,
+    last_open_at BIGINT       NOT NULL,
+    PRIMARY KEY (surface, item_id, user_email),
+    INDEX idx_so_user (user_email, last_open_at)
+  ) ENGINE=InnoDB`,
+
   // Imported X (Twitter) posts from dead-x-capture bookmarklet files. Post id
   // is the PK so re-importing the same capture is idempotent. Pruned on every
   // import: rows older than 14 days (by import time) and beyond the newest

@@ -1767,6 +1767,45 @@ split into one file per section is NOT done** — the file is still one
 is what makes that split mechanical later (each section's JSX + its state
 slice), and nothing else depends on it.
 
+### Indicator calibration (`lib/indicatorCalibration.ts` — the decision log feeding back)
+REVIEW §3.2. `warning_decisions` already records calls against a problem and,
+optionally, ONE indicator; once enough are scored the hit rate is per
+indicator. `calibrateIndicators(entries)` (PURE, tested) groups scored
+entries by `indicatorId` (whole-board calls are excluded — they say nothing
+about any one indicator; unscored entries are not evidence), applies the
+board's `MIN_SCORED_FOR_RATE` floor PER INDICATOR, and returns a verdict with
+its evidence sentence: `downweight` (< `DOWNWEIGHT_BELOW` 0.4), `earning`
+(≥ `EARNING_AT` 0.7), else `forming`. Ambiguous outcomes are reported, never
+counted either way. Returned as `calibration` on `GET /api/warning/decision`
+and rendered inside `DecisionLog.tsx`: proposals always visible ("N to
+re-weight" chip on the header), the full table folded. **Nothing re-weights
+automatically** — taxonomy weights are untouched; the board proposes, the
+analyst disposes, same rule as the watchlist drop suggestions.
+
+### Open-tracking beyond news (`surface_opens` · `lib/openSignal.ts` · `/api/opens`)
+REVIEW §3.3. `article_prefs` recorded news opens and nothing else did. Now
+opening a **SITREP base**, an **I&W board** or a **Regional country** fires
+one fire-and-forget POST (`lib/noteOpenClient.ts`, throttled 60 s per item
+per page, `keepalive`) into `surface_opens` — per user, counts only, no
+legacy `''` rows (the table postdates the multi-user split, so reads are an
+exact-email match). The surfaces are exactly the palette's entity kinds
+(`base` / `board` / `country`) so a row keys straight to a palette id.
+`lib/openSignal.ts` (PURE, tested): `openBoosts` = recency-decayed opens
+(half-life 30 d) × 4 points, **capped at 20 — below the smallest positive
+token score (30)**, so a boost reorders matches but can never manufacture
+one; `topOpened` feeds the empty-query **"You open these"** group
+(`CommandGroup "recent"`), after navigation/actions. The palette is the
+first and only consumer; hooks live in `WatchPane` (strip clicks +
+`watch:focus`) and `GroundTruthTab` (rail click + `regional:select`).
+
+### "Watch" renamed (REVIEW §4.2 — labels only)
+The Crisis map's curated disaster list is **⚠ Significant disasters**; the
+force-protection board and its two Preferences sections are **Force posture**
+(was "Mobility Watch"). **Watchlist** (search terms) and the I&W **watch**
+level keep their names. Identifiers were NOT renamed (`forceWatch`,
+`ForceWatchBoard.tsx`, `isSignificant`) — older notes above still say
+"Mobility Watch" when they mean the Force posture board.
+
 ### Glance world clocks (`lib/worldClocks.ts` · `components/glance/WorldClocks.tsx`)
 A clock row under the Glance greeting, above the status row: **New Jersey
 (America/New_York) · Moscow · Tehran · Amman · Beijing (Asia/Shanghai) ·
@@ -1938,6 +1977,8 @@ KEY_MIGRATIONS entries carry a per-entry marker `column` (the runner checks
 `pkIncludes(table, column)`).
 
 ### README screenshots (`docs/` + `docs/mockups/`)
+`hero.png` was re-rendered 2026-09-29 from the rewritten `hero.html` (clock row, six-tile status row, OE delta, demand horizon with the Crews strip, collapsed brief). The Chromium in the build sandbox lives at `/opt/pw-browsers/chromium`; `render.sh` needs `CHROME=` pointed at it (it is not on PATH).
+
 The README hero/feature PNGs are **illustrative renders** built from mockup
 HTML in `docs/mockups/` (same design tokens as the app; the README says so).
 Regenerate after UI changes with `sh docs/mockups/render.sh` (needs Chromium;

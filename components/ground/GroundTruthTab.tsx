@@ -9,6 +9,7 @@ import {
   SEVERITY_DOT as SEV_DOT, SEVERITY_TEXT as SEV_TEXT, isWorse, byWorstFirst, worstOf, type Severity,
 } from "@/lib/severity";
 import { COCOM_LABEL } from "@/lib/aor";
+import { noteOpen } from "@/lib/noteOpenClient";
 
 const IncidentMiniMap = dynamic(() => import("./IncidentMiniMap"), { ssr: false });
 
@@ -157,6 +158,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
       if (typeof c !== "string" || !c) return;
       pendingSelect.current = c;
       setSelected(c);
+      noteOpen("country", c);
     };
     window.addEventListener("regional:select", onSel);
     return () => window.removeEventListener("regional:select", onSel);
@@ -230,7 +232,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     return (
       <div className="border border-slate-800 rounded-xl bg-slate-900/40 px-4 py-8 text-center">
         <p className="text-sm text-slate-300 font-semibold mb-1">No locations watched yet</p>
-        <p className="text-[12px] text-slate-500">Add countries or airfields to your <span className="text-slate-300">Mobility Watch</span> (Preferences → Content sources, or the Crisis map) to see the country-level picture for each.</p>
+        <p className="text-[12px] text-slate-500">Add countries or airfields to your <span className="text-slate-300">Force posture</span> (Preferences → Content sources, or the Crisis map) to see the country-level picture for each.</p>
       </div>
     );
   }
@@ -280,7 +282,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                         const isSel = r.country === selected;
                         return (
                           <li key={r.country}>
-                            <button onClick={() => setSelected(r.country)} className={`w-full text-left flex items-center gap-2 px-3 py-2 border-l-2 transition-colors ${isSel ? "bg-slate-800/70 border-l-amber-400" : "border-l-transparent hover:bg-slate-800/40"}`}>
+                            <button onClick={() => { setSelected(r.country); noteOpen("country", r.country); }} className={`w-full text-left flex items-center gap-2 px-3 py-2 border-l-2 transition-colors ${isSel ? "bg-slate-800/70 border-l-amber-400" : "border-l-transparent hover:bg-slate-800/40"}`}>
                               <span style={{ color: SEV_DOT[c.composite as Sev] }} className="text-[11px]">●</span>
                               <span className="text-[13px] font-medium text-slate-200 flex-1 min-w-0 truncate">{r.country}</span>
                               {r.base && <span className="text-[9px]" title={`pinned airfield: ${r.base.label}${r.base.icao ? ` (${r.base.icao})` : ""}`}>🛡</span>}

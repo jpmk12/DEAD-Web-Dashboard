@@ -25,7 +25,7 @@ tracking — and proposes what you might have missed:
 
 ![Mission Profile — hub & spokes, theater chips, an AOI card with suggested countries and chokepoints, and the derived-tracking review with AUTO badges and SITREP picks](docs/mission-profile.png)
 
-- **Airfields** → Mobility Watch posture + METAR/TAF + SITREP candidacy
+- **Airfields** → Force posture posture + METAR/TAF + SITREP candidacy
   (hub → spokes → theater hubs, in that priority). Tracked weather locations
   stay yours, for civil places — one channel per concept.
 - **AOI countries** → the force-protection country watch (with one-tap

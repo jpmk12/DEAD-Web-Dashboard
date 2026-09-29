@@ -185,7 +185,7 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
   return (
     <div className="border border-slate-800 rounded-lg bg-slate-900/40 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 flex-wrap sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm">
-        <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Mobility Watch</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Force posture</span>
         {/* View lens: bases (jets/crews) vs countries (broader exposure). */}
         <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="View your watch by base/airfield (where jets & crews are) or by country (broader exposure). The Crisis map shows both.">
           {(["base", "country"] as const).map((v) => (
@@ -240,9 +240,9 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
       {empty && (
         <p className="px-3 py-4 text-[11px] text-slate-500">
           {view === "base" ? (
-            <>No bases or airfields watched yet. Add them under <span className="text-slate-400">Mobility Watch</span> (Preferences → Content sources, or the Crisis map) to monitor aviation weather, GPS, NOTAMs, conflict, and posture where your jets &amp; crews are.</>
+            <>No bases or airfields watched yet. Add them under <span className="text-slate-400">Force posture</span> (Preferences → Content sources, or the Crisis map) to monitor aviation weather, GPS, NOTAMs, conflict, and posture where your jets &amp; crews are.</>
           ) : (
-            <>No countries watched yet. Add <span className="text-slate-400">Countries</span> under Mobility Watch (Preferences → Content sources) for broader exposure — conflict, civil/diplomatic posture, health, and risk. Per-country detail lives in the <span className="text-slate-400">Regional</span> tab.</>
+            <>No countries watched yet. Add <span className="text-slate-400">Countries</span> under Force posture (Preferences → Content sources) for broader exposure — conflict, civil/diplomatic posture, health, and risk. Per-country detail lives in the <span className="text-slate-400">Regional</span> tab.</>
           )}
         </p>
       )}

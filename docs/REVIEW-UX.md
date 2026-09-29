@@ -199,19 +199,21 @@ tracked on the surface where its deadlines will appear.
 
 | # | Item | Effort | Serves |
 |---|---|---|---|
-| 1 | **Phone: scrollable tab bar + PWA shell + web push** (§2.1) | M | both — the outputs can finally reach you |
-| 2 | **Command palette** (§3.1) | M | both — largest time saver |
-| 3 | **Context-aware assistant** (§4.1) | M | professional — the "connections" feature |
-| 4 | **Bills & deadlines on the Calendar** (§5.1) | S | personal |
-| 5 | **Family week-ahead in the brief** (§5.2) | S | personal |
-| 6 | **Shared toast + focus-visible + aria** (§3.2, §3.3) | S | both — and the secure-machine case |
-| 7 | **Demand horizon** (§4.2) | M | professional — the forecast the north star names |
-| 8 | **Preferences → sectioned settings** (§2.2) | L | both — unblocks §3.4 |
-| 9 | **Export the OE brief** (§4.3) | M | professional |
-| 10 | **Watch-pane hierarchy + remove the map's convergence strip** (§2.3) | S | professional |
-| 11 | **Glance status row as hero** (§2.4) | M | both |
-| 12 | Snooze, per-person view, school-side discovery (§5.3–5.5) | S each | personal |
-| 13 | Team state (REVIEW §2) | L | professional — needs design first |
+| 1 | ~~**Phone: scrollable tab bar + PWA shell + web push** (§2.1)~~ **done** — needs VAPID keys in the env to activate | M | both — the outputs can finally reach you |
+| 2 | ~~**Command palette** (§3.1)~~ **done** — ⌘K / Ctrl+K, now with open-tracking boosts | M | both — largest time saver |
+| 3 | ~~**Context-aware assistant** (§4.1)~~ **done** — OE snapshot in every turn | M | professional — the "connections" feature |
+| 4 | ~~**Bills & deadlines on the Calendar** (§5.1)~~ **done** | S | personal |
+| 5 | ~~**Family week-ahead in the brief** (§5.2)~~ **done** | S | personal |
+| 6 | ~~**Shared toast + focus-visible + aria** (§3.2, §3.3)~~ **done** | S | both — and the secure-machine case |
+| 7 | ~~**Demand horizon** (§4.2)~~ **done** | M | professional — the forecast the north star names |
+| 8 | ~~**Preferences → sectioned settings** (§2.2)~~ **done** (sectioned + `?prefs=` deep links; the one-file-per-section *file* split is not done — mechanical, deferred) | L | both — unblocks §3.4 |
+| 9 | ~~**Export the OE brief** (§4.3)~~ **done** | M | professional |
+| 10 | ~~**Watch-pane hierarchy + remove the map's convergence strip** (§2.3)~~ **done** | S | professional |
+| 11 | ~~**Glance status row as hero** (§2.4)~~ **done** | M | both |
+| 12 | ~~Snooze, per-person view, school-side discovery (§5.3–5.5)~~ **done** | S each | personal |
+| 13 | ~~Team state (REVIEW §2)~~ **done** — counts per qualification, no names | L | professional — needs design first |
+
+**Status (2026-09-29):** all thirteen shipped. Only the Preferences file split (row 8) remains as a code-organisation task.
 
 **If only three:** 1, 2, 3. Together they change the app from "a desktop I
 sit down at" into "the thing that tells me, wherever I am, and answers when I

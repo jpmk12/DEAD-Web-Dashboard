@@ -98,6 +98,8 @@ learning surface and it is pure arithmetic over data already stored.
 
 ### 3.2 The decision log should feed the sensors, not just the analyst
 
+> **Addressed** — `lib/indicatorCalibration.ts` (PURE, tested): per-indicator hit rate from calls scored against ONE indicator; below 40% with the floor met → a down-weighting **proposal with its evidence**, ≥70% → "earning its weight", otherwise nothing. Returned as `calibration` on `/api/warning/decision` and rendered inside the Decision log on each I&W card ("N to re-weight" chip). Weights are never changed automatically — the board proposes, the analyst disposes.
+
 `warning_decisions` now records calls and scores them. Once there are enough
 scored entries, the hit rate is per-indicator — which means it can say *which
 indicators are earning their place*. Nothing consumes that yet. A low-hit-rate
@@ -108,6 +110,8 @@ Do not automate the down-weighting. Propose it, with evidence, and let the
 analyst dispose — the rule the whole board is built on.
 
 ### 3.3 Nothing learns from what you *open*
+
+> **Addressed** — `surface_opens` (per user; counts only) + `lib/surfaceOpens.ts` + `/api/opens`; opening a SITREP base, an I&W board or a Regional country fires one throttled POST (`lib/noteOpenClient.ts`). `lib/openSignal.ts` (PURE, tested) turns the rows into a recency-decayed, capped rank boost for the ⌘K palette and a "You open these" group on an empty query. First consumer only — nothing else reads it yet.
 
 `article_prefs` records opens for news. No other surface does. The app cannot
 tell which SITREP bases you actually read, which I&W indicators you expand,
@@ -150,6 +154,8 @@ deserves the same home: one `lib/severity.ts` with one direction and a
 
 ### 4.2 Four different things are called "watch"
 
+> **Addressed** — UI labels renamed: the map's curated list is **⚠ Significant disasters**; the force-protection board and its Preferences sections are **Force posture**. "Watchlist" (terms) and I&W `watch` (a level) keep their names — those two are distinct words for distinct things. Internal identifiers (`forceWatch`, `ForceWatchBoard.tsx`) are unchanged; this was a clarity fix, not a refactor.
+
 - the Crisis map's **⚠ Watch** list (curated disasters)
 - the **Mobility Watch** board (force protection)
 - I&W **watch problems** (and `watch` as a warning *level*)
@@ -159,6 +165,8 @@ A commander scanning this cannot tell from the word which surface they are on.
 Renaming is cheap and would repay itself immediately.
 
 ### 4.3 I introduced a second "convergence" today — my error
+
+> **Addressed** — the map's AOR convergence strip was removed; the subject-grouped `ConvergenceCard` (folded under "Forming" on the Watch pane) is the one convergence surface.
 
 The Crisis map already had a convergence strip (AORs where ≥2 signal kinds
 stack). I added a cross-surface `ConvergenceCard` on the same pane without
@@ -174,6 +182,8 @@ which was the original strip's known weakness. I should not have shipped both.
 ## 5. Present data more cleanly
 
 ### 5.1 The Watch pane is now overloaded — also partly my doing
+
+> **Addressed** — the pane is now Decide (I&W strip → SITREP strip) → Forming (convergence + reactivation, collapsed by default) → Picture (map).
 
 It currently stacks: Convergence card → Reactivation card → I&W strip → SITREP
 LED strip → Crisis map (which itself contains a convergence strip, a watch list,
@@ -193,6 +203,8 @@ seen every morning, and the hardest file to change safely.
 
 ### 5.3 Glance does not lead with change
 
+> **Addressed** — Glance now runs clocks → live status row (`StatusRow`) → OE delta → 7-day demand horizon → the brief, demoted to a collapsible.
+
 Glance's order is: greeting → morning brief (day-cached AI prose) → needs you
 now → breaking → today → tomorrow → context. The hero is **cached text**, while
 the live, earned signals (SITREP LEDs, I&W levels, posture deltas) appear below
@@ -203,6 +215,8 @@ what moved since yesterday and demote the prose. The brief is good writing; it
 is not the most decision-relevant thing on the screen.
 
 ### 5.4 Opportunity has no representation anywhere
+
+> **Partly addressed, by framing rather than a new feature** — the OE delta's `better` bucket carries the same weight as `worse` (a posture easing, a LED returning to green, a board improving are first-class rows), and the demand horizon's FALL is a real answer, not an absence. What is still missing is a positive *vocabulary* in the sensors themselves (a NOTAM cancelled, a route reopened, a clearance granted) — those still arrive only as the disappearance of a negative. Left open on purpose: it needs sources that report openings, not a re-read of the existing ones.
 
 Every signal in the app is a degradation: threat, closure, lapse, interdiction,
 overdue, LIMFAC. Nothing models an **opening** — an airfield returning to
@@ -220,16 +234,18 @@ held, and only ever read for its negative.
 
 | # | Item | Effort | Why |
 |---|---|---|---|
-| 1 | **Crew/team state model** (§2) | L | The missing half of the north star |
+| 1 | ~~**Crew/team state model** (§2)~~ **done** — counts per qual, no names (`lib/crewState.ts`) | L | The missing half of the north star |
 | 2 | ~~**`lib/severity.ts`** — one vocabulary, one direction (§4.1)~~ **done** | S | Latent-bug class; the app's own icon rule |
 | 3 | ~~**OE delta read** — what moved since you last looked (§3.1)~~ **done** | M | Four history tables already hold it |
-| 4 | **Reconcile the two convergences** (§4.3) | S | My error; sitting side by side today |
-| 5 | **Watch-pane hierarchy + collapse** (§5.1) | S | Wall of lists |
-| 6 | **Glance leads with change** (§5.3) | M | Front door does not serve the verb |
-| 7 | **Opportunity signals** (§5.4) | M | Framing gap across the whole app |
-| 8 | **Rename the four "watch" surfaces** (§4.2) | S | Pure clarity |
-| 9 | **Decision-log hit rate feeds indicator weighting** (§3.2) | M | Closes the learning loop properly |
-| 10 | **Open-tracking beyond news** (§3.3) | S | Cheapest implicit signal, one surface only |
+| 4 | ~~**Reconcile the two convergences** (§4.3)~~ **done** | S | My error; sitting side by side today |
+| 5 | ~~**Watch-pane hierarchy + collapse** (§5.1)~~ **done** | S | Wall of lists |
+| 6 | ~~**Glance leads with change** (§5.3)~~ **done** | M | Front door does not serve the verb |
+| 7 | **Opportunity signals** (§5.4) — *partly*: improvements are first-class in the OE delta and demand FALL; no positive source vocabulary yet | M | Framing gap across the whole app |
+| 8 | ~~**Rename the four "watch" surfaces** (§4.2)~~ **done** | S | Pure clarity |
+| 9 | ~~**Decision-log hit rate feeds indicator weighting** (§3.2)~~ **done** — proposals only | M | Closes the learning loop properly |
+| 10 | ~~**Open-tracking beyond news** (§3.3)~~ **done** — palette is the first consumer | S | Cheapest implicit signal, one surface only |
+
+**Status (2026-09-29):** everything above is shipped except the sensor-side half of #7. Two items from elsewhere in this review are deliberately still open: the physical split of `PreferencesDrawer.tsx` into one file per section (the sectioned model is done; the file split is mechanical and was not worth a risky diff on its own), and multi-user phase 2b (per-user `article_prefs` / `saved_items` / `trips` / `contacts`).
 
 **If only three:** 2 (cheap, removes a latent-bug class), 3 (the north star's
 own verb, and the data is already sitting there), 1 (the missing half of the

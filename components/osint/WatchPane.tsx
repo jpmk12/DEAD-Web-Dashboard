@@ -9,6 +9,7 @@ import WarningBoard from "@/components/osint/WarningBoard";
 import SitrepPanel from "@/components/osint/SitrepPanel";
 import type { SitrepSummary } from "@/lib/sitrep";
 import type { WarningLevel } from "@/lib/warning";
+import { noteOpen } from "@/lib/noteOpenClient";
 
 // The OSINT command dashboard — one scroll answers the morning scan in
 // priority order: is anything WARNING (I&W strip) → how are MY BASES (SITREP
@@ -75,8 +76,8 @@ export default function WatchPane({ active }: { active: boolean }) {
     const onFocus = (e: Event) => {
       const d = (e as CustomEvent<{ kind?: string; id?: string }>).detail;
       if (!d) return;
-      if (d.kind === "sitrep" && typeof d.id === "string") setSitrepOpen(d.id);
-      else if (d.kind === "iw") setIwOpen(true);
+      if (d.kind === "sitrep" && typeof d.id === "string") { setSitrepOpen(d.id); noteOpen("base", d.id); }
+      else if (d.kind === "iw") { setIwOpen(true); if (typeof d.id === "string") noteOpen("board", d.id); }
     };
     window.addEventListener("watch:focus", onFocus);
     return () => window.removeEventListener("watch:focus", onFocus);
@@ -129,7 +130,7 @@ export default function WatchPane({ active }: { active: boolean }) {
             {iw.map((p) => (
               <button
                 key={p.problemId}
-                onClick={() => setIwOpen((v) => !v)}
+                onClick={() => { if (!iwOpen) noteOpen("board", p.problemId); setIwOpen((v) => !v); }}
                 title="Open the full indicator board"
                 className={`flex items-center gap-3 rounded-xl border px-3.5 py-2 text-left transition-colors hover:bg-slate-800/40 ${
                   p.level === "alert" || p.level === "warning" ? "border-orange-500/50" : p.level === "watch" ? "border-amber-500/40" : "border-slate-800"
@@ -170,7 +171,7 @@ export default function WatchPane({ active }: { active: boolean }) {
               return (
                 <button
                   key={s.icao}
-                  onClick={() => setSitrepOpen(open ? null : s.icao)}
+                  onClick={() => { if (!open) noteOpen("base", s.icao); setSitrepOpen(open ? null : s.icao); }}
                   title={`${s.label} — ${s.driver || "all green"}${s.worse.length ? ` · worse than yesterday: ${s.worse.join(", ")}` : ""}`}
                   className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors hover:bg-slate-800/50 ${
                     open ? "bg-slate-800/60 border-emerald-500/50" : worstRed ? "border-red-500/50" : worstAmber ? "border-amber-500/40" : "border-slate-800"

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rankCommands, groupResults, GROUP_LABEL, type Command } from "@/lib/commandPalette";
+import { openBoosts, type OpenRow } from "@/lib/openSignal";
 import { TABS } from "@/components/layout/TabBar";
 import { COCOM_LABEL } from "@/lib/aor";
 
@@ -104,12 +105,16 @@ function run(cmd: Command) {
   }
 }
 
-async function loadEntities(): Promise<Command[]> {
+async function loadEntities(): Promise<{ commands: Command[]; boosts: Record<string, number> }> {
   const out: Command[] = [];
   const j = async (url: string) => { try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch { return null; } };
-  const [docs, bases, warn, fp, roster] = await Promise.all([
+  const [docs, bases, warn, fp, roster, opens] = await Promise.all([
     j("/api/documents/titles"), j("/api/sitrep/bases"), j("/api/warning"), j("/api/force-protection"), j("/api/family/roster"),
+    j("/api/opens"),
   ]);
+  // Open-tracking: what you actually read, as a capped rank boost and the
+  // "You open these" group. Absent (fresh account, route down) → no boost.
+  const boosts = openBoosts(Array.isArray(opens?.opens) ? (opens.opens as OpenRow[]) : []);
   for (const b of (bases?.bases ?? []) as { icao: string; label: string; place?: string; country?: string }[]) {
     out.push({ id: `base:${b.icao}`, group: "base", label: `${b.label} (${b.icao})`, hint: `SITREP · ${b.place || b.country || ""}`.trim(), keywords: [b.icao, b.icao.slice(1), "sitrep"] });
   }
@@ -129,12 +134,13 @@ async function loadEntities(): Promise<Command[]> {
   for (const d of (docs?.docs ?? []) as { id: string; title: string; aliases?: string[]; docType?: string; collection?: string }[]) {
     out.push({ id: `doc:${d.id}`, group: "doc", label: d.title, hint: [d.docType, d.collection].filter(Boolean).join(" · ") || "doc", keywords: d.aliases ?? [] });
   }
-  return out;
+  return { commands: out, boosts };
 }
 
 export default function CommandPalette({ open, onClose }: Props) {
   const [q, setQ] = useState("");
   const [entities, setEntities] = useState<Command[]>([]);
+  const [boosts, setBoosts] = useState<Record<string, number>>({});
   const [loadedAt, setLoadedAt] = useState(0);
   const [loading, setLoading] = useState(false);
   const [cursor, setCursor] = useState(0);
@@ -148,17 +154,17 @@ export default function CommandPalette({ open, onClose }: Props) {
     setTimeout(() => inputRef.current?.focus(), 0);
     if (Date.now() - loadedAt < STALE_MS || loading) return;
     setLoading(true);
-    loadEntities().then((e) => { setEntities(e); setLoadedAt(Date.now()); }).finally(() => setLoading(false));
+    loadEntities().then((e) => { setEntities(e.commands); setBoosts(e.boosts); setLoadedAt(Date.now()); }).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const all = useMemo(() => [...STATIC, ...entities], [entities]);
   const results = useMemo(() => {
-    const r = rankCommands(q, all);
+    const r = rankCommands(q, all, undefined, boosts);
     const t = q.trim();
     if (t.length >= 2) r.push({ id: `docsearch:${t}`, group: "doc", label: `Search docs for “${t}”`, hint: "full-text" });
     return r;
-  }, [q, all]);
+  }, [q, all, boosts]);
   const groups = useMemo(() => groupResults(results), [results]);
 
   useEffect(() => { setCursor(0); }, [q]);

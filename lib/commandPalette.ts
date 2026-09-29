@@ -13,7 +13,7 @@
 // contiguous match beats a scattered one. Ties fall back to a fixed group
 // order so navigation sits above documents when both fit.
 
-export type CommandGroup = "go" | "act" | "base" | "board" | "country" | "person" | "doc" | "prefs";
+export type CommandGroup = "go" | "act" | "recent" | "base" | "board" | "country" | "person" | "doc" | "prefs";
 
 export interface Command {
   id: string;
@@ -30,6 +30,7 @@ export interface Command {
 export const GROUP_LABEL: Record<CommandGroup, string> = {
   go: "Go to",
   act: "Actions",
+  recent: "You open these",
   base: "SITREP bases",
   board: "I&W boards",
   country: "Regional",
@@ -39,7 +40,7 @@ export const GROUP_LABEL: Record<CommandGroup, string> = {
 };
 
 /** Display and tie-break order. */
-export const GROUP_ORDER: CommandGroup[] = ["go", "act", "base", "board", "country", "person", "prefs", "doc"];
+export const GROUP_ORDER: CommandGroup[] = ["go", "act", "recent", "base", "board", "country", "person", "prefs", "doc"];
 
 export const DEFAULT_LIMIT = 14;
 
@@ -105,17 +106,29 @@ export function scoreCommand(tokens: string[], cmd: Command): number {
   return total;
 }
 
-export function rankCommands(query: string, commands: Command[], limit = DEFAULT_LIMIT): Command[] {
+/** `boosts` (palette id → points, from lib/openSignal) is the open-tracking
+ *  signal: it reorders things that already match the query and, on an empty
+ *  query, adds a short "You open these" group after navigation. It can never
+ *  put a non-match in the results — the boost is capped below the smallest
+ *  token score, and it is only applied to a positive score. */
+export function rankCommands(
+  query: string, commands: Command[], limit = DEFAULT_LIMIT, boosts: Record<string, number> = {},
+): Command[] {
   const tokens = tokenize(query);
   if (tokens.length === 0) {
-    // Nothing typed: the static navigation and actions, in group order. The
-    // fetched entity lists would only be noise at that point.
-    return commands
-      .filter((c) => c.group === "go" || c.group === "act")
-      .slice(0, limit);
+    // Nothing typed: the static navigation and actions, in group order, then
+    // the entities you actually open. The rest of the fetched lists would
+    // only be noise at that point.
+    const nav = commands.filter((c) => c.group === "go" || c.group === "act");
+    const opened = commands
+      .filter((c) => (boosts[c.id] ?? 0) > 0 && c.group !== "go" && c.group !== "act")
+      .sort((a, b) => (boosts[b.id] ?? 0) - (boosts[a.id] ?? 0) || a.label.localeCompare(b.label))
+      .slice(0, 4)
+      .map((c) => ({ ...c, group: "recent" as const }));
+    return [...nav, ...opened].slice(0, limit + opened.length);
   }
   const scored = commands
-    .map((c) => ({ c, s: scoreCommand(tokens, c) }))
+    .map((c) => { const s = scoreCommand(tokens, c); return { c, s: s > 0 ? s + (boosts[c.id] ?? 0) : 0 }; })
     .filter((x) => x.s > 0);
   scored.sort((a, b) =>
     b.s - a.s ||
