@@ -59,6 +59,11 @@ All tables live in a single managed MySQL instance. Migrations are idempotent (`
 | `signal_seen` | Trend layer dedup ledger (sha1 of item id), 14-day retention |
 | `x_items` | Imported X posts from dead-x-capture files (post id PK; pruned 14 days / newest 1000) |
 | `sitrep_limfacs` | Commander-entered SITREP LIMFACs (shared per base icao, attributed) |
+| `sensor_daily` | Numeric daily series by registered key (`lib/sensorKeys.ts`): per-hub lift, base tempo, TAF vs observed, LIMFAC days, chokepoint acts, space-weather scales, KEV per vendor, outages, energy closes |
+| `demand_horizon_daily` | The day's last demand outlook per COCOM — scored 7 days later against observed lift and posture |
+| `indicator_daily` | Per-indicator I&W state per day (with `live`) — sparklines, run lengths, lead indicators |
+| `crew_state_daily` | Day's last crew counts per qual — availability series, mismatch history |
+| `signal_pair_daily` | Trend layer: watch×topic / region×topic co-occurrence per day, 90-day retention |
 
 ---
 
@@ -533,7 +538,7 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/airfields/resolve         GET ?icao= — curated sets → OurAirports labeled point
 /api/alerts/check              GET — current alert conditions, stable ids (session or capture token); every hit drives web-push dispatch
 /api/push/subscribe            GET (configured + VAPID public key + device count) / POST (store this browser's subscription) / DELETE
-/api/demand-horizon            GET — deterministic 7-day demand outlook per COCOM (rise/hold/fall, drivers, confidence, sources answered)
+/api/demand-horizon            GET — deterministic 7-day demand outlook per COCOM (rise/hold/fall, drivers, confidence, sources answered) + `skill` (scored past outlooks)
 /api/markets/regulatory        GET — U.S. Federal Register sanctions / export-control / tariff actions, classified + flagged vs the watch (?diag=1 owner-only)
 /api/capture/notices           POST dead-notices JSON (bearer or session) · GET status · DELETE clear — MOFCOM notice capture
 /api/markets/economic-warfare  GET — per-actor economic-warfare boards (I&W engine, warning_daily `econ-<actor>`) + coercion board + 30-day timeline + leverage + EU/UK waves; deterministic, 10-min cached (?diag=1 owner-only: EU/UK list fetch status)
@@ -552,7 +557,7 @@ Master `clientCache.clear()` runs after any preferences save so VIP/mute/role/to
 /api/ai-usage                  GET — today / 7d / 30d spend summaries
 
 /api/news                      GET — RSS aggregation + sourceStats (feeds the trend recorder)
-/api/trends                    GET — week-over-week movers from signal_daily_counts (no AI)
+/api/trends                    GET — week-over-week movers from signal_daily_counts + 90-day-high flag + new term pairs (no AI)
 /api/newsletters               GET / POST — summarised + dismissals
 /api/newsletter-feedback       POST — open tracking signal
 /api/article-feedback          POST — thumbs / open signal

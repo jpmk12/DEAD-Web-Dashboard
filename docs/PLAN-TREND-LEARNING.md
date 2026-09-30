@@ -1,8 +1,12 @@
 # PLAN — Trend learning: record, baseline, verify
 
-**Status:** proposed 2026-09-30, not built. Companion to `docs/REVIEW.md`
-§3 (the learning layer) and the four surfaces that shipped from it
-(chronicity, reactivation, convergence, decision log).
+**Status:** proposed 2026-09-30 and **BUILT the same day, all six phases**
+(commits "Trend learning A" … "F"). Companion to `docs/REVIEW.md` §3 (the
+learning layer) and the four surfaces that shipped from it (chronicity,
+reactivation, convergence, decision log). The CLAUDE.md section "Trend
+learning (record → baseline → verify)" is the maintenance record; this
+file is the design. Every series starts empty on deploy — see §9 for the
+cold-start floors.
 
 ## 0. The finding, in one paragraph
 

@@ -2725,6 +2725,105 @@ indexed aggregate over data the app already collects.
   a nag; one that returns after being declined teaches the user to ignore the
   panel.
 
+### Trend learning (record → baseline → verify) — BUILT 2026-09-30, six phases
+`docs/PLAN-TREND-LEARNING.md` is the design; this is the maintenance record.
+The audit behind it: the app wrote eleven daily series and read nearly all
+of them for ONE day, and made three forward claims (demand horizon, TAF
+weather axis, I&W trajectory) it never scored. Everything below is a pure
+join over data the app already collects — no model call, no new fetch, no
+new dependency, no cron. Disciplines that hold everywhere and are tested:
+**observed days, never calendar days**; **learning floors before any claim**
+(a tally below the floor, never a rate); **a dead sensor writes nothing**;
+**trend reads annotate — only the engines set a level**; **the app scores
+its OWN forecasts only, never the analyst's decision-log calls**;
+**verification is three-valued** (right / wrong / ambiguous, and ambiguous
+stays visible).
+- **A — foundation.** `lib/series.ts` (PURE): `slope` per OBSERVED step (a
+  gap is not a plateau), `direction` (±5% of mean), `runLength`, `highWater`
+  (7 prior points), `flatBaseline`/`weekdayBaseline`/`bestBaseline` (four
+  of that weekday before it counts), `shareOfObserved`, `precedes` (lead/lag,
+  3 events), `verdict` (tally→rate at `minScored`). `lib/sensorKeys.ts`
+  registers EVERY `sensor_daily` key with its day policy (`peak` for counts
+  and severities, `last` for states and prices); `sensorStore` REFUSES an
+  unregistered key — add the prefix there before recording anything.
+  `warningRules.mobilityObservedHigh` prefers the same-weekday baseline
+  (`MobilityBaseline.weekdayMean/weekdaySamples`, from `getMobilityBaseline`)
+  and `mobilityBaselineNote` names which was used. **The daily heartbeat**
+  (`lib/dailyHeartbeat.ts`, `touchDailySeries()` from `/api/alerts/check`,
+  once per 6 h per process, background, each step bounded 60 s) runs demand
+  horizon, SITREP per base, energy, spectrum and the crew snapshot so the
+  series accrue on days nobody opens the dashboard — the capture extension's
+  15-min poll is what drives it. Records nothing itself; add recorders inside
+  assemblers, never here.
+- **B — forecast verification.** `demand_horizon_daily` (LAST policy) is
+  written at the end of every `demandAssemble` pass; `lib/demandVerify.ts`
+  (PURE) scores an outlook once its window closes against observed AOR lift
+  (`warning_daily.mobility_count`, max across the AOR's boards) and posture
+  composites (`force_posture_daily`) — disasters/NEO are NOT stored history
+  so they are not proxies, and the label says so. HOLD calls are scored but
+  reported per direction; drivers are credited only on RISE/FALL calls
+  (`bySource` hit rates → which sensor families predict demand); floor
+  `MIN_SCORED_FOR_SKILL` = 5. `lib/demandVerifyAssemble.ts` (30-min cache) →
+  `skill` on `/api/demand-horizon` (bounded 4 s), the "Verified" footer on
+  `DemandHorizonCard`, `demandSkill` on the OE snapshot and brief export.
+  TAF: the SITREP records `fc:<icao>` / `taf:<icao>` (category ordinals,
+  day-peak); `lib/tafVerify.ts` pairs them (hit / over / UNDER-forecast, warn
+  at 20% over `TAF_MIN_PAIRED` = 10 days) → Weather card, export, and a
+  caveat (never a downgrade) on the all-weather capability row.
+- **C — I&W depth.** `indicator_daily` (per indicator per day with `live`)
+  written in `warningAssess` beside the composite; `lib/leadIndicators.ts`
+  (PURE): for each level-up in the board's history, which indicators stepped
+  up in the prior `LEAD_WINDOW_DAYS` = 5 observed days (3 level-ups before
+  any claim); `WarningAssessmentPlus.history` (14-cell sparkline + run) and
+  `.lead`. `ProblemGeo.hubs[].icao` names hubs; `mob:`/`tanker:` per hub
+  recorded only when ADS-B answered; the SITREP Ops "Lift" row (`liftRead`)
+  appears for a base that is a hub on a board. `cpact:<id>` records 1/0 per
+  strait per day; `ChokepointTransit` carries `history`/`direction`/
+  `suppressedDays`; `ChokepointRead.transitLead` = `precedes(suppressed,
+  acts, 3)`; `chokepointState` adds +0.05 confidence when the strait's own
+  lead rate ≥ `TRANSIT_LEAD_TRUSTED` — the STATE is never changed by it.
+- **D — base and team tempo.** `notam:`/`rwyclose:`/`xwind:` per base
+  (only from a live source) → `lib/baseTempo.ts` (PURE) → `payload.tempo`
+  (IFR days this month vs last, NOTAM direction, closure/crosswind shares;
+  nothing below 4 points). `sitrep_status_daily` gained nullable `infra` and
+  `spectrum` columns (older rows are UNOBSERVED on those axes, never green)
+  and the OE delta reads them. `crew_state_daily` (LAST) written on every
+  edit, on the crew GET and by the heartbeat; `lib/crewTrend.ts` (PURE) →
+  availability series, direction, thin run, and the join to
+  `demand_horizon_daily` ("demand rose against thin crews N of M obs
+  days"). `limfac:<icao>:<fn>` = 1 on PMC/NMC days (nothing on UNKNOWN) →
+  `classifyChronicity` per function (`mission.chronicity`) and
+  `timeToResolve` from the manual register (`mission.resolution`, 3
+  resolved before a median). `ManualLimfac.updatedAt` is now selected.
+- **E — the wider series.** `swx:G|R|S` (peak scale), `kev:<vendor>`
+  (added that day), `outage:<country>` (worst IODA level, 0 when the feed
+  answered and named nothing) → `lib/spectrumTrend.ts` (PURE) →
+  `SpectrumSummary.trend` (G-scale share, KEV cadence vs own normal after
+  14 prior days, one direction): the Glance tile's ↗/↘, the Weather card's
+  history line, the SITREP Spectrum "Cadence" line. `px:<symbol>` closes
+  (LAST, keyed by quote date, the fetched month backfilled once per process
+  day) → `EnergyQuote.baseline` vs the 90-day mean after
+  `ENERGY_BASELINE_MIN_DAYS` = 20; `timeline.lag` = strait acts (Hormuz /
+  Bab-el-Mandeb `cpact:`) preceding Brent ≥3% day-moves. Trends:
+  `rollingHigh` (this week above every prior 7-day window in 90 d, only
+  after `HIGH_MIN_WEEKS` = 5) → `TrendMover.high90` (opt-in
+  `getTrendMovers({highWater:true})`; ◆ on the strip; ≤2 notes in the brief
+  prompt); `signal_pair_daily` (watch×topic, region×topic, ≤15 per item,
+  90 d) → `newPairs` (≥3 this week, none in the prior 60 d) → strip chips
+  and a `pair` convergence kind that can JOIN a row but never make one.
+- **F — attention vs signal.** `lib/attentionGaps.ts` (PURE): `surface_opens`
+  × the OE delta's level series → subjects that stepped up in the last 14
+  days, still hold that level, and that THIS user last opened before the
+  step (or never). Improvements never produce a gap; a base's LEDs collapse
+  to one row; cap 3, worst first, never-opened before stale. Returned as
+  `attention` on `/api/oe-delta` (per user), rendered as one muted line in
+  `OeDeltaCard` with door-in jumps; never pushed, never in the shared brief.
+- Cold start: every series begins empty on deploy. Weekday baselines need
+  four weeks; demand skill needs 5 scored outlooks (so ≥12 days); lead
+  indicators need 3 level-ups; TAF needs 10 paired days; KEV cadence 14
+  prior days; energy baseline 20 days; 90-day highs 5 weeks. Until then the
+  surfaces show tallies and "forming", never a number.
+
 ### The learning layer (four surfaces that read the app's own history)
 A survey for "where could the app learn from me / show me a connection I
 couldn't see" found the same shape as the watchlist recommendations: data the

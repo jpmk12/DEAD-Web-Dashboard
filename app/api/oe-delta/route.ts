@@ -4,6 +4,8 @@ import { normEmail } from "@/lib/allowlist";
 import { getAllLastSeen, bumpLastSeen } from "@/lib/surfaceState";
 import { computeDelta } from "@/lib/oeDelta";
 import { buildOeSeries, OE_WINDOW_DAYS } from "@/lib/oeDeltaAssemble";
+import { listOpens } from "@/lib/surfaceOpens";
+import { attentionGaps } from "@/lib/attentionGaps";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,10 @@ export const dynamic = "force-dynamic";
 //
 // The "oe" surface is bumped AFTER the delta is computed, so this visit becomes
 // the baseline for the next one. Bumping first would compare now with now.
+//
+// `attention` (PLAN §8 F) joins the same series to THIS user's surface_opens:
+// subjects that worsened since they last opened them. Per user by
+// construction; the shared OE brief export never carries it.
 
 export async function GET() {
   const session = await auth();
@@ -26,16 +32,18 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [lastSeen, series] = await Promise.all([
+  const [lastSeen, series, opens] = await Promise.all([
     getAllLastSeen(email).catch(() => ({} as Record<string, number>)),
     buildOeSeries(),
+    listOpens(email).catch(() => []),
   ]);
 
   const delta = computeDelta(series, (lastSeen as Record<string, number>).oe);
+  const attention = attentionGaps(opens, series);
 
   // This look becomes the next baseline. Fire-and-forget — a failed bump must
   // not fail the read.
   bumpLastSeen(email, "oe").catch(() => {});
 
-  return NextResponse.json({ ...delta, scanned: { series: series.length, windowDays: OE_WINDOW_DAYS } });
+  return NextResponse.json({ ...delta, attention, scanned: { series: series.length, windowDays: OE_WINDOW_DAYS } });
 }
