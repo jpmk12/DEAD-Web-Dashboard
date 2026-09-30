@@ -101,27 +101,52 @@ export function resetEconomicWarfareCache(): void { cache = null; }
  */
 export async function getEconomicWarfare(opts: { maxWaitMs?: number } = {}): Promise<EconomicWarfareBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
-  if (!inflight) inflight = compute().then((b) => { cache = { at: Date.now(), body: b }; return b; }).finally(() => { inflight = null; });
-  const maxWait = opts.maxWaitMs ?? 20_000;
+  if (!inflight) {
+    inflight = compute()
+      .then((b) => { cache = { at: Date.now(), body: b }; lastFailure = null; return b; })
+      .catch((e) => { lastFailure = { at: Date.now(), message: e instanceof Error ? e.message : String(e) }; throw e; })
+      .finally(() => { inflight = null; });
+  }
+  // 8 s, not 20: the platform gateway cuts a request well before 20 s and
+  // answers the browser with an HTML 502 — which the board can only report as
+  // "unavailable". The board polls while `pending`, so a short wait costs
+  // nothing but one more round trip.
+  const maxWait = opts.maxWaitMs ?? DEFAULT_WAIT_MS;
   const settled = await withTimeout(inflight, maxWait);
   if (settled) return settled;
+  // The assembly THREW (not merely slow): say so, and stop the client
+  // polling — a failed pass is a finding ("UNKNOWN, not calm"), not a wait.
+  if (!inflight && lastFailure && Date.now() - lastFailure.at < FAILURE_HOLD_MS) return failedStub(lastFailure.message);
   // Still assembling. Serve the last body if there is one (stale beats
   // nothing), else an honest stub.
   if (cache) return { ...cache.body, pending: true };
   return pendingStub();
 }
 
-function pendingStub(): EconomicWarfareBody {
+export const DEFAULT_WAIT_MS = 8_000;
+/** How long a thrown assembly is reported before the next call retries it. */
+const FAILURE_HOLD_MS = 60_000;
+let lastFailure: { at: number; message: string } | null = null;
+
+function emptyBody(note: string, pending: boolean): EconomicWarfareBody {
   const now = new Date().toISOString();
   return {
     actors: [], moves: [], energy: [],
     timeline: { days: [], dots: [], sequences: [] }, leverage: {},
-    foreign: { waves: [], live: { EU: false, UK: false }, failed: [] },
+    foreign: { waves: [], live: { EU: false, UK: false }, failed: ["EU", "UK"] },
     generatedAt: now, windowDays: 14,
     sources: { gdelt: false, ownSources: [], federalRegister: false, foreign: false, chokepoints: false, energy: false },
-    note: "Assembling the actor register — the first pass after a deploy reads every feed cold and can take a minute. Ask again shortly.",
-    pending: true,
+    note,
+    ...(pending ? { pending: true } : {}),
   };
+}
+
+function pendingStub(): EconomicWarfareBody {
+  return emptyBody("Assembling the actor register — the first pass after a deploy reads every feed cold and can take a minute. Ask again shortly.", true);
+}
+
+function failedStub(message: string): EconomicWarfareBody {
+  return emptyBody(`Actor register assembly failed (${message.slice(0, 160)}). Every actor is UNKNOWN, not calm — the next open retries.`, false);
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {

@@ -70,9 +70,10 @@ interface OSINTTabProps {
   previousSeen?: number;            // server-recorded last-visit timestamp (ms)
   onSignalCount?: (n: number) => void; // report new-signal count up for the nav badge
   onTopSignals?: (items: SignalDigest[]) => void; // feed the morning brief
+  onFeedLoaded?: () => void;        // the first feed fetch has settled (ok or not) — a brief readiness gate
 }
 
-export default function OSINTTab({ active = true, previousSeen = 0, onSignalCount, onTopSignals }: OSINTTabProps) {
+export default function OSINTTab({ active = true, previousSeen = 0, onSignalCount, onTopSignals, onFeedLoaded }: OSINTTabProps) {
   const [items, setItems] = useState<OsintItem[]>([]);
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
   const [pane, setPane] = useState<Pane>("watch");
@@ -129,7 +130,11 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   // Keep the feed live: fetch on mount, then poll. Re-fetching swaps in new
   // items; the triage effect (keyed on items) re-runs and only spends tokens
   // on ids it hasn't already cached, so polling stays cheap.
+  const onFeedLoadedRef = useRef(onFeedLoaded);
+  useEffect(() => { onFeedLoadedRef.current = onFeedLoaded; });
+  const lastLoadAt = useRef(0);
   const loadFeed = useCallback(() => {
+    lastLoadAt.current = Date.now();
     fetch("/api/osint/feed")
       .then((r) => r.json())
       .then((d) => {
@@ -137,20 +142,30 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
         setFeeds(d.feeds ?? []);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); onFeedLoadedRef.current?.(); });
   }, []);
+
+  // ONE background load at mount, whatever tab is showing. The feed route is
+  // RSS/capture merging with no model call, so this costs nothing but
+  // bandwidth — and without it the morning brief (day-cached, generated from
+  // Glance on load) had no OSINT signals: watchlist hits and corroborated
+  // clusters are derived here and reported up by `onTopSignals`. Triage (the
+  // paid step) stays gated on `active` below, so the brief sees signals from
+  // the deterministic half only until the tab is opened.
+  useEffect(() => { loadFeed(); }, [loadFeed]);
 
   // Poll only while this tab is actually on screen AND the document is visible.
   // Every OSINT feed refresh re-runs the triage effect below, which costs
   // Anthropic tokens on any item it hasn't classified before — a background
   // browser tab (or the app sitting on Glance) has no business paying for that.
-  // Load once on first activation, then poll; a hidden tab stops entirely and
-  // catches up on the focus/visibility handler when you come back.
+  // A hidden tab stops entirely and catches up on the focus/visibility
+  // handler when you come back. The immediate tick is skipped when the mount
+  // load (above) is still fresh.
   useEffect(() => {
     if (!active) return;
     let stopped = false;
     const tick = () => { if (!stopped && document.visibilityState === "visible") loadFeed(); };
-    tick();
+    if (Date.now() - lastLoadAt.current > 30_000) tick();
     const id = setInterval(tick, POLL_MS);
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);

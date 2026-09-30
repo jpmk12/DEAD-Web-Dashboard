@@ -1625,6 +1625,27 @@ built on the existing engine rather than a new one:
   24 h, so the next pass has it). Any new consumer of the board must pass
   a `maxWaitMs` and handle `pending` — never await the bare assembly from a
   request handler.
+- **The 502 (2026-09-30) and the streaming rule**: the board reported
+  "unavailable (HTTP 502)". Two causes, both fixed: (1) the route waited
+  20 s for a cold assembly and the platform gateway answers an HTML 502
+  before that — the route now waits `8_000` (`DEFAULT_WAIT_MS`) and the
+  board's `pending` polling does the rest; (2) `lib/foreignSanctions.ts`
+  did `res.text()` on the multi-MB EU list, split it into an array of
+  every line and field-split each — enough memory and CPU on the request
+  path to fell the process. **CSVs are now STREAMED**: `streamCsv()` reads
+  `res.body` chunk by chunk through a `TextDecoder`, feeds one line at a
+  time into the line parsers (`euLineParser` / `ukLineParser` in
+  `foreignSanctionsParse.ts`, which keep only rows inside `KEEP_DAYS` = 120
+  and still dedupe alias rows), yields to the event loop every 2,000
+  lines, stops at 120 MB, and treats a body that did not reach its end
+  (deadline/cap/read error) as NOT live — the rows are unordered, so a
+  partial file cannot claim "no new listings". `parseEuCsv`/`parseUkCsv`
+  remain as whole-text wrappers for tests. A THROWN assembly (not merely a
+  slow one) now returns `failedStub` — `pending:false`, empty actors, the
+  error in `note` — so the board stops polling and prints the reason
+  ("UNKNOWN, not calm") instead of spinning; the next call after 60 s
+  retries. Any new multi-MB source must go through a streaming parser —
+  never `res.text()` a list.
 - **Order on the tab (by request, 2026-09-29)**: Economic Warfare Read →
   actor board (tiles · timeline · leverage · coercion board) → energy strip
   → chokepoint strip → regulatory board → news filter. The read sits first
@@ -2185,6 +2206,34 @@ If nothing polls, nothing is sent — the setup card says so.
 - `web-push` is a **runtime `dependency`** (pure JS: asn1.js/http_ece/jws —
   no postinstall, no native build; the lockfile's three `hasInstallScript`
   entries are the pre-existing fsevents/sharp/unrs-resolver). esbuild stays `0`.
+
+### Morning Brief inputs are gated (the thin-brief fix, 2026-09-30)
+The brief is day-cached, so WHATEVER the first `/api/briefing` POST carries
+is the day's brief. After the August spend cut the OSINT feed loaded only
+while its tab was open, and newsletters ride Gmail and often land after the
+first articles — so the first POST went out with no OSINT signals and no
+newsletter bullets, the model wrote a short brief, and it was cached all
+day. Three parts, keep all three:
+- **`OSINTTab` loads the feed ONCE at mount** whatever tab is showing
+  (`/api/osint/feed` is RSS/capture merging, no model call). Triage (the
+  paid step), the situation line and polling stay `active`-gated, so the
+  brief sees the deterministic half of the signals (watchlist hits +
+  corroborated clusters) until the tab is opened. `onFeedLoaded` reports
+  the first settle up.
+- **`TabShell` gates `prefetchBriefing` on four readiness flags** —
+  `calendarReady` (12-s grace), `newslettersReady` (set by
+  `onNewslettersChange`), `osintReady` (set by `onFeedLoaded`), the latter
+  two with a 25-s grace so a dead Gmail/feed never blocks the brief — and
+  fires after a 1.5-s settle so the child effects that report
+  `osintTop`/`newsletters` land before the POST (child effects run before
+  the parent's in the same commit).
+- **One bounded upgrade** (`lib/briefingUpgrade.ts`, PURE, tested, shared
+  by client and server): a cached brief carrying `inputs` with ZERO
+  newsletters or ZERO OSINT signals regenerates ONCE when a later request
+  brings them (`upgraded:true` is then stamped; some → more never
+  upgrades; a brief with no `inputs` never upgrades). `briefingPrefetch`
+  re-asks 16 s after its first POST (past the 15-s rate limit); the route
+  applies the same rule before spending. Caps the day at two generations.
 
 ### Morning Brief cross-device cache
 `briefing_cache` PK is **(date, user_email, tz)** — zone-briefs coexist per

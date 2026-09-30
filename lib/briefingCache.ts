@@ -18,6 +18,10 @@ export interface CachedBriefing {
   // cached, prefetched) can show "generated HH:MM zone".
   generatedAtMs?: number;
   generatedTz?: string;
+  // What the brief was built from (counts only), and whether it has already
+  // had its one permitted upgrade — see lib/briefingUpgrade.ts.
+  inputs?: { articles: number; newsletters: number; osint: number; events: number };
+  upgraded?: boolean;
 }
 
 interface CacheRow extends RowDataPacket {

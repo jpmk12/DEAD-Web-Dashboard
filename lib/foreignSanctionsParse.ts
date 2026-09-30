@@ -99,61 +99,111 @@ const ymd = (s: string): string | null => {
   return null;
 };
 
+/**
+ * A line-fed parser: the fetcher STREAMS the CSV and pushes one line at a
+ * time, so the multi-MB EU list never exists in memory as one string plus an
+ * array of every line (which is what took the server down — a `res.text()`
+ * on tens of MB followed by `split` and a per-line field split). Only rows
+ * listed on/after `keepSince` (yyyy-mm-dd) are kept when given: the board
+ * reads 45 days of waves and the timeline 30, so the other ~99% of the file
+ * is dropped at the line. Dedup keys are still tracked for every row so an
+ * alias row of an in-window entity cannot double-count.
+ */
+export interface CsvLineParser {
+  push(line: string): void;
+  rows(): ForeignDesignation[];
+  /** True once the header row has been recognised — a stream that ends
+   *  without it is a moved/renamed file, not an empty list. */
+  headerFound(): boolean;
+}
+
+type ColumnSpec = { id: string; programme: string; date: string };
+
+function lineParser(
+  source: ForeignSource,
+  delim: string,
+  isHeader: (line: string) => boolean,
+  cols: ColumnSpec,
+  finish: (id: string, programme: string, date: string) => ForeignDesignation | null,
+  dedupKey: (id: string, programme: string) => string,
+  keepSince?: string,
+): CsvLineParser {
+  let header: { id: number; programme: number; date: number } | null = null;
+  let headerSeen = false;
+  const seen = new Set<string>();
+  const out: ForeignDesignation[] = [];
+  return {
+    push(line: string) {
+      if (!header) {
+        if (!headerSeen && isHeader(line)) {
+          headerSeen = true;
+          const h = splitCsvLine(line, delim).map((x) => x.trim().toLowerCase());
+          const col = (name: string) => h.indexOf(name.toLowerCase());
+          const spec = { id: col(cols.id), programme: col(cols.programme), date: col(cols.date) };
+          if (spec.id >= 0 && spec.programme >= 0 && spec.date >= 0) header = spec;
+        }
+        return;
+      }
+      if (!line.trim()) return;
+      const f = splitCsvLine(line, delim);
+      const id = (f[header.id] ?? "").trim();
+      const programme = (f[header.programme] ?? "").trim();
+      const date = ymd(f[header.date] ?? "");
+      if (!id || !programme || !date) return;
+      const key = dedupKey(id, programme);
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (keepSince && date < keepSince) return;
+      const row = finish(id, programme, date);
+      if (row) out.push(row);
+    },
+    rows: () => out,
+    headerFound: () => header != null,
+  };
+}
+
 /** EU FSF full CSV: semicolon-delimited, a header row (possibly preceded by a
  *  generation-date line), one row per name/alias so entities repeat. Keyed by
  *  header NAME, never position — the file gains columns between releases. */
-export function parseEuCsv(text: string): ForeignDesignation[] {
-  const lines = text.split(/\r?\n/);
-  let hi = lines.findIndex((l) => /Entity_LogicalId/i.test(l) && /Entity_Regulation_Programme/i.test(l));
-  if (hi < 0) return [];
-  const header = splitCsvLine(lines[hi], ";").map((h) => h.trim());
-  const col = (name: string) => header.findIndex((h) => h.toLowerCase() === name.toLowerCase());
-  const cId = col("Entity_LogicalId"), cProg = col("Entity_Regulation_Programme"), cDate = col("Entity_Regulation_PublicationDate");
-  if (cId < 0 || cProg < 0 || cDate < 0) return [];
-  const seen = new Set<string>();
-  const out: ForeignDesignation[] = [];
-  for (hi++; hi < lines.length; hi++) {
-    const line = lines[hi];
-    if (!line.trim()) continue;
-    const f = splitCsvLine(line, ";");
-    const id = (f[cId] ?? "").trim();
-    const prog = (f[cProg] ?? "").trim().toUpperCase();
-    const date = ymd(f[cDate] ?? "");
-    if (!id || !prog || !date) continue;
-    const key = `${id}:${prog}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ source: "EU", programme: prog, country: prog in EU_PROGRAMME_COUNTRY ? EU_PROGRAMME_COUNTRY[prog] : null, listedOn: date, entityId: id });
-  }
-  return out;
+export function euLineParser(keepSince?: string): CsvLineParser {
+  return lineParser(
+    "EU", ";",
+    (l) => /Entity_LogicalId/i.test(l) && /Entity_Regulation_Programme/i.test(l),
+    { id: "Entity_LogicalId", programme: "Entity_Regulation_Programme", date: "Entity_Regulation_PublicationDate" },
+    (id, prog, date) => {
+      const p = prog.toUpperCase();
+      return { source: "EU", programme: p, country: p in EU_PROGRAMME_COUNTRY ? EU_PROGRAMME_COUNTRY[p] : null, listedOn: date, entityId: id };
+    },
+    (id, prog) => `${id}:${prog.toUpperCase()}`,
+    keepSince,
+  );
 }
 
 /** UK OFSI consolidated list CSV: a "Last Updated" line, then a header row,
  *  comma-delimited with quoted fields; one row per alias, `Group ID` is the
  *  entity. `Listed On` is dd/mm/yyyy. */
-export function parseUkCsv(text: string): ForeignDesignation[] {
-  const lines = text.split(/\r?\n/);
-  let hi = lines.findIndex((l) => /\bRegime\b/.test(l) && /Group ID/i.test(l) && /Listed On/i.test(l));
-  if (hi < 0) return [];
-  const header = splitCsvLine(lines[hi], ",").map((h) => h.trim());
-  const col = (name: string) => header.findIndex((h) => h.toLowerCase() === name.toLowerCase());
-  const cId = col("Group ID"), cReg = col("Regime"), cDate = col("Listed On");
-  if (cId < 0 || cReg < 0 || cDate < 0) return [];
-  const seen = new Set<string>();
-  const out: ForeignDesignation[] = [];
-  for (hi++; hi < lines.length; hi++) {
-    const line = lines[hi];
-    if (!line.trim()) continue;
-    const f = splitCsvLine(line, ",");
-    const id = (f[cId] ?? "").trim();
-    const regime = (f[cReg] ?? "").trim();
-    const date = ymd(f[cDate] ?? "");
-    if (!id || !regime || !date) continue;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push({ source: "UK", programme: regime, country: ukRegimeCountry(regime), listedOn: date, entityId: id });
-  }
-  return out;
+export function ukLineParser(keepSince?: string): CsvLineParser {
+  return lineParser(
+    "UK", ",",
+    (l) => /\bRegime\b/.test(l) && /Group ID/i.test(l) && /Listed On/i.test(l),
+    { id: "Group ID", programme: "Regime", date: "Listed On" },
+    (id, regime, date) => ({ source: "UK", programme: regime, country: ukRegimeCountry(regime), listedOn: date, entityId: id }),
+    (id) => id,
+    keepSince,
+  );
+}
+
+/** Whole-text convenience over the line parsers (tests, the diag probe). */
+export function parseEuCsv(text: string, keepSince?: string): ForeignDesignation[] {
+  const p = euLineParser(keepSince);
+  for (const line of text.split(/\r?\n/)) p.push(line);
+  return p.rows();
+}
+
+export function parseUkCsv(text: string, keepSince?: string): ForeignDesignation[] {
+  const p = ukLineParser(keepSince);
+  for (const line of text.split(/\r?\n/)) p.push(line);
+  return p.rows();
 }
 
 /** Listings inside the window, grouped into waves per (source, programme):

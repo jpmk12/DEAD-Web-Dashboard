@@ -20,8 +20,11 @@ export async function GET(req: Request) {
     if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
     return NextResponse.json({ sources: await diagnoseForeignSanctions() });
   }
+  // Bounded wait (8 s): the gateway's own timeout is shorter than a cold
+  // assembly, and its HTML 502 is indistinguishable to the board from a
+  // crashed route. `pending` bodies make the board ask again.
   try {
-    return NextResponse.json(await getEconomicWarfare());
+    return NextResponse.json(await getEconomicWarfare({ maxWaitMs: 8_000 }));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "economic-warfare failed" }, { status: 502 });
   }

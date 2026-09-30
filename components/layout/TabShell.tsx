@@ -43,6 +43,18 @@ export default function TabShell() {
   const [tasksRefreshKey, setTasksRefreshKey] = useState(0);
   const [articles, setArticles] = useState<NewsItem[]>([]);
   const [newsletters, setNewsletters] = useState<NewsletterSummary[]>([]);
+  // Same discipline as calendarReady, for the other two brief inputs: the
+  // brief is day-cached, so the FIRST generation must carry newsletters and
+  // OSINT signals or the day's brief is the thin one. Each flips true when
+  // its source reports once (even with []), or on a grace timer so a dead
+  // Gmail / feed never blocks the brief outright.
+  const [newslettersReady, setNewslettersReady] = useState(false);
+  const [osintReady, setOsintReady] = useState(false);
+  const handleNewslettersChange = useCallback((n: NewsletterSummary[]) => {
+    setNewsletters(n);
+    setNewslettersReady(true);
+  }, []);
+  const handleOsintFeedLoaded = useCallback(() => setOsintReady(true), []);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [briefingOpen, setBriefingOpen] = useState(false);
   const [briefingMode, setBriefingMode] = useState<"briefing" | "digest">("briefing");
@@ -223,30 +235,40 @@ export default function TabShell() {
     const t = setTimeout(() => setCalendarReady(true), 12_000);
     return () => clearTimeout(t);
   }, []);
-
-  // Start brief generation in background once articles AND the calendar have
-  // loaded. Gating on calendarReady (not just article counts) is what stops
-  // the brief from racing the calendar fetch and caching an empty "schedule"
-  // for the whole day. Newsletters are deliberately NOT a gate — a
-  // newsletter-less morning (unsubscribed, Gmail hiccup) must still generate
-  // the brief, or the Glance hero sits at "being generated…" forever.
-  // prefetchBriefing guards against duplicates internally (isFresh + inflight).
+  // Newsletters ride Gmail and the OSINT feed fans out to every configured
+  // source, so their grace is longer than the calendar's.
   useEffect(() => {
-    if (articles.length === 0 || !calendarReady) return;
-    prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
+    const t = setTimeout(() => { setNewslettersReady(true); setOsintReady(true); }, 25_000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Start brief generation in background once articles, the calendar,
+  // newsletters AND the OSINT feed have each reported (or timed out).
+  // Gating on readiness flags (not just counts) is what stops the brief from
+  // racing a fetch and caching a thin brief — no schedule, no newsletter
+  // bullets, no OSINT signals — for the whole day. A newsletter-less or
+  // feed-less morning still generates: each flag flips on a grace timer.
+  // The 1.5-s settle lets the child effects that report osintTop/newsletters
+  // land before the POST (child effects fire before this one in the same
+  // commit, so the closure here would otherwise see the previous values).
+  // prefetchBriefing guards against duplicates internally (isFresh + inflight)
+  // and allows one bounded upgrade if an input arrives after the first POST.
+  useEffect(() => {
+    if (articles.length === 0 || !calendarReady || !newslettersReady || !osintReady) return;
+    const fire = () => prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
+    const settle = setTimeout(fire, 1_500);
     const reprime = () => {
-      if (articles.length > 0) {
-        prefetchBriefing(articles, newsletters, calendarEvents, osintTop);
-      }
+      if (articles.length > 0) fire();
     };
     window.addEventListener("focus", reprime);
     window.addEventListener("dashboard-cache-cleared", reprime);
     return () => {
+      clearTimeout(settle);
       window.removeEventListener("focus", reprime);
       window.removeEventListener("dashboard-cache-cleared", reprime);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [articles.length, newsletters.length, calendarReady]);
+  }, [articles.length, newsletters.length, osintTop.length, calendarReady, newslettersReady, osintReady]);
 
   const openBriefing = () => { setBriefingMode("briefing"); setBriefingOpen(true); };
   const openDigest = () => { setBriefingMode("digest"); setBriefingOpen(true); };
@@ -381,7 +403,7 @@ export default function TabShell() {
         <div className={activeTab !== "news" ? "hidden" : ""}>
           <NewsShell
             onArticlesChange={setArticles}
-            onNewslettersChange={setNewsletters}
+            onNewslettersChange={handleNewslettersChange}
             watchlist={watchlist}
             previousSeenNews={previousSeen.news}
             previousSeenNewsletters={previousSeen.newsletters}
@@ -414,6 +436,7 @@ export default function TabShell() {
             previousSeen={previousSeen.osint}
             onSignalCount={setOsintSignals}
             onTopSignals={setOsintTop}
+            onFeedLoaded={handleOsintFeedLoaded}
           />
         </div>
 

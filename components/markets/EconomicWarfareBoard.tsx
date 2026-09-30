@@ -190,6 +190,11 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
   if (body.pending && body.actors.length === 0) {
     return <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-500 font-mono animate-pulse">{body.note}</div>;
   }
+  if (!body.pending && body.actors.length === 0) {
+    // A finished pass with no actors: either nothing is tracked (Mission
+    // Profile empty) or the assembly failed — the note says which.
+    return <div className="bg-slate-900/60 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-200/90">{body.note}</div>;
+  }
 
   const rows = body.moves.filter((m) => (!actor || m.actorId === actor) && (inst === "all" || m.instrument === inst));
   const byMods = { act: rows.filter((m) => m.modality === "act").length, threat: rows.filter((m) => m.modality === "threat").length };

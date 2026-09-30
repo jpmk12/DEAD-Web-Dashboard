@@ -9,9 +9,20 @@
 // route) runs the real fetches from production and returns status + a
 // header snippet + parsed count per source, so a moved file shows there
 // rather than as a silently empty strip.
+//
+// STREAMED, never buffered (the 502 lesson, 2026-09-30): the EU full list is
+// tens of MB. The first cut did `res.text()` then `split("\n")` then a field
+// split per line — one giant string, an array of every line, and a burst of
+// CPU on the request path — and the production process fell over, which the
+// gateway reports as an HTML 502 the board can only call "unavailable". Now
+// the body is read chunk by chunk through a TextDecoder, one line at a time
+// into the line parser, which keeps only rows inside `KEEP_DAYS`; the loop
+// yields to the event loop every few thousand lines, stops at `MAX_BYTES`,
+// and a body that cannot finish inside its deadline is reported as NOT live
+// (a partial file cannot claim "no new listings" — the rows are unordered).
 
 import { fetchWithTimeout } from "./fetchTimeout";
-import { parseEuCsv, parseUkCsv, type ForeignDesignation } from "./foreignSanctionsParse";
+import { euLineParser, ukLineParser, parseEuCsv, parseUkCsv, type CsvLineParser, type ForeignDesignation } from "./foreignSanctionsParse";
 
 // EU FSF "full" CSV (the public download token is a fixed public string, not
 // a credential — it is embedded in the Commission's own download links).
@@ -27,6 +38,15 @@ export interface ForeignSanctionsResult {
 }
 
 const TTL = 24 * 60 * 60 * 1000;
+/** Rows older than this are dropped at the line — the board's widest window is 45 days. */
+export const KEEP_DAYS = 120;
+/** Hard byte cap per list; past it the stream is cancelled and the list is not live. */
+const MAX_BYTES = 120 * 1024 * 1024;
+/** Whole-body deadline per list (headers + stream). Runs in the background
+ *  behind the assembler's own 8-s wait, so it may be generous. */
+const BODY_DEADLINE_MS = 90_000;
+const YIELD_EVERY_LINES = 2000;
+
 let cache: { at: number; data: ForeignSanctionsResult } | null = null;
 let inflight: Promise<ForeignSanctionsResult> | null = null;
 
@@ -41,37 +61,120 @@ export async function getForeignSanctions(): Promise<ForeignSanctionsResult> {
   return inflight;
 }
 
-async function fetchText(url: string, ms: number): Promise<string | null> {
+const keepSinceDay = (): string => new Date(Date.now() - KEEP_DAYS * 86_400_000).toISOString().slice(0, 10);
+
+const yieldLoop = () => new Promise<void>((r) => setImmediate(r));
+
+export interface StreamOutcome {
+  status: number;
+  /** Bytes read before the stream ended, hit the cap, or timed out. */
+  bytes: number;
+  lines: number;
+  /** The whole body was consumed (not capped, not timed out, no read error). */
+  complete: boolean;
+  /** First ~300 chars, for the diag. */
+  snippet: string;
+  error?: string;
+}
+
+/**
+ * Stream one CSV body line by line into `parser`. Never throws. `complete`
+ * is false whenever the body was not read to its end, whatever the reason.
+ */
+export async function streamCsv(url: string, parser: CsvLineParser, deadlineMs = BODY_DEADLINE_MS, maxBytes = MAX_BYTES): Promise<StreamOutcome> {
+  const started = Date.now();
+  const out: StreamOutcome = { status: 0, bytes: 0, lines: 0, complete: false, snippet: "" };
+  let res: Response;
   try {
-    const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "text/csv,text/plain,*/*" }, cache: "no-store" }, ms);
-    if (!res.ok) return null;
-    return await res.text();
-  } catch { return null; }
+    res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "text/csv,text/plain,*/*" }, cache: "no-store" }, Math.min(25_000, deadlineMs));
+  } catch (e) {
+    out.error = e instanceof Error ? e.message : String(e);
+    return out;
+  }
+  out.status = res.status;
+  if (!res.ok || !res.body) { out.error = `HTTP ${res.status}`; return out; }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let carry = "";
+  let sinceYield = 0;
+  try {
+    for (;;) {
+      if (Date.now() - started > deadlineMs) { out.error = "body deadline"; await reader.cancel().catch(() => {}); return out; }
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        out.bytes += value.byteLength;
+        if (out.bytes > maxBytes) { out.error = "byte cap"; await reader.cancel().catch(() => {}); return out; }
+        const text = carry + decoder.decode(value, { stream: true });
+        if (out.snippet.length < 300) out.snippet = (out.snippet + text).slice(0, 300);
+        const parts = text.split(/\r?\n/);
+        carry = parts.pop() ?? "";
+        for (const line of parts) {
+          parser.push(line);
+          out.lines++;
+          if (++sinceYield >= YIELD_EVERY_LINES) { sinceYield = 0; await yieldLoop(); }
+        }
+      }
+    }
+    const tail = carry + decoder.decode();
+    if (tail) { parser.push(tail); out.lines++; }
+    out.complete = true;
+  } catch (e) {
+    out.error = e instanceof Error ? e.message : String(e);
+    await reader.cancel().catch(() => {});
+  }
+  return out;
 }
 
 async function fetchAll(): Promise<ForeignSanctionsResult> {
-  const [eu, uk] = await Promise.all([fetchText(EU_FSF_CSV_URL, 25_000), fetchText(UK_CONLIST_CSV_URL, 25_000)]);
-  const euRows = eu ? parseEuCsv(eu) : [];
-  const ukRows = uk ? parseUkCsv(uk) : [];
+  const since = keepSinceDay();
+  const eu = euLineParser(since);
+  const uk = ukLineParser(since);
+  const [euOut, ukOut] = await Promise.all([streamCsv(EU_FSF_CSV_URL, eu), streamCsv(UK_CONLIST_CSV_URL, uk)]);
+  // "Live" means the body was read to the end AND the header was recognised.
+  // A truncated stream may simply have missed this week's rows.
+  const euLive = euOut.complete && eu.headerFound();
+  const ukLive = ukOut.complete && uk.headerFound();
   const failed: string[] = [];
-  if (!eu || euRows.length === 0) failed.push("EU");
-  if (!uk || ukRows.length === 0) failed.push("UK");
-  return { rows: [...euRows, ...ukRows], live: { EU: euRows.length > 0, UK: ukRows.length > 0 }, failed, fetchedAt: new Date().toISOString() };
+  if (!euLive) failed.push("EU");
+  if (!ukLive) failed.push("UK");
+  return {
+    rows: [...(euLive ? eu.rows() : []), ...(ukLive ? uk.rows() : [])],
+    live: { EU: euLive, UK: ukLive },
+    failed,
+    fetchedAt: new Date().toISOString(),
+  };
 }
 
-export interface ForeignSanctionsDiag { source: "EU" | "UK"; url: string; status: number; ms: number; bytes: number; parsed: number; snippet: string }
+export interface ForeignSanctionsDiag {
+  source: "EU" | "UK"; url: string; status: number; ms: number; bytes: number; lines: number;
+  /** Rows kept inside KEEP_DAYS (what the board reads). */
+  parsed: number;
+  /** Rows the parser recognised at all (header + columns found) — a full
+   *  list with `parsedAll` 0 means a renamed column. */
+  headerFound: boolean;
+  complete: boolean;
+  snippet: string;
+  error?: string;
+}
 
+/** Owner-only: streams each list from production exactly as `getForeignSanctions`
+ *  does and reports what came back. Real network; never on a page load. */
 export async function diagnoseForeignSanctions(): Promise<ForeignSanctionsDiag[]> {
+  const since = keepSinceDay();
   const probe = async (source: "EU" | "UK", url: string): Promise<ForeignSanctionsDiag> => {
     const t0 = Date.now();
-    try {
-      const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA }, cache: "no-store" }, 25_000);
-      const text = await res.text();
-      const parsed = source === "EU" ? parseEuCsv(text).length : parseUkCsv(text).length;
-      return { source, url, status: res.status, ms: Date.now() - t0, bytes: text.length, parsed, snippet: text.slice(0, 300) };
-    } catch (e) {
-      return { source, url, status: 0, ms: Date.now() - t0, bytes: 0, parsed: 0, snippet: e instanceof Error ? e.message : String(e) };
-    }
+    const parser = source === "EU" ? euLineParser(since) : ukLineParser(since);
+    const o = await streamCsv(url, parser);
+    return {
+      source, url, status: o.status, ms: Date.now() - t0, bytes: o.bytes, lines: o.lines,
+      parsed: parser.rows().length, headerFound: parser.headerFound(), complete: o.complete,
+      snippet: o.snippet, ...(o.error ? { error: o.error } : {}),
+    };
   };
   return Promise.all([probe("EU", EU_FSF_CSV_URL), probe("UK", UK_CONLIST_CSV_URL)]);
 }
+
+// Kept for callers that hold a whole file (tests / fixtures).
+export { parseEuCsv, parseUkCsv };

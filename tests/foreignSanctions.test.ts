@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseEuCsv, parseUkCsv, designationWaves, splitCsvLine, ukRegimeCountry } from "../lib/foreignSanctionsParse";
+import { parseEuCsv, parseUkCsv, designationWaves, splitCsvLine, ukRegimeCountry, euLineParser, ukLineParser } from "../lib/foreignSanctionsParse";
 import { LEVERAGE } from "../lib/leverage";
 import { CURATED_ACTOR_IDS } from "../lib/economicWarfare";
 
@@ -29,6 +29,30 @@ describe("parseEuCsv", () => {
   });
   it("returns nothing when the expected columns are missing", () => {
     expect(parseEuCsv("a;b;c\n1;2;3")).toEqual([]);
+  });
+  it("drops rows older than keepSince at the line, still deduping aliases of kept rows", () => {
+    const rows = parseEuCsv(csv, "2026-09-16");
+    expect(rows.map((r) => r.entityId)).toEqual(["101", "102"]);
+  });
+});
+
+describe("line parsers (the streaming door)", () => {
+  it("reports whether the header was ever seen — a stream with no header is a moved file, not an empty list", () => {
+    const p = euLineParser();
+    p.push("fileGenerationDate;2026-09-29");
+    expect(p.headerFound()).toBe(false);
+    p.push("Entity_LogicalId;Entity_Regulation_PublicationDate;Entity_Regulation_Programme");
+    expect(p.headerFound()).toBe(true);
+    p.push("7;2026-09-01;RUS");
+    p.push("7;2026-09-01;RUS");
+    expect(p.rows().length).toBe(1);
+  });
+  it("a header line with the right words but missing a needed column stays unrecognised", () => {
+    const p = ukLineParser();
+    p.push("Regime,Group ID,Something");   // no Listed On → not a header for us
+    p.push("Iran,1,x");
+    expect(p.headerFound()).toBe(false);
+    expect(p.rows()).toEqual([]);
   });
 });
 

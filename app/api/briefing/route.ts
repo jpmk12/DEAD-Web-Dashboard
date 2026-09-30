@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { getCachedBriefing, saveCachedBriefing } from "@/lib/briefingCache";
+import { shouldUpgradeBrief, type BriefInputs } from "@/lib/briefingUpgrade";
 import { normEmail } from "@/lib/allowlist";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
@@ -164,10 +165,24 @@ export async function POST(request: Request) {
   // getCachedBriefing returns null when the row's stored tz doesn't match the
   // caller's current pref, so flipping timezone regenerates instead of serving
   // a stale brief built around a different calendar day.
+  // One bounded exception: a brief cached with NO newsletters or NO OSINT
+  // signals, when this request carries them, regenerates once (`upgraded`
+  // is then stamped so it cannot happen again today). This is the thin-brief
+  // fix — see lib/briefingUpgrade.ts.
+  const inputs: BriefInputs = {
+    articles: Array.isArray(articles) ? articles.length : 0,
+    newsletters: Array.isArray(newsletters) ? newsletters.length : 0,
+    osint: Array.isArray(osint) ? osint.length : 0,
+    events: Array.isArray(events) ? events.length : 0,
+  };
+  let upgrading = false;
   if (!forceRefresh) {
     const cached = await getCachedBriefing(cacheKey, tz, normEmail(session.user?.email)).catch(() => null);
     if (cached) {
-      return NextResponse.json({ briefing: cached.briefing, cached: true, generatedAt: cached.generatedAt });
+      if (!shouldUpgradeBrief(cached.briefing, inputs)) {
+        return NextResponse.json({ briefing: cached.briefing, cached: true, generatedAt: cached.generatedAt });
+      }
+      upgrading = true;
     }
   }
 
@@ -401,6 +416,8 @@ export async function POST(request: Request) {
       // carries "when was this generated, in which zone" to the modal.
       generatedAtMs: Date.now(),
       generatedTz: tz,
+      inputs,
+      upgraded: upgrading,
     };
     // Don't trust the model to round-trip data we already computed. When we have
     // real day forecasts but the model dropped the "weather" field (it's buried
