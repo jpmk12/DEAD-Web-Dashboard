@@ -36,6 +36,9 @@ import { spaceWeatherImpacts, spaceWxLed, type SpaceWxImpact, type ScaleDay } fr
 import { kevHits } from "./cyberSignals";
 import { edgeExposureLed } from "./spectrumRules";
 import { spectrumLed, spectrumShort } from "./sitrepSignals";
+import { recordSensorDay, getSensorSeries } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
+import { catOrdinal, tafVerification, type TafSkill } from "./tafVerify";
 
 export interface SitrepAlert {
   event: string;
@@ -72,6 +75,8 @@ export interface SitrepPayload {
     metarRaw: string | null;
     tafWorst: TafOutlook | null;
     tafSegments: TafSegment[];
+    /** How this field's TAF has verified against its METAR (lib/tafVerify); absent until recorded. */
+    tafSkill?: TafSkill | null;
     alerts: SitrepAlert[];
     current: CurrentConditions | null;
     outlook: SitrepOutlookDay[];
@@ -427,6 +432,18 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   // in the history strip immediately.
   recordSitrepDay(icao, payload.status).catch(() => {});
   const today = new Date(now).toISOString().slice(0, 10);
+
+  // TAF verification series (PLAN §4 B2): the worst forecast category and the
+  // worst observed category per UTC day, as ordinals, day-peak. A missing
+  // METAR or TAF writes nothing. The pairing is read back for the Weather
+  // card — a tally until TAF_MIN_PAIRED days exist.
+  const fcKey = sensorKey("fc", icao), tafKey = sensorKey("taf", icao);
+  recordSensorDay(fcKey, today, catOrdinal(nowWx?.flightCategory)).catch(() => {});
+  recordSensorDay(tafKey, today, catOrdinal(tafWorst?.worst)).catch(() => {});
+  try {
+    const [fcSeries, tafSeries] = await Promise.all([getSensorSeries(fcKey, 90), getSensorSeries(tafKey, 90)]);
+    payload.weather.tafSkill = tafVerification(fcSeries, tafSeries);
+  } catch { payload.weather.tafSkill = null; }
   if (!payload.history.some((h) => h.day === today)) {
     payload.history = [...payload.history, { day: today, wx: payload.status.wx, ops: payload.status.ops, threat: payload.status.threat }].slice(-7);
   }

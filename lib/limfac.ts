@@ -190,7 +190,9 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
       const id = push({ fn: "all_weather_night", capability: "pmc", window: win, driver: drv, impact: "Approach unavailable (VFR — not currently required); night/instrument capability reduced." });
       addFn("all_weather_night", "pmc", `${drv} (VFR — not required now)`, win, [id]);
     } else {
-      addFn("all_weather_night", "fmc", "Approaches available", null, []);
+      // A field whose TAF verifies as under-forecasting is noted, never
+      // downgraded — the capability is real, the forecast is the caveat.
+      addFn("all_weather_night", "fmc", p.weather.tafSkill?.warn ? `Approaches available (TAF under-forecasts here: ${p.weather.tafSkill.under} of ${p.weather.tafSkill.paired} days)` : "Approaches available", null, []);
     }
   }
 

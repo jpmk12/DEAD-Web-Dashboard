@@ -103,6 +103,20 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_wd_problem (problem_id, due_at)
   ) ENGINE=InnoDB`,
 
+  // Demand-horizon forecast of record (lib/demandStore): the day's LAST
+  // outlook per combatant command, scored 7 days later by
+  // lib/demandVerifyAssemble against observed lift and posture.
+  `CREATE TABLE IF NOT EXISTS demand_horizon_daily (
+    day         VARCHAR(10)  NOT NULL,
+    aor         VARCHAR(16)  NOT NULL,
+    direction   VARCHAR(8)   NOT NULL,
+    score       INT          NOT NULL,
+    confidence  VARCHAR(8)   NOT NULL,
+    drivers     JSON         NULL,
+    updated_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (day, aor)
+  ) ENGINE=InnoDB`,
+
   // Numeric sensor baselines (lib/sensorStore): one value per sensor key per
   // UTC day, day-peak on duplicate — generalises warning_daily.mobility_count
   // so any counted observation (GPS-interference cells over an AOI,

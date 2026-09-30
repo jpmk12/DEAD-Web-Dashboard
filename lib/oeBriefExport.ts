@@ -77,7 +77,7 @@ export function renderOeBriefHtml(input: OeBriefInput): string {
             const drivers = d.line.includes(" — ") ? d.line.slice(d.line.indexOf(" — ") + 3) : d.line;
             return `<tr><td><b>${esc(AOR(d.aor))}</b></td><td><span class="pill ${dirCls(d.direction)}">${esc(d.direction.toUpperCase())}</span></td><td class="num">${d.score >= 0 ? "+" : ""}${d.score}</td><td>${esc(d.confidence)}</td><td class="drv">${esc(drivers)}</td></tr>`;
           }).join("")
-        }</tbody></table>`;
+        }</tbody></table>${s.demandSkill ? `<p class="quiet">${esc(s.demandSkill)}</p>` : ""}`;
 
   // ── Force posture ──
   const forceHtml = s.force === null

@@ -18,6 +18,7 @@ import { assessWarning } from "./warningAssess";
 import { getChokepointReads } from "./chokepointReads";
 import { aorFromCoords, AOR_LABELS, type Aor } from "./aor";
 import { demandHorizon, HORIZON_DAYS, type DemandInput, type DemandOutlook } from "./demandHorizon";
+import { recordDemandOutlooks } from "./demandStore";
 
 export interface DemandHorizonBody {
   horizonDays: number;
@@ -115,10 +116,14 @@ async function assemble(): Promise<DemandHorizonBody> {
     }).catch(() => {}),
   ]);
 
+  const outlooks = demandHorizon(input);
+  // The forecast of record for today (LAST policy: a later pass supersedes).
+  // Scored 7 days later by lib/demandVerifyAssemble. Fire-and-forget.
+  recordDemandOutlooks(input.today, outlooks).catch(() => {});
   return {
     horizonDays: HORIZON_DAYS,
     generatedAt: new Date().toISOString(),
-    outlooks: demandHorizon(input),
+    outlooks,
     sources,
   };
 }

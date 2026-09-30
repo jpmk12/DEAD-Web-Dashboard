@@ -545,6 +545,11 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                   </div>
                 </div>
               )}
+              {payload.weather.tafSkill && payload.weather.tafSkill.paired > 0 && (
+                <p className={`text-[9px] mb-2 ${payload.weather.tafSkill.warn ? "text-amber-300" : "text-slate-500"}`} title="Day-worst TAF category vs day-worst observed METAR category on days the app recorded both. Under-forecast = observed worse than forecast.">
+                  <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">Verified</span>{payload.weather.tafSkill.label}
+                </p>
+              )}
               {payload.weather.alerts.map((a, i) => (
                 <Row key={i} sev={a.lifeThreatening || a.severity === "Extreme" ? "r" : "a"} src="NWS">
                   <b className="text-slate-100">{a.event}</b>{a.headline ? <span className="text-slate-400"> — {a.headline.slice(0, 120)}</span> : null}

@@ -126,6 +126,9 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
   if (p.weather.outlook.length > 0) {
     weatherRows.push(row("b", `Outlook: ${p.weather.outlook.map((d) => `${esc(d.date.slice(5))} ${d.hiF ?? "?"}/${d.loF ?? "?"}°F precip ${d.precipPct ?? "?"}%`).join(" · ")}`, "Open-Meteo"));
   }
+  if (p.weather.tafSkill && p.weather.tafSkill.paired > 0) {
+    weatherRows.push(row(p.weather.tafSkill.warn ? "a" : "b", `Verified: ${esc(p.weather.tafSkill.label)}`, "app history"));
+  }
   weatherRows.push(row("b", `☉ ${hh(p.astro.sunriseZ)}–${hh(p.astro.sunsetZ)} · civil ${hh(p.astro.civilDawnZ)}/${hh(p.astro.civilDuskZ)} · ☽ ${p.astro.moon.illumPct}% ${esc(p.astro.moon.phaseName)}`, "astro"));
 
   // ── ops ──

@@ -15,6 +15,7 @@
 import { getUserPrefs } from "./userPrefs";
 import { getForceProtectionCached as getForceProtection } from "./forceProtectionCached";
 import { getDemandHorizon } from "./demandAssemble";
+import { getDemandSkill } from "./demandVerifyAssemble";
 import { listCrewRows } from "./crewStore";
 import { deriveAvailability, postureAgainstDemand } from "./crewState";
 import { AOR_LABELS } from "./aor";
@@ -100,8 +101,10 @@ async function gather(): Promise<OeSnapshot> {
     };
   }));
 
-  const [force, sitrep, boards, alerts, decisionsDue, demand, crew] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP, demandP, crewP]);
-  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue, demand, crew };
+  const skillP = within(settle(getDemandSkill().then((s) => s.line)), 4_000);
+
+  const [force, sitrep, boards, alerts, decisionsDue, demand, crew, demandSkill] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP, demandP, crewP, skillP]);
+  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue, demand, crew, demandSkill };
 }
 
 /**

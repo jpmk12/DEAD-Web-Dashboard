@@ -60,6 +60,8 @@ export interface OeSnapshot {
   decisionsDue: OeDecisionRow[] | null;
   /** 7-day demand outlook per command (lib/demandHorizon). */
   demand?: OeDemandRow[] | null;
+  /** One-line verification of past outlooks (lib/demandVerify); null = scorer unavailable. */
+  demandSkill?: string | null;
   /** Team state: declared crew counts against demand (lib/crewState). */
   crew?: { headline: string; line: string | null; stale: boolean; declared: boolean; mismatches: string[] } | null;
   /** True when the snapshot is older than the freshness window. */
@@ -154,6 +156,7 @@ export function renderOeContext(snap: OeSnapshot | null): string {
   else if (snap.demand && snap.demand.length > 0) {
     lines.push("7-day mobility-demand horizon (Glance › Demand horizon; deterministic from the sensors above):");
     for (const d of snap.demand.slice(0, 6)) lines.push(`  • ${clip(d.line, 170)}`);
+    if (snap.demandSkill) lines.push(`  ${clip(snap.demandSkill, 200)}`);
   }
 
   // Team state — the other half of the equation.

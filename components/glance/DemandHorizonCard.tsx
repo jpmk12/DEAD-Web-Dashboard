@@ -14,11 +14,20 @@ import type { DemandOutlook, DemandDriver } from "@/lib/demandHorizon";
 // "calm" — and the footer names which sensor families answered so an
 // all-HOLD board on a broken feed cannot pass for a quiet world.
 
+interface SkillBody {
+  scored: number;
+  ambiguous: number;
+  line: string;
+  bySource: { source: DemandDriver["source"]; hits: number; scored: number; verdict: { rate: number | null; label: string } }[];
+}
+
 interface Body {
   horizonDays: number;
   generatedAt: string;
   outlooks: DemandOutlook[];
   sources: Record<string, boolean>;
+  /** Verification of outlooks whose 7-day window has closed (lib/demandVerify). */
+  skill?: SkillBody | null;
 }
 
 const DIR = {
@@ -132,6 +141,19 @@ export default function DemandHorizonCard() {
               </div>
             );
           })}
+          {/* Skill: the app scores its OWN forecasts once their window closes —
+              right / wrong / ambiguous against observed lift and posture. A
+              tally below the floor, a rate above it; per-source hit rates on
+              RISE/FALL calls say which sensor families predict demand. */}
+          {body.skill && (
+            <p className="px-3.5 py-1.5 border-t border-slate-800/60 text-[9.5px] text-slate-500" title="Scored against the AOR's observed day-peak lift and posture composites in the 7 days after each outlook. Disasters and NEO are not stored as history, so they are not proxies.">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1.5">Verified</span>
+              {body.skill.line}
+              {body.skill.bySource.filter((s) => s.verdict.rate != null).length > 0 && (
+                <span className="text-slate-600"> · drivers: {body.skill.bySource.filter((s) => s.verdict.rate != null).map((s) => `${SRC_LABEL[s.source] ?? s.source} ${Math.round((s.verdict.rate ?? 0) * 100)}%`).join(", ")}</span>
+              )}
+            </p>
+          )}
           <p className="px-3.5 py-1.5 border-t border-slate-800/60 text-[9px] text-slate-600">
             Sensors answered: {answered.join(", ") || "none"}{silent.length ? ` · silent: ${silent.join(", ")}` : ""} · rise ≥ +25, fall ≤ −15 · confidence = independent sources
           </p>
