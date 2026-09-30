@@ -33,25 +33,42 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [pendingNote, setPendingNote] = useState<string | null>(null);
+
+  // The server generates in the background and answers `pending` while the
+  // model runs (a cold start used to outrun the gateway and come back as a
+  // bodiless 502). Poll every 6 s, up to ~2 min; a poll joins the running
+  // generation server-side, so it never spends a second model call.
   const generate = async (force = false) => {
     if (loading) return;
     if (!force && clientCache.isFresh(CACHE_KEY)) { setBrief(clientCache.peek<AccessBrief>(CACHE_KEY)); return; }
     if (articles.length === 0) return;
     setLoading(true);
     setError(null);
+    setPendingNote(null);
     try {
-      const res = await fetch(`/api/markets/brief${force ? "?refresh=1" : ""}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ articles }),
-      });
-      const d = await res.json().catch(() => ({ error: `The server answered HTTP ${res.status} without a body — usually a gateway timeout on a cold start. Try refresh in a minute.` }));
-      if (d.error) setError(d.disabled ? "Economic Warfare Read is off (Preferences → AI Controls)." : d.error);
-      else if (d.brief) { setBrief(d.brief); clientCache.set(CACHE_KEY, d.brief, CACHE_TTL.NEWS); }
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const res = await fetch(`/api/markets/brief${force && attempt === 0 ? "?refresh=1" : ""}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ articles }),
+        });
+        const d = await res.json().catch(() => ({ error: `The server answered HTTP ${res.status} without a body — usually a gateway timeout on a cold start. Try refresh in a minute.` }));
+        if (d.pending) {
+          setPendingNote(typeof d.note === "string" ? d.note : "Generating…");
+          await new Promise((r) => setTimeout(r, 6_000));
+          continue;
+        }
+        if (d.error) setError(d.disabled ? "Economic Warfare Read is off (Preferences → AI Controls)." : d.error);
+        else if (d.brief) { setBrief(d.brief); clientCache.set(CACHE_KEY, d.brief, CACHE_TTL.NEWS); }
+        return;
+      }
+      setError("The read is still generating after two minutes — try refresh.");
     } catch {
       setError("Couldn't generate the economic read.");
     } finally {
       setLoading(false);
+      setPendingNote(null);
     }
   };
 
@@ -94,7 +111,7 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
       </div>
 
       {error && <p className="text-[11px] text-slate-500 italic">{error}</p>}
-      {!error && !brief && <p className="text-[11px] text-slate-600 font-mono">{articles.length === 0 ? "Waiting for today's news to load…" : !boardReady ? "Waiting for the actor board…" : "Generating…"}</p>}
+      {!error && !brief && <p className="text-[11px] text-slate-600 font-mono">{articles.length === 0 ? "Waiting for today's news to load…" : pendingNote ? pendingNote : !boardReady ? "Waiting for the actor board…" : "Generating…"}</p>}
 
       {brief && (
         <div className="space-y-3">

@@ -58,6 +58,38 @@ const LEVELS = new Set(["calm", "watch", "warning", "alert"]);
 const TTL_MS = 3 * 60 * 60 * 1000;
 const cache = new Map<string, { data: MacroBrief; expires: number }>();
 
+// Latency rule (the empty-502 of 2026-09-30): this route used to gather
+// energy → Federal Register → actor board ONE AFTER ANOTHER, then make an
+// unbounded Sonnet call with the SDK's default retries. On a cold start that
+// chain outran the platform gateway, which answered the browser with a
+// bodiless 502 before the route could say anything. Now the generation runs
+// in the BACKGROUND (one per day-key, coalesced across callers), the request
+// waits `WAIT_MS` for it and otherwise returns `{ pending: true }` for the
+// panel to poll — the same contract as the actor board. The gathers run in
+// parallel with bounded waits and the model call has an explicit timeout.
+const WAIT_MS = 8_000;
+const inflight = new Map<string, Promise<MacroBrief>>();
+const lastFailure = new Map<string, { at: number; message: string }>();
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout>;
+  const to = new Promise<null>((res) => { timer = setTimeout(() => res(null), ms); });
+  return Promise.race([p.catch(() => null), to]).finally(() => clearTimeout(timer)) as Promise<T | null>;
+}
+
+/** Wait briefly for a running generation; settle to the brief, its error, or `pending`. */
+async function settle(gen: Promise<MacroBrief>): Promise<NextResponse> {
+  type Outcome = { ok: MacroBrief } | { err: string } | null;
+  let timer: ReturnType<typeof setTimeout>;
+  const outcome: Outcome = await Promise.race<Outcome>([
+    gen.then((b) => ({ ok: b })).catch((e) => ({ err: e instanceof Error ? e.message : "Markets brief generation failed" })),
+    new Promise<null>((res) => { timer = setTimeout(() => res(null), WAIT_MS); }),
+  ]).finally(() => clearTimeout(timer));
+  if (outcome && "ok" in outcome) return NextResponse.json({ brief: outcome.ok, cached: false });
+  if (outcome && "err" in outcome) return NextResponse.json({ error: outcome.err }, { status: 500 });
+  return NextResponse.json({ pending: true, note: "The read is being generated — the model is running. The panel will ask again." }, { status: 202 });
+}
+
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -86,44 +118,68 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Markets brief is disabled in Preferences → AI Controls", disabled: true }, { status: 503 });
   }
 
+  // A generation already running for this day (a poll, a second device, a
+  // refresh during a cold start) joins it — never a second model call.
+  const running = inflight.get(cacheKey);
+  if (running) return settle(running);
+
+  // A generation that THREW inside the last minute is reported, not retried
+  // on every poll — the panel shows the reason and the user's refresh retries.
+  const failed = lastFailure.get(cacheKey);
+  if (failed && !forceRefresh && Date.now() - failed.at < 60_000) {
+    return NextResponse.json({ error: failed.message }, { status: 500 });
+  }
+
+  const articleSummary = (articles as NewsItem[]).slice(0, 30)
+    .map((a) => `[${a.source}] ${a.title}: ${(a.summary ?? "").slice(0, 140)}`)
+    .join("\n");
+  if (!articleSummary) return NextResponse.json({ error: "No news to analyse yet" }, { status: 400 });
+
+  // The rate limit guards STARTING a generation, not joining one.
+  if (!checkRateLimit("markets_brief", 15_000)) {
+    return NextResponse.json({ error: "Rate limited — wait 15 s" }, { status: 429 });
+  }
+
+  const gen = generate(prefs, articles as NewsItem[], articleSummary, normEmail(session.user?.email))
+    .then((brief) => { cache.set(cacheKey, { data: brief, expires: Date.now() + TTL_MS }); lastFailure.delete(cacheKey); return brief; })
+    .catch((e) => { lastFailure.set(cacheKey, { at: Date.now(), message: e instanceof Error ? e.message : "Markets brief generation failed" }); throw e; })
+    .finally(() => { inflight.delete(cacheKey); });
+  gen.catch(() => {}); // the failure is recorded above; nobody may be awaiting it
+  inflight.set(cacheKey, gen);
+  return settle(gen);
+}
+
+async function generate(prefs: Awaited<ReturnType<typeof getUserPrefs>>, articles: NewsItem[], articleSummary: string, user: string): Promise<MacroBrief> {
   // Basing/access focus = the user's watched countries + the countries of their
   // watched airfields (deduped).
   const basingCountries = Array.from(new Set([
     ...(prefs.countriesOfInterest ?? []).map((c) => c.country),
     ...(prefs.forceLocations ?? []).map((l) => l.country),
   ].map((s) => (s || "").trim()).filter(Boolean))).slice(0, 20).join(", ");
+  const watchedList = basingCountries.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const articleSummary = (articles as NewsItem[]).slice(0, 30)
-    .map((a) => `[${a.source}] ${a.title}: ${(a.summary ?? "").slice(0, 140)}`)
-    .join("\n");
-
-  if (!articleSummary) return NextResponse.json({ error: "No news to analyse yet" }, { status: 400 });
-
-  if (!checkRateLimit("markets_brief", 15_000)) {
-    return NextResponse.json({ error: "Rate limited — wait 15 s" }, { status: 429 });
-  }
-
-  // Real signals to ground the read: energy prices + chokepoints active in the news.
-  const energy = await getEnergyQuotes().catch(() => []);
-  const energyLine = energy.filter((q) => q.price != null)
+  // Real signals to ground the read — gathered IN PARALLEL, each bounded, so
+  // a slow feed degrades to "unavailable this pass" rather than a hang.
+  const [energy, reg, ewRaw] = await Promise.all([
+    withTimeout(getEnergyQuotes(), 8_000),
+    withTimeout(getRegulatoryDocs(), 10_000),
+    // The actor board is normally warm (the tab's board fetch runs first);
+    // a cold one is reported as unavailable rather than waited for.
+    withTimeout(getEconomicWarfare({ maxWaitMs: 8_000 }), 9_000),
+  ]);
+  const energyLine = (energy ?? []).filter((q) => q.price != null)
     .map((q) => `${q.label} $${q.price}${q.changePct != null ? ` (${q.changePct >= 0 ? "+" : ""}${q.changePct}%)` : ""}`).join(", ");
-  const chokes = scoreChokepoints(articles as NewsItem[]).filter((c) => c.count > 0)
+  const chokes = scoreChokepoints(articles).filter((c) => c.count > 0)
     .map((c) => `${c.name}: ${c.count} item(s)${c.latest ? ` — "${c.latest.title.slice(0, 90)}"` : ""}`).slice(0, 8).join("\n");
 
   // U.S. regulatory record (Federal Register) — the sanctions / export-control
   // / tariff actions themselves, not news about them. U.S. side only.
-  const watchedList = basingCountries.split(",").map((s) => s.trim()).filter(Boolean);
-  const reg = await getRegulatoryDocs().catch(() => null);
   const regActions = reg ? enrich(reg.docs, watchedList, new Date().toISOString().slice(0, 10)) : [];
   const regBlock = reg && reg.live
     ? `${summarize(regActions).line ?? "no actions in the window"}\n${regulatoryLines(regActions, 8).join("\n")}`
     : "unavailable this pass";
 
   // The actor board — the deterministic evidence the read must rest on.
-  // Bounded: the board is normally warm (the tab's board fetch runs first);
-  // a cold one is reported as unavailable rather than idling this request
-  // into the gateway timeout.
-  const ewRaw = await getEconomicWarfare({ maxWaitMs: 8_000 }).catch(() => null);
   const ew = ewRaw && !ewRaw.pending ? ewRaw : null;
   const actorBlock = ew && ew.actors.length
     ? ew.actors.map((b) => {
@@ -148,18 +204,19 @@ export async function POST(request: Request) {
     `TODAY'S NEWS:\n${articleSummary}`,
   ].filter(Boolean).join("\n\n");
 
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: [
-        { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
-        ...(buildUserContext(prefs) ? [{ type: "text" as const, text: buildUserContext(prefs) }] : []),
-      ],
-      messages: [{ role: "user", content: userContent }],
-    });
-    logCall({ route: "markets_brief", model: "claude-sonnet-4-6", usage: response.usage, user: normEmail(session.user?.email) }).catch(() => {});
-
+  // Explicit timeout + one retry: this runs in the background, so it may be
+  // generous, but a hung call must not hold the inflight slot all day.
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    system: [
+      { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
+      ...(buildUserContext(prefs) ? [{ type: "text" as const, text: buildUserContext(prefs) }] : []),
+    ],
+    messages: [{ role: "user", content: userContent }],
+  }, { timeout: 90_000, maxRetries: 1 });
+  logCall({ route: "markets_brief", model: "claude-sonnet-4-6", usage: response.usage, user }).catch(() => {});
+  {
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
     let p: Record<string, unknown> = {};
@@ -187,13 +244,8 @@ export async function POST(request: Request) {
       watchItems: strArr(p.watchItems),
     };
     if (!brief.read.trim() && brief.actors.length === 0) {
-      return NextResponse.json({ error: "Empty read — please retry" }, { status: 502 });
+      throw new Error("Empty read — please retry");
     }
-
-    cache.set(cacheKey, { data: brief, expires: Date.now() + TTL_MS });
-    return NextResponse.json({ brief, cached: false });
-  } catch (err) {
-    console.error("Markets brief failed:", err);
-    return NextResponse.json({ error: "Markets brief generation failed" }, { status: 500 });
+    return brief;
   }
 }

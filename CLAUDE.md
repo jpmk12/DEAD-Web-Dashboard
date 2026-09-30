@@ -1625,6 +1625,23 @@ built on the existing engine rather than a new one:
   24 h, so the next pass has it). Any new consumer of the board must pass
   a `maxWaitMs` and handle `pending` — never await the bare assembly from a
   request handler.
+- **The read's bodiless 502 (2026-09-30, later)**: "The server answered
+  HTTP 502 without a body" from the Economic Warfare Read panel. The route
+  gathered energy → Federal Register → actor board ONE AFTER ANOTHER, then
+  made an unbounded Sonnet call with the SDK's default retries — a cold
+  start outran the gateway. `/api/markets/brief` now runs `generate()` in
+  the BACKGROUND (one per day-key in `inflight`, coalesced: a poll, a second
+  device or a refresh during a cold start joins it, never a second model
+  call), waits `WAIT_MS` = 8 s, and otherwise answers **202
+  `{ pending: true }`**; `EconomicAccessPanel.generate` polls every 6 s
+  (≤20 tries) showing the server's note. Inside `generate()` the three
+  gathers are `Promise.all` with bounded waits (8/10/9 s) and the model call
+  carries `{ timeout: 90_000, maxRetries: 1 }`. The 15-s rate limit guards
+  STARTING a generation, not joining one (a poll must never 429). A thrown
+  generation is held in `lastFailure` for 60 s so polls report the reason
+  instead of re-spending; `?refresh=1` retries. Same contract as the board
+  and the OE snapshot: never await a model call or a cold fan-out from a
+  request handler.
 - **The 502 (2026-09-30) and the streaming rule**: the board reported
   "unavailable (HTTP 502)". Two causes, both fixed: (1) the route waited
   20 s for a cold assembly and the platform gateway answers an HTML 502
