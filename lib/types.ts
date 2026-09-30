@@ -16,7 +16,7 @@ export interface NewsItem {
   id: string;
   title: string;
   source: string;
-  category: string; // "overview" | "defense" | "strategic" | "domestic" | "space" | "local"
+  category: string; // "overview" | "defense" | "strategic" | "domestic" | "space" | "cyber" | "local"
   pubDate: string;
   summary: string;
   link: string;

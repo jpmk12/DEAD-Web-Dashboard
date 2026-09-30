@@ -179,7 +179,7 @@ export default function WatchPane({ active }: { active: boolean }) {
                 >
                   <span className="text-[11px] font-mono font-bold text-slate-200">{s.icao}</span>
                   <span className="flex gap-1">
-                    {(["wx", "ops", "threat", "infra"] as const).map((k) => (
+                    {(["wx", "ops", "threat", "infra", "spectrum"] as const).map((k) => (
                       <span key={k} className={`w-1.5 h-1.5 rounded-full ${LED[s.status[k]] ?? LED.u}`} />
                     ))}
                   </span>

@@ -502,10 +502,10 @@ export default function BriefingModal({
                         <div key={s.icao} className="border border-violet-500/30 bg-violet-500/[.06] rounded-xl px-3.5 py-2.5">
                           <div className="flex items-center gap-2.5 flex-wrap">
                             <span className="text-[12px] font-extrabold text-slate-100 tracking-wide">{s.icao}</span>
-                            {(["wx", "ops", "threat", "infra"] as const).map((k) => (
+                            {(["wx", "ops", "threat", "infra", "spectrum"] as const).map((k) => (
                               <span key={k} className="inline-flex items-center gap-1 text-[8px] font-bold tracking-widest text-slate-500">
-                                <span className={`w-1.5 h-1.5 rounded-full ${SITREP_LED[s.status[k]]}`} />
-                                {k === "threat" ? "THR" : k === "infra" ? "INF" : k.toUpperCase()}
+                                <span className={`w-1.5 h-1.5 rounded-full ${SITREP_LED[s.status[k]] ?? SITREP_LED.u}`} />
+                                {k === "threat" ? "THR" : k === "infra" ? "INF" : k === "spectrum" ? "SPC" : k.toUpperCase()}
                               </span>
                             ))}
                           </div>

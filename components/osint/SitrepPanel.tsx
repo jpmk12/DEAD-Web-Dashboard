@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
-import { closureWindows, windowConflicts, windowRangeLabel, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
+import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
 import { renderSitrepHtml } from "@/lib/sitrepExport";
 import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
 
@@ -376,10 +376,10 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                 <span className="text-[8.5px] uppercase tracking-wider text-slate-600 truncate">{b.label.length > 18 ? b.label.slice(0, 17) + "…" : b.label}</span>
               </div>
               <div className="flex gap-2.5 mt-1.5">
-                {(["wx", "ops", "threat", "infra"] as const).map((k) => (
+                {(["wx", "ops", "threat", "infra", "spectrum"] as const).map((k) => (
                   <span key={k} className="flex flex-col items-center gap-0.5">
                     <span className={`w-2 h-2 rounded-full ${LED_CLASS[s?.status[k] ?? "u"]}`} />
-                    <span className="text-[7px] font-bold tracking-widest text-slate-600">{k === "threat" ? "THR" : k === "infra" ? "INF" : k.toUpperCase()}</span>
+                    <span className="text-[7px] font-bold tracking-widest text-slate-600">{k === "threat" ? "THR" : k === "infra" ? "INF" : k === "spectrum" ? "SPC" : k.toUpperCase()}</span>
                   </span>
                 ))}
               </div>
@@ -448,12 +448,13 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
           <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} readError={readError} onRetryRead={() => icao && loadRead(icao)} onChanged={() => icao && loadSitrep(icao)} />
 
           {/* Status strip */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
             {([
               ["Weather", payload.status.wx, payload.weather.now ? `${payload.weather.now.flightCategory} now${payload.weather.tafWorst && payload.weather.tafWorst.worst !== payload.weather.now.flightCategory ? ` → ${payload.weather.tafWorst.worst} fcst` : ""}` : "no METAR"],
               ["Ops / Airfield", payload.status.ops, payload.ops.fieldClosed ? "FIELD CLOSED (NOTAM)" : payload.ops.limiting ? "limiting NOTAM active" : payload.ops.configured && payload.ops.live ? `${payload.ops.notamCount} NOTAMs, none limiting` : "DAIP unavailable — UNKNOWN"],
               ["Threat", payload.status.threat, payload.threats.fp ? payload.threats.fp.topDriver : "assessment unavailable"],
               ["Infrastructure", payload.status.infra, infraSummary(payload)],
+              ["Spectrum", payload.status.spectrum ?? "u", spectrumShort(payload.spectrum)],
             ] as [string, Led, string][]).map(([k, l, v]) => (
               <div key={k} className="flex items-center gap-2.5 bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2.5">
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${LED_CLASS[l]}`} />
@@ -883,6 +884,67 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
               )}
               <p className="text-[9.5px] text-slate-600 mt-2">Planning-grade heuristics: IODA measures state/country-level connectivity (not the base LAN); power has no direct sensor. UNKNOWN ≠ all clear.</p>
             </SectionCard>
+
+            {/* SPECTRUM — PNT at the field, space weather → ops, KEV on the
+                declared edge vendors. Space weather is environment: it
+                colours this card and the C2/Comms LIMFAC, never an I&W level. */}
+            {payload.spectrum && (
+              <SectionCard led={payload.status.spectrum ?? "u"} title="Spectrum" sources="GPSJam · DAIP RAIM · NOAA SWPC · CISA KEV">
+                {/* PNT at the field */}
+                {!payload.spectrum.pnt.live && <Row sev="u" src="GPSJam"><b>PNT:</b> GPSJam UNREACHABLE this cycle — interference at the field UNKNOWN</Row>}
+                {payload.spectrum.pnt.live && (
+                  <Row sev={payload.spectrum.pnt.cellLevel >= 2 ? "r" : payload.spectrum.pnt.cellLevel === 1 ? "a" : "g"} src="GPSJam">
+                    <b>PNT at the field:</b>{" "}
+                    {payload.spectrum.pnt.cellLevel >= 2 ? "field sits inside a HIGH GPS-interference cell — GPS approaches and PNT-timed systems unreliable; brief ILS/TACAN alternates"
+                      : payload.spectrum.pnt.cellLevel === 1 ? "field sits inside a moderate GPS-interference cell — verify RAIM, expect intermittent degradation"
+                      : "no GPS interference reported at the field"}
+                    <span className="text-slate-600"> ({payload.spectrum.pnt.date || "latest"}, ADS-B-derived, coarse)</span>
+                  </Row>
+                )}
+                {payload.spectrum.pnt.raim.map((t, i) => (
+                  <Row key={`raim${i}`} sev="a" src="DAIP"><b>RAIM:</b> {t}</Row>
+                ))}
+
+                {/* Space weather → ops */}
+                {!payload.spectrum.spaceWx.live && <Row sev="u" src="SWPC"><b>Space weather:</b> NOAA SWPC UNREACHABLE — HF / GPS / SATCOM impact UNKNOWN, not quiet</Row>}
+                {payload.spectrum.spaceWx.live && payload.spectrum.spaceWx.now && (
+                  <Row sev={(() => { const n = payload.spectrum.spaceWx.now!; const w = Math.max(n.R ?? 0, n.G ?? 0, payload.spectrum.spaceWx.polar ? (n.S ?? 0) : 0); return w >= 3 ? "r" : w >= 1 ? "a" : "g"; })()} src="SWPC">
+                    <b>Space weather now:</b> R{payload.spectrum.spaceWx.now.R ?? "?"} · S{payload.spectrum.spaceWx.now.S ?? "?"} · G{payload.spectrum.spaceWx.now.G ?? "?"}
+                    {payload.spectrum.spaceWx.outlook.length > 0 && (
+                      <span className="text-slate-500"> · outlook {payload.spectrum.spaceWx.outlook.map((d) => `${d.date.slice(5)} R${d.R ?? "?"}/S${d.S ?? "?"}/G${d.G ?? "?"}`).join(" · ")}</span>
+                    )}
+                  </Row>
+                )}
+                {payload.spectrum.spaceWx.impacts.map((imp) => (
+                  <Row key={imp.key} sev={imp.led} src="SWPC">
+                    <b>{imp.label}:</b> {imp.now}
+                    {imp.relevance === "not declared" && <span className="text-slate-600"> · not declared</span>}
+                    <span className="block text-[9px] text-slate-600">outlook: {imp.outlook}</span>
+                  </Row>
+                ))}
+                {payload.spectrum.spaceWx.satcom && <p className="text-[9.5px] text-slate-500 mt-1">Declared SATCOM: {payload.spectrum.spaceWx.satcom}</p>}
+
+                {/* KEV × declared vendors */}
+                <div className="mt-2 pt-2 border-t border-slate-800/60">
+                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">
+                    Edge exposure <span className="font-normal normal-case tracking-normal">— CISA Known Exploited Vulnerabilities × your declared vendors, 14 days</span>
+                  </p>
+                  {!payload.spectrum.edge.declared && <Row sev="u" src="KEV">No edge vendors declared — exposure UNKNOWN. Declare them in Preferences → Mission Profile → Spectrum dependencies.</Row>}
+                  {payload.spectrum.edge.declared && !payload.spectrum.edge.live && <Row sev="u" src="KEV">KEV catalog UNREACHABLE — UNKNOWN</Row>}
+                  {payload.spectrum.edge.declared && payload.spectrum.edge.live && payload.spectrum.edge.hits.length === 0 && (
+                    <Row sev="g" src="KEV">No new KEV entries for {payload.spectrum.edge.vendors.join(", ")}</Row>
+                  )}
+                  {payload.spectrum.edge.hits.map((h) => (
+                    <Row key={h.cve} sev={h.ransomware ? "r" : "a"} src="KEV">
+                      <a href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(h.cve)}`} target="_blank" rel="noopener noreferrer" className="font-mono hover:text-emerald-300">{h.cve}</a>{" "}
+                      <b>{h.vendor}</b> {h.product} — {h.name.slice(0, 100)}{h.ransomware ? " · known ransomware use" : ""}
+                      <span className="text-slate-600"> · added {h.dateAdded}</span>
+                    </Row>
+                  ))}
+                </div>
+                <p className="text-[9.5px] text-slate-600 mt-2">Space weather is environment, not warning — it colours this card and the C2/Comms LIMFAC, never an I&amp;W level. Passive sources only; nothing here probes a network.</p>
+              </SectionCard>
+            )}
           </div>
 
           <p className="text-[9px] text-slate-600 font-mono px-1">

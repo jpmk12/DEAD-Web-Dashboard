@@ -4,6 +4,14 @@
 Examine every tab and find where cyber and space indicators could be
 incorporated. Recommendations and mockups only — no code in this pass.
 
+**Status (2026-09-30, later the same day): BUILT, steps A–G.** Polar / HF
+routes declared NO (the wing's answer), so the S-scale rows read "not
+declared, not a factor" until flipped in Preferences → Mission Profile →
+Spectrum dependencies. Step H (Cloudflare Radar, NetBlocks capture) is
+optional and unbuilt. Every source contract is unverified from the build
+sandbox — run `/api/spectrum?diag=1` (owner) from production once and fix
+any `parsed: 0`. Where it landed: `CLAUDE.md` › "Cyber & space warning".
+
 Mockup: `docs/mockups/cyber-space.html` → `docs/cyber-space.png` (desktop)
 and `docs/cyber-space-phone.png`; standalone copy at `docs/cyber-space.html`.
 
@@ -171,13 +179,13 @@ pins the contract.
 
 | Step | Effort | Reuses | New |
 |---|---|---|---|
-| A. `pnt_denial` + `cyber_pressure` on the AOI boards; restore GPS to the template | M | gpsjam, DAIP GPS_WAAS, IODA client, GDELT actor query, economy grammar, `warning_daily` | `lib/cyberSignals.ts` (pure grammar + state ladder, tested), IODA outage-alerts fetch, ransomware.live fetch, CISA advisories fetch, a `sensor_daily` numeric-baseline table (generalises `mobility_count`) |
-| B. SITREP Spectrum card + Weather ops reframe + Threat-board row | S | SWPC route, LIMFAC C2/Comms | `lib/spaceWeatherOps.ts` (pure impact mapping, tested), 3-day scales fetch |
-| C. Glance Spectrum tile + four alert predicates | S | StatusRow, `lib/alerts.ts` | — |
-| D. Regional "Digital & spectrum" card | S | dossier assembler | per-country IODA + victims + advisories join |
-| E. Economy `⌁ cyber` instrument + CISA advisories as `by` acts | M | economy grammar, actor register | cyber classes, advisory parser |
-| F. `space_activity` + Crisis-map Outages and Launches layers | M | CelesTrak/LL2 fetchers, map layer pattern | `lib/spaceCatalog.ts` (pure cadence/conjunction maths, tested) |
-| G. Mission Profile "Spectrum dependencies" + `edge_exposure` (KEV × vendors) | S | Mission Profile editor, KEV fetch | vendor watchlist field |
+| ✅ A. `pnt_denial` + `cyber_pressure` on the AOI boards; restore GPS to the template | M | gpsjam, DAIP GPS_WAAS, IODA client, GDELT actor query, economy grammar, `warning_daily` | `lib/cyberSignals.ts` (pure grammar + state ladder, tested), IODA outage-alerts fetch, ransomware.live fetch, CISA advisories fetch, a `sensor_daily` numeric-baseline table (generalises `mobility_count`) |
+| ✅ B. SITREP Spectrum card + Weather ops reframe + Threat-board row | S | SWPC route, LIMFAC C2/Comms | `lib/spaceWeatherOps.ts` (pure impact mapping, tested), 3-day scales fetch |
+| ✅ C. Glance Spectrum tile + four alert predicates | S | StatusRow, `lib/alerts.ts` | — |
+| ✅ D. Regional "Digital & spectrum" card | S | dossier assembler | per-country IODA + victims + advisories join |
+| ✅ E. Economy `⌁ cyber` instrument + CISA advisories as `by` acts | M | economy grammar, actor register | cyber classes, advisory parser |
+| ✅ F. `space_activity` + Crisis-map Outages and Launches layers | M | CelesTrak/LL2 fetchers, map layer pattern | `lib/spaceCatalog.ts` (pure cadence/conjunction maths, tested) |
+| ✅ G. Mission Profile "Spectrum dependencies" + `edge_exposure` (KEV × vendors) | S | Mission Profile editor, KEV fetch | vendor watchlist field |
 | H. Optional: Cloudflare Radar (token), NetBlocks capture | S | capture extension | — |
 
 A–C deliver warning; D–F deliver the situation room and the coercion view;

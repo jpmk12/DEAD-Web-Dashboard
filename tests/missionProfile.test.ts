@@ -246,6 +246,27 @@ describe("missionSummaryLine", () => {
   it("is empty for an empty profile", () => {
     expect(missionSummaryLine(EMPTY_PROFILE)).toBe("");
   });
+});
+
+describe("spectrum dependencies (team config, never a prompt)", () => {
+  it("defaults: no polar routes (this wing's declaration), space activity on, nothing else declared", () => {
+    expect(sanitizeMissionProfile({}).spectrum).toEqual({ polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true });
+  });
+  it("sanitizes vendors (trimmed, deduped, capped) and keeps an explicit null for polar", () => {
+    const p = sanitizeMissionProfile({ spectrum: { polarRoutes: null, satcom: "WGS Ku", edgeVendors: [" Cisco ", "cisco", "Cisco", "x", 42, "Fortinet"], spaceActivity: false } });
+    expect(p.spectrum.polarRoutes).toBeNull();
+    expect(p.spectrum.satcom).toBe("WGS Ku");
+    expect(p.spectrum.edgeVendors).toEqual(["Cisco", "cisco", "Fortinet"]);
+    expect(p.spectrum.spaceActivity).toBe(false);
+  });
+  it("never enters the model-facing summary line", () => {
+    const p = sanitizeMissionProfile({ homeIcao: "KWRI", spectrum: { satcom: "SECRET-SATCOM-NAME", edgeVendors: ["VendorX"] } });
+    expect(missionSummaryLine(p)).not.toMatch(/SATCOM|VendorX/);
+  });
+  it("space activity opt-out flows to the warning seeds", () => {
+    const p = sanitizeMissionProfile({ aois: [{ name: "China", aor: "INDOPACOM", countries: ["China"], intensity: "primary", iw: true }], spectrum: { spaceActivity: false } });
+    expect(deriveTracking(p).warningProblems[0].spaceActivity).toBe(false);
+  });
   it("summarizes hub, spokes, theaters, and AOIs with chokepoints", () => {
     const line = missionSummaryLine({
       ...IRAN_HORMUZ,

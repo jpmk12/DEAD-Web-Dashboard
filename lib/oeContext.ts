@@ -64,7 +64,7 @@ async function gather(): Promise<OeSnapshot> {
   const sitrepP = settle(Promise.all(bases.map((b) => assembleSitrep(b).then(sitrepSummary).catch(() => null))).then((rows): OeSitrepRow[] =>
     rows.map((s, i) => s
       ? { icao: s.icao, label: s.label, status: s.status, driver: s.driver, worse: s.worse }
-      : { icao: bases[i].icao, label: bases[i].label, status: { wx: "u", ops: "u", threat: "u", infra: "u" }, driver: "assembly failed — UNKNOWN", worse: [] }),
+      : { icao: bases[i].icao, label: bases[i].label, status: { wx: "u", ops: "u", threat: "u", infra: "u", spectrum: "u" }, driver: "assembly failed — UNKNOWN", worse: [] }),
   ));
 
   const boardsP = settle(activeWarningProblems().then(async (ps): Promise<OeBoardRow[]> => {

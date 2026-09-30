@@ -21,6 +21,11 @@ import { getXItems } from "./xStore";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
 import { getCapturedEvents } from "./eventStore";
 import type { NewsItem, OsintFeed, DisasterEvent } from "./types";
+import { cellToLatLng } from "h3-js";
+import { getGpsInterference } from "./gpsjam";
+import { getIodaOutageAlerts, getRansomwareVictims, getCisaAdvisories } from "./cyberSources";
+import { outageAlertsFor, victimsRelevant, advisoriesNaming, readCyber } from "./cyberSignals";
+import { countryIso2 } from "./holidays";
 
 export interface Incident {
   src: "acled" | "ucdp";
@@ -66,6 +71,19 @@ export interface HostHealth {
   indicators: HealthIndicator[];
 }
 
+// Digital & spectrum (REVIEW-CYBER-SPACE §4.5): national connectivity
+// outage alerts, GPS-interference cells near the country, ransomware victims
+// in-country, CISA advisories naming the country's state actor, and the
+// country's news graded by the cyber grammar. Every block carries its own
+// liveness; a dead feed is UNKNOWN on the card, never "no activity".
+export interface CountryDigital {
+  internet: { live: boolean; alerts: { level: string; sources: number; latest: number }[] };
+  gps: { live: boolean; cells: number; date: string };
+  ransomware: { live: boolean; victims30: number };
+  advisories: { title: string; link?: string; pubDate?: string; actors: string[] }[];
+  cyberNews: { title: string; link: string; cls: string; modality: string; pubDate: string; source: string }[];
+}
+
 export interface CountryDossier {
   country: string;
   center: [number, number] | null; // country centroid (for the mini-map)
@@ -78,6 +96,7 @@ export interface CountryDossier {
   conflictNews: ConflictNewsSignal;
   civil: CountryCivil;
   health: HostHealth;
+  digital: CountryDigital | null;
 }
 
 const NEAR_KM = 500;
@@ -174,7 +193,7 @@ async function captureCountryNews(country: string): Promise<NewsItem[]> {
 
 export async function getCountryDossier(country: string, osintFeeds: OsintFeed[] = []): Promise<CountryDossier> {
   const cen = countryCentroid(country);
-  const [acled, conflict, gdelt, osint, captures, advisories, disasterEvents, holidays, detail, healthEvents, hostHealth] = await Promise.all([
+  const [acled, conflict, gdelt, osint, captures, advisories, disasterEvents, holidays, detail, healthEvents, hostHealth, outages, gps, ransom, cisa] = await Promise.all([
     getAcledEvents().catch(() => []),
     getConflictPoints().catch(() => []),
     gdeltLocalNews(country).catch(() => [] as NewsItem[]),
@@ -186,6 +205,10 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     getAdvisoryDetail(country).catch(() => null),
     getHealthEvents().catch(() => ({ live: false, events: [] as { disease: string; country: string; link: string; pubDate: string }[] })),
     getHostNationHealth(country).catch(() => null),
+    getIodaOutageAlerts(24).catch(() => ({ live: false, alerts: [] })),
+    getGpsInterference().catch(() => ({ ok: false, hexes: [], date: "" })),
+    getRansomwareVictims().catch(() => ({ live: false, victims: [] })),
+    getCisaAdvisories().catch(() => ({ live: false, items: [] })),
   ]);
 
   // Host-nation health: live WHO outbreaks in-country (DON) + structural GHO
@@ -259,5 +282,25 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
   const conflictNews = scoreConflictNews(merged);
   const news = merged.slice(0, 12);
 
-  return { country, center: cen, incidents: incidents.slice(0, 12), disasters, news, conflictNews, civil, health };
+  // Digital & spectrum. GPS cells are counted within NEAR_KM of the
+  // centroid (level-2 cells twice); cyber news is the merged pool graded by
+  // the cyber grammar — phrases, never mentions.
+  const nowMs = Date.now();
+  let gpsCells = 0;
+  if (gps.ok && cen) {
+    for (const h of gps.hexes) {
+      try { const [la, lo] = cellToLatLng(h.h3); if (haversineKm(cen[0], cen[1], la, lo) <= NEAR_KM) gpsCells += h.level >= 2 ? 2 : 1; } catch { /* skip */ }
+    }
+  }
+  const iso2 = countryIso2(country) ?? undefined;
+  const digital: CountryDigital = {
+    internet: { live: outages.live, alerts: outageAlertsFor(outages.alerts, [country]).map((a) => ({ level: a.level, sources: a.sources, latest: a.latest })) },
+    gps: { live: gps.ok, cells: gpsCells, date: gps.date },
+    ransomware: { live: ransom.live, victims30: ransom.live ? victimsRelevant(ransom.victims, [{ name: country, iso2 }], nowMs, 30).filter((v) => (iso2 && v.country === iso2) || v.country.toLowerCase() === country.toLowerCase()).length : 0 },
+    advisories: cisa.live ? advisoriesNaming(cisa.items, [country], nowMs, 30).slice(0, 4).map((a) => ({ title: a.title, link: a.link, pubDate: a.pubDate, actors: a.actors })) : [],
+    cyberNews: merged.map((n) => ({ n, r: readCyber(`${n.title} ${n.summary ?? ""}`) })).filter((x) => x.r).slice(0, 4)
+      .map(({ n, r }) => ({ title: n.title, link: n.link, cls: r!.cls, modality: r!.modality, pubDate: n.pubDate, source: n.source })),
+  };
+
+  return { country, center: cen, incidents: incidents.slice(0, 12), disasters, news, conflictNews, civil, health, digital };
 }

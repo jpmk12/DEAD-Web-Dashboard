@@ -12,7 +12,7 @@
 export interface NewsSource {
   url: string;
   name: string;
-  category: "overview" | "defense" | "strategic" | "domestic" | "space" | "local";
+  category: "overview" | "defense" | "strategic" | "domestic" | "space" | "cyber" | "local";
 }
 
 // Always-on (non-local) sources. Disable any via user prefs.
@@ -50,6 +50,13 @@ export const BASE_NEWS_SOURCES: NewsSource[] = [
   // Space — Space Force, commercial, launch
   { url: "https://spacenews.com/feed/",                                          name: "SpaceNews",              category: "space" },
   { url: "https://www.nasaspaceflight.com/feed/",                                name: "NASASpaceFlight",        category: "space" },
+
+  // Cyber — feeds only (REVIEW-CYBER-SPACE §4.8). The I&W sensor reads the
+  // CISA advisories directly (lib/cyberSources); these are for reading.
+  { url: "https://www.cisa.gov/cybersecurity-advisories/all.xml",                name: "CISA Advisories",        category: "cyber" },
+  { url: "https://therecord.media/feed",                                         name: "The Record",             category: "cyber" },
+  { url: "https://www.bleepingcomputer.com/feed/",                               name: "BleepingComputer",       category: "cyber" },
+  { url: "https://krebsonsecurity.com/feed/",                                    name: "Krebs on Security",      category: "cyber" },
 ];
 
 // Local sets keyed by the user's localFeedKey pref.

@@ -10,7 +10,12 @@ function payload(over: Partial<SitrepPayload> = {}): SitrepPayload {
   const base: SitrepPayload = {
     base: { icao: "KWRI", label: "JB MDL", lat: 40, lon: -74.6, country: "United States", place: "NJ", artcc: "ZNY" },
     generatedAt: iso(NOW),
-    status: { wx: "g", ops: "g", threat: "g", infra: "g" },
+    status: { wx: "g", ops: "g", threat: "g", infra: "g", spectrum: "g" },
+    spectrum: {
+      pnt: { live: true, date: "2026-07-14", cellLevel: 0, raim: [] },
+      spaceWx: { live: true, now: { date: "2026-07-14", R: 0, S: 0, G: 0 }, outlook: [], impacts: [], polar: false, satcom: "" },
+      edge: { declared: false, live: true, vendors: [], hits: [] },
+    },
     weather: {
       live: true, now: { icao: "KWRI", flightCategory: "VFR", windKt: 10, gustKt: null, visMi: 10, ceilingFt: null } as SitrepPayload["weather"]["now"],
       metarRaw: "KWRI ...", tafWorst: null, tafSegments: [], alerts: [], current: null, outlook: [], windDirDeg: 240, windVariable: false,
@@ -46,6 +51,26 @@ describe("deriveMissionImpact — capability", () => {
     expect(m.state).toBe("fmc");
     expect(m.limfacs).toHaveLength(0);
     expect(m.ccir).toHaveLength(0);
+  });
+
+  it("spectrum: a HIGH GPS-interference cell at the field caps C2/Comms at PMC with a CCIR; a moderate one only watches", () => {
+    const hi = payload({ status: { wx: "g", ops: "g", threat: "g", infra: "g", spectrum: "r" }, spectrum: { pnt: { live: true, date: "d", cellLevel: 2, raim: [] }, spaceWx: { live: true, now: null, outlook: [], impacts: [], polar: false, satcom: "" }, edge: { declared: false, live: false, vendors: [], hits: [] } } });
+    const m = deriveMissionImpact(hi);
+    const c2 = m.functions.find((f) => f.key === "c2_comms")!;
+    expect(c2.capability).toBe("pmc");
+    expect(m.ccir.some((c) => c.key === "spectrum")).toBe(true);
+    expect(m.limfacs.some((l) => /GPS-interference/.test(l.driver))).toBe(true);
+    const mod = payload({ status: { wx: "g", ops: "g", threat: "g", infra: "g", spectrum: "a" }, spectrum: { pnt: { live: true, date: "d", cellLevel: 1, raim: [] }, spaceWx: { live: true, now: null, outlook: [], impacts: [], polar: false, satcom: "" }, edge: { declared: false, live: false, vendors: [], hits: [] } } });
+    expect(deriveMissionImpact(mod).functions.find((f) => f.key === "c2_comms")!.capability).toBe("fmc");
+  });
+
+  it("spectrum: every sensor dead and connectivity dead → C2/Comms UNKNOWN, never FMC", () => {
+    const dead = payload({
+      status: { wx: "g", ops: "g", threat: "g", infra: "u", spectrum: "u" },
+      infra: { internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null, powerNews: [], waterNews: [], commsNews: [] },
+      spectrum: { pnt: { live: false, date: "", cellLevel: 0, raim: [] }, spaceWx: { live: false, now: null, outlook: [], impacts: [], polar: false, satcom: "" }, edge: { declared: false, live: false, vendors: [], hits: [] } },
+    });
+    expect(deriveMissionImpact(dead).functions.find((f) => f.key === "c2_comms")!.capability).toBe("unknown");
   });
 
   it("field closed → Launch/Recovery NMC + CCIR + overall NMC", () => {

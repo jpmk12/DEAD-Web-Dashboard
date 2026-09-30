@@ -6,7 +6,9 @@
 import { deriveWarning, scoreIndicators, type WarningAssessment } from "./warning";
 import { resolveWarningProblem } from "./warningProblems";
 import { gatherObservations, type SensorHealth, type DivergenceState } from "./warningSensors";
+import { gatherSpectrumObservations } from "./spectrumSensors";
 import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory, getMobilityBaseline } from "./warningStore";
+import { getSensorBaseline, recordSensorDay } from "./sensorStore";
 
 export interface WarningAssessmentPlus extends WarningAssessment {
   sensorHealth: SensorHealth[];
@@ -31,8 +33,20 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
 
   // The observed-mobility baseline feeds the divergence sensor (surge is
   // relative to this AOR's own normal, not a static bar).
-  const mobilityBaseline = await getMobilityBaseline(problemId, day, 30).catch(() => ({ mean: null as number | null, samples: 0 }));
-  const { observations, health, divergence } = await gatherObservations(mobilityBaseline, geo);
+  const none = { mean: null as number | null, samples: 0 };
+  const [mobilityBaseline, pntBase, ransomBase] = await Promise.all([
+    getMobilityBaseline(problemId, day, 30).catch(() => none),
+    getSensorBaseline(`pnt:${problemId}`, day, 30).catch(() => none),
+    getSensorBaseline(`ransom:${problemId}`, day, 30).catch(() => none),
+  ]);
+  const classic = await gatherObservations(mobilityBaseline, geo);
+  // The spectrum indicators (PNT / cyber / space) ride the same request,
+  // corroborated by the own-source slice the classic sensors just gathered.
+  const spectrum = await gatherSpectrumObservations(geo, problemId, { pnt: pntBase, ransom: ransomBase }, classic.userNews)
+    .catch(() => ({ observations: [], health: [{ indicatorId: "pnt_denial", live: false, note: "spectrum sensors failed" }], magnitudes: { pntCells: null, victims: null } }));
+  const observations = [...classic.observations, ...spectrum.observations];
+  const health: SensorHealth[] = [...classic.health, ...spectrum.health];
+  const { divergence } = classic;
   const { baseline, samples } = await getWarningBaseline(problemId, day, 30).catch(() => ({ baseline: null as number | null, samples: 0 }));
   const priorAnomalies = await getWarningAnomalyHistory(problemId, day, 10).catch(() => [] as number[]);
 
@@ -53,6 +67,9 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
   // actually produced — a dead feed must not write a fake 0 into the baseline.
   const mobilityLive = health.find((h) => h.indicatorId === "mobility_divergence")?.live ?? false;
   recordWarningDay(problemId, day, assessment.rawScore, assessment.anomaly, assessment.level, mobilityLive ? divergence.observedCount : null).catch(() => {});
+  // Spectrum sensor counts → their own baselines (null when the feed was dead — nothing written).
+  recordSensorDay(`pnt:${problemId}`, day, spectrum.magnitudes.pntCells).catch(() => {});
+  recordSensorDay(`ransom:${problemId}`, day, spectrum.magnitudes.victims).catch(() => {});
 
   const data: WarningAssessmentPlus = { ...assessment, sensorHealth: health, divergence };
   cache.set(problemId, { at: Date.now(), data });

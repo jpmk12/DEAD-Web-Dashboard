@@ -50,20 +50,59 @@ export interface MissionSpoke {
   country: string;
 }
 
+// Spectrum dependencies — what the force depends on in the electromagnetic
+// and space domains (docs/REVIEW-CYBER-SPACE.md §6). Team config, never
+// derived into a tracking list, and NEVER sent to a model: missionSummaryLine
+// deliberately omits it. Each field is optional; an absent declaration reads
+// UNKNOWN on the surfaces that need it, never green.
+export interface SpectrumDependencies {
+  /** Polar / HF-dependent routes flown. Drives the S-scale and polar-cap
+   *  absorption rows. null = not declared. The default is FALSE — this
+   *  wing's declaration ("we don't fly polar", 2026-09-30); flip it in
+   *  Preferences → Mission Profile if that changes. */
+  polarRoutes: boolean | null;
+  /** SATCOM in use, free text for the card (e.g. "WGS Ku · Inmarsat L-band"). */
+  satcom: string;
+  /** Edge-device / host-airport vendors whose KEV entries matter (names only). */
+  edgeVendors: string[];
+  /** Carry `space_activity` on the boards whose actor launches (China,
+   *  Russia, Iran, North Korea). */
+  spaceActivity: boolean;
+}
+
+export const DEFAULT_SPECTRUM: SpectrumDependencies = { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true };
+
 export interface MissionProfile {
   homeIcao: string;                 // "" = unset (the HUB)
   home?: MissionSpoke | null;       // resolved hub, when the editor resolved it
   spokes: MissionSpoke[];           // hub-and-spoke: other own-force airfields
   theaters: Aor[];                  // COCOMs the user owns
   aois: MissionAoi[];
+  spectrum: SpectrumDependencies;   // the spectrum / space declaration
   excludedIds: string[];            // derived ids the user removed — never re-materialize
   materializedIds: string[];        // ids written at last apply (drift → exclusions)
   updatedAt?: string;               // ISO, set server-side
 }
 
 export const EMPTY_PROFILE: MissionProfile = {
-  homeIcao: "", spokes: [], theaters: [], aois: [], excludedIds: [], materializedIds: [],
+  homeIcao: "", spokes: [], theaters: [], aois: [], spectrum: { ...DEFAULT_SPECTRUM }, excludedIds: [], materializedIds: [],
 };
+
+const MAX_VENDORS = 24;
+
+export function sanitizeSpectrum(raw: unknown): SpectrumDependencies {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SPECTRUM };
+  const r = raw as Record<string, unknown>;
+  const vendors = Array.isArray(r.edgeVendors)
+    ? [...new Set(r.edgeVendors.filter((v): v is string => typeof v === "string").map((v) => v.trim().slice(0, 40)).filter((v) => v.length >= 2))].slice(0, MAX_VENDORS)
+    : [];
+  return {
+    polarRoutes: typeof r.polarRoutes === "boolean" ? r.polarRoutes : r.polarRoutes === null ? null : DEFAULT_SPECTRUM.polarRoutes,
+    satcom: typeof r.satcom === "string" ? r.satcom.trim().slice(0, 120) : "",
+    edgeVendors: vendors,
+    spaceActivity: typeof r.spaceActivity === "boolean" ? r.spaceActivity : DEFAULT_SPECTRUM.spaceActivity,
+  };
+}
 
 // Everything one apply writes, grouped for the review screen.
 export interface DerivedTracking {
@@ -73,7 +112,7 @@ export interface DerivedTracking {
   sitrepCandidates: SitrepBase[];   // hub -> spokes -> theater picks
   watchlistSeeds: string[];         // exclusion pseudo-ids mp-t-<slug>
   // Consumed live by lib/warningProblems (one board per primary AOI with iw).
-  warningProblems: { id: string; name: string; aor: Aor; countries: string[]; chokepointId: string | null }[];
+  warningProblems: { id: string; name: string; aor: Aor; countries: string[]; chokepointId: string | null; spaceActivity: boolean }[];
 }
 
 const VALID_AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM", "INDOPACOM"];
@@ -160,6 +199,7 @@ export function sanitizeMissionProfile(raw: unknown): MissionProfile {
     spokes,
     theaters: strArr(r.theaters, 6, 12).filter((t): t is Aor => VALID_AORS.includes(t as Aor)),
     aois,
+    spectrum: sanitizeSpectrum(r.spectrum),
     excludedIds: strArr(r.excludedIds, 400, 60),
     materializedIds: strArr(r.materializedIds, 400, 60),
     ...(typeof r.updatedAt === "string" ? { updatedAt: r.updatedAt } : {}),
@@ -267,6 +307,7 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
       warningProblems.push({
         id: `mp-${aoi.id}`, name: aoi.name, aor: aoi.aor,
         countries: [...aoi.countries], chokepointId: aoi.chokepointIds[0] ?? null,
+        spaceActivity: profile.spectrum?.spaceActivity !== false,
       });
     }
   }

@@ -148,7 +148,7 @@ const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</sp
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "overflight" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
 interface Vessel { mmsi: number; name: string; shipType: number; lat: number; lon: number; cog: number; sog: number; heading: number | null }
@@ -165,6 +165,8 @@ const LAYER_DESC: Record<LayerKey, string> = {
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   overflight: "Overflight / airspace NOTAMs by FIR (DoD DAIP, FIR_ARTCC) for your watched countries — enroute closures, TFRs, danger/restricted areas, MOAs. Plotted at FIR centroids; size = NOTAM count, colour = worst alert (red=warning / amber=caution). The #1 mobility-planning gap: 'can I overfly this country'. Requires the DoD CA bundle; empty when unconfigured/unreachable (UNKNOWN, never 'clear').",
+  outages: "National internet connectivity outage alerts (IODA, Georgia Tech — BGP / active probing / darknet telescope, last 24 h), plotted at country centroid; red = critical, amber = warning. A national outage is the best open proxy for a state-scale cyber event or a shutdown. Passive measurement; off by default; empty when IODA is unreachable (UNKNOWN, never calm).",
+  launches: "Orbital launches in the last 7 / next 14 days (Launch Library 2) at their pads, with T-minus and provider country. A launch window closes airspace and sea lanes like a TFR; China / Russia / Iran / DPRK cadence also feeds the I&W space_activity indicator. Off by default.",
   informRisk: "INFORM Risk — structural country crisis-risk index 0-10 (latest annual release, via World Bank Data360 / DRMKC_INFORM). Anticipatory 'where crises are likely' baseline; larger/redder = higher risk. Country-level, plotted at centroids.",
   forces: "Force posture — your bases/airfields (🛡) and watched countries (🌐, at centroid), coloured by fused threat posture (red/amber/green/grey=unknown). Set them in Preferences → Content sources. Click for the top driver.",
   milair: "Military aircraft currently broadcasting ADS-B (keyless community feed — airplanes.live / adsb.lol). ✈ rotated to heading; click for callsign/type/altitude. Coverage follows the volunteer receiver network (sparse mid-ocean) and many mil aircraft fly dark — 'what's broadcasting', not ground truth. Off by default; filter by AOR. Refreshes ~30 s.",
@@ -189,6 +191,8 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
     { k: "overflight", label: "Overflight", dot: "#fb923c" },
+    { k: "outages", label: "Outages", dot: "#f472b6" },
+    { k: "launches", label: "Launches", dot: "#fde047" },
     { k: "milair", label: "Mil air", dot: "#a3e635" },
     { k: "ships", label: "Vessels", dot: "#22d3ee" },
   ] },
@@ -268,6 +272,10 @@ export default function CrisisMap() {
   const [acled, setAcled] = useState<AcledEvent[]>([]);
   type InformPt = { country: string; score: number; lat: number; lon: number };
   const [informRisk, setInformRisk] = useState<InformPt[]>([]);
+  type OutagePt = { country: string; level: string; sources: number; latest: number; lat: number; lon: number };
+  const [outages, setOutages] = useState<OutagePt[]>([]);
+  type LaunchPt = { name: string; net: string; provider: string; country: string; padName: string; lat: number; lon: number; status: string; hoursFromNow: number };
+  const [launches, setLaunches] = useState<LaunchPt[]>([]);
   type FirNotam = { id: string; text: string; alert: "Warning" | "Caution" | "Default"; category: string; end?: string };
   type FirGroup = { code: string; name: string; lat: number; lon: number; worst: "Warning" | "Caution" | "Default"; count: number; notams: FirNotam[] };
   const [overflight, setOverflight] = useState<FirGroup[]>([]);
@@ -357,7 +365,7 @@ export default function CrisisMap() {
   const reach = reachOf(AF, payload);
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, overflight: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -464,6 +472,20 @@ export default function CrisisMap() {
     fetch("/api/osint/inform?product=risk", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { points?: InformPt[] } | null) => { if (Array.isArray(d?.points)) setInformRisk(d!.points); })
+      .catch(() => {});
+    fetch("/api/osint/outages", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { points?: OutagePt[]; live?: boolean } | null) => {
+        if (Array.isArray(d?.points)) setOutages(d!.points);
+        if (d) markSrc("IODA", d.live === false);
+      })
+      .catch(() => {});
+    fetch("/api/osint/launches", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { launches?: LaunchPt[]; live?: boolean } | null) => {
+        if (Array.isArray(d?.launches)) setLaunches(d!.launches);
+        if (d) markSrc("Launch Library", d.live === false);
+      })
       .catch(() => {});
     fetch("/api/osint/radar", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
@@ -788,6 +810,7 @@ export default function CrisisMap() {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
     neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
     overflight: (on.overflight && overflight.length) || undefined,
+    outages: outages.length || undefined, launches: launches.length || undefined,
     forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined, ships: (on.ships && shipShown.length) || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
   };
@@ -1060,6 +1083,27 @@ export default function CrisisMap() {
               return (
                 <CircleMarker key={`ir-${i}`} center={[p.lat, p.lon]} radius={6 + f * 14} pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.08 + f * 0.16, weight: 0.5, opacity: 0.35 }}>
                   <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div className="text-amber-700">INFORM Risk {p.score.toFixed(1)}/10</div><div className="text-slate-500">Structural crisis-risk baseline (INFORM, via Data360)</div></div></Popup>
+                </CircleMarker>
+              );
+            })}
+            {/* IODA connectivity outage alerts — country centroid, shaded by level. */}
+            {on.outages && outages.map((p, i) => {
+              const col = p.level === "critical" ? "#f43f5e" : "#f472b6";
+              return (
+                <CircleMarker key={`out-${i}`} center={[p.lat, p.lon]} radius={p.level === "critical" ? 16 : 11} pathOptions={{ color: col, fillColor: col, fillOpacity: 0.18, weight: 1.2, opacity: 0.7, dashArray: "2 3" }}>
+                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div style={{ color: col }}>Connectivity outage — {p.level} ({p.sources} source{p.sources === 1 ? "" : "s"})</div><div className="text-slate-500">IODA (Georgia Tech), last 24 h — national-scale measurement, passive</div></div></Popup>
+                </CircleMarker>
+              );
+            })}
+            {/* Launch pads with a launch in the window (Launch Library 2). */}
+            {on.launches && launches.map((l, i) => {
+              const upcoming = l.hoursFromNow >= 0;
+              const col = upcoming ? "#fde047" : "#a3a3a3";
+              const t = Math.abs(l.hoursFromNow);
+              const when = upcoming ? `T−${t < 48 ? `${t} h` : `${Math.round(t / 24)} d`}` : `T+${t < 48 ? `${t} h` : `${Math.round(t / 24)} d`}`;
+              return (
+                <CircleMarker key={`ln-${i}`} center={[l.lat, l.lon]} radius={upcoming ? 7 : 5} pathOptions={{ color: col, fillColor: col, fillOpacity: upcoming ? 0.5 : 0.25, weight: 1, opacity: 0.8 }}>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[280px]"><div className="font-bold text-sm">{l.name}</div><div style={{ color: upcoming ? "#a16207" : "#525252" }}>{when} · {l.status || "—"}{l.country ? ` · ${l.country}` : ""}</div><div className="text-slate-700">{l.provider}{l.padName ? ` · ${l.padName}` : ""}</div><div className="text-slate-500 mt-1">{l.net.replace("T", " ").slice(0, 16)}Z — Launch Library 2; a window closes airspace/sea lanes like a TFR</div></div></Popup>
                 </CircleMarker>
               );
             })}

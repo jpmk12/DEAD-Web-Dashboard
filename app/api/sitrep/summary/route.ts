@@ -16,7 +16,7 @@ function stub(base: SitrepBase): SitrepSummary {
   return {
     icao: base.icao,
     label: base.label,
-    status: { wx: "u", ops: "u", threat: "u", infra: "u" },
+    status: { wx: "u", ops: "u", threat: "u", infra: "u", spectrum: "u" },
     driver: "assembly failed — UNKNOWN",
     line: `${base.icao} assembly failed this cycle — status UNKNOWN, not clear.`,
     worse: [],

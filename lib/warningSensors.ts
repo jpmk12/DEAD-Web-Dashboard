@@ -109,6 +109,9 @@ export interface GatherResult {
   observations: IndicatorObservation[];
   health: SensorHealth[];
   divergence: DivergenceState;
+  /** The AOI-relevant slice of the user's own sources, so the spectrum
+   *  sensors (lib/spectrumSensors) can corroborate without a second fan-out. */
+  userNews: NewsItem[];
 }
 
 // ── Keyless community mil ADS-B (same source as the Crisis-map layer) ─────────
@@ -304,5 +307,5 @@ function finalize(
     health.push({ indicatorId: "airspace_gps_disruption", live: false, note: "DAIP airspace feed not configured / unreachable" });
   }
 
-  return { observations, health, divergence };
+  return { observations, health, divergence, userNews };
 }

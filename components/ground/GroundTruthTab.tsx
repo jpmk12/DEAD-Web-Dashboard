@@ -213,7 +213,7 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
     if (!sel) return;
     let cancel = false;
     setDLoading(true); setDossier(null); setSitrep(null); setSLoading(true);
-    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], disasters: [], news: [], conflictNews: { count: 0, escalation: false }, civil: { advisoryLevel: null, departure: null, events: [], holidays: [] }, health: { outbreaks: [], indicators: [] } };
+    const empty: CountryDossier = { country: sel.country, center: null, incidents: [], disasters: [], news: [], conflictNews: { count: 0, escalation: false }, civil: { advisoryLevel: null, departure: null, events: [], holidays: [] }, health: { outbreaks: [], indicators: [] }, digital: null };
     fetch(`/api/ground-truth?country=${encodeURIComponent(sel.country)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!cancel) { setDossier(d ?? empty); setDLoading(false); } })
@@ -510,6 +510,56 @@ export default function GroundTruthTab({ active }: { active: boolean }) {
                   <p className="text-[8px] text-slate-700 mt-2">WHO Global Health Observatory (latest year) + Disease Outbreak News — planning baseline, not medical guidance.</p>
                 </Card>
               )}
+
+              {/* Digital & spectrum — connectivity, GPS interference, ransomware, state-attributed advisories, graded cyber news */}
+              {!dLoading && dossier && dossier.digital && (() => {
+                const dg = dossier.digital;
+                const worstAlert = dg.internet.alerts.find((a) => a.level === "critical") ?? dg.internet.alerts[0];
+                const led = (ok: boolean, level: "g" | "a" | "r") => (ok ? level : "u");
+                const dot = (l: string) => (l === "r" ? "#ef4444" : l === "a" ? "#fbbf24" : l === "g" ? "#10b981" : "#64748b");
+                const rows: { led: string; text: React.ReactNode; src: string }[] = [
+                  { led: led(dg.internet.live, worstAlert ? (worstAlert.level === "critical" ? "r" : "a") : "g"), src: "IODA",
+                    text: dg.internet.live ? (worstAlert ? `Connectivity outage alert — ${worstAlert.level} (${worstAlert.sources} source${worstAlert.sources === 1 ? "" : "s"}, 24 h)` : "No national connectivity outage alert (24 h)") : "IODA unreachable — connectivity UNKNOWN" },
+                  { led: led(dg.gps.live, dg.gps.cells >= 10 ? "a" : "g"), src: "GPSJam",
+                    text: dg.gps.live ? `${dg.gps.cells} elevated GPS-interference cell${dg.gps.cells === 1 ? "" : "s"} within 500 km${dg.gps.date ? ` (${dg.gps.date})` : ""}` : "GPSJam unreachable — interference UNKNOWN" },
+                  { led: led(dg.ransomware.live, dg.ransomware.victims30 >= 5 ? "a" : "g"), src: "ransomware.live",
+                    text: dg.ransomware.live ? `${dg.ransomware.victims30} ransomware victim${dg.ransomware.victims30 === 1 ? "" : "s"} in-country (30 d)` : "ransomware.live unreachable — UNKNOWN" },
+                ];
+                return (
+                  <Card title="⌁ Digital & spectrum" meta="IODA · GPSJam · CISA · ransomware.live">
+                    <ul className="space-y-1">
+                      {rows.map((r, i) => (
+                        <li key={i} className="text-[11.5px] text-slate-300 flex items-start gap-1.5">
+                          <span style={{ color: dot(r.led) }} className="text-[8px] mt-1">●</span>
+                          <span className="flex-1">{r.text}</span>
+                          <span className="text-[8px] text-slate-600 font-mono mt-0.5">{r.src}</span>
+                        </li>
+                      ))}
+                      {dg.advisories.map((a, i) => (
+                        <li key={`adv${i}`} className="text-[11.5px] flex items-start gap-1.5">
+                          <span className="text-red-400 text-[8px] mt-1">●</span>
+                          <span className="flex-1">
+                            {a.link ? <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-red-300/90 hover:text-red-200">{a.title}</a> : <span className="text-red-300/90">{a.title}</span>}
+                            <span className="text-slate-600 text-[9px]"> · names {a.actors.join("/")}</span>
+                          </span>
+                          <span className="text-[8px] text-slate-600 font-mono mt-0.5">CISA</span>
+                        </li>
+                      ))}
+                      {dg.cyberNews.map((n, i) => (
+                        <li key={`cn${i}`} className="text-[11.5px] flex items-start gap-1.5">
+                          <span className={`text-[8px] mt-1 ${n.modality === "act" ? "text-amber-400" : "text-slate-500"}`}>●</span>
+                          <span className="flex-1">
+                            <a href={n.link} target="_blank" rel="noopener noreferrer" className="text-slate-300 hover:text-emerald-300">{n.title}</a>
+                            <span className="text-slate-600 text-[9px]"> · {n.cls} · {n.modality}</span>
+                          </span>
+                          <span className="text-[8px] text-slate-600 font-mono mt-0.5">{n.source.slice(0, 14)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-[8px] text-slate-700 mt-2">Passive published feeds only — nothing probes a network. Graded text: act › threat › analysis; a bare mention earns nothing. UNKNOWN ≠ clear.</p>
+                  </Card>
+                );
+              })()}
 
               <p className="text-[9px] text-slate-600 px-1">Coarse open-source SA — not authoritative tasking.</p>
             </>

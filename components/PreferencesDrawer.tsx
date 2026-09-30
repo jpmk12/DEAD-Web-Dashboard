@@ -1018,7 +1018,7 @@ function NewsSourcesEditor({
 
   // Group by category for visual structure. Categories render in a stable
   // order; local goes last since it's location-dependent.
-  const CATEGORY_ORDER: NewsSource["category"][] = ["overview", "defense", "strategic", "domestic", "space", "local"];
+  const CATEGORY_ORDER: NewsSource["category"][] = ["overview", "defense", "strategic", "domestic", "space", "cyber", "local"];
   const grouped = new Map<NewsSource["category"], NewsSource[]>();
   for (const s of sources) {
     const arr = grouped.get(s.category) ?? [];
@@ -1032,6 +1032,7 @@ function NewsSourcesEditor({
     strategic: "Strategic",
     domestic: "Domestic",
     space: "Space",
+    cyber: "Cyber",
     local: "Local",
   };
   const CATEGORY_COLOR: Record<NewsSource["category"], string> = {
@@ -1040,6 +1041,7 @@ function NewsSourcesEditor({
     strategic: "bg-violet-500/15 text-violet-300 border-violet-500/40",
     domestic:  "bg-amber-500/15 text-amber-300 border-amber-500/40",
     space:     "bg-sky-500/15 text-sky-300 border-sky-500/40",
+    cyber:     "bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/40",
     local:     "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
   };
 

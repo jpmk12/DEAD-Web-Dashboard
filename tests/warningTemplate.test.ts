@@ -7,21 +7,36 @@ const IRAN_SEED: WarningProblemSeed = {
 };
 
 describe("problemFromSeed", () => {
-  it("instantiates a six-indicator problem with the AOI id and label", () => {
-    const { def } = problemFromSeed(IRAN_SEED);
+  it("instantiates the templated problem with the AOI id and label — six classic + three spectrum indicators", () => {
+    const { def, geo } = problemFromSeed(IRAN_SEED);
     expect(def.id).toBe("mp-iran-hormuz");
     expect(def.label).toBe("CENTCOM · Iran & Hormuz");
-    expect(def.indicators).toHaveLength(6);
+    expect(def.indicators).toHaveLength(9);
     expect(def.indicators.map((i) => i.id)).toContain("chokepoint_interdiction");
+    expect(def.indicators.map((i) => i.id)).toEqual(expect.arrayContaining(["pnt_denial", "cyber_pressure", "space_activity"]));
     expect(def.indicators.every((i) => i.warningProblem === "mp-iran-hormuz")).toBe(true);
     expect(def.thresholds).toEqual({ watch: 0.15, warning: 0.35, alert: 0.6 });
+    expect(geo.spacePowers).toEqual(["IRN"]);
   });
 
   it("omits the chokepoint indicator when the AOI has none", () => {
     const { def, geo } = problemFromSeed({ ...IRAN_SEED, id: "mp-x", chokepointId: null });
-    expect(def.indicators).toHaveLength(5);
+    expect(def.indicators).toHaveLength(8);
     expect(def.indicators.some((i) => i.id === "chokepoint_interdiction")).toBe(false);
     expect(geo.chokepoint).toBeNull();
+  });
+
+  it("space_activity only where the AOI holds a space power, and only when declared", () => {
+    const gulf = problemFromSeed({ id: "mp-gulf", name: "Gulf", aor: "CENTCOM", countries: ["Qatar", "Bahrain"], chokepointId: null });
+    expect(gulf.def.indicators.some((i) => i.id === "space_activity")).toBe(false);
+    expect(gulf.geo.spacePowers).toEqual([]);
+    const off = problemFromSeed({ ...IRAN_SEED, id: "mp-off", spaceActivity: false });
+    expect(off.def.indicators.some((i) => i.id === "space_activity")).toBe(false);
+    // every spectrum indicator carries a falsifier and provenance, like the rest
+    for (const i of problemFromSeed(IRAN_SEED).def.indicators) {
+      expect(i.falsifier.length).toBeGreaterThan(20);
+      expect(i.provenance.length).toBeGreaterThan(10);
+    }
   });
 
   it("derives a geo that covers the AOI countries", () => {

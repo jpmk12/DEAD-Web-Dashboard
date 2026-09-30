@@ -103,6 +103,19 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_wd_problem (problem_id, due_at)
   ) ENGINE=InnoDB`,
 
+  // Numeric sensor baselines (lib/sensorStore): one value per sensor key per
+  // UTC day, day-peak on duplicate — generalises warning_daily.mobility_count
+  // so any counted observation (GPS-interference cells over an AOI,
+  // ransomware victims in a window) can be scored against ITS OWN trailing
+  // normal. A dead sensor writes nothing, never a fake 0.
+  `CREATE TABLE IF NOT EXISTS sensor_daily (
+    sensor_key  VARCHAR(96)  NOT NULL,
+    day         VARCHAR(10)  NOT NULL,
+    value       DOUBLE       NOT NULL,
+    updated_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (sensor_key, day)
+  ) ENGINE=InnoDB`,
+
   // Open-tracking beyond news: which SITREP bases, I&W boards and Regional
   // countries each user actually opens. Personal (keyed by user_email, no
   // legacy '' rows — the table is newer than the multi-user split), counts

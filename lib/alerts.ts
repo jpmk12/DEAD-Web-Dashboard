@@ -18,11 +18,14 @@ import { getWeatherThreats, type NamedPoint } from "./severeWeather";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { activeWarningProblems } from "./warningProblems";
 import { assessWarning } from "./warningAssess";
+import { getSpectrumSummary } from "./spectrum";
+import { getIodaOutageAlerts } from "./cyberSources";
+import { outageAlertsFor } from "./cyberSignals";
 
 export interface AlertItem {
   id: string;                 // stable across polls while the condition holds
   severity: "red" | "amber";
-  kind: "force" | "weather" | "neo" | "warning";
+  kind: "force" | "weather" | "neo" | "warning" | "spectrum";
   title: string;
   sub: string;
 }
@@ -108,6 +111,39 @@ async function build(): Promise<AlertCheck> {
           title: `I&W ${a.level.toUpperCase()} — ${p.def.label}`,
           sub: a.drivers?.[0]?.description?.slice(0, 160) ?? "anomaly over baseline",
         });
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Spectrum (REVIEW-CYBER-SPACE §4.9), four predicates with stable ids:
+  // SWPC scale at 3+; PNT / cyber indicator at active or confirmed on a
+  // board; KEV entry on a declared vendor; a critical connectivity outage
+  // in a tracked country. Bounded: a cold summary is skipped this cycle.
+  try {
+    const sp = await getSpectrumSummary({ maxWaitMs: 5_000 });
+    if (!sp.pending) {
+      for (const s of sp.spaceWx.severe) {
+        const imp = sp.spaceWx.impacts.find((i) => i.led === "r") ?? sp.spaceWx.impacts[0];
+        alerts.push({ id: `swx-${s.scale}${s.level}`, severity: s.level >= 4 ? "red" : "amber", kind: "spectrum", title: `Space weather ${s.scale}${s.level} — ${imp?.label ?? "ops impact"}`, sub: imp?.now ?? "NOAA SWPC scale at 3 or above" });
+      }
+      for (const [label, r] of [["PNT denial", sp.pnt], ["Cyber pressure", sp.cyber]] as const) {
+        if (r && r.live && (r.state === "active" || r.state === "confirmed")) {
+          alerts.push({ id: `iw-${r.problemId}-${label === "PNT denial" ? "pnt" : "cyber"}-${r.state}`, severity: r.state === "confirmed" ? "red" : "amber", kind: "spectrum", title: `${label} ${r.state.toUpperCase()} — ${r.board}`, sub: r.why.slice(0, 160) });
+        }
+      }
+      for (const h of sp.edge.hits) {
+        alerts.push({ id: `kev-${h.cve}`, severity: h.ransomware ? "red" : "amber", kind: "spectrum", title: `KEV — ${h.vendor} ${h.product}`, sub: `${h.cve}: ${h.name.slice(0, 120)}${h.ransomware ? " · known ransomware use" : ""}` });
+      }
+    }
+  } catch { /* ignore */ }
+  try {
+    const tracked = [...(prefs?.countriesOfInterest ?? []).map((c) => c.country), ...(prefs?.forceLocations ?? []).map((l) => l.country).filter((c): c is string => !!c)];
+    if (tracked.length) {
+      const io = await getIodaOutageAlerts(24);
+      if (io.live) {
+        for (const o of outageAlertsFor(io.alerts, tracked).filter((x) => x.level === "critical")) {
+          alerts.push({ id: `outage-${o.country}`, severity: "amber", kind: "spectrum", title: `Connectivity outage — ${o.country}`, sub: `IODA critical alert (${o.sources} source${o.sources === 1 ? "" : "s"}, 24 h)` });
+        }
       }
     }
   } catch { /* ignore */ }

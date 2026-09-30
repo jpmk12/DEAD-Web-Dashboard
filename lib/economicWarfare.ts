@@ -29,6 +29,7 @@ import {
   gradeModality, hasPhrase, readInterdiction,
   type Modality, type InterdictionClass,
 } from "./chokepointSignals";
+import { CYBER_CLASSES, CYBER_CLASS_ORDER } from "./cyberSignals";
 import type { IndicatorDef, IndicatorObservation, ObservedState, WarningProblemDef } from "./warning";
 import { aorFromCoords, aorFromName, type Aor } from "./aor";
 import { countryCentroid } from "./countryCentroids";
@@ -36,9 +37,9 @@ import { CHOKEPOINTS } from "./chokepoints";
 
 // ───────────────────────────── instruments ─────────────────────────────
 
-export type Instrument = "shipping" | "energy" | "sanctions" | "trade" | "finance" | "overflight";
+export type Instrument = "shipping" | "energy" | "sanctions" | "trade" | "finance" | "overflight" | "cyber";
 
-export const INSTRUMENTS: Instrument[] = ["shipping", "energy", "sanctions", "trade", "finance", "overflight"];
+export const INSTRUMENTS: Instrument[] = ["shipping", "energy", "sanctions", "trade", "finance", "overflight", "cyber"];
 
 export interface InstrumentMeta {
   glyph: string;
@@ -94,6 +95,18 @@ export const INSTRUMENT_META: Record<Instrument, InstrumentMeta> = {
     weight: 0.5,
     falsifier: "No airspace closure, overflight denial or fee/permit lever by the actor in 14 days.",
     provenance: "DAIP / NOTAM open data; open reporting on overflight as leverage.",
+  },
+  // The one coercive instrument the grammar lacked (REVIEW-CYBER-SPACE §3.3):
+  // disruptive › espionage / pre-positioning › ransom / criminal › DDoS /
+  // hacktivist. A CISA or JCDC advisory naming the state actor is a `by`
+  // ACT with the standing of a Federal Register document; ransomware.live
+  // victims in the target country are corroboration, never attribution.
+  cyber: {
+    glyph: "⌁", label: "Cyber",
+    affects: "reachback & unclass networks · host-nation airport / ATC IT · fuel & ground-handling contractors",
+    weight: 0.6,
+    falsifier: "No state-attributed advisory and no corroborated disruptive, espionage or criminal cyber act BY the actor in 14 days.",
+    provenance: "CISA / JCDC public advisories; open cyber-statecraft reporting (CSIS, Atlantic Council); the cyber grammar in lib/cyberSignals.",
   },
 };
 
@@ -221,8 +234,12 @@ const OVERFLIGHT: ClassDef[] = [
   ] },
 ];
 
+// Cyber reuses the grammar in lib/cyberSignals wholesale so the Economy
+// board and the I&W cyber_pressure indicator grade a headline identically.
+const CYBER: ClassDef[] = CYBER_CLASS_ORDER.map((cls) => ({ cls: CYBER_CLASSES[cls].label, weight: CYBER_CLASSES[cls].weight, phrases: CYBER_CLASSES[cls].phrases }));
+
 const GRAMMAR: Record<Exclude<Instrument, "shipping">, ClassDef[]> = {
-  energy: ENERGY, sanctions: SANCTIONS, trade: TRADE, finance: FINANCE, overflight: OVERFLIGHT,
+  energy: ENERGY, sanctions: SANCTIONS, trade: TRADE, finance: FINANCE, overflight: OVERFLIGHT, cyber: CYBER,
 };
 
 // Shipping reuses the chokepoint grammar wholesale so a strait read and an

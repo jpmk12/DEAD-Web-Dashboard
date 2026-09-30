@@ -494,3 +494,46 @@ export function threatLed(composite: string | null): Led {
   if (composite === "green") return "g";
   return "u";
 }
+
+// The Spectrum LED at the field (docs/REVIEW-CYBER-SPACE.md §3.2): PNT at
+// the airfield (GPSJam cell level, RAIM outages), the space-weather ops
+// impact, and KEV hits on the declared edge vendors. Worst wins; a field
+// sitting in a HIGH interference cell is red; UNKNOWN only when nothing
+// reported at all. Space weather is environment — it colours this LED and
+// the LIMFAC, never an I&W level.
+// Structural view of the SITREP's spectrum block (declared in lib/sitrep,
+// which is server-only — this module stays client-safe).
+export interface SpectrumLite {
+  pnt: { live: boolean; cellLevel: number; raim: string[] };
+  spaceWx: { live: boolean; impacts: { label: string; led: Led; now: string }[] };
+  edge: { declared: boolean; live: boolean; hits: { vendor: string; ransomware: boolean }[] };
+}
+
+// One-line driver for the Spectrum tile — the same derivation the pane's
+// status strip, the tile summary and the HTML export use.
+export function spectrumShort(s: SpectrumLite | null | undefined): string {
+  if (!s) return "spectrum not assessed";
+  if (s.pnt.live && s.pnt.cellLevel >= 2) return "field inside a HIGH GPS-interference cell";
+  const worstWx = s.spaceWx.impacts.find((i) => i.led === "r") ?? s.spaceWx.impacts.find((i) => i.led === "a");
+  if (worstWx && worstWx.led === "r") return `space wx: ${worstWx.label} ${worstWx.now.split(":")[0]}`;
+  if (s.edge.declared && s.edge.live && s.edge.hits.some((h) => h.ransomware)) return `KEV in ransomware use on ${s.edge.hits.find((h) => h.ransomware)!.vendor}`;
+  if (s.pnt.live && s.pnt.cellLevel === 1) return "field inside a moderate GPS-interference cell";
+  if (s.pnt.raim.length) return `${s.pnt.raim.length} RAIM outage NOTAM${s.pnt.raim.length === 1 ? "" : "s"}`;
+  if (worstWx) return `space wx: ${worstWx.label} ${worstWx.now.split(":")[0]}`;
+  if (s.edge.declared && s.edge.live && s.edge.hits.length) return `${s.edge.hits.length} KEV entr${s.edge.hits.length === 1 ? "y" : "ies"} on declared vendors`;
+  if (!s.pnt.live && !s.spaceWx.live && !(s.edge.declared && s.edge.live)) return "spectrum sensors unreachable — UNKNOWN";
+  const parts = [s.pnt.live ? "no GPS interference at field" : "GPSJam unreachable", s.spaceWx.live ? "space wx quiet" : "SWPC unreachable", !s.edge.declared ? "no vendors declared" : s.edge.live ? "no KEV hits" : "KEV unreachable"];
+  return parts.join(" · ");
+}
+
+export function spectrumLed(i: {
+  pntLive: boolean; cellLevel: number; raimCount: number;
+  spaceWx: Led; edge: Led;
+}): Led {
+  const rank: Record<Led, number> = { u: 0, g: 1, a: 2, r: 3 };
+  let pnt: Led = i.pntLive ? (i.cellLevel >= 2 ? "r" : i.cellLevel === 1 ? "a" : "g") : "u";
+  if (i.raimCount > 0 && rank[pnt] < rank.a) pnt = "a";
+  const all: Led[] = [pnt, i.spaceWx, i.edge];
+  if (all.every((l) => l === "u")) return "u";
+  return all.reduce((w, l) => (rank[l] > rank[w] ? l : w), "g" as Led);
+}

@@ -33,6 +33,8 @@ import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory } from "
 import { getChokepointReads, type ChokepointRead } from "./chokepointReads";
 import { getRegulatoryDocs } from "./federalRegister";
 import { getForeignSanctions } from "./foreignSanctions";
+import { getCisaAdvisories } from "./cyberSources";
+import { advisoriesNaming } from "./cyberSignals";
 import { designationWaves, type DesignationWave } from "./foreignSanctionsParse";
 import { buildTimeline, type TimelineDot, type Sequence, type ShippingIncident } from "./economicTimeline";
 import { leverageFor, type LeverageEntry } from "./leverage";
@@ -189,13 +191,15 @@ async function compute(): Promise<EconomicWarfareBody> {
   const actors = resolveActors(tracked).slice(0, MAX_ACTORS);
 
   const cpIds = [...new Set(actors.flatMap((a) => a.chokepointIds))];
-  const [reg, energy, cps, foreign] = await Promise.all([
+  const [reg, energy, cps, foreign, cisa] = await Promise.all([
     withTimeout(getRegulatoryDocs(), 15_000),
     withTimeout(getEnergyQuotes(), 12_000),
     cpIds.length ? withTimeout(getChokepointReads(cpIds), 15_000) : Promise.resolve(null),
     // The EU list is tens of MB. Its fetch keeps running (and caches 24 h in
     // its own lib) if this pass gives up on it; the next pass gets it warm.
     withTimeout(getForeignSanctions(), 8_000),
+    // CISA / JCDC advisories: a state-attributed advisory is a `by` cyber act.
+    withTimeout(getCisaAdvisories(), 8_000),
   ]);
   const waves = foreign ? designationWaves(foreign.rows, day, 45) : [];
   const notices = (await withTimeout(getCapturedNotices(300), 6000)) ?? [];
@@ -253,6 +257,19 @@ async function compute(): Promise<EconomicWarfareBody> {
         id: `${actor.id}:notice:${n.id}`, actorId: actor.id, actorLabel: actor.label, direction: "by",
         target: targetOf(`${n.title} ${n.body ?? ""}`, r.instrument, actor), instrument: r.instrument, cls: r.cls, modality: r.modality, weight: r.weight,
         title: n.title, link: n.url, source: label, pubDate: n.publishedOn ?? undefined, ageDays: age, own: false, phrase: r.phrase,
+      });
+    }
+    // CISA / JCDC advisories naming this actor's state: a primary record of
+    // a cyber act BY the actor (the standing a Federal Register document
+    // has on the U.S. side). Wire-grade, so it can confirm.
+    const named = cisa?.live ? advisoriesNaming(cisa.items, actor.countries, todayMs, TEXT_WINDOW_DAYS) : [];
+    for (const a of named) {
+      const key = (a.link ?? a.title).toLowerCase();
+      if (moves.some((m) => (m.link ?? m.title).toLowerCase() === key)) continue;
+      moves.push({
+        id: `${actor.id}:cisa:${key.slice(0, 80)}`, actorId: actor.id, actorLabel: actor.label, direction: "by",
+        target: "United States", instrument: "cyber", cls: "state-attributed advisory", modality: "act", weight: 80,
+        title: a.title, link: a.link, source: "CISA advisory", pubDate: a.pubDate, ageDays: a.ageDays, own: false, phrase: a.actors.join("/"),
       });
     }
     const evidence = evidenceByInstrument(moves);
@@ -351,6 +368,7 @@ async function compute(): Promise<EconomicWarfareBody> {
         { sensor: "own sources", live: own.items.length > 0, note: own.items.length ? [...own.sources].join(", ") : "nothing relevant" },
         ...(actor.chokepointIds.length ? [{ sensor: "chokepoint read", live: cpReads.length > 0 }] : []),
         { sensor: "Federal Register", live: !!reg?.live },
+        { sensor: "CISA advisories", live: !!cisa?.live, note: named.length ? `${named.length} naming the actor (14d)` : undefined },
         { sensor: "EU/UK lists", live: !!(foreign && (foreign.live.EU || foreign.live.UK)), note: foreign?.failed.length ? `${foreign.failed.join("/")} unavailable` : undefined },
         ...(noticeHostFor(actor.id) ? [{ sensor: `${noticeHostFor(actor.id)} notices`, live: own_notices.some((n) => (ageDaysOf(n.capturedAt, todayMs) ?? 999) <= 30), note: own_notices.length ? `${own_notices.length} captured` : "capture the announcements page with the extension" }] : []),
       ],

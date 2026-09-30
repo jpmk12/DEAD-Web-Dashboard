@@ -28,6 +28,14 @@ import { getInfraSources, type SitrepInfra } from "./infra";
 import { splitInfraNews, infraLed, nasLed } from "./infraSignals";
 import { deriveMissionImpact, type MissionImpact } from "./limfac";
 import { listLimfacs } from "./limfacStore";
+import { getGpsInterference, gpsLevelAt } from "./gpsjam";
+import { getNoaaScales } from "./spaceSources";
+import { getKev } from "./cyberSources";
+import { getMissionProfile } from "./missionProfileApply";
+import { spaceWeatherImpacts, spaceWxLed, type SpaceWxImpact, type ScaleDay } from "./spaceWeatherOps";
+import { kevHits } from "./cyberSignals";
+import { edgeExposureLed } from "./spectrumRules";
+import { spectrumLed, spectrumShort } from "./sitrepSignals";
 
 export interface SitrepAlert {
   event: string;
@@ -44,10 +52,20 @@ export interface SitrepOutlookDay {
   windMph: number | null;
 }
 
+// Spectrum at the field (REVIEW-CYBER-SPACE §3.2): PNT (GPSJam cell the
+// airfield sits in + RAIM outage NOTAMs), space weather → ops impact rows,
+// and KEV entries on the DECLARED edge vendors. Every block reports its own
+// liveness; an undeclared vendor list is UNKNOWN, never green.
+export interface SitrepSpectrum {
+  pnt: { live: boolean; date: string; cellLevel: number; raim: string[] };
+  spaceWx: { live: boolean; now: ScaleDay | null; outlook: ScaleDay[]; impacts: SpaceWxImpact[]; polar: boolean | null; satcom: string };
+  edge: { declared: boolean; live: boolean; vendors: string[]; hits: { cve: string; vendor: string; product: string; name: string; dateAdded: string; ransomware: boolean }[] };
+}
+
 export interface SitrepPayload {
   base: SitrepBase;
   generatedAt: string;
-  status: { wx: Led; ops: Led; threat: Led; infra: Led };
+  status: { wx: Led; ops: Led; threat: Led; infra: Led; spectrum: Led };
   weather: {
     live: boolean;
     now: AviationWx | null;
@@ -91,6 +109,7 @@ export interface SitrepPayload {
     news: { title: string; link: string; matched: string[] }[];
     newsScanned: number;
   };
+  spectrum: SitrepSpectrum;
   // Leadership-facing mission-capability rollup: per-function FMC/PMC/NMC, the
   // ranked LIMFAC register (auto-derived + commander-entered), and CCIR flags.
   mission: MissionImpact;
@@ -132,15 +151,16 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
       ? `NAS ${p.infra.nas.nearby.find((x) => x.kind === "closure" || x.kind === "groundStop")!.kind === "closure" ? "closure" : "ground stop"} at ${p.infra.nas.nearby.find((x) => x.kind === "closure" || x.kind === "groundStop")!.airport}`
     : p.infra.powerNews.length > 0 ? "power reporting in local news"
     : "no infra degradation";
-  const axisShort: Record<"wx" | "ops" | "threat" | "infra", string> = {
+  const axisShort: Record<"wx" | "ops" | "threat" | "infra" | "spectrum", string> = {
     wx: wxShort,
     ops: opsShort,
     threat: p.threats.fp ? p.threats.fp.topDriver : "FP assessment unavailable",
     infra: infraShort,
+    spectrum: spectrumShort(p.spectrum),
   };
   // Tile driver = the worst axis speaking for itself. Ties resolve toward the
   // airfield (ops), which is what the tile owner runs. All-green = wx + NOTAM count.
-  const order: ("ops" | "wx" | "threat" | "infra")[] = ["ops", "wx", "threat", "infra"];
+  const order: ("ops" | "wx" | "threat" | "infra" | "spectrum")[] = ["ops", "wx", "threat", "infra", "spectrum"];
   const worst = order.reduce((acc, k) => (LED_RANK[p.status[k]] > LED_RANK[p.status[acc]] ? k : acc), order[0]);
   const driver = p.status[worst] === "g" ? `${wxShort} · ${opsShort}` : axisShort[worst];
 
@@ -258,11 +278,15 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       getInfraSources(base).catch((): SitrepInfra => ({ internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null })),
     ]);
 
-  const [runways, fuelRes, historyRows, manualLimfacs] = await Promise.all([
+  const [runways, fuelRes, historyRows, manualLimfacs, gps, scales, kev, profile] = await Promise.all([
     airfieldRunways(icao).catch(() => []),
     getFuelNotams().catch(() => null),
     getSitrepHistory(icao, 7).catch(() => [] as SitrepDay[]),
     listLimfacs(icao).catch(() => []),
+    getGpsInterference().catch(() => ({ ok: false, hexes: [], date: "" })),
+    getNoaaScales().catch(() => ({ live: false, now: { date: "", R: null, S: null, G: null }, outlook: [] })),
+    getKev().catch(() => ({ live: false, entries: [] })),
+    getMissionProfile().catch(() => null),
   ]);
 
   // Center (ARTCC) enroute NOTAMs — the "what's between us and everywhere
@@ -316,6 +340,24 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   const infraNews = splitInfraNews(impactNews);
 
   const severeAlert = sitAlerts.some((a) => a.lifeThreatening || a.severity === "Extreme");
+
+  // ── Spectrum at the field ──
+  const spec = profile?.spectrum ?? { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true };
+  const raim = baseNotams.filter((n) => n.category === "gps_raim").map((n) => n.text.slice(0, 160));
+  const cellLevel = gps.ok ? gpsLevelAt(base.lat, base.lon, gps.hexes) : 0;
+  const impacts = spaceWeatherImpacts(scales, { polar: spec.polarRoutes });
+  const hits = kev.live ? kevHits(kev.entries, spec.edgeVendors, now, 14) : [];
+  const edgeLed = edgeExposureLed(hits, spec.edgeVendors.length > 0, kev.live);
+  const spectrum: SitrepSpectrum = {
+    pnt: { live: gps.ok, date: gps.date, cellLevel, raim },
+    spaceWx: { live: scales.live, now: scales.live ? scales.now : null, outlook: scales.outlook, impacts, polar: spec.polarRoutes, satcom: spec.satcom },
+    edge: {
+      declared: spec.edgeVendors.length > 0, live: kev.live, vendors: spec.edgeVendors,
+      hits: hits.map((h) => ({ cve: h.entry.cveID, vendor: h.vendor, product: h.entry.product, name: h.entry.vulnerabilityName, dateAdded: h.entry.dateAdded, ransomware: h.entry.knownRansomwareCampaignUse })),
+    },
+  };
+  const spectrumStatus = spectrumLed({ pntLive: gps.ok, cellLevel, raimCount: raim.length, spaceWx: spaceWxLed(scales, { polar: spec.polarRoutes }), edge: edgeLed });
+
   const payload: SitrepPayload = {
     base,
     generatedAt: new Date(now).toISOString(),
@@ -329,6 +371,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
         infraNews.power.length,
         infraNews.comms.length,
       ),
+      spectrum: spectrumStatus,
     },
     weather: {
       live: cats.live,
@@ -373,6 +416,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       news: impactNews,
       newsScanned: newsRaw.length,
     },
+    spectrum,
     // Placeholder — filled right after the payload exists (deriveMissionImpact
     // reads the assembled ops/weather/threats/infra + the manual LIMFACs).
     mission: { state: "fmc", functions: [], limfacs: [], ccir: [] },

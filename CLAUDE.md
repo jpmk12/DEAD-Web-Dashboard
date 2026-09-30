@@ -1693,28 +1693,95 @@ built on the existing engine rather than a new one:
   `mofcom.js`, the same capture-then-build loop as X/DAIP. Extension files
   are static under `tools/` (no esbuild).
 
-### Cyber & space warning — reviewed, NOT built (`docs/REVIEW-CYBER-SPACE.md`)
-Audit (2026-09-30): space exists only as the Weather tab's SWPC card (a
-curiosity with no ops framing and no path into any LED/board/alert) plus
-GPSJam on the force-posture axis and the hand-built CENTCOM board — the
-TEMPLATED AOI boards dropped GPS (`airspace_gps_disruption` is airspace-only
-there; a gap, not a decision). Cyber has no sensor; IODA connectivity feeds
-one SITREP region only. The review proposes, per tab, indicators that reuse
-the existing engine and grammar: `pnt_denial` and `cyber_pressure` on every
-AOI board (GPSJam vs the AOI's own baseline + GPS/WAAS NOTAMs; IODA outage
-alerts + ransomware.live victims + graded cyber news BY the actor + CISA
-state-attributed advisories), `space_activity` on space-power boards
-(CelesTrak SATCAT/SOCRATES, Launch Library 2), a wing-level SITREP
-"Spectrum" card (SWPC ops impact, KEV × declared vendors), a Glance
-Spectrum tile, Regional "Digital & spectrum", a `⌁ cyber` Economy
-instrument, Outages/Launches map layers, and three optional Mission Profile
-declarations (polar/HF routes, SATCOM, edge vendors). Load-bearing rules
-recorded there: **space weather is environment, never an I&W level** (it
-guards PNT attribution instead); **KEV × declared vendors, never the NVD
-firehose**; **passive sources only — nothing probes a network**. Mockup:
-`docs/mockups/cyber-space.html` → `docs/cyber-space(.png|-phone.png)`,
-standalone `docs/cyber-space.html`. Build order A–H in the review; nothing
-under `lib/`, `app/` or `components/` changed for it.
+### Cyber & space warning (BUILT 2026-09-30 from `docs/REVIEW-CYBER-SPACE.md`, steps A–G)
+Cross-cutting, no tenth tab. Three disciplines hold everywhere and are
+test-enforced: **space weather is environment, never an I&W level** — it
+earns an LED and an alert and GUARDS PNT attribution (`pntStormGuard`: a
+G3+ storm caps the PNT indicator at watching and says so); **KEV × declared
+vendors, never the NVD firehose** (no vendors → UNKNOWN, never green);
+**passive only** — every input is a published feed or a browser capture,
+nothing probes a network. Nothing here is sent to a model: the Mission
+Profile `spectrum` block is omitted from `missionSummaryLine` (tested).
+- **Pure layer (client-safe, tested in `tests/cyberSpace.test.ts`)**:
+  `lib/cyberSignals.ts` (the cyber grammar — classes disruptive › espionage/
+  pre-positioning › ransom › DDoS, PHRASES never words, modality by the
+  shared `gradeModality`; `stateActorsIn` + `advisoriesNaming` for CISA;
+  `parseKev` + `kevHits`; `parseRansomwareVictims` + `victimsRelevant`;
+  `parseIodaAlerts` + `outageAlertsFor`), `lib/spaceWeatherOps.ts`
+  (`parseNoaaScales` of `noaa-scales.json` incl. the 3-day predicted days
+  derived from probabilities, `spaceWeatherImpacts` → HF/GPS/SATCOM/
+  radiation rows read against the polar declaration, `spaceWxLed`,
+  `pntStormGuard`, `severeScales`), `lib/spaceCatalog.ts` (`SPACE_POWERS`
+  China/Russia/Iran/DPRK, `parseLaunches` for Launch Library 2,
+  `launchCadence` — cadence not count, `parseSocrates` +
+  `usPayloadConjunctions`), `lib/spectrumRules.ts` (the ladders:
+  `pntState`, `cyberState` — reuses `instrumentState` so own-source-only
+  caps at watching and a CISA advisory is an act with Federal-Register
+  standing, `spaceActivityState`, `edgeExposureLed`, `stateLed`).
+  `lib/economicWarfare.ts` imports the grammar (not the ladders) for its
+  `cyber` instrument, so there is no module cycle: grammar → economy →
+  ladders.
+- **Server**: `lib/cyberSources.ts` (IODA `/v2/outages/alerts` with EPOCH
+  SECONDS, CISA KEV JSON, CISA advisories RSS via `fetchFeed`,
+  ransomware.live `/v2/recentvictims`) and `lib/spaceSources.ts` (SWPC
+  scales, LL2 previous+upcoming cached 3 h — the free tier is ~15 req/h —
+  SOCRATES CSV). All fail-safe `live:false`. **Every contract is UNVERIFIED
+  from the sandbox** (egress): `/api/spectrum?diag=1` (owner-only) runs all
+  eight fetches from production and returns status/bytes/parsed/snippet;
+  `parsed: 0` with a 200 means a renamed field. `lib/sensorStore.ts` +
+  `sensor_daily (sensor_key, day, value)` generalises `mobility_count`:
+  day-peak on duplicate, trailing mean over PRIOR days, a dead sensor
+  writes nothing (keys `pnt:<problemId>`, `ransom:<problemId>`).
+- **I&W boards**: `spectrumIndicators()` in `warningTaxonomy.ts` adds
+  `pnt_denial` + `cyber_pressure` to EVERY board (CENTCOM and templated) and
+  `space_activity` only where the AOI holds a space power (`ProblemGeo.
+  spacePowers`; `WarningProblemSeed.spaceActivity` is the opt-out from the
+  profile). CENTCOM's `airspace_gps_disruption` keeps its id but is
+  airspace-only (its sensor never read GPSJam anyway). `lib/spectrumSensors.ts`
+  `gatherSpectrumObservations(geo, problemId, baselines, userNews)` runs
+  inside `assessWarning` after the classic sensors — it reuses their
+  own-source slice (`GatherResult.userNews`, no second fan-out), counts
+  GPSJam cells inside the bbox (level-2 twice) + hubs inside a cell,
+  filters DAIP `GPS_WAAS` NOTAMs to AOI FIR/country names, grades the
+  GDELT cyber query (`cyber:<problemId>`, 7d) + own sources through
+  `readCyber` × `attribute()` BY the actor, and writes the two sensor days.
+  Templated boards now have 8–9 indicators (tests updated).
+- **SITREP**: `SitrepPayload.spectrum` (`pnt` cell level at the field +
+  RAIM NOTAMs; `spaceWx` scales/outlook/impacts; `edge` KEV hits on the
+  declared vendors) and `status.spectrum` (`spectrumLed`, pure) — a fifth
+  LED on the strip, the tiles (SPC), the summary driver (`spectrumShort`,
+  pure in `sitrepSignals.ts` so the client and the export can share it —
+  NOT in `sitrep.ts`, which is server-only), the Spectrum card, and the
+  HTML export card. `deriveMissionImpact` C2/Comms: a HIGH cell, a red
+  space-weather row or a KEV in ransomware use → PMC + CCIR; watch-level
+  → FMC "(watch)"; all sensors dead → UNKNOWN (tested). `sitrep_status_daily`
+  deliberately does NOT record it (history strip unchanged).
+- **Mission Profile**: `profile.spectrum` = `{ polarRoutes, satcom,
+  edgeVendors[], spaceActivity }` (`sanitizeSpectrum`, `SpectrumEditor` in
+  the editor). **`polarRoutes` defaults to FALSE** — this wing's own
+  declaration ("we don't fly polar", 2026-09-30), so the S-scale/radiation
+  rows read "not declared, not a factor"; flip it in the editor. Team
+  config, never derived, never a prompt.
+- **Surfaces**: `lib/spectrum.ts` `getSpectrumSummary({maxWaitMs})` →
+  `/api/spectrum` (worst PNT/cyber/space read across the cached board
+  assessments + space-wx LED + KEV; bounded, `pending` stub) → the Glance
+  **Spectrum** tile in `StatusRow` (click → the driving board, else Weather);
+  `lib/alerts.ts` adds kind `"spectrum"` with four predicates (`swx-<R3+>`,
+  `iw-<problem>-pnt|cyber-<active|confirmed>`, `kev-<cve>`,
+  `outage-<country>` for a critical IODA alert in a tracked country);
+  Weather `SpaceWeatherCard` reframed as "Space weather → ops" (the route
+  now returns `ops` = scales + impacts + severe, and prefers SWPC's observed
+  scales — incl. S — over the Kp/flare derivations) plus `SpaceWxThreatRow`
+  under the threat board only at a scale ≥3; Regional dossier
+  `digital` block + "⌁ Digital & spectrum" card; Economy `cyber` instrument
+  (`⌁`, weight 0.6) on every actor board, CISA advisories naming the actor's
+  state as `by` acts (source "CISA advisory", wire-grade); Crisis map
+  **Outages** (`/api/osint/outages`, IODA at country centroid) and
+  **Launches** (`/api/osint/launches`, pads ±7/14 d) layers, off by default;
+  News `cyber` category (CISA advisories, The Record, BleepingComputer,
+  Krebs — reading only; the sensor reads CISA directly). Step H (Cloudflare
+  Radar, NetBlocks capture) remains optional and unbuilt. No new npm dep
+  (esbuild `0`).
 
 ### Indications & Warning (OSINT "I&W" sub-pane — the sensor→fusion→display spine)
 A doctrine-grounded I&W board: warning is about **anomaly & trajectory, not
@@ -1786,6 +1853,10 @@ the marquee sensor, not a peer board.
 
 ### Network
 All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
+embeds; cyber/space feeds — IODA outage alerts (`api.ioda.inetintel.cc.gatech.edu`),
+CISA KEV + advisories (`www.cisa.gov`), ransomware.live (`api.ransomware.live`),
+NOAA SWPC scales (`services.swpc.noaa.gov`), Launch Library 2
+(`ll.thespacedevs.com`), CelesTrak SOCRATES (`celestrak.org`);
 embeds, GDELT (DOC, local news), U.S. State Dept (`travel.state.gov` — the
 `TAsTWs.xml` advisory RSS + the per-country `destination/{slug}.html` pages),
 UCDP (`ucdpapi.pcr.uu.se`), ACLED

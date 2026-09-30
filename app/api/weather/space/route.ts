@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { SpaceWeather } from "@/lib/types";
+import { getNoaaScales } from "@/lib/spaceSources";
+import { spaceWeatherImpacts, severeScales, type NoaaScales, type SpaceWxImpact } from "@/lib/spaceWeatherOps";
+import { getMissionProfile } from "@/lib/missionProfileApply";
 
 export const dynamic = "force-dynamic";
 
@@ -113,20 +116,48 @@ async function fetchSpaceWeather(): Promise<SpaceWeather> {
   };
 }
 
+// The reframe (REVIEW-CYBER-SPACE §4.7): the card carries the OPS IMPACT —
+// four rows (HF, GPS, SATCOM, radiation) with the 3-day outlook from SWPC's
+// noaa-scales.json, read against the Mission Profile's polar declaration.
+// Environment, not warning: the rows earn an LED and an alert at 3+, never
+// an I&W level. `scales` also fills the S-scale the Kp/X-ray pair lacks.
+export interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null }
+
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const [scales, profile] = await Promise.all([getNoaaScales().catch(() => null), getMissionProfile().catch(() => null)]);
+  const polar = profile?.spectrum?.polarRoutes ?? false;
+  const ops: SpaceOps | null = scales
+    ? { scales, impacts: spaceWeatherImpacts(scales, { polar }), severe: severeScales(scales), polar }
+    : null;
+
   if (cached && cached.expires > Date.now()) {
-    return NextResponse.json({ space: cached.data, cached: true });
+    return NextResponse.json({ space: withScales(cached.data, ops), ops, cached: true });
   }
 
   try {
     const data = await fetchSpaceWeather();
     cached = { data, expires: Date.now() + TTL_MS };
-    return NextResponse.json({ space: data });
+    return NextResponse.json({ space: withScales(data, ops), ops });
   } catch (err) {
     console.error("Space weather fetch failed:", err);
-    return NextResponse.json({ space: null, error: "Unavailable" }, { status: 502 });
+    // The scales feed may still be up: serve the ops rows so the card can
+    // say what it knows instead of a blank.
+    return NextResponse.json({ space: null, ops, error: "Unavailable" }, { status: ops?.scales.live ? 200 : 502 });
   }
+}
+
+// Prefer SWPC's own observed scales for today over the Kp/flare derivations
+// when the scales feed is live (it carries S, which the pair cannot).
+function withScales(space: SpaceWeather, ops: SpaceOps | null): SpaceWeather {
+  if (!ops?.scales.live) return space;
+  const n = ops.scales.now;
+  return {
+    ...space,
+    geoStorm: n.G != null ? `G${n.G}` : space.geoStorm,
+    radioBlackout: n.R != null ? `R${n.R}` : space.radioBlackout,
+    radiationStorm: n.S != null ? `S${n.S}` : space.radiationStorm,
+  };
 }

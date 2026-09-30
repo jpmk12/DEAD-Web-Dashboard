@@ -42,6 +42,7 @@ const TABS = [
   { id: "strategic", label: "Strategic" },
   { id: "domestic",  label: "Domestic" },
   { id: "space",     label: "Space" },
+  { id: "cyber",     label: "Cyber" },
   { id: "local",     label: "Local" },
   { id: "saved",     label: "★ Saved" },
 ] as const;

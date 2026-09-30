@@ -11,7 +11,7 @@
 // same UNKNOWN-≠-clear discipline as the pane.
 
 import type { SitrepPayload } from "./sitrep";
-import { closureWindows, windowConflicts, windowRangeLabel, type Led } from "./sitrepSignals";
+import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led } from "./sitrepSignals";
 import type { FlightCategory } from "./types";
 
 export function esc(s: string): string {
@@ -89,11 +89,14 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
     : p.infra.powerNews.length > 0 ? "power reporting in local news"
     : "no degradation detected";
 
+  const specText = spectrumShort(p.spectrum);
+
   const mastLeds = ([
     ["Weather", p.status.wx, wxText],
     ["Ops / Airfield", p.status.ops, opsText],
     ["Threat", p.status.threat, thrText],
     ["Infrastructure", p.status.infra, infraText],
+    ["Spectrum", p.status.spectrum ?? "u", specText],
   ] as [string, Led, string][])
     .map(([k, l, v]) => `<div class="ledbox">${ledDot(l)}<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div></div>`)
     .join("");
@@ -223,6 +226,30 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
     ? p.infra.powerNews.map((n) => row("a", `<b>Power:</b> ${esc(n.title.slice(0, 150))}`, "news")).join("")
     : row("u", "<b>Power:</b> no outage reporting in local news — news-derived, absence ≠ verified clear", "news"));
 
+  // ── spectrum ──
+  const specRows: string[] = [];
+  const sp = p.spectrum;
+  if (sp) {
+    specRows.push(sp.pnt.live
+      ? row(sp.pnt.cellLevel >= 2 ? "r" : sp.pnt.cellLevel === 1 ? "a" : "g", `<b>PNT at the field:</b> ${sp.pnt.cellLevel >= 2 ? "inside a HIGH GPS-interference cell — GPS approaches unreliable, brief ILS/TACAN alternates" : sp.pnt.cellLevel === 1 ? "inside a moderate GPS-interference cell — verify RAIM" : "no GPS interference reported"} <span class="dim">(${esc(sp.pnt.date || "latest")}, ADS-B-derived)</span>`, "GPSJam")
+      : row("u", "<b>PNT:</b> GPSJam unreachable — UNKNOWN", "GPSJam"));
+    for (const t of sp.pnt.raim) specRows.push(row("a", `<b>RAIM:</b> ${esc(t)}`, "DAIP"));
+    if (sp.spaceWx.live && sp.spaceWx.now) {
+      const n = sp.spaceWx.now;
+      const w = Math.max(n.R ?? 0, n.G ?? 0, sp.spaceWx.polar ? (n.S ?? 0) : 0);
+      specRows.push(row(w >= 3 ? "r" : w >= 1 ? "a" : "g", `<b>Space weather now:</b> R${n.R ?? "?"} · S${n.S ?? "?"} · G${n.G ?? "?"}${sp.spaceWx.outlook.length ? ` <span class="dim">· outlook ${sp.spaceWx.outlook.map((d) => `${esc(d.date.slice(5))} R${d.R ?? "?"}/S${d.S ?? "?"}/G${d.G ?? "?"}`).join(" · ")}</span>` : ""}`, "SWPC"));
+      for (const imp of sp.spaceWx.impacts) specRows.push(row(imp.led, `<b>${esc(imp.label)}:</b> ${esc(imp.now)}${imp.relevance === "not declared" ? ' <span class="dim">· not declared</span>' : ""} <span class="dim">· outlook: ${esc(imp.outlook)}</span>`, "SWPC"));
+    } else {
+      specRows.push(row("u", "<b>Space weather:</b> NOAA SWPC unreachable — HF / GPS / SATCOM impact UNKNOWN", "SWPC"));
+    }
+    if (!sp.edge.declared) specRows.push(row("u", "<b>Edge exposure:</b> no vendors declared — UNKNOWN", "KEV"));
+    else if (!sp.edge.live) specRows.push(row("u", "<b>Edge exposure:</b> KEV catalog unreachable — UNKNOWN", "KEV"));
+    else if (sp.edge.hits.length === 0) specRows.push(row("g", `<b>Edge exposure:</b> no new KEV entries for ${esc(sp.edge.vendors.join(", "))} (14 d)`, "KEV"));
+    for (const h of sp.edge.hits) specRows.push(row(h.ransomware ? "r" : "a", `<b>${esc(h.cve)}</b> ${esc(h.vendor)} ${esc(h.product)} — ${esc(h.name.slice(0, 120))}${h.ransomware ? " · known ransomware use" : ""} <span class="dim">· added ${esc(h.dateAdded)}</span>`, "KEV"));
+  } else {
+    specRows.push(row("u", "Spectrum not assessed in this snapshot", "—"));
+  }
+
   const card = (led: Led, title: string, src: string, body: string) =>
     `<div class="card"><div class="hd">${ledDot(led)}<h2>${esc(title)}</h2><span class="src">${esc(src)}</span></div><div class="bd">${body}</div></div>`;
 
@@ -332,6 +359,7 @@ ${card(p.status.wx, "Weather", "AWC METAR/TAF · NWS · Open-Meteo", `${p.weathe
 ${card(p.status.ops, "Ops / Airfield", "DAIP NOTAMs · OurAirports", `${opsRows.join("")}${windChips}${timelineHtml}`)}
 ${card(p.status.threat, "Threats", "Force Protection · GDACS/USGS · GDELT", threatRows.join(""))}
 ${card(p.status.infra, "Infrastructure", "IODA · FAA NAS · USGS · news", infraRows.join(""))}
+${card(p.status.spectrum ?? "u", "Spectrum", "GPSJam · DAIP RAIM · NOAA SWPC · CISA KEV", specRows.join(""))}
 <p class="foot">
 <b>Provenance:</b> compiled entirely from open/public sources (NWS AWC · DoD DAIP NOTAMs · GDACS/USGS · GDELT · IODA Georgia Tech · FAA NAS · Open-Meteo · OurAirports).
 <b>Discipline:</b> any unreachable source reads UNKNOWN — never implied-clear. Advisory planning data, not flight guidance.<br>

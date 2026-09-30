@@ -5,6 +5,7 @@ import { TrackedLocation, MetarStation } from "@/lib/types";
 import LocationCard from "./LocationCard";
 import ThreatBoard from "./ThreatBoard";
 import SpaceWeatherCard from "./SpaceWeatherCard";
+import SpaceWxThreatRow from "./SpaceWxThreatRow";
 import MetarPanel from "./MetarPanel";
 import { CloudSun } from "@/lib/icons";
 
@@ -157,6 +158,8 @@ export default function WeatherTab() {
 
       {/* Severe-weather threat board (alerts across all locations + tropical systems) */}
       <ThreatBoard refreshKey={refreshKey} />
+      {/* Space-weather row on the threat board: only when a NOAA scale is at 3+ */}
+      <SpaceWxThreatRow refreshKey={refreshKey} />
 
       {/* Map controls + Windy embed centred on the selected location */}
       {selected && (

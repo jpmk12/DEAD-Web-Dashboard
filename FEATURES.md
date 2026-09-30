@@ -307,7 +307,8 @@ system itself (shipping at a chokepoint).
 - **Multi-location**: `user_prefs.trackedLocations` (up to 10, each with label+lat+lon)
 - **Per-location card**: current temp, wind, short forecast, next 4 periods. NWS alerts chip (severity-coloured)
 - **Aggregated alerts panel**: deduped across tracked locations, severity-sorted
-- **Space weather**: Kp index sparkline + G-scale geomagnetic storm + flare class + R-scale radio blackout. Source: NOAA SWPC
+- **Space weather → ops**: Kp sparkline + G/R/S scales (SWPC's observed scales preferred), then four impact rows — HF radio, GPS/PNT integrity, SATCOM, radiation at altitude — with the 3-day outlook, read against the Mission Profile's polar/HF-route declaration. A threat-board row appears only when a scale reaches 3. Environment, not warning: colours the SITREP Spectrum card and the C2/Comms LIMFAC, pages at R3/G3/S3+, never an I&W level. Source: NOAA SWPC `noaa-scales.json` + Kp + GOES X-ray
+- **Cyber & space warning (cross-cutting, `docs/REVIEW-CYBER-SPACE.md`)**: `pnt_denial` + `cyber_pressure` on every I&W board and `space_activity` where the AOI's actor launches (`lib/spectrumSensors`, `lib/spectrumRules`, `lib/cyberSignals`); a Spectrum LED/card on the SITREP (GPSJam cell at the field, RAIM, space-weather impact, CISA KEV × declared edge vendors); a Glance Spectrum tile (`/api/spectrum`); four spectrum alert predicates; Regional "Digital & spectrum" card; Economy `⌁ cyber` instrument with CISA advisories as `by` acts; Crisis-map Outages (IODA) and Launches (Launch Library 2) layers; a `cyber` news category. Passive published sources only; a G3+ storm is attributed before any jamming read; no vendors declared → UNKNOWN, never green.
 - **Map**: Windy.com ECMWF embed with overlay selector (Wind/Rain/Temp/Clouds/Pressure)
 - **METAR strip**: bottom-of-tab quick links to common mil airfields' METAR
 

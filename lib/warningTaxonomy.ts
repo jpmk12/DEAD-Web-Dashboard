@@ -9,11 +9,54 @@
 // Sensors named in `sourceFeed` all already exist in this repo — this problem
 // plugs live feeds into the pure engine (lib/warning.ts) with zero new deps.
 
-import type { WarningProblemDef } from "./warning";
+import type { IndicatorDef, WarningProblemDef } from "./warning";
 import { countryCentroid } from "./countryCentroids";
+import { spacePowersIn } from "./spaceCatalog";
 import { firsForCountry } from "./firData";
 import { CHOKEPOINTS } from "./chokepoints";
 import { ALL_AIRFIELDS } from "./airfields";
+
+// ── Spectrum indicators (docs/REVIEW-CYBER-SPACE.md §3.1) ───────────────────
+// The same three on every board, parameterised by the AOI's name; the space
+// indicator exists only where the AOI's actor launches (China, Russia, Iran,
+// North Korea) — a launch by anyone else is not warning for a mobility force.
+// Space weather is deliberately NOT here: it is environment, and it GUARDS the
+// PNT attribution (lib/spectrumRules.pntState) rather than raising a level.
+export const PNT_ID = "pnt_denial";
+export const CYBER_ID = "cyber_pressure";
+export const SPACE_ID = "space_activity";
+
+export function spectrumIndicators(problemId: string, aoiName: string, spacePowers: string[]): IndicatorDef[] {
+  const out: IndicatorDef[] = [
+    {
+      id: PNT_ID, warningProblem: problemId,
+      description: `GPS / PNT denial over ${aoiName}: interference-cell density inside the AOI versus its own baseline, hubs sitting inside an elevated cell, GPS/WAAS system NOTAMs and RAIM outages. Guarded by space weather — a G3+ storm is attributed first.`,
+      sourceFeed: "gpsjam (ADS-B-derived H3 cells, daily) + DAIP GPS_WAAS NOTAMs + RAIM NOTAMs at hubs; NOAA SWPC G-scale as the attribution guard",
+      weight: 0.6,
+      falsifier: "Elevated-cell count within the AOI's own baseline for 5 consecutive days, no hub inside an elevated cell, and no GPS/WAAS NOTAM over the AOI.",
+      provenance: "Open GPS-interference observation (gpsjam.org); DAIP/NOTAM open data; NOAA SWPC scales. Grabo 'electronic warfare / spectrum' indicator class.",
+    },
+    {
+      id: CYBER_ID, warningProblem: problemId,
+      description: `Cyber pressure by the ${aoiName} actor: CISA/JCDC advisories naming the state actor, graded cyber acts attributed BY the actor (disruptive › espionage/pre-positioning › ransom › DDoS; act › threat › analysis), national connectivity outage alerts in AOI countries, ransomware victims in-country or in transport/logistics/defence versus baseline.`,
+      sourceFeed: "CISA advisories RSS + GDELT DOC actor query with the cyber grammar (corroborated by your X / newsletters / captured articles / OSINT feeds; own-source only caps at watch) + IODA outage alerts + ransomware.live",
+      weight: 0.6,
+      falsifier: "No state-attributed advisory, no corroborated cyber act BY the actor, no country-level outage alert and victims within baseline for 14 days.",
+      provenance: "CISA/JCDC public advisories; IODA (Georgia Tech) open connectivity measurement; open ransomware tracking; CSIS/Atlantic Council cyber-statecraft reporting.",
+    },
+  ];
+  if (spacePowers.length) {
+    out.push({
+      id: SPACE_ID, warningProblem: problemId,
+      description: `Space activity by the ${aoiName} actor (${spacePowers.join("/")}): launches in the last 14 days against the actor's own 90-day cadence, and close conjunctions involving a U.S. military payload. Launch-hazard airspace closures arrive through the airspace indicator.`,
+      sourceFeed: "Launch Library 2 (The Space Devs; provider country + pad) + CelesTrak SOCRATES conjunctions",
+      weight: 0.45,
+      falsifier: "Launch count within the actor's own cadence and no close conjunction involving a U.S. military payload in 14 days.",
+      provenance: "Open launch and catalogue data (The Space Devs, CelesTrak); Secure World Foundation counterspace reporting.",
+    });
+  }
+  return out;
+}
 
 // ── CENTCOM · Iran escalation ────────────────────────────────────────────────
 // Thresholds are ANOMALY (delta-from-baseline) deltas, tuned conservative so the
@@ -74,12 +117,13 @@ export const CENTCOM_IRAN: WarningProblemDef = {
       id: "airspace_gps_disruption",
       warningProblem: "centcom_iran",
       description:
-        "Gulf FIR/airspace closures and overflight NOTAMs plus GPS/EW interference density over the AOR — infrastructure-of-conflict precursors.",
-      sourceFeed: "airspace (DAIP FIR NOTAMs) + gpsjam GPS-interference",
+        "Gulf FIR/airspace closures and overflight NOTAMs — infrastructure-of-conflict precursors. (Keeps its legacy id for history; the GPS half moved to pnt_denial.)",
+      sourceFeed: "airspace (DAIP FIR NOTAMs)",
       weight: 0.55,
-      falsifier: "No new FIR closure / overflight NOTAM and GPS-interference cells at or below baseline over the AOR.",
-      provenance: "DAIP/NOTAM open data; open GPS-jamming observation (gpsjam.org).",
+      falsifier: "No new FIR closure / overflight NOTAM over the AOR.",
+      provenance: "DAIP/NOTAM open data.",
     },
+    ...spectrumIndicators("centcom_iran", "the Gulf", ["IRN"]),
     {
       id: "hormuz_interdiction_signal",
       warningProblem: "centcom_iran",
@@ -115,6 +159,9 @@ export interface ProblemGeo {
   terms: RegExp;                 // mention gate for free-text (X/newsletters/feeds)
   conflictIndicatorId: string;   // CENTCOM keeps its legacy indicator ids
   chokepoint: { id: string; indicatorId: string; name: string; searchTerm: string; terms: string[] } | null;
+  /** ISO3 codes of the space powers among the AOI countries ([] → no
+   *  space_activity indicator on this board). */
+  spacePowers: string[];
 }
 
 export const CENTCOM_GEO: ProblemGeo = {
@@ -134,6 +181,7 @@ export const CENTCOM_GEO: ProblemGeo = {
   terms: /\b(iran|iranian|tehran|irgc|iraq|iraqi|israel|israeli|\bidf\b|yemen|houthi|hormuz|persian gulf|arabian gulf|strait of hormuz|red sea|bab.?el.?mandeb|saudi|riyadh|qatar|doha|bahrain|manama|kuwait|\buae\b|emirates|abu dhabi|dubai|oman|muscat|syria|lebanon|hezbollah|hizbollah|centcom)\b/i,
   conflictIndicatorId: "conflict_intensity_gulf",
   chokepoint: { id: "hormuz", indicatorId: "hormuz_interdiction_signal", name: "Strait of Hormuz", searchTerm: "Strait of Hormuz", terms: ["hormuz", "strait"] },
+  spacePowers: ["IRN"],
 };
 
 // Seed shape emitted by lib/missionProfile deriveTracking().warningProblems —
@@ -144,6 +192,8 @@ export interface WarningProblemSeed {
   aor: string;
   countries: string[];
   chokepointId: string | null;
+  /** Carry space_activity when the AOI holds a space power (default true). */
+  spaceActivity?: boolean;
 }
 
 const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -155,6 +205,7 @@ const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // holds it in learning mode until a real baseline forms — by design.
 export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblemDef; geo: ProblemGeo } {
   const cp = seed.chokepointId ? CHOKEPOINTS.find((c) => c.id === seed.chokepointId) ?? null : null;
+  const spacePowers = seed.spaceActivity === false ? [] : spacePowersIn(seed.countries);
 
   // Bbox from country centroids, padded — same coarse-SA standard as lib/aor.
   const cens = seed.countries.map((c) => countryCentroid(c)).filter((x): x is [number, number] => x != null);
@@ -231,6 +282,7 @@ export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblem
         falsifier: `No ${cp.name} closure / seizure / mining reporting corroborated by ≥2 sources in a rolling 72h window.`,
         provenance: "Open maritime/transit-security reporting.",
       }] : []),
+      ...spectrumIndicators(seed.id, seed.name, spacePowers),
     ],
   };
 
@@ -238,6 +290,7 @@ export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblem
     bbox, countries: seed.countries, hubs, firs, terms,
     conflictIndicatorId: "conflict_intensity",
     chokepoint: cp ? { id: cp.id, indicatorId: "chokepoint_interdiction", name: cp.name, searchTerm: cp.name, terms: cp.keywords.map((k) => k.toLowerCase()) } : null,
+    spacePowers,
   };
   return { def, geo };
 }

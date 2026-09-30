@@ -9,7 +9,12 @@ function fakePayload(overrides: Partial<SitrepPayload> = {}): SitrepPayload {
   return {
     base: { icao: "KWRI", label: "JB McGuire-Dix-Lakehurst", lat: 40.0155, lon: -74.5917, country: "United States", place: "McGuire AFB New Jersey", artcc: "ZNY" },
     generatedAt: iso(NOW),
-    status: { wx: "g", ops: "a", threat: "g", infra: "g" },
+    status: { wx: "g", ops: "a", threat: "g", infra: "g", spectrum: "a" },
+    spectrum: {
+      pnt: { live: true, date: "2026-07-06", cellLevel: 1, raim: ["RAIM UNAVAILABLE <script>x</script>"] },
+      spaceWx: { live: true, now: { date: "2026-07-06", R: 1, S: 0, G: 2 }, outlook: [{ date: "2026-07-07", R: 0, S: 0, G: 1 }], impacts: [{ key: "hf", label: "HF radio", led: "a", now: "R1: occasional HF fades", outlook: "R0 worst over 1 day", relevance: "always" }], polar: false, satcom: "WGS Ku" },
+      edge: { declared: true, live: true, vendors: ["Cisco"], hits: [{ cve: "CVE-2026-1", vendor: "Cisco", product: "ASA", name: "auth bypass <img src=x>", dateAdded: "2026-07-01", ransomware: true }] },
+    },
     weather: {
       live: true,
       now: { icao: "KWRI", flightCategory: "VFR", windKt: 12, gustKt: null, visMi: 10, ceilingFt: null } as SitrepPayload["weather"]["now"],
@@ -72,7 +77,11 @@ describe("renderSitrepHtml", () => {
   it("carries the snapshot stamp, base identity, and all four cards", () => {
     expect(html).toContain("SNAPSHOT AS OF 2026-07-06 14:00Z — NOT LIVE");
     expect(html).toContain("KWRI · JB McGuire-Dix-Lakehurst");
-    for (const s of ["Weather", "Ops / Airfield", "Threats", "Infrastructure"]) expect(html).toContain(`<h2>${s}</h2>`);
+    for (const s of ["Weather", "Ops / Airfield", "Threats", "Infrastructure", "Spectrum"]) expect(html).toContain(`<h2>${s}</h2>`);
+    expect(html).toContain("CVE-2026-1");
+    expect(html).toContain("known ransomware use");
+    expect(html).toContain("&lt;img src=x&gt;");       // KEV text escaped
+    expect(html).toContain("RAIM UNAVAILABLE &lt;script&gt;");
   });
 
   it("escapes hostile NOTAM / alert / BLUF content", () => {

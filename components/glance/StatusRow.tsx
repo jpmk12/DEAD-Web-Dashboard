@@ -22,6 +22,13 @@ interface IwLite { problemId: string; label: string; level: string; trajectory: 
 interface DemandLite { aor: string; direction: string; score: number; confidence: string }
 interface AlertLite { id: string; severity: string; title: string }
 interface FamilyWeek { empty?: boolean; lapsed?: unknown[]; dueSoon?: unknown[]; undated?: number; conflicts?: unknown[] }
+interface SpectrumLite {
+  pending?: boolean; led: string; line: string;
+  pnt: { state: string; live: boolean; problemId: string } | null;
+  cyber: { state: string; live: boolean; problemId: string } | null;
+  spaceWx: { live: boolean; led: string; severe: { scale: string; level: number }[] };
+  edge: { declared: boolean; live: boolean; led: string; hits: unknown[] };
+}
 
 type Tone = "red" | "amber" | "unknown" | "green" | "quiet" | "violet";
 const TONE: Record<Tone, { border: string; value: string; dot: string }> = {
@@ -45,21 +52,28 @@ export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate }: { 
   const [demand, setDemand] = useState<DemandLite[] | null>(null);
   const [alerts, setAlerts] = useState<AlertLite[] | null>(null);
   const [family, setFamily] = useState<FamilyWeek | null>(null);
+  const [spectrum, setSpectrum] = useState<SpectrumLite | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
     const j = async (url: string) => { try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch { return null; } };
     const load = async () => {
-      const [w, d, a, f] = await Promise.all([j("/api/warning"), j("/api/demand-horizon"), j("/api/alerts/check"), j("/api/family/week")]);
+      const [w, d, a, f, s] = await Promise.all([j("/api/warning"), j("/api/demand-horizon"), j("/api/alerts/check"), j("/api/family/week"), j("/api/spectrum")]);
       if (cancelled) return;
       if (w && Array.isArray(w.problems)) setIw(w.problems);
       if (d && Array.isArray(d.outlooks)) setDemand(d.outlooks);
       if (a && Array.isArray(a.alerts)) setAlerts(a.alerts);
       if (f) setFamily(f);
+      if (s && typeof s.led === "string") {
+        setSpectrum(s);
+        // A cold server answers `pending`; ask once more shortly.
+        if (s.pending) retry = setTimeout(() => { j("/api/spectrum").then((x) => { if (!cancelled && x && typeof x.led === "string") setSpectrum(x); }); }, 10_000);
+      }
     };
     load();
     const id = setInterval(load, 5 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
   }, []);
 
   const tiles: Tile[] = [];
@@ -109,6 +123,34 @@ export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate }: { 
       sub: !iw ? "loading" : !top ? "no boards" : [top.level !== "calm" ? top.label : "", deteriorating ? `${deteriorating} deteriorating` : "", `${iw.length} board${iw.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "),
       title: sorted.map((p) => `${p.label}: ${p.level} · ${p.trajectory}${p.learning ? " (learning)" : ""}`).join("\n") || "Indications & warning",
       onClick: () => { onNavigate("osint"); emit("osint:set-pane", "watch"); setTimeout(() => emit("watch:focus", { kind: "iw", id: top?.problemId ?? "" }), 160); },
+    });
+  }
+
+  // Spectrum — worst of PNT, cyber, space-weather ops impact and KEV
+  // exposure (REVIEW-CYBER-SPACE §4.1). UNKNOWN is its own tone; space
+  // weather colours the tile but never an I&W level.
+  {
+    const s = spectrum;
+    const tone: Tone = !s ? "quiet" : s.led === "r" ? "red" : s.led === "a" ? "amber" : s.led === "u" ? "unknown" : "green";
+    const rank: Record<string, number> = { confirmed: 3, active: 2, watching: 1, dormant: 0 };
+    const lead = s && s.cyber && s.cyber.live && rank[s.cyber.state] >= rank[s.pnt?.state ?? "dormant"] && s.cyber.state !== "dormant" ? { k: "cyber", v: s.cyber }
+      : s && s.pnt && s.pnt.live && s.pnt.state !== "dormant" ? { k: "PNT", v: s.pnt } : null;
+    const value = !s ? "…" : s.pending && s.led === "u" ? "…"
+      : s.spaceWx.severe.length ? `${s.spaceWx.severe.map((x) => `${x.scale}${x.level}`).join("/")} storm`
+      : lead ? `${lead.k} ${lead.v.state}`
+      : s.edge.hits.length ? `${s.edge.hits.length} KEV`
+      : s.led === "u" ? "unknown" : "quiet";
+    tiles.push({
+      key: "spectrum", label: "Spectrum", tone,
+      value,
+      sub: !s ? "loading" : s.line,
+      title: "PNT denial · cyber pressure · space weather → ops · KEV on declared vendors. Space weather is environment: it colours this tile, never an I&W level.",
+      onClick: () => {
+        const pid = lead?.v.problemId;
+        if (pid) { onNavigate("osint"); emit("osint:set-pane", "watch"); setTimeout(() => emit("watch:focus", { kind: "iw", id: pid }), 160); }
+        else if (s && (s.spaceWx.severe.length || s.spaceWx.led === "a")) onNavigate("weather");
+        else { onNavigate("osint"); emit("osint:set-pane", "watch"); }
+      },
     });
   }
 

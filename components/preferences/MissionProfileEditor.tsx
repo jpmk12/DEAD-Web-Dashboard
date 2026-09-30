@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  deriveTracking, suggestChokepoints, suggestAoiCountries, slugify, EMPTY_PROFILE, SITREP_MAX,
+  deriveTracking, suggestChokepoints, suggestAoiCountries, slugify, EMPTY_PROFILE, SITREP_MAX, DEFAULT_SPECTRUM,
   type MissionProfile, type MissionAoi, type MissionSpoke,
 } from "@/lib/missionProfile";
 import { CHOKEPOINTS } from "@/lib/chokepoints";
@@ -14,6 +14,76 @@ import type { Aor } from "@/lib/aor";
 // tracking lists. Owner-only writes (crew see a read-only declaration).
 
 const AORS: Aor[] = ["CENTCOM", "EUCOM", "AFRICOM", "INDOPACOM", "SOUTHCOM", "NORTHCOM"];
+
+// Spectrum dependencies (docs/REVIEW-CYBER-SPACE.md §6): three declarations
+// the cyber/space surfaces need — polar/HF routes (S-scale relevance),
+// SATCOM in use (card text), the edge-vendor watchlist (KEV × vendors) —
+// plus whether the space-power boards carry `space_activity`. Team config;
+// none of it enters a prompt (missionSummaryLine omits it).
+function SpectrumEditor({ profile, canEdit, patch }: { profile: MissionProfile; canEdit: boolean; patch: (p: Partial<MissionProfile>) => void }) {
+  const spec = profile.spectrum ?? DEFAULT_SPECTRUM;
+  const [vendor, setVendor] = useState("");
+  const set = (p: Partial<typeof spec>) => patch({ spectrum: { ...spec, ...p } });
+  const addVendor = () => {
+    const v = vendor.trim();
+    if (v.length < 2 || spec.edgeVendors.some((x) => x.toLowerCase() === v.toLowerCase())) { setVendor(""); return; }
+    set({ edgeVendors: [...spec.edgeVendors, v].slice(0, 24) });
+    setVendor("");
+  };
+  const seg = (on: boolean, label: string, onClick: () => void) => (
+    <button type="button" disabled={!canEdit} onClick={onClick}
+      className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors disabled:opacity-50 ${on ? "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+      {label}
+    </button>
+  );
+  return (
+    <div className="border border-slate-800 rounded-lg p-3 space-y-2.5 bg-slate-950/40">
+      <div>
+        <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">Spectrum dependencies</label>
+        <p className="text-[10px] text-slate-600 mt-0.5">What the force depends on in the electromagnetic and space domains. Drives the SITREP Spectrum card, the Weather tab&apos;s space-weather rows and the KEV exposure signal. Team config — never sent to a model.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10.5px] text-slate-400 w-36">Polar / HF-dependent routes</span>
+        {seg(spec.polarRoutes === false, "No", () => set({ polarRoutes: false }))}
+        {seg(spec.polarRoutes === true, "Yes", () => set({ polarRoutes: true }))}
+        {seg(spec.polarRoutes === null, "Not declared", () => set({ polarRoutes: null }))}
+        <span className="text-[9.5px] text-slate-600">— S-scale (radiation, polar-cap absorption) rows read &quot;not a factor&quot; when No.</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10.5px] text-slate-400 w-36">SATCOM in use</span>
+        <input value={spec.satcom} disabled={!canEdit} onChange={(e) => set({ satcom: e.target.value.slice(0, 120) })} placeholder="e.g. WGS Ku · Inmarsat L-band"
+          className="flex-1 min-w-[180px] bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 disabled:opacity-50" />
+      </div>
+      <div className="flex flex-wrap items-start gap-2">
+        <span className="text-[10.5px] text-slate-400 w-36 pt-1">Edge vendors (KEV watch)</span>
+        <div className="flex-1 min-w-[180px]">
+          <div className="flex flex-wrap gap-1 mb-1">
+            {spec.edgeVendors.map((v) => (
+              <span key={v} className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-700 text-slate-300 flex items-center gap-1">
+                {v}{canEdit && <button type="button" onClick={() => set({ edgeVendors: spec.edgeVendors.filter((x) => x !== v) })} className="text-slate-600 hover:text-red-400" aria-label={`Remove ${v}`}>✕</button>}
+              </span>
+            ))}
+            {spec.edgeVendors.length === 0 && <span className="text-[10px] text-slate-600">none declared — KEV exposure reads UNKNOWN, never green</span>}
+          </div>
+          {canEdit && (
+            <div className="flex gap-1">
+              <input value={vendor} onChange={(e) => setVendor(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVendor(); } }} placeholder="Cisco, Fortinet, Palo Alto, Ivanti…"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600" />
+              <button type="button" onClick={addVendor} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-slate-600 text-slate-300 hover:border-emerald-500/50">Add</button>
+            </div>
+          )}
+          <p className="text-[9.5px] text-slate-600 mt-1">Vendor or product names of the devices on the wing&apos;s networks and at host airports. KEV × these names is the whole exposure signal — never the NVD firehose.</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10.5px] text-slate-400 w-36">Space activity boards</span>
+        {seg(spec.spaceActivity, "On", () => set({ spaceActivity: true }))}
+        {seg(!spec.spaceActivity, "Off", () => set({ spaceActivity: false }))}
+        <span className="text-[9.5px] text-slate-600">— <code>space_activity</code> on AOI boards whose actor launches (China, Russia, Iran, North Korea); learning-mode for ~90 days.</span>
+      </div>
+    </div>
+  );
+}
 
 export default function MissionProfileEditor() {
   const [profile, setProfile] = useState<MissionProfile>(EMPTY_PROFILE);
@@ -141,6 +211,9 @@ export default function MissionProfileEditor() {
           })}
         </div>
       </div>
+
+      {/* Spectrum dependencies — team config, never sent to a model */}
+      <SpectrumEditor profile={profile} canEdit={canEdit} patch={patch} />
 
       {/* AOIs */}
       <div>

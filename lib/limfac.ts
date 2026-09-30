@@ -231,16 +231,32 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
   {
     const inet = p.infra.internet;
     const nasDown = p.infra.nas?.live && p.infra.nas.nearby.some((x) => x.kind === "closure" || x.kind === "groundStop");
-    if (!inet.live && !p.infra.nas?.live) {
-      addFn("c2_comms", "unknown", "Connectivity sensors unreachable — UNKNOWN", null, []);
+    // Spectrum drivers (REVIEW-CYBER-SPACE §3.2): the field inside a HIGH
+    // GPS-interference cell, a severe space-weather ops impact, or a KEV
+    // entry in ransomware use on a declared edge vendor each cap C2/Comms
+    // at PMC — conservative, never NMC, and never FMC from a dead sensor.
+    const spec = p.spectrum;
+    const specLed = p.status.spectrum ?? "u";
+    const specDriver = spec
+      ? spec.pnt.live && spec.pnt.cellLevel >= 2 ? "Field inside a HIGH GPS-interference cell (GPSJam)"
+        : spec.spaceWx.impacts.find((i) => i.led === "r") ? `Space weather: ${spec.spaceWx.impacts.find((i) => i.led === "r")!.label} — ${spec.spaceWx.impacts.find((i) => i.led === "r")!.now}`
+        : spec.edge.hits.some((h) => h.ransomware) ? `KEV in known ransomware use on declared vendor ${spec.edge.hits.find((h) => h.ransomware)!.vendor} (${spec.edge.hits.find((h) => h.ransomware)!.cve})`
+        : null
+      : null;
+    if (!inet.live && !p.infra.nas?.live && specLed === "u") {
+      addFn("c2_comms", "unknown", "Connectivity and spectrum sensors unreachable — UNKNOWN", null, []);
     } else if (inet.led === "r") {
       const id = push({ fn: "c2_comms", capability: "pmc", window: null, driver: `Internet degradation (${inet.entity ?? "region"})`, impact: "Regional connectivity degraded; C2 / reachback may be affected." });
       addFn("c2_comms", "pmc", "Internet degradation detected", null, [id]);
       ccir.push({ key: "comms", text: "Internet/comms degradation detected" });
-    } else if (inet.led === "a" || nasDown || p.infra.commsNews.length > 0) {
-      addFn("c2_comms", "fmc", nasDown ? "FAA NAS program nearby (watch)" : "Minor connectivity signal (watch)", null, []);
+    } else if (specLed === "r" && specDriver) {
+      const id = push({ fn: "c2_comms", capability: "pmc", window: null, driver: specDriver, impact: spec!.pnt.cellLevel >= 2 ? "GPS-dependent approaches and PNT-timed systems unreliable at the field; plan ILS/TACAN alternates and verify RAIM." : specDriver.startsWith("Space") ? "HF / SATCOM / GPS margins reduced; brief lost-comms and PNT-degraded procedures." : "An exploited vulnerability on a declared edge device sits on the wing's networks; C2 exposure until patched.", mitigation: spec!.pnt.cellLevel >= 2 ? "Non-GPS approach briefed; EW awareness on arrival/departure." : undefined });
+      addFn("c2_comms", "pmc", specDriver, null, [id]);
+      ccir.push({ key: "spectrum", text: specDriver });
+    } else if (inet.led === "a" || nasDown || p.infra.commsNews.length > 0 || specLed === "a") {
+      addFn("c2_comms", "fmc", specLed === "a" && !nasDown && inet.led !== "a" ? "Spectrum signal (watch) — see Spectrum card" : nasDown ? "FAA NAS program nearby (watch)" : "Minor connectivity signal (watch)", null, []);
     } else {
-      addFn("c2_comms", "fmc", "Connectivity nominal", null, []);
+      addFn("c2_comms", "fmc", "Connectivity and spectrum nominal", null, []);
     }
   }
 
