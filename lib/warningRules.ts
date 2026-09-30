@@ -134,7 +134,14 @@ export interface ChokepointReadLite {
   /** AIS transit state when keyed (lib/chokepointTransit): "suppressed" is
    *  what ships DO when a strait is interdicted, and corroborates the text. */
   transit?: "unconfigured" | "unknown" | "learning" | "normal" | "suppressed" | "elevated";
+  /** How often suppressed transits have preceded a reported act HERE
+   *  (lib/series.precedes hits/events); null until three acts are on record.
+   *  Confidence only — never a state change. */
+  transitLeadRate?: number | null;
 }
+
+/** A lead rate at or above this earns the extra confidence. */
+export const TRANSIT_LEAD_TRUSTED = 0.6;
 
 export function chokepointState(read: ChokepointReadLite | null, userHits: number): { state: ObservedState; confidence: number; why: string } {
   const base = chokepointTextState(read, userHits);
@@ -142,9 +149,16 @@ export function chokepointState(read: ChokepointReadLite | null, userHits: numbe
   // (dormant → watching, watching → active, active → confirmed) and adds
   // confidence; it never lowers one, and "normal" traffic does not clear a
   // reported act — ships keep sailing through threats until they don't.
+  // Where this strait's own history says suppression has preceded acts, the
+  // lift is trusted a little more; the STATE is the same either way.
   if (read?.transit === "suppressed") {
     const up: Record<ObservedState, ObservedState> = { dormant: "watching", watching: "active", active: "confirmed", confirmed: "confirmed" };
-    return { state: up[base.state], confidence: Math.min(0.9, base.confidence + 0.15), why: `${base.why}; AIS traffic suppressed vs its own normal` };
+    const trusted = read.transitLeadRate != null && read.transitLeadRate >= TRANSIT_LEAD_TRUSTED;
+    return {
+      state: up[base.state],
+      confidence: Math.min(0.9, base.confidence + 0.15 + (trusted ? 0.05 : 0)),
+      why: `${base.why}; AIS traffic suppressed vs its own normal${trusted ? ` (has preceded ${Math.round(read.transitLeadRate! * 100)}% of acts here)` : ""}`,
+    };
   }
   return base;
 }

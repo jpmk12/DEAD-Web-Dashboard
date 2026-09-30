@@ -18,7 +18,8 @@
 import type { RowDataPacket } from "mysql2";
 import { CHOKEPOINTS } from "./chokepoints";
 import { getDb } from "./db";
-import { transitSignal, transitBaseline, type TransitSignal } from "./chokepointTransit";
+import { transitSignal, transitBaseline, transitDaySeries, suppressedDays, type TransitSignal } from "./chokepointTransit";
+import { direction } from "./series";
 
 interface Counter {
   day: string;
@@ -102,19 +103,24 @@ async function persistRow(id: string, day: string, distinct: number, observedMin
 }
 
 interface Row extends RowDataPacket { day: string; distinct_mmsi: number; observed_minutes: number }
-const baselineCache = new Map<string, { at: number; perHour: number | null; days: number }>();
+interface BaselineRead { perHour: number | null; days: number; history: { day: string; value: number }[]; suppressed: string[] }
+const baselineCache = new Map<string, { at: number } & BaselineRead>();
 
-async function baselineFor(id: string, today: string): Promise<{ perHour: number | null; days: number }> {
+async function baselineFor(id: string, today: string): Promise<BaselineRead> {
   const hit = baselineCache.get(id);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit;
-  let out = { perHour: null as number | null, days: 0 };
+  let out: BaselineRead = { perHour: null, days: 0, history: [], suppressed: [] };
   try {
     const pool = await getDb();
+    // 30 prior days form the baseline; 90 give the lead test its act history.
     const [rows] = await pool.query<Row[]>(
-      "SELECT day, distinct_mmsi, observed_minutes FROM chokepoint_transits_daily WHERE chokepoint_id = ? AND day < ? ORDER BY day DESC LIMIT 30",
+      "SELECT day, distinct_mmsi, observed_minutes FROM chokepoint_transits_daily WHERE chokepoint_id = ? AND day < ? ORDER BY day DESC LIMIT 90",
       [id, today],
     );
-    out = transitBaseline(rows.map((r) => ({ distinct: Number(r.distinct_mmsi), observedMinutes: Number(r.observed_minutes) })));
+    const mapped = rows.map((r) => ({ day: String(r.day), distinct: Number(r.distinct_mmsi), observedMinutes: Number(r.observed_minutes) }));
+    const base = transitBaseline(mapped.slice(0, 30));
+    const history = transitDaySeries(mapped);
+    out = { ...base, history: history.slice(-14), suppressed: suppressedDays(history, base.perHour) };
   } catch { /* no DB → learning */ }
   baselineCache.set(id, { at: Date.now(), ...out });
   return out;
@@ -126,6 +132,12 @@ export interface ChokepointTransit extends TransitSignal {
   observedMinutesToday: number;
   baselinePerHour: number | null;
   baselineDays: number;
+  /** Last 14 qualifying days' vessels-per-hour (PLAN §5 C3) — the tile sparkline. */
+  history: { day: string; value: number }[];
+  /** Direction of the last fortnight, null below four observed days. */
+  direction: "rising" | "falling" | "flat" | null;
+  /** Prior days whose rate read suppressed against the normal (the lead series). */
+  suppressedDays: string[];
 }
 
 /** Live transit picture per chokepoint id (only those with a counting box). */
@@ -146,7 +158,7 @@ export async function getChokepointTransits(opts: { configured: boolean; connect
       distinctToday, observedMinutesToday, lastHour,
       baselinePerHour: b.perHour, baselineDays: b.days,
     });
-    out[id] = { ...sig, distinctToday, lastHour, observedMinutesToday, baselinePerHour: b.perHour, baselineDays: b.days };
+    out[id] = { ...sig, distinctToday, lastHour, observedMinutesToday, baselinePerHour: b.perHour, baselineDays: b.days, history: b.history, direction: direction(b.history, 14), suppressedDays: b.suppressed };
   }
   return out;
 }

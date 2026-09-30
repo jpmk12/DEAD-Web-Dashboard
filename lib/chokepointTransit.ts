@@ -67,6 +67,22 @@ export function transitSignal(i: TransitInput): TransitSignal {
   return { state: "normal", ratio, perHourToday, line: `traffic normal — ${base}` };
 }
 
+/** Per-day rate series from daily rows (qualifying days only), oldest first —
+ *  the sparkline and slope on the board tile. */
+export function transitDaySeries(rows: { day: string; distinct: number; observedMinutes: number }[]): { day: string; value: number }[] {
+  return rows
+    .filter((r) => r.observedMinutes >= MIN_OBSERVED_MINUTES * 4)
+    .map((r) => ({ day: r.day, value: r.distinct / (r.observedMinutes / 60) }))
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+}
+
+/** Days whose rate was SUPPRESSED against the given normal — the lead series
+ *  for "do ships thin out before an act is reported?". Empty without a normal. */
+export function suppressedDays(series: { day: string; value: number }[], perHourNormal: number | null): string[] {
+  if (perHourNormal == null || perHourNormal <= 0) return [];
+  return series.filter((p) => p.value / perHourNormal <= SUPPRESSED_BELOW).map((p) => p.day);
+}
+
 /** Baseline from daily rows: mean distinct-per-observed-hour over days that
  *  had enough coverage. Days with thin coverage are not "quiet", they are
  *  unobserved, and are excluded from the denominator. */

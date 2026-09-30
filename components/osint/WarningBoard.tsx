@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DecisionLog from "@/components/osint/DecisionLog";
-import type { WarningAssessmentPlus } from "@/lib/warningAssess";
+import type { WarningAssessmentPlus, IndicatorHistory } from "@/lib/warningAssess";
 import type { WarningLevel, Trajectory, ObservedState, IndicatorScore } from "@/lib/warning";
 
 // Presentation vocabulary — one glyph/colour per level/state, red reserved for
@@ -141,12 +141,23 @@ function ProblemCard({ p }: { p: WarningAssessmentPlus }) {
         </p>
       </div>
 
+      {/* Lead indicators — which indicator stepped up before the board's
+          level-ups (lib/leadIndicators). Three level-ups before any claim. */}
+      {p.lead && (
+        <p className="text-[10px] text-slate-500 font-mono" title="For each level-up in this board's history, an indicator led it if its own state stepped up inside the prior 5 observed days.">
+          <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-600 mr-1.5">Lead indicators</span>
+          {p.lead.leads.length > 0
+            ? <>{p.lead.levelUps} level-ups · {p.lead.leads.slice(0, 3).map((l) => `${label(l.indicatorId)} ${l.result.hits}/${l.result.events}${l.result.medianLeadDays != null && l.result.medianLeadDays > 0 ? ` (${l.result.medianLeadDays} d ahead)` : ""}`).join(" · ")}</>
+            : p.lead.label}
+        </p>
+      )}
+
       {/* Indicators */}
       <div>
         <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-600 mb-1">Indicators ({p.indicators.length}) — tap for falsifier &amp; provenance</p>
         {p.indicators.map((i) => {
           const h = p.sensorHealth.find((x) => x.indicatorId === i.id);
-          return <IndicatorRow key={i.id} i={i} unreachable={h ? !h.live : false} note={h?.note} />;
+          return <IndicatorRow key={i.id} i={i} unreachable={h ? !h.live : false} note={h?.note} history={p.history?.[i.id]} />;
         })}
       </div>
 
@@ -175,13 +186,36 @@ function DriverRow({ d }: { d: IndicatorScore }) {
   );
 }
 
-function IndicatorRow({ i, unreachable, note }: { i: IndicatorScore; unreachable: boolean; note?: string }) {
+// 14-cell state sparkline: one cell per OBSERVED day (gaps are not drawn as
+// zeros), colour = state, hollow = sensor dead that day. Below four observed
+// days the strip is not shown — three cells are decoration, not history.
+const SPARK_FILL = ["bg-slate-700", "bg-amber-400", "bg-orange-400", "bg-red-500"];
+function StateSpark({ h }: { h: IndicatorHistory }) {
+  if (h.observedDays < 4) return null;
+  return (
+    <span className="flex items-end gap-px h-3 flex-shrink-0" title={`Last ${h.cells.length} observed days; hollow = sensor unreachable`}>
+      {h.cells.map((c) => (
+        <span
+          key={c.day}
+          className={`w-1 rounded-[1px] ${c.live ? SPARK_FILL[Math.max(0, c.ord)] : "border border-slate-700"}`}
+          style={{ height: c.live ? `${Math.max(3, (c.ord + 1) * 3)}px` : "3px" }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function IndicatorRow({ i, unreachable, note, history }: { i: IndicatorScore; unreachable: boolean; note?: string; history?: IndicatorHistory }) {
   return (
     <details className="border-t border-slate-800/60">
       <summary className="list-none cursor-pointer py-2 flex items-center gap-2.5">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATE_DOT[i.state]}`} />
         <span className="text-[8.5px] font-mono uppercase tracking-wider text-slate-500 w-14 flex-shrink-0">{unreachable ? "unknown" : i.state}</span>
         <span className="text-[12px] text-slate-200 flex-1 min-w-0 truncate">{label(i.id)}{unreachable && <span className="ml-2 text-[9px] text-slate-600">· sensor unreachable</span>}</span>
+        {history && <StateSpark h={history} />}
+        {history && history.run >= 2 && !unreachable && i.state !== "dormant" && (
+          <span className="text-[8.5px] font-mono text-slate-500 flex-shrink-0" title="Consecutive observed days in this state">{history.run} d</span>
+        )}
         <span className="text-[11px] font-mono font-bold text-slate-400 w-10 text-right flex-shrink-0">{i.contribution.toFixed(2)}</span>
       </summary>
       <div className="text-[10.5px] text-slate-400 pl-[18px] pb-2.5 space-y-1">

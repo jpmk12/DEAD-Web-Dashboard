@@ -145,6 +145,7 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
       opsRows.push(row(n.amber ? "a" : "u", `${n.amber ? "<b>" : ""}[${esc(g.label)}] ${esc(n.text.slice(0, 200))}${n.amber ? "</b>" : ""}`, "DAIP"));
     }
   }
+  if (p.ops.lift) opsRows.push(row(p.ops.lift.high ? "a" : "b", `Lift: ${esc(p.ops.lift.label)}`, "ADS-B"));
   if (p.ops.center) {
     opsRows.push(p.ops.center.live
       ? row(p.ops.center.count > 0 ? "u" : "g", `Center (${esc(p.ops.center.code)} ARTCC): ${p.ops.center.count} active enroute NOTAMs`, "DAIP")

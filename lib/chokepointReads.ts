@@ -10,6 +10,9 @@ import { getAcledEvents } from "./acled";
 import { gdeltLocalNews } from "./localNews";
 import { ensureChokepointConnection, type AisStatus } from "./aisStream";
 import { getChokepointTransits, type ChokepointTransit } from "./chokepointAis";
+import { getSensorSeries, recordSensorDay } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
+import { precedes, type LeadResult } from "./series";
 
 export interface ChokepointRead extends Chokepoint, ActivityRead {
   totalEvents: number;
@@ -17,6 +20,9 @@ export interface ChokepointRead extends Chokepoint, ActivityRead {
    *  part of the 15-min cached text/event read. Absent for non-maritime
    *  chokepoints. */
   transit?: ChokepointTransit;
+  /** Do suppressed transits precede reported acts here? (lib/series.precedes
+   *  over the cpact: series; null below three acts on record.) */
+  transitLead?: LeadResult | null;
 }
 
 export interface ChokepointReadsBody {
@@ -53,11 +59,32 @@ export async function getChokepointReads(ids?: string[]): Promise<ChokepointRead
 async function withTransits(body: ChokepointReadsBody): Promise<ChokepointReadsBody> {
   const ais = ensureChokepointConnection();
   const transits = await getChokepointTransits({ configured: ais.configured, connected: ais.connected }).catch(() => ({} as Record<string, ChokepointTransit>));
+  const actDays = await actDaysFor(body.signals.map((s) => s.id));
   return {
     ...body,
     ais,
-    signals: body.signals.map((s) => (transits[s.id] ? { ...s, transit: transits[s.id] } : s)),
+    signals: body.signals.map((s) => {
+      const t = transits[s.id];
+      if (!t) return s;
+      const acts = actDays[s.id] ?? [];
+      return { ...s, transit: t, transitLead: precedes(t.suppressedDays, acts, TRANSIT_LEAD_LAG_DAYS) };
+    }),
   };
+}
+
+/** Prior days with a reported act at each chokepoint (the cpact: series),
+ *  cached 10 min — one small query per strait per refresh otherwise. */
+export const TRANSIT_LEAD_LAG_DAYS = 3;
+let actCache: { at: number; days: Record<string, string[]> } | null = null;
+async function actDaysFor(ids: string[]): Promise<Record<string, string[]>> {
+  if (actCache && Date.now() - actCache.at < 10 * 60_000) return actCache.days;
+  const days: Record<string, string[]> = {};
+  await Promise.all(ids.map(async (id) => {
+    const series = await getSensorSeries(sensorKey("cpact", id), 90).catch(() => []);
+    days[id] = series.filter((p) => p.value >= 1).map((p) => p.day);
+  }));
+  actCache = { at: Date.now(), days };
+  return days;
 }
 
 async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
@@ -98,6 +125,10 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
       title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate,
     }));
     const read = readActivity(cp, texts, events, today);
+    // The act history that did not exist before (PLAN §5 C3): 1 on a day the
+    // graded read holds a reported act, 0 otherwise — an observed quiet day
+    // is a fact too. Day-peak, fire-and-forget.
+    recordSensorDay(sensorKey("cpact", cp.id), today, read.acts > 0 ? 1 : 0).catch(() => {});
     return {
       ...cp,
       ...read,

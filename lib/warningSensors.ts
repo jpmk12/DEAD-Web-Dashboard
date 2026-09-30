@@ -104,6 +104,8 @@ export interface DivergenceState {
   baselineMean: number | null;   // trailing mean of daily peak mobility counts
   baselineSamples: number;
   quadrant: "early_warning" | "anomaly" | "corroboration" | "quiet";
+  /** Per named hub (PLAN §5 C2): mobility and tanker counts within HUB_RADIUS_KM. */
+  byHub?: { icao: string; mobility: number; tanker: number }[];
 }
 export interface GatherResult {
   observations: IndicatorObservation[];
@@ -231,9 +233,16 @@ export async function gatherObservations(
     else if (impliedHigh && observedHigh) { quadrant = "corroboration"; state = "watching"; }  // expected, low novelty
     else { quadrant = "quiet"; state = "dormant"; }
     const baseNote = mobilityBaselineNote(mobilityBaseline, new Date(nowMs).toISOString().slice(0, 10));
-    observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}) × implied demand`, observedCount));
+    // Per-hub split — which field carries the lift. Only named hubs (icao).
+    const byHub = geo.hubs.filter((h) => h.icao).map((h) => {
+      const near = milAc.filter((a) => haversineKm(a.lat, a.lon, h.lat, h.lon) <= HUB_RADIUS_KM);
+      return { icao: h.icao!, mobility: near.filter((a) => isMobilityType(a.type)).length, tanker: near.filter((a) => isTankerType(a.type)).length };
+    });
+    const topHub = byHub.slice().sort((a, b) => (b.mobility + b.tanker) - (a.mobility + a.tanker))[0];
+    const hubNote = observedHigh && topHub && topHub.mobility + topHub.tanker > 0 ? `; most at ${topHub.icao} (${topHub.mobility + topHub.tanker})` : "";
+    observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}${hubNote}) × implied demand`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true });
-    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
+    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant, byHub }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
   } else {
     health.push({ indicatorId: "mobility_divergence", live: false, note: "community ADS-B mirrors unreachable" });
     return finalize(geo, observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
@@ -281,7 +290,7 @@ function finalize(
       return cp.terms.some((t) => h.toLowerCase().includes(t)) && readInterdiction(h) !== null;
     }).length;
     const lite = chokeNews
-      ? { acts: chokeNews.acts, threats: chokeNews.threats, analysis: chokeNews.analysis, events: chokeNews.totalEvents, score: chokeNews.score, transit: chokeNews.transit?.state }
+      ? { acts: chokeNews.acts, threats: chokeNews.threats, analysis: chokeNews.analysis, events: chokeNews.totalEvents, score: chokeNews.score, transit: chokeNews.transit?.state, transitLeadRate: chokeNews.transitLead ? chokeNews.transitLead.hits / chokeNews.transitLead.events : null }
       : null;
     const { state: hState, confidence: hConf, why } = chokepointState(lite, userHits);
     if (chokeNews || userHits > 0) {

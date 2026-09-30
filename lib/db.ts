@@ -103,6 +103,22 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_wd_problem (problem_id, due_at)
   ) ENGINE=InnoDB`,
 
+  // Per-indicator daily state (lib/warningStore.recordIndicatorDay): the
+  // composite in warning_daily cannot say which indicator moved first —
+  // this can (lib/leadIndicators). `live` = the sensor answered that day,
+  // so dormant-because-dead is distinguishable from dormant-because-quiet.
+  `CREATE TABLE IF NOT EXISTS indicator_daily (
+    problem_id    VARCHAR(64) NOT NULL,
+    indicator_id  VARCHAR(64) NOT NULL,
+    day           VARCHAR(10) NOT NULL,
+    state         VARCHAR(16) NOT NULL,
+    score         DOUBLE      NOT NULL,
+    confidence    DOUBLE      NOT NULL,
+    live          TINYINT     NOT NULL DEFAULT 1,
+    updated_at    DATETIME(3) NOT NULL,
+    PRIMARY KEY (problem_id, indicator_id, day)
+  ) ENGINE=InnoDB`,
+
   // Demand-horizon forecast of record (lib/demandStore): the day's LAST
   // outlook per combatant command, scored 7 days later by
   // lib/demandVerifyAssemble against observed lift and posture.

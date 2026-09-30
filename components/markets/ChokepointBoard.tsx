@@ -27,6 +27,8 @@ interface Transit {
   lastHour: number;
   distinctToday: number;
   observedMinutesToday: number;
+  history?: { day: string; value: number }[];
+  direction?: "rising" | "falling" | "flat" | null;
   baselinePerHour: number | null;
   baselineDays: number;
 }
@@ -38,6 +40,25 @@ interface Signal extends ActivityRead {
   radiusKm?: number;
   totalEvents: number;
   transit?: Transit;
+  transitLead?: { hits: number; events: number; medianLeadDays: number | null; label: string } | null;
+}
+
+// Transit sparkline: vessels-per-hour over the last qualifying days, scaled
+// to the strait's own normal (the dashed reference). Four points before it
+// draws — fewer is decoration.
+function TransitSpark({ t }: { t: Transit }) {
+  const h = t.history ?? [];
+  if (h.length < 4) return null;
+  const max = Math.max(...h.map((p) => p.value), t.baselinePerHour ?? 0, 0.1);
+  const arrow = t.direction === "rising" ? "↗" : t.direction === "falling" ? "↘" : t.direction === "flat" ? "→" : "";
+  return (
+    <span className="flex items-end gap-px h-3 flex-shrink-0" title={`${h.length} observed days, vessels/h · ${t.direction ?? "trend forming"}`}>
+      {h.map((p) => (
+        <span key={p.day} className={`w-[3px] rounded-[1px] ${t.baselinePerHour != null && p.value / t.baselinePerHour <= 0.6 ? "bg-red-400" : "bg-sky-500/70"}`} style={{ height: `${Math.max(2, Math.round((p.value / max) * 12))}px` }} />
+      ))}
+      {arrow && <span className="text-[8px] text-slate-500 ml-0.5 leading-none">{arrow}</span>}
+    </span>
+  );
 }
 
 // What ships DO, beside what people SAY. Colour only for a judged state.
@@ -121,6 +142,7 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
                   <span className={`text-[7.5px] font-bold uppercase tracking-wider px-1 rounded border ${TRANSIT_CHIP[s.transit.state].cls}`}>{s.transit.state === "unknown" ? "AIS" : s.transit.state === "learning" ? "AIS·learn" : s.transit.state}</span>
                 )}
                 {!s.lead && (!s.transit || s.transit.state === "unconfigured") && <span className="text-[8px] text-slate-700">quiet</span>}
+                {s.transit && <span className="ml-auto"><TransitSpark t={s.transit} /></span>}
               </div>
             </button>
           );
@@ -147,7 +169,15 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
                   <span className="block text-[9.5px] text-slate-600 mt-0.5">
                     {s.transit.distinctToday} distinct vessels today over {s.transit.observedMinutesToday} min listened · {s.transit.lastHour} in the last hour
                     {s.transit.baselinePerHour !== null ? ` · normal ${s.transit.baselinePerHour.toFixed(1)}/h from ${s.transit.baselineDays} observed days` : ""}
+                    {s.transit.direction ? ` · fortnight ${s.transit.direction}` : ""}
                   </span>
+                )}
+                {/* Lead test: have suppressed transits preceded reported acts here?
+                    Null below three acts on record — an anecdote is not a lead. */}
+                {s.transitLead ? (
+                  <span className="block text-[9.5px] text-slate-500 mt-0.5">Suppressed traffic {s.transitLead.label} reported act{s.transitLead.events === 1 ? "" : "s"} here (≤3 d) — confidence only, never a state.</span>
+                ) : (
+                  <span className="block text-[9px] text-slate-700 mt-0.5">Lead test needs three reported acts on record.</span>
                 )}
               </div>
             )}

@@ -154,7 +154,8 @@ export function warningProblemById(id: string): WarningProblemDef | undefined {
 export interface ProblemGeo {
   bbox: { latMin: number; latMax: number; lonMin: number; lonMax: number };
   countries: string[];
-  hubs: { lat: number; lon: number }[];
+  /** `icao` names the hub for the per-hub lift series (sensor keys mob:/tanker:). */
+  hubs: { lat: number; lon: number; icao?: string }[];
   firs: string[];
   terms: RegExp;                 // mention gate for free-text (X/newsletters/feeds)
   conflictIndicatorId: string;   // CENTCOM keeps its legacy indicator ids
@@ -171,11 +172,11 @@ export const CENTCOM_GEO: ProblemGeo = {
     "Qatar", "Bahrain", "Kuwait", "Oman", "Syria", "Lebanon",
   ],
   hubs: [
-    { lat: 25.117, lon: 51.315 }, // Al Udeid, Qatar
-    { lat: 24.248, lon: 54.548 }, // Al Dhafra, UAE
-    { lat: 29.347, lon: 47.521 }, // Ali Al Salem, Kuwait
-    { lat: 24.063, lon: 47.580 }, // Prince Sultan, KSA
-    { lat: 26.271, lon: 50.636 }, // Isa, Bahrain
+    { lat: 25.117, lon: 51.315, icao: "OTBH" }, // Al Udeid, Qatar
+    { lat: 24.248, lon: 54.548, icao: "OMAM" }, // Al Dhafra, UAE
+    { lat: 29.347, lon: 47.521, icao: "OKAS" }, // Ali Al Salem, Kuwait
+    { lat: 24.063, lon: 47.580, icao: "OEPS" }, // Prince Sultan, KSA
+    { lat: 26.271, lon: 50.636, icao: "OBBS" }, // Isa, Bahrain
   ],
   firs: ["OBBB", "OTDF", "OMAE", "OIIX", "OKAC", "ORBB", "OEJD", "OYSC"],
   terms: /\b(iran|iranian|tehran|irgc|iraq|iraqi|israel|israeli|\bidf\b|yemen|houthi|hormuz|persian gulf|arabian gulf|strait of hormuz|red sea|bab.?el.?mandeb|saudi|riyadh|qatar|doha|bahrain|manama|kuwait|\buae\b|emirates|abu dhabi|dubai|oman|muscat|syria|lebanon|hezbollah|hizbollah|centcom)\b/i,
@@ -219,7 +220,7 @@ export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblem
 
   const inBbox = (lat: number, lon: number) =>
     lat >= bbox.latMin && lat <= bbox.latMax && lon >= bbox.lonMin && lon <= bbox.lonMax;
-  const hubs = ALL_AIRFIELDS.filter((a) => inBbox(a.lat, a.lon)).slice(0, 8).map((a) => ({ lat: a.lat, lon: a.lon }));
+  const hubs = ALL_AIRFIELDS.filter((a) => inBbox(a.lat, a.lon)).slice(0, 8).map((a) => ({ lat: a.lat, lon: a.lon, icao: a.icao }));
 
   const firs = [...new Set(seed.countries.flatMap((c) => firsForCountry(c).map((f) => f.code)))].slice(0, 10);
 

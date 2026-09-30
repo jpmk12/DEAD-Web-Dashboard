@@ -89,6 +89,53 @@ export async function getWarningAnomalyHistory(
   return rows.map((r) => Number(r.anomaly)).reverse();
 }
 
+// ── Per-indicator daily state ───────────────────────────────────────────────
+export interface IndicatorDayRow { indicatorId: string; state: string; score: number; confidence: number; live: boolean }
+
+/** LAST policy: the day's latest assessment is the state of record. */
+export async function recordIndicatorDay(problemId: string, day: string, rows: IndicatorDayRow[]): Promise<void> {
+  if (!rows.length) return;
+  const pool = await getDb();
+  const placeholders: string[] = [];
+  const values: (string | number)[] = [];
+  for (const r of rows) {
+    placeholders.push("(?, ?, ?, ?, ?, ?, ?, NOW(3))");
+    values.push(problemId, r.indicatorId.slice(0, 64), day, r.state, r.score, r.confidence, r.live ? 1 : 0);
+  }
+  await pool.execute(
+    `INSERT INTO indicator_daily (problem_id, indicator_id, day, state, score, confidence, live, updated_at)
+     VALUES ${placeholders.join(", ")}
+     ON DUPLICATE KEY UPDATE state = VALUES(state), score = VALUES(score), confidence = VALUES(confidence), live = VALUES(live), updated_at = NOW(3)`,
+    values,
+  );
+}
+
+interface IndRow extends RowDataPacket { indicator_id: string; day: string; state: string; live: number }
+
+/** Per indicator, the last `days` calendar days of recorded state, oldest first. */
+export async function getIndicatorHistory(problemId: string, days = 60): Promise<Record<string, { day: string; state: string; live: boolean }[]>> {
+  const pool = await getDb();
+  const cutoff = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  const [rows] = await pool.query<IndRow[]>(
+    `SELECT indicator_id, day, state, live FROM indicator_daily WHERE problem_id = ? AND day >= ? ORDER BY day ASC`,
+    [problemId, cutoff],
+  );
+  const out: Record<string, { day: string; state: string; live: boolean }[]> = {};
+  for (const r of rows) (out[String(r.indicator_id)] ||= []).push({ day: String(r.day), state: String(r.state), live: Number(r.live) === 1 });
+  return out;
+}
+
+/** One problem's daily level, oldest first, for the lead-indicator read. */
+export async function getLevelSeries(problemId: string, days = 60): Promise<{ day: string; level: string }[]> {
+  const pool = await getDb();
+  const cutoff = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT day, level FROM warning_daily WHERE problem_id = ? AND day >= ? ORDER BY day ASC`,
+    [problemId, cutoff],
+  );
+  return rows.map((r) => ({ day: String(r.day), level: String(r.level) }));
+}
+
 // Every problem's daily level in one query, for the OE delta.
 export async function getWarningLevelHistory(days = 14): Promise<Record<string, { day: string; level: string; anomaly: number }[]>> {
   try {

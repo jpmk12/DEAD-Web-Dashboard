@@ -594,6 +594,13 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                 </div>
               ))}
               {payload.ops.configured && payload.ops.live && payload.ops.notamCount === 0 && <Row sev="g" src="DAIP">No active NOTAMs</Row>}
+              {/* Lift at this field vs its own normal — recorded by the I&W
+                  mobility sensor for hubs on a board; absent elsewhere. */}
+              {payload.ops.lift && (
+                <Row sev={payload.ops.lift.high ? "a" : "b"} src="ADS-B">
+                  <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">Lift</span>{payload.ops.lift.label}
+                </Row>
+              )}
 
               {/* Runway wind components — advisory, from the current METAR. */}
               {payload.ops.runwayWinds.length > 0 && (

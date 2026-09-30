@@ -3,16 +3,24 @@
 // returns the scored assessment + sensor health + divergence. Lazy-on-request
 // with a 10-min in-process cache (the codebase-native pattern — no cron).
 
-import { deriveWarning, scoreIndicators, type WarningAssessment } from "./warning";
+import { deriveWarning, scoreIndicators, type WarningAssessment, type ObservedState, type WarningLevel } from "./warning";
 import { resolveWarningProblem } from "./warningProblems";
 import { gatherObservations, type SensorHealth, type DivergenceState } from "./warningSensors";
 import { gatherSpectrumObservations } from "./spectrumSensors";
-import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory, getMobilityBaseline } from "./warningStore";
+import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory, getMobilityBaseline, recordIndicatorDay, getIndicatorHistory, getLevelSeries } from "./warningStore";
 import { getSensorBaseline, recordSensorDay } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
+import { leadIndicators, sparkCells, stateRun, STATE_ORDER, LEVEL_ORDER, type IndicatorDay, type LevelDay, type LeadRead, type SparkCell } from "./leadIndicators";
+
+export interface IndicatorHistory { cells: SparkCell[]; run: number; observedDays: number }
 
 export interface WarningAssessmentPlus extends WarningAssessment {
   sensorHealth: SensorHealth[];
   divergence: DivergenceState;
+  /** Per-indicator 14-day sparkline + run length (PLAN §5 C1); absent on an old cache entry. */
+  history?: Record<string, IndicatorHistory>;
+  /** Which indicators stepped up before the board's level-ups. */
+  lead?: LeadRead;
 }
 
 const TTL = 10 * 60 * 1000;
@@ -71,7 +79,45 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
   recordSensorDay(`pnt:${problemId}`, day, spectrum.magnitudes.pntCells).catch(() => {});
   recordSensorDay(`ransom:${problemId}`, day, spectrum.magnitudes.victims).catch(() => {});
 
-  const data: WarningAssessmentPlus = { ...assessment, sensorHealth: health, divergence };
+  // Per-indicator state of record (PLAN §5 C1) — what the composite row
+  // cannot say. `live` from the sensor health so a dead day is hollow.
+  const liveOf = new Map(health.map((h) => [h.indicatorId, h.live]));
+  recordIndicatorDay(problemId, day, assessment.indicators.map((i) => ({
+    indicatorId: i.id, state: i.state, score: i.contribution, confidence: i.confidence, live: liveOf.get(i.id) ?? true,
+  }))).catch(() => {});
+  // Per-hub lift (PLAN §5 C2): only when the ADS-B feed answered.
+  if (mobilityLive) {
+    for (const h of divergence.byHub ?? []) {
+      recordSensorDay(sensorKey("mob", h.icao), day, h.mobility).catch(() => {});
+      recordSensorDay(sensorKey("tanker", h.icao), day, h.tanker).catch(() => {});
+    }
+  }
+
+  // History reads for the board: per-indicator sparklines + run lengths and
+  // the lead-indicator read (three level-ups before any claim). Read AFTER
+  // today's write so today's cell is included; both fail-safe.
+  const [indHist, levels] = await Promise.all([
+    getIndicatorHistory(problemId, 60).catch(() => ({} as Record<string, { day: string; state: string; live: boolean }[]>)),
+    getLevelSeries(problemId, 60).catch(() => [] as { day: string; level: string }[]),
+  ]);
+  const todayInd = new Map(assessment.indicators.map((i) => [i.id, { day, state: i.state, live: liveOf.get(i.id) ?? true }]));
+  const indicatorDays: Record<string, IndicatorDay[]> = {};
+  for (const [id, rows] of Object.entries(indHist)) {
+    const clean = rows.filter((r) => STATE_ORDER.includes(r.state as ObservedState)).map((r) => ({ day: r.day, state: r.state as ObservedState, live: r.live }));
+    if (!clean.some((r) => r.day === day) && todayInd.has(id)) clean.push(todayInd.get(id)!);
+    indicatorDays[id] = clean;
+  }
+  for (const [id, t] of todayInd) if (!indicatorDays[id]) indicatorDays[id] = [t];
+  const levelDays: LevelDay[] = levels.filter((l) => LEVEL_ORDER.includes(l.level as WarningLevel)).map((l) => ({ day: l.day, level: l.level as WarningLevel }));
+  if (!levelDays.some((l) => l.day === day)) levelDays.push({ day, level: assessment.level });
+  const history: Record<string, IndicatorHistory> = {};
+  for (const [id, rows] of Object.entries(indicatorDays)) {
+    const run = stateRun(rows);
+    history[id] = { cells: sparkCells(rows, 14), run: run.run, observedDays: rows.filter((r) => r.live).length };
+  }
+  const lead = leadIndicators(levelDays, indicatorDays);
+
+  const data: WarningAssessmentPlus = { ...assessment, sensorHealth: health, divergence, history, lead };
   cache.set(problemId, { at: Date.now(), data });
   return data;
 }

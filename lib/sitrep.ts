@@ -39,6 +39,7 @@ import { spectrumLed, spectrumShort } from "./sitrepSignals";
 import { recordSensorDay, getSensorSeries } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
 import { catOrdinal, tafVerification, type TafSkill } from "./tafVerify";
+import { bestBaseline, highWater, type SeriesPoint } from "./series";
 
 export interface SitrepAlert {
   event: string;
@@ -63,6 +64,16 @@ export interface SitrepSpectrum {
   pnt: { live: boolean; date: string; cellLevel: number; raim: string[] };
   spaceWx: { live: boolean; now: ScaleDay | null; outlook: ScaleDay[]; impacts: SpaceWxImpact[]; polar: boolean | null; satcom: string };
   edge: { declared: boolean; live: boolean; vendors: string[]; hits: { cve: string; vendor: string; product: string; name: string; dateAdded: string; ransomware: boolean }[] };
+}
+
+export interface LiftRead {
+  today: number | null;
+  normal: number | null;
+  kind: "weekday" | "flat" | "none";
+  samples: number;
+  /** Today above every prior value in 30 days (null below seven prior points). */
+  high: boolean | null;
+  label: string;
 }
 
 export interface SitrepPayload {
@@ -96,6 +107,9 @@ export interface SitrepPayload {
     center: { code: string; live: boolean; count: number; items: { text: string; amber: boolean }[] } | null;
     // Crosswind/headwind per runway end from the current METAR (advisory).
     runwayWinds: RunwayWind[];
+    /** Lift at this field vs its own normal (PLAN §5 C2) — only when the field
+     *  is a hub on an I&W board and the ADS-B series exists. */
+    lift?: LiftRead | null;
     // System fuel NOTAMs referencing this ICAO (DAIP FUEL_NOTAMS).
     fuel: { live: boolean; items: string[] } | null;
   };
@@ -187,6 +201,22 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
 
 const TTL_MS = 10 * 60 * 1000;
 const cache = new Map<string, { payload: SitrepPayload; expires: number }>();
+
+/** Lift at a hub against its own normal — null when the field has no series. */
+export function liftRead(series: SeriesPoint[], today: string): LiftRead | null {
+  if (!series.length) return null;
+  const b = bestBaseline(series, today, 30);
+  const hw = highWater(series, today, 30);
+  const todayV = series.find((p) => p.day === today)?.value ?? null;
+  let label: string;
+  if (todayV == null) label = `no lift count recorded today · ${series.length} observed days on record`;
+  else if (b.mean == null) label = `${todayV} mobility aircraft within 600 km today · baseline forming (${b.samples} observed days)`;
+  else {
+    const pct = Math.round((todayV / Math.max(b.mean, 0.5) - 1) * 100);
+    label = `${todayV} mobility aircraft within 600 km today vs ${b.kind === "weekday" ? "same-weekday" : "30-day"} normal ~${b.mean.toFixed(0)} (${pct >= 0 ? "+" : ""}${pct}%)${hw.isHigh ? " — 30-day high" : ""}`;
+  }
+  return { today: todayV, normal: b.mean, kind: b.kind, samples: b.samples, high: hw.isHigh, label };
+}
 
 export function resetSitrepCache(): void {
   cache.clear();
@@ -441,9 +471,10 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   recordSensorDay(fcKey, today, catOrdinal(nowWx?.flightCategory)).catch(() => {});
   recordSensorDay(tafKey, today, catOrdinal(tafWorst?.worst)).catch(() => {});
   try {
-    const [fcSeries, tafSeries] = await Promise.all([getSensorSeries(fcKey, 90), getSensorSeries(tafKey, 90)]);
+    const [fcSeries, tafSeries, liftSeries] = await Promise.all([getSensorSeries(fcKey, 90), getSensorSeries(tafKey, 90), getSensorSeries(sensorKey("mob", icao), 90)]);
     payload.weather.tafSkill = tafVerification(fcSeries, tafSeries);
-  } catch { payload.weather.tafSkill = null; }
+    payload.ops.lift = liftRead(liftSeries, today);
+  } catch { payload.weather.tafSkill = null; payload.ops.lift = null; }
   if (!payload.history.some((h) => h.day === today)) {
     payload.history = [...payload.history, { day: today, wx: payload.status.wx, ops: payload.status.ops, threat: payload.status.threat }].slice(-7);
   }
