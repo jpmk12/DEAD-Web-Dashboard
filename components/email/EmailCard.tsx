@@ -1,6 +1,6 @@
 import { EmailMessage, EmailPriority } from "@/lib/types";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FAMILY_LABELS } from "@/lib/familyLabels";
 import { FamilyFileIcon } from "@/lib/icons";
 import { toast } from "@/lib/feedback";
@@ -67,6 +67,18 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
   // sender from now on with nothing typed.
   const [fileMenu, setFileMenu] = useState(false);
   const [filed, setFiled] = useState<{ label: string; tracked: boolean } | "busy" | null>(null);
+  const menuRef = useRef<HTMLSpanElement>(null);
+
+  // Close the popover on an outside click / Escape, so a card lifted above
+  // its siblings (see the z-20 on the root) never stays lifted.
+  useEffect(() => {
+    if (!fileMenu) return;
+    const onDown = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setFileMenu(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFileMenu(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [fileMenu]);
 
   const fileUnderFamily = async (category: string, labelName: string) => {
     setFileMenu(false);
@@ -220,11 +232,16 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
 
   return (
     <div
+      // While the File-under-Family popover is open the card is lifted above
+      // its siblings (z-20). The popover's own z-index only ranks it INSIDE
+      // this card's stacking context; the next card down (hover transform,
+      // or the stale-email opacity) paints later in the DOM and was covering
+      // the menu's bottom half.
       className={`relative flex gap-3 pl-4 pr-4 py-3.5 rounded-xl border transition-all cursor-pointer card-hover ${
         selected
           ? "border-emerald-600/50 bg-emerald-500/5"
           : "border-slate-800 bg-slate-900 hover:border-slate-700"
-      } ${isStale ? "opacity-50 hover:opacity-100" : ""}`}
+      } ${isStale ? "opacity-50 hover:opacity-100" : ""} ${fileMenu ? "z-20" : ""}`}
       onClick={() => onToggle(email.id)}
     >
       {/* Priority left border */}
@@ -297,7 +314,7 @@ export default function EmailCard({ email, selected, onToggle, previousSeen = 0 
             >
               {convert.phase === "loading" && convert.kind === "event" ? "…" : "📅"}
             </button>
-            <span className="relative">
+            <span className="relative" ref={menuRef}>
               <button
                 onClick={(e) => { e.stopPropagation(); if (filed && filed !== "busy") return; setFileMenu((v) => !v); }}
                 disabled={filed === "busy"}
