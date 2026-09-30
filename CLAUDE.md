@@ -1672,6 +1672,29 @@ built on the existing engine rather than a new one:
   `mofcom.js`, the same capture-then-build loop as X/DAIP. Extension files
   are static under `tools/` (no esbuild).
 
+### Cyber & space warning — reviewed, NOT built (`docs/REVIEW-CYBER-SPACE.md`)
+Audit (2026-09-30): space exists only as the Weather tab's SWPC card (a
+curiosity with no ops framing and no path into any LED/board/alert) plus
+GPSJam on the force-posture axis and the hand-built CENTCOM board — the
+TEMPLATED AOI boards dropped GPS (`airspace_gps_disruption` is airspace-only
+there; a gap, not a decision). Cyber has no sensor; IODA connectivity feeds
+one SITREP region only. The review proposes, per tab, indicators that reuse
+the existing engine and grammar: `pnt_denial` and `cyber_pressure` on every
+AOI board (GPSJam vs the AOI's own baseline + GPS/WAAS NOTAMs; IODA outage
+alerts + ransomware.live victims + graded cyber news BY the actor + CISA
+state-attributed advisories), `space_activity` on space-power boards
+(CelesTrak SATCAT/SOCRATES, Launch Library 2), a wing-level SITREP
+"Spectrum" card (SWPC ops impact, KEV × declared vendors), a Glance
+Spectrum tile, Regional "Digital & spectrum", a `⌁ cyber` Economy
+instrument, Outages/Launches map layers, and three optional Mission Profile
+declarations (polar/HF routes, SATCOM, edge vendors). Load-bearing rules
+recorded there: **space weather is environment, never an I&W level** (it
+guards PNT attribution instead); **KEV × declared vendors, never the NVD
+firehose**; **passive sources only — nothing probes a network**. Mockup:
+`docs/mockups/cyber-space.html` → `docs/cyber-space(.png|-phone.png)`,
+standalone `docs/cyber-space.html`. Build order A–H in the review; nothing
+under `lib/`, `app/` or `components/` changed for it.
+
 ### Indications & Warning (OSINT "I&W" sub-pane — the sensor→fusion→display spine)
 A doctrine-grounded I&W board: warning is about **anomaly & trajectory, not
 level** (Grabo). Color is EARNED by the anomaly crossing a pre-registered

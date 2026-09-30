@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>cyber and space warning — proposal</title><link rel="stylesheet" href="shot.css">
+<style>
+  .pane{max-width:1180px;margin:22px auto;padding:0 20px}
+  .hdr{display:flex;align-items:flex-end;gap:14px;margin-bottom:14px}
+  .hdr h2{font-size:15px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--txt)}
+  .hdr .ns{font-size:11px;color:var(--mut);max-width:78ch}
+  .sec{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;margin:18px 0 8px;display:flex;align-items:center;gap:8px}
+  .sec .where{font-weight:600;letter-spacing:.04em;text-transform:none;color:var(--mut);font-size:10.5px}
+  .rn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  /* status row */
+  .tiles{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+  .tile{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;background:rgba(15,23,42,.55);min-width:0}
+  .tile .k{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+  .tile .v{font-family:ui-monospace,Menlo,monospace;font-size:18px;font-weight:800;margin-top:2px}
+  .tile .s{font-size:9.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile.amber{border-color:rgba(251,191,36,.5)}.tile.amber .v{color:var(--amber)}
+  .tile.green .v{color:var(--acc)}.tile.unk .v{color:#64748b}.tile.violet .v{color:var(--violet)}
+  .tile.new{outline:2px dashed rgba(244,63,94,.6);outline-offset:2px}
+  /* iw card */
+  .iw{border:1px solid rgba(251,191,36,.4);border-radius:12px;background:rgba(15,23,42,.5);padding:12px 14px}
+  .iw .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .iw .name{font-size:13px;font-weight:800}
+  .lvl{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;border:1px solid;border-radius:5px;padding:2px 8px}
+  .lvl.watch{color:var(--amber);border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.1)}
+  .iw .anom{font-family:ui-monospace,Menlo,monospace;font-size:18px;font-weight:800;margin-left:auto}
+  .ind{display:grid;grid-template-columns:14px 200px 1fr auto;gap:10px;align-items:start;padding:6px 0;border-top:1px solid rgba(30,41,59,.6);font-size:11.5px}
+  .ind .nm{font-weight:700;color:var(--txt2)}
+  .ind .why{color:var(--mut);font-size:10.5px;line-height:1.4}
+  .ind .st{font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid;border-radius:4px;padding:1px 6px;white-space:nowrap}
+  .st.act{color:#fdba74;border-color:rgba(251,146,60,.55);background:rgba(251,146,60,.1)}
+  .st.wat{color:#fde68a;border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1)}
+  .st.dor{color:#64748b;border-color:#334155}
+  .st.unk{color:#94a3b8;border-color:#475569;background:rgba(71,85,105,.25)}
+  .ind.new{background:rgba(244,63,94,.05);margin:0 -14px;padding-left:14px;padding-right:14px}
+  .dot{width:8px;height:8px;border-radius:50%;margin-top:5px}
+  .dot.act{background:#fb923c}.dot.wat{background:#fbbf24}.dot.dor{background:#475569}.dot.unk{background:#64748b;outline:1px dashed #94a3b8}
+  .guard{margin-top:8px;font-size:10px;color:#7dd3fc;border-left:2px solid rgba(56,189,248,.5);padding-left:8px}
+  /* two col */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .card{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.5);overflow:hidden}
+  .card .ch{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35)}
+  .card .ch .t{font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+  .card .ch .led{margin-left:auto}
+  .card .cb{padding:8px 12px}
+  .ln{display:grid;grid-template-columns:110px 1fr;gap:10px;padding:5px 0;border-top:1px solid rgba(30,41,59,.5);font-size:11px;align-items:start}
+  .ln:first-child{border-top:0}
+  .ln .k{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:6px;padding-top:2px}
+  .ln .v{color:var(--txt2);line-height:1.4}
+  .ln .v small{display:block;color:var(--mut);font-size:9.5px;font-family:ui-monospace,Menlo,monospace}
+  .scale{display:inline-block;font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:800;border-radius:4px;padding:0 5px;margin-right:4px}
+  .scale.g0{background:rgba(16,185,129,.15);color:#6ee7b7}.scale.g1{background:rgba(234,179,8,.15);color:#fde047}.scale.g3{background:rgba(249,115,22,.2);color:#fdba74}
+  .out{display:flex;gap:4px;margin-top:4px}
+  .out i{flex:1;height:14px;border-radius:3px;background:#1e293b;font-style:normal;font-size:8.5px;font-family:ui-monospace,Menlo,monospace;color:#94a3b8;display:flex;align-items:center;justify-content:center}
+  .out i.a{background:rgba(251,191,36,.25);color:#fde68a}.out i.o{background:rgba(249,115,22,.3);color:#fdba74}
+  /* map legend */
+  .layers{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px}
+  .layer{font-size:10px;border:1px solid var(--bd2);border-radius:999px;padding:2px 9px;color:#94a3b8}
+  .layer.on{border-color:rgba(52,211,153,.5);color:var(--acc)}
+  .layer.new{border-color:rgba(244,63,94,.6);color:#fda4af}
+  /* economy tile */
+  .actor{border:1px solid rgba(251,191,36,.4);border-radius:12px;padding:10px 12px;background:rgba(15,23,42,.5);position:relative}
+  .actor .who{font-size:13px;font-weight:800}
+  .actor .anom{font-family:ui-monospace,Menlo,monospace;font-size:20px;font-weight:800;margin-top:6px}
+  .actor .anom small{font-size:10px;color:var(--mut);font-weight:600;margin-left:6px}
+  .inst{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+  .inst span{font-size:9.5px;border:1px solid var(--bd2);border-radius:999px;padding:1px 7px;color:#94a3b8}
+  .inst span.on{border-color:rgba(248,113,113,.5);color:#fca5a5;background:rgba(248,113,113,.08)}
+  .inst span.mid{border-color:rgba(251,191,36,.5);color:#fcd34d;background:rgba(251,191,36,.08)}
+  .inst span.new{outline:1px dashed rgba(244,63,94,.7);outline-offset:1px}
+  .board table{width:100%;border-collapse:collapse;font-size:11px}
+  .board th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);text-align:left;padding:6px 10px;border-bottom:1px solid var(--bd);font-weight:800}
+  .board td{padding:7px 10px;border-top:1px solid rgba(30,41,59,.6);vertical-align:top}
+  .mod{font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid;border-radius:4px;padding:1px 6px;white-space:nowrap}
+  .mod.act{color:#fecaca;border-color:rgba(239,68,68,.55);background:rgba(239,68,68,.15)}
+  .mod.threat{color:#fde68a;border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1)}
+  /* prefs */
+  .field{display:grid;grid-template-columns:180px 1fr;gap:10px;padding:6px 0;font-size:11px;border-top:1px solid rgba(30,41,59,.5)}
+  .field .k{font-weight:700;color:var(--txt2)}
+  .field .v{color:var(--mut)}
+  .box{border:1px solid var(--bd2);border-radius:6px;padding:3px 8px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#cbd5e1;display:inline-block;background:#0b1220}
+  /* notes */
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:18px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin-bottom:8px}
+  .notes ol{margin:0;padding-left:18px;font-size:11px;color:var(--txt2);line-height:1.55;columns:2;column-gap:28px}
+  .notes li{break-inside:avoid;margin-bottom:4px}
+  @media (max-width:760px){
+    html,body{width:390px;overflow-x:hidden}
+    .pane{padding:0 12px;margin:12px auto}
+    .tiles{grid-template-columns:repeat(2,1fr)}
+    .two{grid-template-columns:1fr}
+    .ind{grid-template-columns:14px 1fr auto}
+    .ind .why{grid-column:2/4}
+    .notes ol{columns:1}
+    .hdr{flex-direction:column;align-items:flex-start;gap:6px}
+    .board th:nth-child(4),.board td:nth-child(4){display:none}
+  }
+</style></head>
+<body>
+<div class="pane">
+  <div class="hdr">
+    <h2>Cyber &amp; space warning — where it lands</h2>
+    <div class="ns">Proposal, not code. Cross-cutting: no new tab. Warning indicators join the I&amp;W boards; ops impact joins SITREP and Weather; the coercion view joins Economy. Red numbers are callouts, explained at the bottom.</div>
+  </div>
+
+  <!-- 1. Glance -->
+  <div class="sec">Glance · status row <span class="where">— one new tile, earned colour</span></div>
+  <div class="tiles">
+    <div class="tile green"><div class="k">Posture</div><div class="v">3 amber</div><div class="s">0 red · 2 chronic</div></div>
+    <div class="tile green"><div class="k">Bases</div><div class="v">all green</div><div class="s">KWRI · OTBH</div></div>
+    <div class="tile amber"><div class="k">I&amp;W</div><div class="v">watch</div><div class="s">CENTCOM · Iran ↗</div></div>
+    <div class="tile green"><div class="k">Demand · 7d</div><div class="v">hold</div><div class="s">1 rising</div></div>
+    <div class="tile amber new"><div class="k">Spectrum<span class="rn">1</span></div><div class="v">watch</div><div class="s">PNT ↑ Gulf · SWPC G1 · KEV 1</div></div>
+    <div class="tile violet"><div class="k">Tasks</div><div class="v">4 due</div><div class="s">1 overdue</div></div>
+    <div class="tile green"><div class="k">Alerts</div><div class="v">1</div><div class="s">in effect</div></div>
+    <div class="tile green"><div class="k">Family</div><div class="v">quiet</div><div class="s">2 this week</div></div>
+  </div>
+
+  <!-- 2. I&W board -->
+  <div class="sec">OSINT › Watch › I&amp;W <span class="where">— CENTCOM · Iran board with the new indicators (rows shaded red are new)</span></div>
+  <div class="iw">
+    <div class="top"><span class="name">CENTCOM · Iran</span><span class="lvl watch">Watch</span><span class="mono" style="font-size:10px;color:#64748b">baseline 30 d · 21 samples</span><span class="anom">+0.21</span></div>
+    <div class="ind"><div class="dot wat"></div><div class="nm">Conflict intensity — Gulf</div><div class="why">UCDP 90-day band: elevated (band 2 of 4)</div><span class="st wat">watching</span></div>
+    <div class="ind"><div class="dot dor"></div><div class="nm">Escalatory strike / rhetoric</div><div class="why">no corroborated escalation phrase in 72 h</div><span class="st dor">dormant</span></div>
+    <div class="ind"><div class="dot dor"></div><div class="nm">Airlift mobility divergence</div><div class="why">12 mobility aircraft near hubs · baseline 11 — quiet</div><span class="st dor">dormant</span></div>
+    <div class="ind new"><div class="dot act"></div><div class="nm">PNT denial (GPS / EW)<span class="rn">2</span></div><div class="why">GPSJam 14 elevated cells in the AOI bbox vs 6 baseline · RAIM NOTAM at OTBH (0600–1100Z) · no GPS/WAAS system NOTAM<div class="guard">guard: SWPC G1 — storm cannot explain a 2.3× cell count; attributed to interference</div></div><span class="st act">active</span></div>
+    <div class="ind new"><div class="dot wat"></div><div class="nm">Cyber pressure<span class="rn">3</span></div><div class="why">IODA outage alert: Iran (moderate, 3 h, BGP + active probing) · ransomware victims HQ'd in AOI countries 4 / 30 d vs 2 baseline · CISA AA26-241A names IRGC-affiliated actors (by, act) · GDELT: 1 declared threat (DDoS) — own-source corroboration: none</div><span class="st wat">watching</span></div>
+    <div class="ind"><div class="dot dor"></div><div class="nm">NEO / departure posture</div><div class="why">no NEW Level-4 or departure notice in 14 d</div><span class="st dor">dormant</span></div>
+    <div class="ind"><div class="dot dor"></div><div class="nm">Airspace disruption</div><div class="why">no new FIR closure / overflight NOTAM over the AOI (GPS moved to its own row)</div><span class="st dor">dormant</span></div>
+    <div class="ind"><div class="dot wat"></div><div class="nm">Hormuz interdiction</div><div class="why">1 declared threat · AIS transits normal</div><span class="st wat">watching</span></div>
+    <div class="ind new"><div class="dot unk"></div><div class="nm">Space activity<span class="rn">4</span></div><div class="why">shown only on boards whose actor launches (China, Russia, Iran, DPRK): launches 14 d vs cadence · reentries · SOCRATES conjunctions with U.S. payloads · launch-hazard NOTAMs. Iran: 1 launch (Simorgh) in 14 d vs 0.3 cadence — learning mode, baseline forming</div><span class="st unk">learning</span></div>
+  </div>
+
+  <!-- 3 + 4: SITREP spectrum card and Weather ops card -->
+  <div class="two" style="margin-top:14px">
+    <div>
+      <div class="sec">OSINT › Watch › SITREP · KWRI <span class="where">— new card beside Infrastructure</span></div>
+      <div class="card">
+        <div class="ch"><span class="t" style="color:#c4b5fd">⌁ Spectrum<span class="rn">5</span></span><span class="mono" style="font-size:9.5px;color:#64748b">feeds LIMFAC · C2 / Comms</span><span class="led a"></span></div>
+        <div class="cb">
+          <div class="ln"><div class="k"><span class="led g"></span>PNT at field</div><div class="v">GPSJam cell: none elevated · RAIM: no outage<small>gpsjam 2026-09-29 · DAIP LOCATION</small></div></div>
+          <div class="ln"><div class="k"><span class="led a"></span>HF / polar</div><div class="v"><span class="scale g1">R1</span>minor HF absorption on the sunlit side; polar route HF marginal 12–16Z<small>SWPC noaa-scales · declared: polar routes YES</small></div></div>
+          <div class="ln"><div class="k"><span class="led g"></span>GPS integrity</div><div class="v"><span class="scale g1">G1</span>no expected approach impact; scintillation band 17–21 local at OTBH<small>SWPC Kp 5 · equatorial dusk band</small></div></div>
+          <div class="ln"><div class="k"><span class="led g"></span>SATCOM</div><div class="v">no S-scale event; declared: <span class="mono">not declared</span><small>reads UNKNOWN for SATCOM until declared</small></div></div>
+          <div class="ln"><div class="k"><span class="led a"></span>Edge exposure</div><div class="v">1 new KEV entry for a declared vendor (Fortinet, CVE-2026-xxxxx, added 09-28)<small>CISA KEV · vendor watchlist: 3 declared</small></div></div>
+          <div class="ln"><div class="k">Outlook 3 d</div><div class="v"><div class="out"><i class="a">Tue G1 R1</i><i>Wed G0 R0</i><i>Thu G0 R0</i></div></div></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="sec">Weather tab <span class="where">— Space Weather card reframed to ops impact</span></div>
+      <div class="card">
+        <div class="ch"><span class="t" style="color:#c4b5fd">☀ Space weather → ops<span class="rn">6</span></span><span class="mono" style="font-size:9.5px;color:#64748b">NOAA SWPC · environment, not warning</span><span class="led a"></span></div>
+        <div class="cb">
+          <div class="ln"><div class="k">Now</div><div class="v"><span class="scale g1">G1</span><span class="scale g1">R1</span><span class="scale g0">S0</span> Kp 5.0 · flare M1.2 at 09:41Z</div></div>
+          <div class="ln"><div class="k">HF comms</div><div class="v">Sunlit-side absorption minor; polar cap quiet (S0). <b style="color:#fde68a">Polar route: HF marginal 12–16Z</b></div></div>
+          <div class="ln"><div class="k">GPS</div><div class="v">Approach integrity nominal at G1; scintillation possible 17–21 local within ±20° of the magnetic equator (Gulf bases at dusk)</div></div>
+          <div class="ln"><div class="k">SATCOM</div><div class="v">No degradation expected (S0, no radio blackout)</div></div>
+          <div class="ln"><div class="k">Radiation</div><div class="v">Dose at altitude normal; polar crews no restriction</div></div>
+          <div class="ln"><div class="k">Threat board</div><div class="v">row appears only at G3 / R3 / S3 or above — colour is earned</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 + 7: Regional card and Crisis map layers -->
+  <div class="two" style="margin-top:14px">
+    <div>
+      <div class="sec">OSINT › Regional · Iran <span class="where">— new dossier card</span></div>
+      <div class="card">
+        <div class="ch"><span class="t" style="color:#7dd3fc">⌁ Digital &amp; spectrum<span class="rn">7</span></span><span class="led a"></span></div>
+        <div class="cb">
+          <div class="ln"><div class="k"><span class="led a"></span>Connectivity</div><div class="v">IODA: moderate outage alert, 3 h, BGP + probing (national) — 2nd this month<small>api.ioda.inetintel.cc.gatech.edu · country IR</small></div></div>
+          <div class="ln"><div class="k"><span class="led a"></span>GPS interference</div><div class="v">9 elevated cells in-country (south coast, Bandar Abbas cluster)<small>gpsjam · prior day</small></div></div>
+          <div class="ln"><div class="k"><span class="led g"></span>Ransomware 30 d</div><div class="v">2 victims HQ'd in Iran (no transport / energy sector)<small>ransomware.live</small></div></div>
+          <div class="ln"><div class="k"><span class="led a"></span>Advisories</div><div class="v">CISA AA26-241A: IRGC-affiliated actors targeting OT at water utilities — names Iran as ACTOR<small>cisa.gov advisories · 6 d</small></div></div>
+          <div class="ln"><div class="k">Cyber news</div><div class="v">1 declared threat (DDoS against Gulf ports) · 0 reported acts · 2 analysis<small>graded, not counted</small></div></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="sec">OSINT › Watch › Crisis map <span class="where">— two layers, off by default</span></div>
+      <div class="card">
+        <div class="ch"><span class="t">⚙ Layers (9)</span><span class="mono" style="font-size:9.5px;color:#64748b">grouped toggles</span></div>
+        <div class="layers">
+          <span class="layer on">Forces</span><span class="layer on">Disasters</span><span class="layer on">NEO</span><span class="layer on">GPS</span><span class="layer">Overflight</span><span class="layer">Mil air</span><span class="layer">Vessels</span>
+          <span class="layer new">Outages<span class="rn">8</span></span><span class="layer new">Launches<span class="rn">9</span></span>
+        </div>
+        <div class="cb" style="border-top:1px solid var(--bd)">
+          <div class="ln"><div class="k">Outages</div><div class="v">IODA country-level outage events shaded at centroid (moderate / severe), popup with the sources that saw it (BGP, active probing, telescope)</div></div>
+          <div class="ln"><div class="k">Launches</div><div class="v">Launch Library 2 pads with T-minus and the hazard note; a Jiuquan or Plesetsk window closes airspace the way a TFR does</div></div>
+          <div class="ln"><div class="k">GPS</div><div class="v">unchanged (GPSJam H3 cells)</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6: Economy -->
+  <div class="sec">Economy · actor board <span class="where">— cyber joins the six instruments</span></div>
+  <div class="two">
+    <div class="actor">
+      <span class="who">Iran</span> <span class="lvl watch" style="position:absolute;top:10px;right:12px">Watch</span>
+      <div class="anom">+0.18<small>anomaly · ↗ deteriorating</small></div>
+      <div class="inst"><span class="mid">⚓ Shipping</span><span>⛽ Energy</span><span>⊘ Sanctions</span><span>⇄ Trade</span><span>¤ Finance</span><span>✈ Overflight</span><span class="mid new">⌁ Cyber<span class="rn">10</span></span><span>⇐ U.S.</span></div>
+      <div style="font-size:10.5px;color:#64748b;margin-top:7px">Cyber watching: CISA advisory names IRGC-affiliated actors (by · act) · 1 declared DDoS threat against Gulf ports · victims in target countries: corroboration only</div>
+    </div>
+    <div class="card board">
+      <table>
+        <tr><th>actor → target</th><th>instrument</th><th>grade</th><th>evidence</th></tr>
+        <tr><td>Iran → United States</td><td>⌁ espionage / pre-positioning</td><td><span class="mod act">reported act</span></td><td>CISA AA26-241A — IRGC-affiliated cyber actors target OT devices · Federal-Register standing · 6 d</td></tr>
+        <tr><td>Iran → Gulf states</td><td>⌁ DDoS / hacktivist</td><td><span class="mod threat">declared threat</span></td><td>"Cyber Av3ngers vow to hit Gulf port systems" · GDELT · 2 d</td></tr>
+        <tr><td>U.S. → Iran</td><td>⊘ U.S. sanctions · SDN</td><td><span class="mod act">reported act</span></td><td>OFAC designates IRGC-CEC cyber officials · Federal Register · 9 d</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- 8: Preferences -->
+  <div class="sec">Preferences › Mission Profile <span class="where">— three optional declarations; absent reads UNKNOWN, never green</span></div>
+  <div class="card"><div class="cb">
+    <div class="field" style="border-top:0"><div class="k">Polar / HF-dependent routes<span class="rn">11</span></div><div class="v"><span class="box">yes</span> &nbsp;drives HF and S-scale relevance on the Spectrum card and the outlook</div></div>
+    <div class="field"><div class="k">SATCOM in use</div><div class="v"><span class="box">not declared</span> &nbsp;free text, team config, never sent to a model</div></div>
+    <div class="field"><div class="k">Edge-vendor watchlist</div><div class="v"><span class="box">Fortinet · Cisco · Ivanti</span> &nbsp;KEV entries for these vendors light Edge exposure; the NVD firehose is never read</div></div>
+    <div class="field"><div class="k">Space activity boards</div><div class="v"><span class="box">China ✓ · Russia ✓ · Iran ✓</span> &nbsp;per primary AOI; learning mode for ~90 days</div></div>
+  </div></div>
+
+  <div class="notes">
+    <h3>Callouts</h3>
+    <ol>
+      <li><b>Spectrum tile</b> — worst of PNT denial, cyber pressure, space-weather ops impact and edge exposure. UNKNOWN is its own tone. Click → Watch › I&amp;W.</li>
+      <li><b>PNT denial</b> — GPSJam cells in the AOI bbox vs the AOI's own 30-day baseline + GPS/WAAS system NOTAMs + RAIM at hubs. Restores GPS to the templated boards (it was dropped). The storm guard attributes to weather first.</li>
+      <li><b>Cyber pressure</b> — four legs: IODA national outage alerts, ransomware victims vs baseline, graded cyber news BY the actor, CISA advisories that name a state actor. Own-source-only caps at Watch, as everywhere.</li>
+      <li><b>Space activity</b> — only on boards whose actor launches. CelesTrak SATCAT + SOCRATES, Launch Library 2. Learning mode until the cadence baseline forms.</li>
+      <li><b>SITREP Spectrum card</b> — the wing-level view: PNT at the field, HF/GPS/SATCOM impact from SWPC with plain language, KEV hits on declared vendors, 3-day outlook. Its LED feeds LIMFAC C2 / Comms and the HTML export.</li>
+      <li><b>Space weather → ops</b> — the existing card reframed. Environment, not warning: it never raises an I&amp;W level; it earns a Threat-board row only at scale 3+.</li>
+      <li><b>Digital &amp; spectrum</b> — the Regional dossier's new card, same sources sliced by country.</li>
+      <li><b>Outages layer</b> — IODA country events at centroid; popup names the sources that saw it.</li>
+      <li><b>Launches layer</b> — pads with T-minus; a launch window is an airspace closure.</li>
+      <li><b>⌁ Cyber instrument</b> — classes: disruptive · ransom / criminal · espionage / pre-positioning · DDoS / hacktivist. A CISA state-attributed advisory is a BY act with Federal-Register standing.</li>
+      <li><b>Declarations</b> — three optional fields in the Mission Profile. Nothing per person; nothing sent to a model.</li>
+    </ol>
+  </div>
+</div>
+<div class="mockcap">mockup · cyber &amp; space warning proposal · 2026-09-30</div>
+</body></html>
