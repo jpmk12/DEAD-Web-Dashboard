@@ -11,6 +11,7 @@ import { parseNoaaScales, type NoaaScales } from "./spaceWeatherOps";
 import { parseLaunches, parseSocrates, type Launch, type Conjunction } from "./spaceCatalog";
 
 const UA = { "User-Agent": "DEAD-Dashboard/1.0", Accept: "application/json" };
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 export const SWPC_SCALES_URL = "https://services.swpc.noaa.gov/products/noaa-scales.json";
 export const LL2_PREVIOUS_URL = "https://ll.thespacedevs.com/2.2.0/launch/previous/?limit=100&mode=list";
@@ -66,7 +67,11 @@ const SOC_TTL = 12 * 3600_000;
 export async function getConjunctions(): Promise<{ live: boolean; conjunctions: Conjunction[] }> {
   if (socCache && Date.now() - socCache.at < SOC_TTL) return { live: true, conjunctions: socCache.data };
   try {
-    const res = await fetchWithTimeout(SOCRATES_URL, { headers: { "User-Agent": UA["User-Agent"], Accept: "text/csv,*/*" }, cache: "no-store" }, 15_000);
+    // A browser User-Agent: CelesTrak refuses bot-shaped clients. The
+    // 2026-09-30 production diag still got a connection-level "fetch failed"
+    // from this host (not an HTTP error), so the conjunction half stays
+    // best-effort — space_activity runs on cadence alone when it is dead.
+    const res = await fetchWithTimeout(SOCRATES_URL, { headers: { "User-Agent": BROWSER_UA, Accept: "text/csv,*/*" }, cache: "no-store" }, 15_000);
     if (!res.ok) return { live: false, conjunctions: [] };
     const conjunctions = parseSocrates(await res.text());
     if (conjunctions.length) socCache = { at: Date.now(), data: conjunctions };
@@ -81,10 +86,10 @@ export function resetSpaceSourceCaches(): void { scalesCache = null; launchCache
 export interface SpaceSourceDiag { source: string; url: string; status: number; ms: number; bytes: number; parsed: number; snippet: string; error?: string }
 
 export async function diagnoseSpaceSources(): Promise<SpaceSourceDiag[]> {
-  const probe = async (source: string, url: string, parse: (text: string) => number): Promise<SpaceSourceDiag> => {
+  const probe = async (source: string, url: string, parse: (text: string) => number, ua = UA["User-Agent"]): Promise<SpaceSourceDiag> => {
     const t0 = Date.now();
     try {
-      const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA["User-Agent"] }, cache: "no-store" }, 15_000);
+      const res = await fetchWithTimeout(url, { headers: { "User-Agent": ua }, cache: "no-store" }, 15_000);
       const text = await res.text();
       let parsed = 0;
       try { parsed = parse(text); } catch { /* unparseable */ }
@@ -97,6 +102,6 @@ export async function diagnoseSpaceSources(): Promise<SpaceSourceDiag[]> {
     probe("SWPC scales", SWPC_SCALES_URL, (t) => (parseNoaaScales(JSON.parse(t)).live ? 1 : 0)),
     probe("Launch Library 2 (previous)", LL2_PREVIOUS_URL, (t) => parseLaunches(JSON.parse(t)).length),
     probe("Launch Library 2 (upcoming)", LL2_UPCOMING_URL, (t) => parseLaunches(JSON.parse(t)).length),
-    probe("CelesTrak SOCRATES", SOCRATES_URL, (t) => parseSocrates(t).length),
+    probe("CelesTrak SOCRATES", SOCRATES_URL, (t) => parseSocrates(t).length, BROWSER_UA),
   ]);
 }

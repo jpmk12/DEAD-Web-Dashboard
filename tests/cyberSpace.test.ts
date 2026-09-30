@@ -135,11 +135,19 @@ describe("space activity — cadence, not count", () => {
     expect(ll2).toHaveLength(4);
     expect(ll2[0]).toMatchObject({ country: "CHN", lat: 38.8, lon: 111.6 });
   });
-  it("cadence counts only the actor, past vs future split by net", () => {
+  it("cadence counts only the actor, past vs future split by net, over the span the page actually covers", () => {
+    // The sample's oldest launch is 10 days back, so the covered history is
+    // 10 days — too short for a cadence (null), and never divided by 90.
     const c = launchCadence(ll2, ["CHN"], T, 90);
     expect(c.last14).toBe(2);
     expect(c.next14).toBe(1);
-    expect(c.per14).toBeCloseTo((2 / 90) * 14, 5);
+    expect(c.per14).toBeNull();
+    expect(c.historyDays).toBe(10);
+    // With an old launch in the page the span opens up and the cadence forms.
+    const older = [...ll2, { ...ll2[1], name: "Long March 3B", net: "2026-07-10T12:00:00Z" }];
+    const c2 = launchCadence(older, ["CHN"], T, 90);
+    expect(c2.historyDays).toBe(82);
+    expect(c2.per14).toBeCloseTo((3 / 82) * 14, 5);
   });
   it("space powers resolve from country names", () => {
     expect(spacePowersIn(["Iran", "Iraq", "China"])).toEqual(["IRN", "CHN"]);

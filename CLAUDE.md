@@ -1725,10 +1725,21 @@ Profile `spectrum` block is omitted from `missionSummaryLine` (tested).
   SECONDS, CISA KEV JSON, CISA advisories RSS via `fetchFeed`,
   ransomware.live `/v2/recentvictims`) and `lib/spaceSources.ts` (SWPC
   scales, LL2 previous+upcoming cached 3 h — the free tier is ~15 req/h —
-  SOCRATES CSV). All fail-safe `live:false`. **Every contract is UNVERIFIED
-  from the sandbox** (egress): `/api/spectrum?diag=1` (owner-only) runs all
-  eight fetches from production and returns status/bytes/parsed/snippet;
-  `parsed: 0` with a 200 means a renamed field. `lib/sensorStore.ts` +
+  SOCRATES CSV). All fail-safe `live:false`. `/api/spectrum?diag=1`
+  (owner-only) runs all eight fetches from production and returns
+  status/bytes/parsed/snippet; `parsed: 0` with a 200 means a renamed
+  field. **Verified from production 2026-09-30: 7 of 8 live and parsing**
+  (IODA alerts 50/50 named; KEV 1,729; CISA advisories 30; ransomware.live
+  100 — its date field is `attackdate`, `country` is ISO2; SWPC scales with
+  the `"0"`..`"3"` day keys and string `Scale` values; LL2 previous 100 +
+  upcoming 50). **CelesTrak SOCRATES fails at the connection level**
+  (`fetch failed` after ~10 s, no HTTP status — the host refuses this
+  provider's address range, the same class as JRC/Stooq); the conjunction
+  half of `space_activity` therefore reads "SOCRATES unreachable — cadence
+  only" and the indicator runs on launch cadence. `launchCadence` divides
+  by the history the LL2 page actually COVERS (oldest launch in the page,
+  capped at 90 d), never by the nominal window — the page is the newest 100
+  launches of everyone, so a busy quarter fits fewer days. `lib/sensorStore.ts` +
   `sensor_daily (sensor_key, day, value)` generalises `mobility_count`:
   day-peak on duplicate, trailing mean over PRIOR days, a dead sensor
   writes nothing (keys `pnt:<problemId>`, `ransom:<problemId>`).

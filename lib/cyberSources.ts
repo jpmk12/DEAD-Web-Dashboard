@@ -116,7 +116,10 @@ export async function diagnoseCyberSources(): Promise<CyberSourceDiag[]> {
   };
   const until = Math.floor(Date.now() / 1000);
   return Promise.all([
-    probe("IODA alerts", `${IODA_ALERTS_URL}?from=${until - 86_400}&until=${until}&limit=50`, (t) => parseIodaAlerts(JSON.parse(t)).length),
+    // `parsed` counts alerts that carried an entity NAME — a row the parser
+    // accepted but could not name would match no country, so a bare count
+    // would overstate what the sensor can actually use.
+    probe("IODA alerts", `${IODA_ALERTS_URL}?from=${until - 86_400}&until=${until}&limit=50`, (t) => parseIodaAlerts(JSON.parse(t)).filter((a) => a.entityName && a.entityType).length),
     probe("CISA KEV", KEV_URL, (t) => parseKev(JSON.parse(t)).length),
     probe("CISA advisories", CISA_ADVISORIES_RSS, (t) => (t.match(/<item>/g) ?? []).length),
     probe("ransomware.live", RANSOMWARE_LIVE_URL, (t) => parseRansomwareVictims(JSON.parse(t)).length),

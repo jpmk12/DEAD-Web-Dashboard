@@ -83,13 +83,21 @@ export interface Cadence {
  *  fine — `net` decides). `historyDays` is what the caller fetched. */
 export function launchCadence(launches: Launch[], iso3s: string[], todayMs: number, historyDays = 90): Cadence {
   const want = new Set(iso3s.map((s) => s.toUpperCase()));
-  const mine = launches.filter((l) => want.has(l.country));
   const day = 86_400_000;
-  const past = mine.filter((l) => { const t = Date.parse(l.net); return Number.isFinite(t) && t <= todayMs && t >= todayMs - historyDays * day; });
+  // The sample is a page of ALL launches (Launch Library returns the newest
+  // 100), so the history it actually covers can be shorter than asked — a
+  // busy quarter fits fewer days into the page. The cadence divides by the
+  // span COVERED, never by the nominal window, or a short page reads as a
+  // quiet actor and today's count as a surge.
+  const pastAll = launches.map((l) => Date.parse(l.net)).filter((t) => Number.isFinite(t) && t <= todayMs);
+  const oldest = pastAll.length ? Math.min(...pastAll) : todayMs;
+  const covered = Math.min(historyDays, Math.max(0, (todayMs - oldest) / day));
+  const mine = launches.filter((l) => want.has(l.country));
+  const past = mine.filter((l) => { const t = Date.parse(l.net); return Number.isFinite(t) && t <= todayMs && t >= todayMs - covered * day; });
   const last14 = past.filter((l) => Date.parse(l.net) >= todayMs - 14 * day).length;
   const next14 = mine.filter((l) => { const t = Date.parse(l.net); return Number.isFinite(t) && t > todayMs && t <= todayMs + 14 * day; }).length;
-  const per14 = historyDays >= 28 ? (past.length / historyDays) * 14 : null;
-  return { last14, per14, historyDays, next14 };
+  const per14 = covered >= 28 ? (past.length / covered) * 14 : null;
+  return { last14, per14, historyDays: Math.round(covered), next14 };
 }
 
 export interface Conjunction {
