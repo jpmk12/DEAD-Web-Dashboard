@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { verifyXUploadToken } from "@/lib/xUploadToken";
 import { computeAlerts } from "@/lib/alerts";
 import { dispatchPush } from "@/lib/pushDispatch";
+import { touchDailySeries } from "@/lib/dailyHeartbeat";
 
 export const dynamic = "force-dynamic";
 
@@ -28,5 +29,8 @@ export async function GET(req: Request) {
   const body = await computeAlerts();
   // Fire-and-forget: the poller should not wait on N push sends.
   dispatchPush(body.alerts).catch(() => {});
+  // The same poll keeps the daily series observed on days nobody opens the
+  // dashboard (lib/dailyHeartbeat — rate-limited, background, no model call).
+  touchDailySeries();
   return NextResponse.json(body);
 }

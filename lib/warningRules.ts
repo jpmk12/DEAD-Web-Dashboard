@@ -71,16 +71,47 @@ export function conflictImpliesDemand(recent90: number): boolean {
 // fall back to a deliberately HIGH static bar (a real theater surge), so a
 // half-learned baseline can't cry surge on a normal day.
 export const MOBILITY_BASELINE_MIN_SAMPLES = 5;
+export const MOBILITY_WEEKDAY_MIN_SAMPLES = 4;
 export const MOBILITY_SURGE_FACTOR = 1.4;
 export const MOBILITY_FALLBACK_SURGE = 25;
 
-export interface MobilityBaseline { mean: number | null; samples: number }
+// `weekdayMean` / `weekdaySamples` are the SAME-WEEKDAY trailing mean (four
+// weeks of that weekday before it counts). Lift has a weekly cycle — a Monday
+// judged against a flat mean that includes Saturdays reads as a surge on an
+// ordinary Monday — so once the weekday baseline exists it is the one the
+// surge rule uses, and the provenance names which it used.
+export interface MobilityBaseline {
+  mean: number | null;
+  samples: number;
+  weekdayMean?: number | null;
+  weekdaySamples?: number;
+}
+
+export interface EffectiveBaseline { mean: number | null; samples: number; kind: "weekday" | "flat" | "none" }
+
+export function effectiveMobilityBaseline(b: MobilityBaseline): EffectiveBaseline {
+  if (b.weekdayMean != null && (b.weekdaySamples ?? 0) >= MOBILITY_WEEKDAY_MIN_SAMPLES) {
+    return { mean: b.weekdayMean, samples: b.weekdaySamples ?? 0, kind: "weekday" };
+  }
+  if (b.mean != null && b.samples >= MOBILITY_BASELINE_MIN_SAMPLES) return { mean: b.mean, samples: b.samples, kind: "flat" };
+  return { mean: null, samples: 0, kind: "none" };
+}
 
 export function mobilityObservedHigh(count: number, baseline: MobilityBaseline): boolean {
-  if (baseline.mean != null && baseline.samples >= MOBILITY_BASELINE_MIN_SAMPLES) {
-    return count > Math.max(baseline.mean * MOBILITY_SURGE_FACTOR, baseline.mean + 2);
-  }
+  const eff = effectiveMobilityBaseline(baseline);
+  if (eff.mean != null) return count > Math.max(eff.mean * MOBILITY_SURGE_FACTOR, eff.mean + 2);
   return count >= MOBILITY_FALLBACK_SURGE;
+}
+
+/** The provenance fragment naming the baseline the surge rule judged against. */
+export function mobilityBaselineNote(baseline: MobilityBaseline, today?: string): string {
+  const eff = effectiveMobilityBaseline(baseline);
+  if (eff.kind === "weekday") {
+    const wd = today ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${today}T00:00:00Z`).getUTCDay()] ?? "" : "";
+    return `, vs ${wd ? `${wd} ` : "same-weekday "}normal ~${eff.mean!.toFixed(0)} over ${eff.samples} wk`;
+  }
+  if (eff.kind === "flat") return `, baseline ~${eff.mean!.toFixed(0)}/day over ${eff.samples}d`;
+  return baseline.mean != null ? `, baseline ~${baseline.mean.toFixed(0)}/day over ${baseline.samples}d (forming)` : ", baseline forming";
 }
 
 // ── (d) Chokepoint interdiction — graded, not counted ───────────────────────

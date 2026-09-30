@@ -22,7 +22,7 @@ import { fetchFeed } from "./rss";
 import { getUserPrefs } from "./userPrefs";
 import {
   isRecentLevel4, recentConflictCount, bandConflictIntensity, conflictImpliesDemand,
-  mobilityObservedHigh, CONFLICT_WINDOW_DAYS, type MobilityBaseline,
+  mobilityObservedHigh, mobilityBaselineNote, CONFLICT_WINDOW_DAYS, type MobilityBaseline,
 } from "./warningRules";
 import { CENTCOM_GEO, type ProblemGeo } from "./warningTaxonomy";
 import type { NewsItem } from "./types";
@@ -230,7 +230,7 @@ export async function gatherObservations(
     else if (!impliedHigh && observedHigh) { quadrant = "anomaly"; state = "active"; }         // lift, no trigger → warning
     else if (impliedHigh && observedHigh) { quadrant = "corroboration"; state = "watching"; }  // expected, low novelty
     else { quadrant = "quiet"; state = "dormant"; }
-    const baseNote = mobilityBaseline.mean != null ? `, baseline ~${mobilityBaseline.mean.toFixed(0)}/day over ${mobilityBaseline.samples}d` : ", baseline forming";
+    const baseNote = mobilityBaselineNote(mobilityBaseline, new Date(nowMs).toISOString().slice(0, 10));
     observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}) × implied demand`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true });
     return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);

@@ -33,7 +33,7 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
 
   // The observed-mobility baseline feeds the divergence sensor (surge is
   // relative to this AOR's own normal, not a static bar).
-  const none = { mean: null as number | null, samples: 0 };
+  const none = { mean: null as number | null, samples: 0, kind: "none" as const };
   const [mobilityBaseline, pntBase, ransomBase] = await Promise.all([
     getMobilityBaseline(problemId, day, 30).catch(() => none),
     getSensorBaseline(`pnt:${problemId}`, day, 30).catch(() => none),

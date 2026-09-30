@@ -6,6 +6,8 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import type { WarningLevel } from "./warning";
+import type { MobilityBaseline } from "./warningRules";
+import { flatBaseline, weekdayBaseline, type SeriesPoint } from "./series";
 
 export async function recordWarningDay(
   problemId: string,
@@ -27,26 +29,30 @@ export async function recordWarningDay(
   );
 }
 
-interface MobilityRow extends RowDataPacket { mobility_count: number | null }
+interface MobilityRow extends RowDataPacket { day: string; mobility_count: number | null }
 
 // Trailing mobility baseline: mean of prior days' peak mobility counts. What
 // "normal lift near the AOR hubs" looks like — the observed half of the
-// divergence is scored against THIS, not a static threshold.
+// divergence is scored against THIS, not a static threshold. Also returns the
+// SAME-WEEKDAY mean over ~13 weeks (lib/series.weekdayBaseline), which the
+// surge rule prefers once four of that weekday exist.
 export async function getMobilityBaseline(
   problemId: string,
   today: string,
   days = 30,
-): Promise<{ mean: number | null; samples: number }> {
+): Promise<MobilityBaseline> {
   const pool = await getDb();
   const [rows] = await pool.query<MobilityRow[]>(
-    `SELECT mobility_count FROM warning_daily
+    `SELECT day, mobility_count FROM warning_daily
      WHERE problem_id = ? AND day < ? AND mobility_count IS NOT NULL
      ORDER BY day DESC LIMIT ?`,
-    [problemId, today, days],
+    [problemId, today, Math.max(days, 91)],
   );
-  if (!rows.length) return { mean: null, samples: 0 };
-  const mean = rows.reduce((s, r) => s + Number(r.mobility_count), 0) / rows.length;
-  return { mean, samples: rows.length };
+  if (!rows.length) return { mean: null, samples: 0, weekdayMean: null, weekdaySamples: 0 };
+  const series: SeriesPoint[] = rows.map((r) => ({ day: String(r.day), value: Number(r.mobility_count) })).reverse();
+  const flat = flatBaseline(series, today, days);
+  const wk = weekdayBaseline(series, today);
+  return { mean: flat.mean, samples: flat.samples, weekdayMean: wk.mean, weekdaySamples: wk.samples };
 }
 
 interface ScoreRow extends RowDataPacket { raw_score: number; anomaly: number }
