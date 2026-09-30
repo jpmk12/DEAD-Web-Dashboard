@@ -824,13 +824,15 @@ export default function GlanceTab({
   // Acknowledge the changes after a short dwell (a quick tab-flip won't reset
   // the highlights; an actual look will). Writes the new baseline for next time.
   // Brief fold — remembered per browser; default open so the first visit
-  // still reads the headline's focus bullets.
+  // reads the overview. The key was bumped (v2) when the open state became
+  // the full overview: a fold remembered against the old one-liner would
+  // otherwise keep the new overview hidden on a browser that never chose that.
   const [briefOpen, setBriefOpen] = useState(true);
   useEffect(() => {
-    try { setBriefOpen(localStorage.getItem("glance.briefOpen") !== "0"); } catch { /* ignore */ }
+    try { setBriefOpen(localStorage.getItem("glance.briefOpen.v2") !== "0"); } catch { /* ignore */ }
   }, []);
   useEffect(() => {
-    try { localStorage.setItem("glance.briefOpen", briefOpen ? "1" : "0"); } catch { /* ignore */ }
+    try { localStorage.setItem("glance.briefOpen.v2", briefOpen ? "1" : "0"); } catch { /* ignore */ }
   }, [briefOpen]);
 
   // One-page OE brief: fetch the snapshot, render the standalone HTML in the
@@ -916,10 +918,13 @@ export default function GlanceTab({
       <WorldClocks />
 
       {/* ── Morning brief — right under the clocks: the first sentence of
-          the day sits with the first look at the day. ONE line on desktop
-          (two on a phone) so the status row beneath never moves when the
-          model writes a long headline; "N focus" unfolds the bullets, Full
-          brief opens the modal. ── */}
+          the day sits with the first look at the day. OPEN by default it is
+          a real overview: the full headline, the key developments and the
+          suggested focus (the sections a reader wants before the status
+          row; schedule/stories/trends/connections stay in the modal).
+          FOLDED it is one line (two on a phone) so the status row beneath
+          holds still. The 2026-09-29 layout pass had made the one-liner
+          the whole card, which read as "the brief is two lines now". ── */}
       <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5">
           <span className="flex items-center gap-1.5 text-emerald-400 text-[11px] font-bold uppercase tracking-widest flex-shrink-0">
@@ -929,8 +934,10 @@ export default function GlanceTab({
             type="button"
             onClick={() => setBriefOpen((v) => !v)}
             aria-expanded={briefOpen}
-            title={briefing?.headline ?? ""}
-            className="basis-full lg:basis-auto lg:flex-1 min-w-0 text-left text-[13.5px] font-semibold text-slate-100 leading-snug line-clamp-2 lg:line-clamp-1"
+            title={briefOpen ? "Fold the brief to one line" : briefing?.headline ?? ""}
+            className={`basis-full lg:basis-auto lg:flex-1 min-w-0 text-left font-semibold text-slate-100 leading-snug ${
+              briefOpen ? "text-[15px] sm:text-base" : "text-[13.5px] line-clamp-2 lg:line-clamp-1"
+            }`}
           >
             {briefing
               ? briefing.headline
@@ -943,14 +950,14 @@ export default function GlanceTab({
               ? new Date(briefing.generatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
               : ""}
           </span>
-          {briefing && (briefing.suggestedFocus?.length ?? 0) > 0 && (
+          {briefing && ((briefing.suggestedFocus?.length ?? 0) > 0 || (briefing.keyDevelopments?.length ?? 0) > 0) && (
             <button
               type="button"
               onClick={() => setBriefOpen((v) => !v)}
               aria-expanded={briefOpen}
               className="text-[10px] font-semibold text-slate-500 hover:text-emerald-300 flex-shrink-0 whitespace-nowrap"
             >
-              {briefOpen ? "▾" : "▸"} {Math.min(3, briefing.suggestedFocus.length)} focus
+              {briefOpen ? "▾ fold" : `▸ ${(briefing.keyDevelopments?.length ?? 0) + (briefing.suggestedFocus?.length ?? 0)} points`}
             </button>
           )}
           <span className="flex gap-2 flex-shrink-0 ml-auto">
@@ -968,15 +975,35 @@ export default function GlanceTab({
             </button>
           </span>
         </div>
-        {briefOpen && briefing && briefing.suggestedFocus?.length > 0 && (
-          <ul className="px-4 pb-3 space-y-1.5 border-t border-emerald-500/15 pt-2.5">
-            {briefing.suggestedFocus.slice(0, 3).map((f, i) => (
-              <li key={i} className="flex gap-2 text-sm text-slate-300">
-                <span className="text-emerald-500 mt-0.5 flex-shrink-0">▸</span>
-                <span className="min-w-0">{f}</span>
-              </li>
-            ))}
-          </ul>
+        {briefOpen && briefing && ((briefing.keyDevelopments?.length ?? 0) > 0 || (briefing.suggestedFocus?.length ?? 0) > 0) && (
+          <div className="px-4 pb-3.5 pt-2.5 border-t border-emerald-500/15 grid gap-x-6 gap-y-3 md:grid-cols-2">
+            {(briefing.keyDevelopments?.length ?? 0) > 0 && (
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-500/80 mb-1.5">Key developments</p>
+                <ul className="space-y-1.5">
+                  {briefing.keyDevelopments.slice(0, 5).map((d, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-slate-300 leading-snug">
+                      <span className="text-slate-500 mt-0.5 flex-shrink-0">•</span>
+                      <span className="min-w-0">{d}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(briefing.suggestedFocus?.length ?? 0) > 0 && (
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-500/80 mb-1.5">Suggested focus</p>
+                <ul className="space-y-1.5">
+                  {briefing.suggestedFocus.slice(0, 4).map((f, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-slate-300 leading-snug">
+                      <span className="text-emerald-500 mt-0.5 flex-shrink-0">▸</span>
+                      <span className="min-w-0">{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         )}
       </section>
 

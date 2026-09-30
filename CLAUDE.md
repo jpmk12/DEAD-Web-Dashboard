@@ -2147,10 +2147,19 @@ a collapsible), ahead of the status row, by request.
 Five changes, all presentation: (1) the header's since-you-looked chips
 (new stories / priority email / signals) are GONE — they duplicated the
 status tiles; `newStories`/`newEmails`/`osintSignals` still feed the radar
-metrics. (2) The brief is **one line** on desktop (`line-clamp-1`, two on a
-phone via `line-clamp-2`), with the generated time, a "▸ N focus" toggle
-that unfolds the bullets, and the Full brief / Digest buttons — so the
-status row never moves when the model writes a long headline. (3) A
+metrics. (2) The brief card has two states. **FOLDED** it is one line on
+desktop (`line-clamp-1`, two on a phone via `line-clamp-2`) with the
+generated time, a "▸ N points" toggle and the Full brief / Digest buttons,
+so the status row never moves. **OPEN (the default)** it is a real
+overview: the full headline untruncated, then **Key developments** (≤5)
+and **Suggested focus** (≤4) side by side on desktop; schedule / stories /
+trends / connections stay in the modal. The first cut of this pass made
+the folded one-liner the whole card (headline + ≤3 focus bullets behind a
+toggle), which the user read as "my brief is just 2 lines now" — the
+model was still writing the full brief; only the Glance rendering had
+shrunk. Fold state is `localStorage["glance.briefOpen.v2"]` — the key was
+bumped so a fold remembered against the old one-liner does not hide the
+new overview. (3) A
 **Tasks tile** (violet, the ownership accent) in `StatusRow`: `tasks={{due,
 overdue, asks}}` from Glance's `dueTasks`/`overdueTaskCount` and the email
 rows in `urgent`; overdue turns it red; click → Calendar. (4) The Posture
