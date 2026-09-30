@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail } from "@/lib/allowlist";
-import { listCrewRows, upsertCrewRow, deleteCrewRow, validQual } from "@/lib/crewStore";
+import { listCrewRows, upsertCrewRow, deleteCrewRow, validQual, snapshotCrewDay, getCrewHistory } from "@/lib/crewStore";
+import { getDemandOutlookHistory } from "@/lib/demandStore";
+import { crewTrend } from "@/lib/crewTrend";
 import { deriveAvailability, postureAgainstDemand, DEFAULT_QUALS } from "@/lib/crewState";
 import { getDemandHorizon } from "@/lib/demandAssemble";
 import { AOR_LABELS } from "@/lib/aor";
@@ -20,14 +22,22 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const [rows, demand] = await Promise.all([listCrewRows().catch(() => []), getDemandHorizon().catch(() => null)]);
+  const [rows, demand, history, demandHistory] = await Promise.all([
+    listCrewRows().catch(() => []), getDemandHorizon().catch(() => null),
+    getCrewHistory(60).catch(() => []), getDemandOutlookHistory(60).catch(() => []),
+  ]);
+  // Today's snapshot rides the read so the series exists on days nobody edits.
+  snapshotCrewDay(rows).catch(() => {});
   const summary = deriveAvailability(rows);
   const posture = postureAgainstDemand(
     summary,
     (demand?.outlooks ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })),
     AOR_LABELS as Record<string, string>,
   );
-  return NextResponse.json({ summary, posture, defaults: DEFAULT_QUALS });
+  const today = new Date().toISOString().slice(0, 10);
+  const todayRows = rows.map((r) => ({ day: today, qual: r.qual, total: r.total, crewRest: r.crewRest, onMission: r.onMission, dnif: r.dnif, other: r.other }));
+  const trend = crewTrend([...history.filter((h) => h.day !== today), ...todayRows], demandHistory.map((d) => ({ day: d.day, aor: d.aor, direction: d.direction })), today);
+  return NextResponse.json({ summary, posture, trend, defaults: DEFAULT_QUALS });
 }
 
 export async function POST(req: Request) {
@@ -53,6 +63,7 @@ export async function POST(req: Request) {
     total: Number(r.total), crewRest: Number(r.crewRest), onMission: Number(r.onMission), dnif: Number(r.dnif), other: Number(r.other),
     note: typeof r.note === "string" ? r.note : null, sort: Number(r.sort ?? 0), by: email,
   });
+  listCrewRows().then(snapshotCrewDay).catch(() => {});
   return NextResponse.json({ ok: true });
 }
 

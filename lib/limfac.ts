@@ -52,6 +52,10 @@ export interface MissionImpact {
   functions: MissionFunctionStatus[];
   limfacs: Limfac[];
   ccir: CcirFlag[];
+  /** Per function: how long it has been PMC/NMC, of observed days (lib/limfacTrend, PLAN §6 D3). */
+  chronicity?: Record<string, { state: string; label: string | null }>;
+  /** Per function: typical days to resolve a manual LIMFAC here. */
+  resolution?: { fn: string; n: number; medianDays: number | null; label: string }[];
 }
 
 // Commander-entered LIMFAC as stored (lib/limfacStore). Windows are ISO or null.
@@ -70,6 +74,8 @@ export interface ManualLimfac {
   status: LimfacStatus;
   enteredBy?: string | null;
   createdAt: string;
+  /** Last status change — the resolution time when status is "resolved". */
+  updatedAt?: string | null;
 }
 
 export const MISSION_FUNCTIONS: { key: string; label: string }[] = [

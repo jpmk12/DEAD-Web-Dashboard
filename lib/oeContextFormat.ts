@@ -63,7 +63,7 @@ export interface OeSnapshot {
   /** One-line verification of past outlooks (lib/demandVerify); null = scorer unavailable. */
   demandSkill?: string | null;
   /** Team state: declared crew counts against demand (lib/crewState). */
-  crew?: { headline: string; line: string | null; stale: boolean; declared: boolean; mismatches: string[] } | null;
+  crew?: { headline: string; line: string | null; stale: boolean; declared: boolean; mismatches: string[]; trend?: string | null } | null;
   /** True when the snapshot is older than the freshness window. */
   stale?: boolean;
 }
@@ -165,6 +165,7 @@ export function renderOeContext(snap: OeSnapshot | null): string {
     else {
       lines.push(`Team state (crew counts by qualification, no names; Preferences › Mission Profile): ${snap.crew.line ?? ""}${snap.crew.stale ? " — STALE, treat as unconfirmed" : ""}`);
       if (snap.crew.mismatches.length) lines.push(`  • Rising demand against thin crews: ${snap.crew.mismatches.join("; ")}`);
+      if (snap.crew.trend) lines.push(`  • History: ${clip(snap.crew.trend, 160)}`);
     }
   }
 

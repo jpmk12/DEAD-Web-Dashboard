@@ -45,6 +45,34 @@ export async function upsertCrewRow(input: {
   );
 }
 
+// ── History (PLAN §6 D2) ─────────────────────────────────────────────────────
+// The day's LAST counts per qual. Called after every upsert, from the crew
+// GET and by the daily heartbeat, so the series exists on days nobody edits.
+export async function snapshotCrewDay(rows: CrewRow[], day = new Date().toISOString().slice(0, 10)): Promise<void> {
+  if (!rows.length) return;
+  const pool = await getDb();
+  const placeholders: string[] = [];
+  const values: (string | number)[] = [];
+  for (const r of rows) {
+    placeholders.push("(?, ?, ?, ?, ?, ?, ?)");
+    values.push(day, r.qual.slice(0, 32), cnt(r.total), cnt(r.crewRest), cnt(r.onMission), cnt(r.dnif), cnt(r.other));
+  }
+  await pool.execute(
+    `INSERT INTO crew_state_daily (day, qual, total, crew_rest, on_mission, dnif, other) VALUES ${placeholders.join(", ")}
+     ON DUPLICATE KEY UPDATE total = VALUES(total), crew_rest = VALUES(crew_rest), on_mission = VALUES(on_mission), dnif = VALUES(dnif), other = VALUES(other)`,
+    values,
+  );
+}
+
+interface DayRow extends RowDataPacket { day: string; qual: string; total: number; crew_rest: number; on_mission: number; dnif: number; other: number }
+
+export async function getCrewHistory(days = 60): Promise<{ day: string; qual: string; total: number; crewRest: number; onMission: number; dnif: number; other: number }[]> {
+  const pool = await getDb();
+  const cutoff = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  const [rows] = await pool.query<DayRow[]>(`SELECT * FROM crew_state_daily WHERE day >= ? ORDER BY day ASC`, [cutoff]);
+  return rows.map((r) => ({ day: String(r.day), qual: r.qual, total: Number(r.total), crewRest: Number(r.crew_rest), onMission: Number(r.on_mission), dnif: Number(r.dnif), other: Number(r.other) }));
+}
+
 export async function deleteCrewRow(qual: string): Promise<void> {
   const pool = await getDb();
   await pool.execute("DELETE FROM crew_state WHERE qual = ?", [qual.trim().slice(0, 32)]);

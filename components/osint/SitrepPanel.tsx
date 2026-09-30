@@ -494,6 +494,15 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
               })()}
             </div>
           )}
+          {/* Tempo — the series read along, not for today: IFR days this month vs
+              last, NOTAM count direction, closure and crosswind days. Of observed
+              days; nothing below four points. */}
+          {payload.tempo && payload.tempo.lines.length > 0 && (
+            <p className="px-1 text-[9.5px] text-slate-500" title="Read from this base's own recorded history (app history, not a feed). Ratios are of days the app observed.">
+              <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mr-2">Tempo</span>
+              {payload.tempo.lines.join(" · ")}
+            </p>
+          )}
 
           {/* Supporting detail — the raw signal cards the mission-impact
               layer is derived from. Kept in full below the leadership picture. */}

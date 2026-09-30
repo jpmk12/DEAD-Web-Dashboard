@@ -17,7 +17,7 @@ interface Row extends RowDataPacket {
   id: string; icao: string; fn: string; capability: string;
   driver: string; impact: string; mitigation: string | null; ask: string | null;
   ccir: number; from_iso: string | null; to_iso: string | null;
-  status: string; entered_by: string | null; created_at: Date;
+  status: string; entered_by: string | null; created_at: Date; updated_at: Date | null;
 }
 
 function rowTo(r: Row): ManualLimfac {
@@ -29,6 +29,7 @@ function rowTo(r: Row): ManualLimfac {
     fromISO: r.from_iso, toISO: r.to_iso,
     status: (STATUSES.has(r.status as LimfacStatus) ? r.status : "ongoing") as LimfacStatus,
     enteredBy: r.entered_by, createdAt: r.created_at.toISOString(),
+    updatedAt: r.updated_at ? r.updated_at.toISOString() : null,
   };
 }
 
@@ -36,7 +37,7 @@ function rowTo(r: Row): ManualLimfac {
 export async function listLimfacs(icao: string, includeResolved = false): Promise<ManualLimfac[]> {
   const pool = await getDb();
   const [rows] = await pool.query<Row[]>(
-    `SELECT id, icao, fn, capability, driver, impact, mitigation, ask, ccir, from_iso, to_iso, status, entered_by, created_at
+    `SELECT id, icao, fn, capability, driver, impact, mitigation, ask, ccir, from_iso, to_iso, status, entered_by, created_at, updated_at
      FROM sitrep_limfacs WHERE icao = ?${includeResolved ? "" : " AND status <> 'resolved'"} ORDER BY created_at DESC`,
     [icao.toUpperCase()]
   );

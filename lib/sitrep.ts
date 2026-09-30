@@ -36,7 +36,11 @@ import { spaceWeatherImpacts, spaceWxLed, type SpaceWxImpact, type ScaleDay } fr
 import { kevHits } from "./cyberSignals";
 import { edgeExposureLed } from "./spectrumRules";
 import { spectrumLed, spectrumShort } from "./sitrepSignals";
-import { recordSensorDay, getSensorSeries } from "./sensorStore";
+import { recordSensorDay, getSensorSeries, getSensorSeriesMany } from "./sensorStore";
+import { closureWindows } from "./sitrepSignals";
+import { baseTempo, type BaseTempo } from "./baseTempo";
+import { functionChronicity, timeToResolve } from "./limfacTrend";
+import type { ManualLimfac } from "./limfac";
 import { sensorKey } from "./sensorKeys";
 import { catOrdinal, tafVerification, type TafSkill } from "./tafVerify";
 import { bestBaseline, highWater, type SeriesPoint } from "./series";
@@ -115,6 +119,8 @@ export interface SitrepPayload {
   };
   // Worst LED per axis per UTC day, oldest→newest (≤7 rows incl. today).
   history: SitrepDay[];
+  /** Operating tempo read along the recorded series (lib/baseTempo, PLAN §6 D1). */
+  tempo?: BaseTempo | null;
   // Infrastructure: IODA internet + USGS water + FAA NAS sensors, plus the
   // news-derived utility buckets (power has NO sensor — labeled as such).
   infra: SitrepInfra & {
@@ -463,6 +469,22 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   recordSitrepDay(icao, payload.status).catch(() => {});
   const today = new Date(now).toISOString().slice(0, 10);
 
+  // Base tempo series (PLAN §6 D1) — only what a live source produced.
+  if (notams.configured && notams.live) {
+    recordSensorDay(sensorKey("notam", icao), today, baseNotams.length).catch(() => {});
+    const windows = closureWindows(baseNotams.map((n) => ({ category: n.category, rank: 0, text: n.text, start: n.start, end: n.end })), now, 24);
+    const rwyClosed = windows.some((w) => w.kind === "closure" && !w.indeterminate && /^(RWY|Airfield)/i.test(w.label));
+    recordSensorDay(sensorKey("rwyclose", icao), today, rwyClosed ? 1 : 0).catch(() => {});
+  }
+  if (payload.ops.runwayWinds.length) {
+    recordSensorDay(sensorKey("xwind", icao), today, Math.max(...payload.ops.runwayWinds.map((r) => r.crossKt))).catch(() => {});
+  }
+  // LIMFAC memory (PLAN §6 D3): 1 on a day a function read PMC/NMC, 0 when
+  // FMC, nothing when UNKNOWN — a dead feed is not a good day.
+  for (const f of payload.mission.functions) {
+    recordSensorDay(sensorKey("limfac", icao, f.key), today, f.capability === "unknown" ? null : f.capability === "fmc" ? 0 : 1).catch(() => {});
+  }
+
   // TAF verification series (PLAN §4 B2): the worst forecast category and the
   // worst observed category per UTC day, as ordinals, day-peak. A missing
   // METAR or TAF writes nothing. The pairing is read back for the Weather
@@ -471,10 +493,24 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   recordSensorDay(fcKey, today, catOrdinal(nowWx?.flightCategory)).catch(() => {});
   recordSensorDay(tafKey, today, catOrdinal(tafWorst?.worst)).catch(() => {});
   try {
-    const [fcSeries, tafSeries, liftSeries] = await Promise.all([getSensorSeries(fcKey, 90), getSensorSeries(tafKey, 90), getSensorSeries(sensorKey("mob", icao), 90)]);
+    const limfacKeys = payload.mission.functions.map((f) => sensorKey("limfac", icao, f.key));
+    const [fcSeries, tafSeries, liftSeries, notamSeries, rwySeries, xwSeries, limfacSeries, allManual] = await Promise.all([
+      getSensorSeries(fcKey, 90), getSensorSeries(tafKey, 90), getSensorSeries(sensorKey("mob", icao), 90),
+      getSensorSeries(sensorKey("notam", icao), 60), getSensorSeries(sensorKey("rwyclose", icao), 60), getSensorSeries(sensorKey("xwind", icao), 60),
+      getSensorSeriesMany(limfacKeys, 30), listLimfacs(icao, true).catch(() => [] as ManualLimfac[]),
+    ]);
     payload.weather.tafSkill = tafVerification(fcSeries, tafSeries);
     payload.ops.lift = liftRead(liftSeries, today);
-  } catch { payload.weather.tafSkill = null; payload.ops.lift = null; }
+    payload.tempo = baseTempo({ fc: fcSeries, notam: notamSeries, rwyclose: rwySeries, xwind: xwSeries }, today);
+    const chronicity: Record<string, { state: string; label: string | null }> = {};
+    for (const f of payload.mission.functions) {
+      if (f.capability === "unknown") continue;
+      const c = functionChronicity(limfacSeries[sensorKey("limfac", icao, f.key)] ?? [], f.capability !== "fmc", today);
+      if (c.state !== "quiet" && c.state !== "unknown") chronicity[f.key] = { state: c.state, label: c.label };
+    }
+    payload.mission.chronicity = chronicity;
+    payload.mission.resolution = timeToResolve(allManual.map((m) => ({ fn: m.fn, status: m.status, createdAt: m.createdAt, updatedAt: m.updatedAt })));
+  } catch { payload.weather.tafSkill = null; payload.ops.lift = null; payload.tempo = null; }
   if (!payload.history.some((h) => h.day === today)) {
     payload.history = [...payload.history, { day: today, wx: payload.status.wx, ops: payload.status.ops, threat: payload.status.threat }].slice(-7);
   }

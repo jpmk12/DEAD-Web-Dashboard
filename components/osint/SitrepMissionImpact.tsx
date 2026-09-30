@@ -129,7 +129,14 @@ export default function SitrepMissionImpact({
             <div key={f.key} className="flex items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5 overflow-hidden min-w-0">
               <span className={`text-[8px] font-extrabold font-mono px-1.5 py-0.5 rounded border w-10 text-center flex-shrink-0 ${CAP_PILL[f.capability]}`}>{CAP_TXT[f.capability]}</span>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-semibold text-slate-200 leading-tight truncate">{f.label}{f.derived && <span className="ml-1 text-[8px] text-violet-300 font-bold">◆ derived</span>}</p>
+                <p className="text-[11px] font-semibold text-slate-200 leading-tight truncate">
+                  {f.label}{f.derived && <span className="ml-1 text-[8px] text-violet-300 font-bold">◆ derived</span>}
+                  {mi.chronicity?.[f.key] && (
+                    <span className={`ml-1.5 text-[8px] font-bold uppercase tracking-wider ${mi.chronicity[f.key].state === "chronic" ? "text-slate-400" : mi.chronicity[f.key].state === "new" ? "text-amber-300" : "text-slate-500"}`} title={mi.chronicity[f.key].label ?? undefined}>
+                      {mi.chronicity[f.key].state}
+                    </span>
+                  )}
+                </p>
                 <p className="text-[9.5px] text-slate-500 truncate" title={f.driver}>{f.driver}{f.window ? ` · ${f.window}` : ""}</p>
               </div>
             </div>
@@ -147,6 +154,14 @@ export default function SitrepMissionImpact({
 
         {mi.limfacs.length === 0 && !addOpen && (
           <p className="text-[10.5px] text-slate-600 font-mono px-1">No limiting factors — airfield FMC. Add commander-known LIMFACs (ARFF, MHE, manning, barriers, fuel, MOG) with ＋.</p>
+        )}
+        {/* Time-to-resolve from the register's own history; three resolved per
+            function before a typical time is stated. */}
+        {mi.resolution && mi.resolution.some((r) => r.medianDays != null) && (
+          <p className="text-[9.5px] text-slate-500 px-1 mb-1.5">
+            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">History</span>
+            {mi.resolution.filter((r) => r.medianDays != null).map((r) => `${MISSION_FUNCTIONS.find((f) => f.key === r.fn)?.label ?? r.fn} ${r.label}`).join(" · ")}
+          </p>
         )}
 
         <div className="space-y-1.5">

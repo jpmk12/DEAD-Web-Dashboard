@@ -168,7 +168,7 @@ tr.due td{background:#2a1a05}
 </div>
 
 <h2>7-day demand horizon (deterministic)</h2>${demandHtml}
-${s.crew ? `<h2>Team state — crews against demand</h2><p class="${s.crew.declared ? (s.crew.mismatches.length ? "na" : "") : "quiet"}">${esc(s.crew.headline)}</p>${s.crew.mismatches.length ? `<ul class="chg">${s.crew.mismatches.map((m) => `<li class="a">${esc(m)}</li>`).join("")}</ul>` : ""}` : ""}
+${s.crew ? `<h2>Team state — crews against demand</h2><p class="${s.crew.declared ? (s.crew.mismatches.length ? "na" : "") : "quiet"}">${esc(s.crew.headline)}</p>${s.crew.mismatches.length ? `<ul class="chg">${s.crew.mismatches.map((m) => `<li class="a">${esc(m)}</li>`).join("")}</ul>` : ""}${s.crew.trend ? `<p class="quiet">History: ${esc(s.crew.trend)}</p>` : ""}` : ""}
 
 <h2>Force posture</h2>${forceHtml}
 

@@ -23,6 +23,7 @@ const ago = (iso: string | null): string => {
 export default function CrewStateEditor() {
   const [summary, setSummary] = useState<CrewSummary | null>(null);
   const [headline, setHeadline] = useState<string>("");
+  const [trendLine, setTrendLine] = useState<string | null>(null);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -33,6 +34,7 @@ export default function CrewStateEditor() {
       const j = await r.json();
       setSummary(j.summary);
       setHeadline(j.posture?.headline ?? "");
+      setTrendLine(j.trend?.line ?? null);
     } catch { /* leave */ }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -89,6 +91,7 @@ export default function CrewStateEditor() {
           {summary.line ?? "No crew state declared yet."}
           {summary.stale && summary.staleHours !== null && <span className="text-amber-400"> · last updated {summary.staleHours >= 48 ? `${Math.round(summary.staleHours / 24)}d` : `${Math.round(summary.staleHours)}h`} ago — confirm</span>}
           {headline && <span className="block text-[10px] text-slate-500 mt-0.5">{headline}</span>}
+          {trendLine && <span className="block text-[10px] text-slate-500 mt-0.5"><span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">History</span>{trendLine}</span>}
         </div>
       )}
 

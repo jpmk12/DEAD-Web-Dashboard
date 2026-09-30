@@ -103,6 +103,20 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_wd_problem (problem_id, due_at)
   ) ENGINE=InnoDB`,
 
+  // Crew state history (lib/crewStore.snapshotCrewDay): the day's LAST counts
+  // per qualification, so availability can be read as a series and joined
+  // to the recorded demand outlooks (lib/crewTrend). Counts only, no names.
+  `CREATE TABLE IF NOT EXISTS crew_state_daily (
+    day         VARCHAR(10) NOT NULL,
+    qual        VARCHAR(32) NOT NULL,
+    total       INT NOT NULL DEFAULT 0,
+    crew_rest   INT NOT NULL DEFAULT 0,
+    on_mission  INT NOT NULL DEFAULT 0,
+    dnif        INT NOT NULL DEFAULT 0,
+    other       INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, qual)
+  ) ENGINE=InnoDB`,
+
   // Per-indicator daily state (lib/warningStore.recordIndicatorDay): the
   // composite in warning_daily cannot say which indicator moved first —
   // this can (lib/leadIndicators). `live` = the sensor answered that day,
@@ -652,6 +666,10 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "ai_feature_toggles",        ddl: "ALTER TABLE user_prefs ADD COLUMN ai_feature_toggles JSON NULL" },
   { table: "user_prefs",  column: "disabled_news_sources",     ddl: "ALTER TABLE user_prefs ADD COLUMN disabled_news_sources JSON NULL" },
   { table: "warning_daily", column: "mobility_count",          ddl: "ALTER TABLE warning_daily ADD COLUMN mobility_count INT NULL" },
+  // The SITREP strip's fourth and fifth LEDs, recorded from PLAN §6 D1 on;
+  // NULL on older rows (unobserved, not green).
+  { table: "sitrep_status_daily", column: "infra",             ddl: "ALTER TABLE sitrep_status_daily ADD COLUMN infra VARCHAR(1) NULL" },
+  { table: "sitrep_status_daily", column: "spectrum",          ddl: "ALTER TABLE sitrep_status_daily ADD COLUMN spectrum VARCHAR(1) NULL" },
   { table: "family_deadlines", column: "snoozed_until",        ddl: "ALTER TABLE family_deadlines ADD COLUMN snoozed_until VARCHAR(10) NULL" },
   { table: "x_upload_tokens", column: "expected_interval_hours", ddl: "ALTER TABLE x_upload_tokens ADD COLUMN expected_interval_hours INT NULL" },
   { table: "user_prefs",  column: "mission_profile",           ddl: "ALTER TABLE user_prefs ADD COLUMN mission_profile JSON NULL" },

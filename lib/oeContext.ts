@@ -16,8 +16,10 @@ import { getUserPrefs } from "./userPrefs";
 import { getForceProtectionCached as getForceProtection } from "./forceProtectionCached";
 import { getDemandHorizon } from "./demandAssemble";
 import { getDemandSkill } from "./demandVerifyAssemble";
-import { listCrewRows } from "./crewStore";
+import { listCrewRows, getCrewHistory } from "./crewStore";
 import { deriveAvailability, postureAgainstDemand } from "./crewState";
+import { getDemandOutlookHistory } from "./demandStore";
+import { crewTrend } from "./crewTrend";
 import { AOR_LABELS } from "./aor";
 import { assembleSitrep, sitrepSummary } from "./sitrep";
 import { activeWarningProblems } from "./warningProblems";
@@ -92,12 +94,15 @@ async function gather(): Promise<OeSnapshot> {
     aor: o.aor, direction: o.direction, score: o.score, confidence: o.confidence, line: o.line,
   }))));
 
-  const crewP = settle(Promise.all([listCrewRows(), getDemandHorizon().catch(() => null)]).then(([rows, d]) => {
+  const crewP = settle(Promise.all([listCrewRows(), getDemandHorizon().catch(() => null), getCrewHistory(60).catch(() => []), getDemandOutlookHistory(60).catch(() => [])]).then(([rows, d, hist, dh]) => {
     const summary = deriveAvailability(rows);
     const posture = postureAgainstDemand(summary, (d?.outlooks ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })), AOR_LABELS as Record<string, string>);
+    const today = new Date().toISOString().slice(0, 10);
+    const trend = crewTrend([...hist.filter((h) => h.day !== today), ...rows.map((r) => ({ day: today, qual: r.qual, total: r.total, crewRest: r.crewRest, onMission: r.onMission, dnif: r.dnif, other: r.other }))], dh.map((x) => ({ day: x.day, aor: x.aor, direction: x.direction })), today);
     return {
       headline: posture.headline, line: summary.line, stale: summary.stale, declared: summary.total > 0,
       mismatches: posture.lines.filter((l) => l.mismatch).map((l) => l.line),
+      trend: trend.direction ? trend.line : null,
     };
   }));
 

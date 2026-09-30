@@ -35,12 +35,13 @@ export async function buildOeSeries(windowDays = OE_WINDOW_DAYS): Promise<LevelS
   }
 
   // One series per LED, not per base — the axis is the subject that moved.
+  // Infra and spectrum are nullable on older rows: an unobserved day is
+  // skipped, never read as green.
   for (const [icao, rows] of Object.entries(sitrep)) {
-    for (const axis of ["wx", "ops", "threat"] as const) {
-      series.push({
-        kind: "sitrep", id: `${icao}:${axis}`, label: icao, axis,
-        points: rows.map((r) => ({ day: r.day, level: r[axis] })),
-      });
+    for (const axis of ["wx", "ops", "threat", "infra", "spectrum"] as const) {
+      const points = rows.flatMap((r) => (r[axis] == null ? [] : [{ day: r.day, level: r[axis] as string }]));
+      if (!points.length) continue;
+      series.push({ kind: "sitrep", id: `${icao}:${axis}`, label: icao, axis, points });
     }
   }
 

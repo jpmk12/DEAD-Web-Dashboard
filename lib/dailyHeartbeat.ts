@@ -21,6 +21,7 @@ import { getDemandHorizon } from "./demandAssemble";
 import { assembleSitrep, sitrepSummary } from "./sitrep";
 import { getEnergyQuotes } from "./energyPrices";
 import { getSpectrumSummary } from "./spectrum";
+import { listCrewRows, snapshotCrewDay } from "./crewStore";
 
 export const HEARTBEAT_INTERVAL_MS = 6 * 60 * 60_000;
 const STEP_TIMEOUT_MS = 60_000;
@@ -53,6 +54,7 @@ async function runPass(): Promise<void> {
     bounded(getDemandHorizon()),
     bounded(getEnergyQuotes()),
     bounded(getSpectrumSummary({ maxWaitMs: 8_000 })),
+    bounded(listCrewRows().then(snapshotCrewDay)),
     ...((prefs?.sitrepBases ?? []).map((b) => bounded(assembleSitrep(b).then(sitrepSummary)))),
   ]);
 }

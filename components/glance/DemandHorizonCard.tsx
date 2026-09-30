@@ -45,7 +45,7 @@ export default function DemandHorizonCard() {
   const [folded, setFolded] = useState(false);
   // Team state against the same demand: the declared crew counts joined to
   // each command's outlook (lib/crewState). Per-AOR lines keyed by AOR.
-  const [crew, setCrew] = useState<{ headline: string; byAor: Record<string, { line: string; mismatch: boolean; posture: string }>; declared: boolean; stale: boolean } | null>(null);
+  const [crew, setCrew] = useState<{ headline: string; byAor: Record<string, { line: string; mismatch: boolean; posture: string }>; declared: boolean; stale: boolean; trend: { series: { day: string; fraction: number | null }[]; line: string | null } | null } | null>(null);
 
   useEffect(() => {
     try { setFolded(localStorage.getItem("glance.demandFolded") === "1"); } catch { /* ignore */ }
@@ -59,7 +59,7 @@ export default function DemandHorizonCard() {
         if (!j?.posture) return;
         const byAor: Record<string, { line: string; mismatch: boolean; posture: string }> = {};
         for (const l of j.posture.lines ?? []) byAor[l.aor] = { line: l.line, mismatch: !!l.mismatch, posture: l.posture };
-        setCrew({ headline: j.posture.headline ?? "", byAor, declared: (j.summary?.total ?? 0) > 0, stale: !!j.summary?.stale });
+        setCrew({ headline: j.posture.headline ?? "", byAor, declared: (j.summary?.total ?? 0) > 0, stale: !!j.summary?.stale, trend: j.trend ?? null });
       })
       .catch(() => {});
   }, []);
@@ -95,6 +95,19 @@ export default function DemandHorizonCard() {
               <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mr-2">Crews</span>
               {crew.headline}
               {!crew.declared && <span className="text-slate-600"> — declare counts in Preferences → Mission Profile → Team state.</span>}
+              {/* Availability along the series (crew_state_daily): a 30-day
+                  sparkline once four observed days exist, and the join to
+                  recorded demand. */}
+              {crew.trend && crew.trend.series.length >= 4 && (
+                <span className="flex items-center gap-2 mt-1">
+                  <span className="flex items-end gap-px h-3" title="Availability fraction per observed day, last 30">
+                    {crew.trend.series.slice(-30).map((p) => (
+                      <span key={p.day} className={`w-[3px] rounded-[1px] ${(p.fraction ?? 0) < 0.5 ? "bg-amber-400" : "bg-slate-500"}`} style={{ height: `${Math.max(2, Math.round((p.fraction ?? 0) * 12))}px` }} />
+                    ))}
+                  </span>
+                  {crew.trend.line && <span className="text-[9.5px] text-slate-500">{crew.trend.line}</span>}
+                </span>
+              )}
             </div>
           )}
           {body.outlooks.map((o) => {
