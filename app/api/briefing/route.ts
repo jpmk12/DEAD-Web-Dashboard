@@ -290,7 +290,7 @@ export async function POST(request: Request) {
   // Week-over-week movers from the deterministic trend layer (P1) — cheap SQL,
   // no extra model call; the brief just narrates them. Best-effort.
   try {
-    trendLines = formatMoversForPrompt(await getTrendMovers({ limit: 12 }), 6);
+    trendLines = formatMoversForPrompt(await getTrendMovers({ limit: 12, highWater: true }), 6);
   } catch { /* trends are best-effort in the brief */ }
   try {
     const locs: NamedPoint[] = [];

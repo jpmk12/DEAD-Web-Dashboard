@@ -29,7 +29,8 @@ export type ConvergenceKind =
   | "disaster"  // GDACS/USGS/ReliefWeb alert
   | "posture"   // Force Protection composite elevated
   | "sitrep"    // a base LED amber/red
-  | "economic"; // chokepoint / energy news pressure
+  | "economic"  // chokepoint / energy news pressure
+  | "pair";     // two terms seen together for the first time in 60 days (lib/trends.newPairs)
 
 export interface ConvergenceSignal {
   /** Country, chokepoint or place. Normalised by `canonicalSubject`. */
@@ -53,11 +54,11 @@ export interface Convergence {
 
 /** Display order, roughly "most considered judgement" first, so a row always
  *  reads the same way regardless of which surface happened to fire first. */
-export const KIND_ORDER: ConvergenceKind[] = ["iw", "posture", "sitrep", "disaster", "economic", "feed"];
+export const KIND_ORDER: ConvergenceKind[] = ["iw", "posture", "sitrep", "disaster", "economic", "feed", "pair"];
 
 export const KIND_LABEL: Record<ConvergenceKind, string> = {
   iw: "I&W", posture: "Posture", sitrep: "SITREP",
-  disaster: "Disaster", economic: "Economic", feed: "Feeds",
+  disaster: "Disaster", economic: "Economic", feed: "Feeds", pair: "New pairing",
 };
 
 /** Minimum distinct surfaces before a subject is worth a row. */

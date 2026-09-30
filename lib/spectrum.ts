@@ -17,6 +17,10 @@ import { kevHits } from "./cyberSignals";
 import { edgeExposureLed, stateLed, worstLed } from "./spectrumRules";
 import { PNT_ID, CYBER_ID, SPACE_ID } from "./warningTaxonomy";
 import type { Led } from "./sitrepSignals";
+import { recordSensorDay, getSensorSeries, getSensorSeriesMany } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
+import { spectrumTrend, type SpectrumTrend } from "./spectrumTrend";
+import type { SeriesPoint } from "./series";
 
 export interface SpectrumIndicatorRead {
   state: ObservedState;
@@ -42,6 +46,8 @@ export interface SpectrumSummary {
   led: Led;
   /** One line for the tile. */
   line: string;
+  /** The inputs along the series (lib/spectrumTrend, PLAN §7 E1); absent on a pending stub. */
+  trend?: SpectrumTrend;
 }
 
 const TTL = 5 * 60 * 1000;
@@ -112,6 +118,25 @@ async function compute(): Promise<SpectrumSummary> {
     hits: hits.map((h) => ({ cve: h.entry.cveID, vendor: h.vendor, product: h.entry.product, name: h.entry.vulnerabilityName, dateAdded: h.entry.dateAdded, ransomware: h.entry.knownRansomwareCampaignUse })),
   };
 
+  // Record the day's environment and exposure, then read them along the
+  // series. Only what a live source produced; day-peak.
+  const today = new Date().toISOString().slice(0, 10);
+  if (scales.live) {
+    for (const k of ["G", "R", "S"] as const) recordSensorDay(sensorKey("swx", k), today, scales.now[k]).catch(() => {});
+  }
+  const vendorKeys = spec.edgeVendors.map((v) => sensorKey("kev", v));
+  if (kev.live && spec.edgeVendors.length) {
+    const todays = kevHits(kev.entries, spec.edgeVendors, Date.now(), 1).filter((h) => h.entry.dateAdded === today);
+    spec.edgeVendors.forEach((v, i) => recordSensorDay(vendorKeys[i], today, todays.filter((h) => h.vendor === v).length).catch(() => {}));
+  }
+  let trend: SpectrumTrend | undefined;
+  try {
+    const [g, kevSeries] = await Promise.all([getSensorSeries(sensorKey("swx", "G"), 30), getSensorSeriesMany(vendorKeys, 90)]);
+    const byVendor: Record<string, SeriesPoint[]> = {};
+    spec.edgeVendors.forEach((v, i) => { byVendor[v] = kevSeries[vendorKeys[i]] ?? []; });
+    trend = spectrumTrend(g, byVendor, today);
+  } catch { trend = undefined; }
+
   const led = worstLed(pnt?.led ?? "u", cyber?.led ?? "u", spaceWx.led, edge.led);
   const parts: string[] = [];
   if (cyber && cyber.live && cyber.state !== "dormant") parts.push(`cyber ${cyber.state} · ${cyber.board.split(" · ").pop()}`);
@@ -123,5 +148,5 @@ async function compute(): Promise<SpectrumSummary> {
   const unknowns = [!pnt?.live ? "PNT" : null, !cyber?.live ? "cyber" : null, !spaceWx.live ? "space wx" : null, !edge.declared ? "vendors undeclared" : !edge.live ? "KEV" : null].filter(Boolean);
   const line = parts.length ? parts.join(" · ") : unknowns.length === 4 ? "sensors unreachable — UNKNOWN" : `quiet${unknowns.length ? ` · ${unknowns.join("/")} unknown` : ""}`;
 
-  return { generatedAt: new Date().toISOString(), boards, pnt, cyber, space, spaceWx, edge, led, line };
+  return { generatedAt: new Date().toISOString(), boards, pnt, cyber, space, spaceWx, edge, led, line, trend };
 }

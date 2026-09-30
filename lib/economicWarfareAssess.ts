@@ -37,6 +37,9 @@ import { getCisaAdvisories } from "./cyberSources";
 import { advisoriesNaming } from "./cyberSignals";
 import { designationWaves, type DesignationWave } from "./foreignSanctionsParse";
 import { buildTimeline, type TimelineDot, type Sequence, type ShippingIncident } from "./economicTimeline";
+import { getSensorSeries } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
+import { precedes, type LeadResult } from "./series";
 import { leverageFor, type LeverageEntry } from "./leverage";
 import { getCapturedNotices } from "./noticeStore";
 import { actorForNoticeHost, readOfficialNotice } from "./economicWarfare";
@@ -73,7 +76,11 @@ export interface EconomicWarfareBody {
   moves: (CoercionMove & { corroboration: string[]; affects: string })[];
   energy: { symbol: string; label: string; changePct: number | null; price: number | null }[];
   /** Moves & counter-moves over the last 30 days, and the sequences found. */
-  timeline: { days: string[]; dots: TimelineDot[]; sequences: Sequence[] };
+  timeline: {
+    days: string[]; dots: TimelineDot[]; sequences: Sequence[];
+    /** Did a reported act at Hormuz / Bab-el-Mandeb precede the Brent day-moves plotted here (≤3 d)? Null below three moves. */
+    lag?: LeadResult | null;
+  };
   /** Structural, not warning — curated capacity per actor, never coloured. */
   leverage: Record<string, LeverageEntry>;
   /** EU / UK designation waves in the window (the foreign half of the record). */
@@ -388,7 +395,16 @@ async function compute(): Promise<EconomicWarfareBody> {
   boards.sort((a, b) => LEVEL[b.assessment.level] - LEVEL[a.assessment.level] || b.assessment.anomaly - a.assessment.anomaly || a.actor.label.localeCompare(b.actor.label));
 
   const rankedMoves = rankMoves(allMoves).map((m) => allMoves.find((x) => x.id === m.id)!);
-  const timeline = buildTimeline({ moves: rankedMoves, incidents, brent: brent?.series, today: day });
+  const built = buildTimeline({ moves: rankedMoves, incidents, brent: brent?.series, today: day });
+  // Strait → price lag (PLAN §7 E2): the cpact: series (phase C) against
+  // the Brent day-moves already plotted. Anecdotes stay null.
+  let lag: LeadResult | null = null;
+  try {
+    const acts = (await Promise.all(["hormuz", "bab-el-mandeb"].map((id) => getSensorSeries(sensorKey("cpact", id), 90).catch(() => []))))
+      .flat().filter((p) => p.value >= 1).map((p) => p.day);
+    lag = precedes(acts, built.dots.filter((d) => d.kind === "market").map((d) => d.day), 3);
+  } catch { lag = null; }
+  const timeline = { ...built, lag };
 
   return {
     actors: boards,

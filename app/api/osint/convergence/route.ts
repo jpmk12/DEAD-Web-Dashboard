@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getTrendMovers } from "@/lib/trends";
+import { getTrendMovers, getNewPairs } from "@/lib/trends";
 import { activeWarningProblems } from "@/lib/warningProblems";
 import { assessWarning } from "@/lib/warningAssess";
 import { getDisasters } from "@/lib/disasters";
@@ -40,12 +40,22 @@ export async function GET() {
   // own assessment is internally cached, so this is not an extra fan-out.
   const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
 
-  const [movers, problems, disasters, fp] = await Promise.all([
+  const [movers, problems, disasters, fp, pairs] = await Promise.all([
     getTrendMovers({ kinds: ["topic", "region", "aor", "watch"], limit: 40 }).catch(() => []),
     activeWarningProblems().catch(() => []),
     getDisasters().catch(() => []),
     getForceProtection(prefs?.countriesOfInterest ?? [], prefs?.forceLocations ?? []).catch(() => null),
+    getNewPairs().catch(() => []),
   ]);
+
+  // 0. New pairings — a watch/region term seen with a topic for the first
+  //    time in 60 days (PLAN §7 E3). One distinct kind: it can join a row,
+  //    never make one on its own (MIN_BREADTH).
+  for (const p of pairs.slice(0, 8)) {
+    const subject = p.a.split("|")[1];
+    if (!subject) continue;
+    signals.push({ subject, kind: "pair", detail: `first paired with "${p.b.split("|")[1] ?? p.b}" this week (${p.thisWeek}×)`, weight: 30 });
+  }
 
   // 1. Feeds — what is surging in the user's own sources.
   for (const m of movers) {

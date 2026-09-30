@@ -28,6 +28,7 @@ interface SpectrumLite {
   cyber: { state: string; live: boolean; problemId: string } | null;
   spaceWx: { live: boolean; led: string; severe: { scale: string; level: number }[] };
   edge: { declared: boolean; live: boolean; led: string; hits: unknown[] };
+  trend?: { direction: "rising" | "falling" | "flat" | null; line: string | null };
 }
 
 type Tone = "red" | "amber" | "unknown" | "green" | "quiet" | "violet";
@@ -135,16 +136,20 @@ export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate }: { 
     const rank: Record<string, number> = { confirmed: 3, active: 2, watching: 1, dormant: 0 };
     const lead = s && s.cyber && s.cyber.live && rank[s.cyber.state] >= rank[s.pnt?.state ?? "dormant"] && s.cyber.state !== "dormant" ? { k: "cyber", v: s.cyber }
       : s && s.pnt && s.pnt.live && s.pnt.state !== "dormant" ? { k: "PNT", v: s.pnt } : null;
+    // Trajectory glyph from the recorded series (lib/spectrumTrend): the
+    // G-scale when any storm day is on record, else KEV cadence. Flat and
+    // unknown draw nothing.
+    const arrow = s?.trend?.direction === "rising" ? " ↗" : s?.trend?.direction === "falling" ? " ↘" : "";
     const value = !s ? "…" : s.pending && s.led === "u" ? "…"
-      : s.spaceWx.severe.length ? `${s.spaceWx.severe.map((x) => `${x.scale}${x.level}`).join("/")} storm`
-      : lead ? `${lead.k} ${lead.v.state}`
-      : s.edge.hits.length ? `${s.edge.hits.length} KEV`
-      : s.led === "u" ? "unknown" : "quiet";
+      : s.spaceWx.severe.length ? `${s.spaceWx.severe.map((x) => `${x.scale}${x.level}`).join("/")} storm${arrow}`
+      : lead ? `${lead.k} ${lead.v.state}${arrow}`
+      : s.edge.hits.length ? `${s.edge.hits.length} KEV${arrow}`
+      : s.led === "u" ? "unknown" : `quiet${arrow}`;
     tiles.push({
       key: "spectrum", label: "Spectrum", tone,
       value,
       sub: !s ? "loading" : s.line,
-      title: "PNT denial · cyber pressure · space weather → ops · KEV on declared vendors. Space weather is environment: it colours this tile, never an I&W level.",
+      title: `PNT denial · cyber pressure · space weather → ops · KEV on declared vendors. Space weather is environment: it colours this tile, never an I&W level.${s?.trend?.line ? ` History: ${s.trend.line}` : ""}`,
       onClick: () => {
         const pid = lead?.v.problemId;
         if (pid) { onNavigate("osint"); emit("osint:set-pane", "watch"); setTimeout(() => emit("watch:focus", { kind: "iw", id: pid }), 160); }

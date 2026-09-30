@@ -21,6 +21,8 @@ import { assessWarning } from "./warningAssess";
 import { getSpectrumSummary } from "./spectrum";
 import { getIodaOutageAlerts } from "./cyberSources";
 import { outageAlertsFor } from "./cyberSignals";
+import { recordSensorDay } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
 
 export interface AlertItem {
   id: string;                 // stable across polls while the condition holds
@@ -141,8 +143,18 @@ async function build(): Promise<AlertCheck> {
     if (tracked.length) {
       const io = await getIodaOutageAlerts(24);
       if (io.live) {
-        for (const o of outageAlertsFor(io.alerts, tracked).filter((x) => x.level === "critical")) {
+        const hits = outageAlertsFor(io.alerts, tracked);
+        for (const o of hits.filter((x) => x.level === "critical")) {
           alerts.push({ id: `outage-${o.country}`, severity: "amber", kind: "spectrum", title: `Connectivity outage — ${o.country}`, sub: `IODA critical alert (${o.sources} source${o.sources === 1 ? "" : "s"}, 24 h)` });
+        }
+        // Outage series per tracked country (PLAN §7 E1): worst level ordinal
+        // that day, 0 when the feed answered and named nothing — an observed
+        // quiet day is a fact; a dead feed writes nothing.
+        const day = new Date().toISOString().slice(0, 10);
+        const LEVEL: Record<string, number> = { critical: 3, warning: 2, normal: 1 };
+        for (const c of new Set(tracked)) {
+          const worst = hits.filter((h) => h.country.toLowerCase() === c.toLowerCase()).reduce((m, h) => Math.max(m, LEVEL[h.level] ?? 1), 0);
+          recordSensorDay(sensorKey("outage", c), day, worst).catch(() => {});
         }
       }
     }

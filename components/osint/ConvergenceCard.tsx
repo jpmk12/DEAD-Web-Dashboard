@@ -23,6 +23,7 @@ const KIND_TONE: Record<string, string> = {
   disaster: "text-orange-200 border-orange-400/40",
   economic: "text-emerald-300 border-emerald-500/40",
   feed: "text-slate-300 border-slate-600",
+  pair: "text-sky-200 border-sky-500/40",
 };
 
 export default function ConvergenceCard({ active }: { active: boolean }) {

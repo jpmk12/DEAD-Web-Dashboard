@@ -527,6 +527,19 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_capnt_time (captured_at)
   ) ENGINE=InnoDB`,
 
+  // Term co-occurrence (lib/trends.recordDailySignals, PLAN §7 E3): watch×topic
+  // and region×topic pairs per item, so "Hormuz and tanker rising together for
+  // the first time in 60 days" is answerable. Public-source items only, same
+  // boundary as signal_daily_counts; 90-day retention.
+  `CREATE TABLE IF NOT EXISTS signal_pair_daily (
+    date  VARCHAR(10)  NOT NULL,
+    a     VARCHAR(140) NOT NULL,
+    b     VARCHAR(140) NOT NULL,
+    count INT          NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, a, b),
+    INDEX idx_spd_pair (a, b, date)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS signal_seen (
     id   VARCHAR(40) NOT NULL PRIMARY KEY,
     date VARCHAR(10) NOT NULL,

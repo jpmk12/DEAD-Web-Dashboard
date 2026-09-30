@@ -27,7 +27,7 @@ function kpClass(kp: number): string {
 
 const LED_DOT: Record<string, string> = { g: "bg-emerald-400", a: "bg-amber-400", r: "bg-red-500", u: "bg-slate-600" };
 
-interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null }
+interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null; gShare?: { hits: number; observed: number; label: string } | null }
 
 /**
  * Space weather → ops (REVIEW-CYBER-SPACE §4.7). The Kp / G / R / S readings
@@ -162,6 +162,11 @@ export default function SpaceWeatherCard() {
             </p>
           )}
           {!ops.scales.live && <p className="text-[9.5px] text-slate-600">SWPC scales feed unreachable — outlook UNKNOWN.</p>}
+          {ops.gShare && (
+            <p className="text-[9.5px] text-slate-600 font-mono" title="From the app's own daily record of SWPC's observed G-scale; of days the app observed.">
+              History: {ops.gShare.label}
+            </p>
+          )}
         </div>
       )}
 

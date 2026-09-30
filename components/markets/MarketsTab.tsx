@@ -8,7 +8,7 @@ import RegulatoryBoard from "@/components/markets/RegulatoryBoard";
 import EconomicWarfareBoard from "@/components/markets/EconomicWarfareBoard";
 import { EconomyIcon } from "@/lib/icons";
 
-interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string; link?: string; source?: "yahoo" | "stooq" | null }
+interface EnergyQuote { symbol: string; label: string; price: number | null; changePct: number | null; asOf: string; link?: string; source?: "yahoo" | "stooq" | null; baseline?: { mean: number; pct: number; samples: number } }
 
 // News that bears on access/basing/overflight via the economic/coercive levers.
 const ACCESS_NEWS = /sanction|export control|embargo|tariff|overflight|airspace clos|basing|base rights|status of forces|sofa|nationali[sz]|expropriat|currency|devalu|default|imf bailout|debt crisis/i;
@@ -84,6 +84,11 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
                   )}
                   {q.changePct != null && <span className={`text-[10px] font-mono ${pctColor(q.changePct)}`}>{q.changePct >= 0 ? "+" : ""}{q.changePct}%</span>}
                 </div>
+                {q.baseline && (
+                  <div className="text-[9px] font-mono text-slate-500" title={`Against the app's own recorded closes, ${q.baseline.samples} days`}>
+                    vs 90-d ~${q.baseline.mean.toLocaleString()} <span className={pctColor(q.baseline.pct)}>{q.baseline.pct >= 0 ? "+" : ""}{q.baseline.pct}%</span>
+                  </div>
+                )}
               </div>
             );
           })}

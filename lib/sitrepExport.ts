@@ -251,6 +251,8 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
     else if (!sp.edge.live) specRows.push(row("u", "<b>Edge exposure:</b> KEV catalog unreachable — UNKNOWN", "KEV"));
     else if (sp.edge.hits.length === 0) specRows.push(row("g", `<b>Edge exposure:</b> no new KEV entries for ${esc(sp.edge.vendors.join(", "))} (14 d)`, "KEV"));
     for (const h of sp.edge.hits) specRows.push(row(h.ransomware ? "r" : "a", `<b>${esc(h.cve)}</b> ${esc(h.vendor)} ${esc(h.product)} — ${esc(h.name.slice(0, 120))}${h.ransomware ? " · known ransomware use" : ""} <span class="dim">· added ${esc(h.dateAdded)}</span>`, "KEV"));
+    const cadence = (sp.edge.cadence ?? []).filter((c) => c.normalPerWeek != null);
+    if (cadence.length) specRows.push(row("b", `KEV cadence: ${esc(cadence.map((c) => c.label).join(" · "))}`, "app history"));
   } else {
     specRows.push(row("u", "Spectrum not assessed in this snapshot", "—"));
   }

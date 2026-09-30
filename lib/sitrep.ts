@@ -40,6 +40,7 @@ import { recordSensorDay, getSensorSeries, getSensorSeriesMany } from "./sensorS
 import { closureWindows } from "./sitrepSignals";
 import { baseTempo, type BaseTempo } from "./baseTempo";
 import { functionChronicity, timeToResolve } from "./limfacTrend";
+import { kevCadence, type KevCadence } from "./spectrumTrend";
 import type { ManualLimfac } from "./limfac";
 import { sensorKey } from "./sensorKeys";
 import { catOrdinal, tafVerification, type TafSkill } from "./tafVerify";
@@ -67,7 +68,12 @@ export interface SitrepOutlookDay {
 export interface SitrepSpectrum {
   pnt: { live: boolean; date: string; cellLevel: number; raim: string[] };
   spaceWx: { live: boolean; now: ScaleDay | null; outlook: ScaleDay[]; impacts: SpaceWxImpact[]; polar: boolean | null; satcom: string };
-  edge: { declared: boolean; live: boolean; vendors: string[]; hits: { cve: string; vendor: string; product: string; name: string; dateAdded: string; ransomware: boolean }[] };
+  edge: {
+    declared: boolean; live: boolean; vendors: string[];
+    hits: { cve: string; vendor: string; product: string; name: string; dateAdded: string; ransomware: boolean }[];
+    /** KEV cadence per declared vendor against its own normal (lib/spectrumTrend). */
+    cadence?: KevCadence[];
+  };
 }
 
 export interface LiftRead {
@@ -510,6 +516,13 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
     }
     payload.mission.chronicity = chronicity;
     payload.mission.resolution = timeToResolve(allManual.map((m) => ({ fn: m.fn, status: m.status, createdAt: m.createdAt, updatedAt: m.updatedAt })));
+    if (spec.edgeVendors.length) {
+      const keys = spec.edgeVendors.map((v) => sensorKey("kev", v));
+      const kevSeries = await getSensorSeriesMany(keys, 90);
+      const byVendor: Record<string, SeriesPoint[]> = {};
+      spec.edgeVendors.forEach((v, i) => { byVendor[v] = kevSeries[keys[i]] ?? []; });
+      payload.spectrum.edge.cadence = kevCadence(byVendor, today);
+    }
   } catch { payload.weather.tafSkill = null; payload.ops.lift = null; payload.tempo = null; }
   if (!payload.history.some((h) => h.day === today)) {
     payload.history = [...payload.history, { day: today, wx: payload.status.wx, ops: payload.status.ops, threat: payload.status.threat }].slice(-7);

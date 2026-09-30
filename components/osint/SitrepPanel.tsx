@@ -955,6 +955,12 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
                   {payload.spectrum.edge.declared && payload.spectrum.edge.live && payload.spectrum.edge.hits.length === 0 && (
                     <Row sev="g" src="KEV">No new KEV entries for {payload.spectrum.edge.vendors.join(", ")}</Row>
                   )}
+                  {payload.spectrum.edge.cadence && payload.spectrum.edge.cadence.some((c) => c.normalPerWeek != null) && (
+                    <p className="text-[9.5px] text-slate-500 pl-4 mb-1" title="KEVs added per week naming each declared vendor, against the vendor's own recorded normal.">
+                      <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">Cadence</span>
+                      {payload.spectrum.edge.cadence.filter((c) => c.normalPerWeek != null).map((c) => c.label).join(" · ")}
+                    </p>
+                  )}
                   {payload.spectrum.edge.hits.map((h) => (
                     <Row key={h.cve} sev={h.ransomware ? "r" : "a"} src="KEV">
                       <a href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(h.cve)}`} target="_blank" rel="noopener noreferrer" className="font-mono hover:text-emerald-300">{h.cve}</a>{" "}

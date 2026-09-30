@@ -248,6 +248,12 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
                 ))}
               </ul>
             )}
+            {body.timeline.lag && (
+              <p className="px-3.5 pb-1 text-[10px] text-slate-400" title="Reported acts at Hormuz / Bab-el-Mandeb (the app's own cpact: record) against the Brent day-moves plotted above, within three days.">
+                <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1.5">Strait → price</span>
+                a reported strait act {body.timeline.lag.label} Brent moves ≥3%
+              </p>
+            )}
             <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
               A counter-move within ten days of a pressure move is the pattern to learn; analysis pieces and undated rows are never plotted. EU/UK lanes read from the consolidated sanctions lists{body.foreign.failed.length ? ` (${body.foreign.failed.join(" and ")} unavailable this pass — UNKNOWN, not quiet)` : ""}.
             </p>

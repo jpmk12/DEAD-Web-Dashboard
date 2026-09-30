@@ -4,6 +4,9 @@ import { SpaceWeather } from "@/lib/types";
 import { getNoaaScales } from "@/lib/spaceSources";
 import { spaceWeatherImpacts, severeScales, type NoaaScales, type SpaceWxImpact } from "@/lib/spaceWeatherOps";
 import { getMissionProfile } from "@/lib/missionProfileApply";
+import { getSensorSeries } from "@/lib/sensorStore";
+import { sensorKey } from "@/lib/sensorKeys";
+import { scaleShare } from "@/lib/spectrumTrend";
 
 export const dynamic = "force-dynamic";
 
@@ -121,16 +124,23 @@ async function fetchSpaceWeather(): Promise<SpaceWeather> {
 // noaa-scales.json, read against the Mission Profile's polar declaration.
 // Environment, not warning: the rows earn an LED and an alert at 3+, never
 // an I&W level. `scales` also fills the S-scale the Kp/X-ray pair lacks.
-export interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null }
+export interface SpaceOps {
+  scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null;
+  /** G-scale share of observed days (lib/spectrumTrend, from the swx:G series); null below four points. */
+  gShare?: { hits: number; observed: number; label: string } | null;
+}
 
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [scales, profile] = await Promise.all([getNoaaScales().catch(() => null), getMissionProfile().catch(() => null)]);
+  const [scales, profile, gSeries] = await Promise.all([
+    getNoaaScales().catch(() => null), getMissionProfile().catch(() => null),
+    getSensorSeries(sensorKey("swx", "G"), 30).catch(() => []),
+  ]);
   const polar = profile?.spectrum?.polarRoutes ?? false;
   const ops: SpaceOps | null = scales
-    ? { scales, impacts: spaceWeatherImpacts(scales, { polar }), severe: severeScales(scales), polar }
+    ? { scales, impacts: spaceWeatherImpacts(scales, { polar }), severe: severeScales(scales), polar, gShare: scaleShare(gSeries, new Date().toISOString().slice(0, 10), 1) }
     : null;
 
   if (cached && cached.expires > Date.now()) {

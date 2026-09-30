@@ -11,6 +11,8 @@
 // resolved from either source is null → the UI shows "—" (never a stale/fake price).
 
 import { fetchWithTimeout } from "./fetchTimeout";
+import { recordSensorDay, getSensorBaseline } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
 
 export interface EnergyQuote {
   symbol: string;   // our short id
@@ -23,7 +25,12 @@ export interface EnergyQuote {
   /** Daily closes over the fetched range (Yahoo only), oldest first — the
    *  Economy timeline's market-move dots. Absent on the Stooq fallback. */
   series?: { date: string; close: number }[];
+  /** Today's price against the app's own recorded 90-day mean of closes
+   *  (px:<symbol>, PLAN §7 E2); absent below ENERGY_BASELINE_MIN_DAYS. */
+  baseline?: { mean: number; pct: number; samples: number };
 }
+
+export const ENERGY_BASELINE_MIN_DAYS = 20;
 
 interface SymbolDef { id: string; label: string; yahoo: string; stooq: string }
 const SYMBOLS: SymbolDef[] = [
@@ -138,9 +145,30 @@ export async function getEnergyQuotes(): Promise<EnergyQuote[]> {
     return { ...base, price: null, changePct: null, asOf: "", source: null };
   }));
 
+  // Record the closes (LAST policy, keyed by the quote's own date) — the
+  // fetched month backfills once per process day so the 90-day baseline
+  // forms from history rather than waiting three months. Then read the
+  // baseline back and attach it. Fail-safe: a store fault leaves the quote
+  // as it was.
+  const today = new Date().toISOString().slice(0, 10);
+  await Promise.all(out.map(async (q) => {
+    try {
+      const key = sensorKey("px", q.symbol);
+      if (q.series?.length && backfilledDay !== today) for (const p of q.series) await recordSensorDay(key, p.date, p.close);
+      else if (q.price != null && q.asOf) await recordSensorDay(key, q.asOf, q.price);
+      if (q.price == null) return;
+      const b = await getSensorBaseline(key, today, 90);
+      if (b.mean != null && b.mean > 0 && b.samples >= ENERGY_BASELINE_MIN_DAYS) {
+        q.baseline = { mean: Math.round(b.mean * 100) / 100, pct: round1(((q.price - b.mean) / b.mean) * 100), samples: b.samples };
+      }
+    } catch { /* baseline is a footnote */ }
+  }));
+  if (out.some((q) => q.series?.length)) backfilledDay = today;
+
   if (out.some((q) => q.price != null)) cache = { data: out, expires: Date.now() + TTL };
   return cache?.data ?? out;
 }
+let backfilledDay = "";
 
 // Owner-only diagnostic: per-symbol, per-source HTTP status so a blank panel
 // shows its real cause (403/404/timeout) instead of just dashes. Mirrors the
