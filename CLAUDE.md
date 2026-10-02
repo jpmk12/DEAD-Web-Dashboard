@@ -2354,7 +2354,7 @@ KEY_MIGRATIONS entries carry a per-entry marker `column` (the runner checks
 `pkIncludes(table, column)`).
 
 ### README screenshots (`docs/` + `docs/mockups/`)
-`hero.png` was re-rendered 2026-09-29 from the rewritten `hero.html` (clock row, six-tile status row, OE delta, demand horizon with the Crews strip, collapsed brief). The Chromium in the build sandbox lives at `/opt/pw-browsers/chromium`; `render.sh` needs `CHROME=` pointed at it (it is not on PATH).
+`hero.png` was re-rendered 2026-10-02 from `hero.html` (clock row, the OPEN brief overview with key developments + suggested focus, seven-tile status row, OE delta with the attention line, demand horizon with the Crews strip and the Verified footer); the shot is 1600×1560 now that the brief is open and the demand card sits below Needs You Now. The Chromium in the build sandbox lives at `/opt/pw-browsers/chromium`; `render.sh` needs `CHROME=` pointed at it (it is not on PATH).
 
 The README hero/feature PNGs are **illustrative renders** built from mockup
 HTML in `docs/mockups/` (same design tokens as the app; the README says so).
@@ -2777,7 +2777,9 @@ stays visible).
   any claim); `WarningAssessmentPlus.history` (14-cell sparkline + run) and
   `.lead`. `ProblemGeo.hubs[].icao` names hubs; `mob:`/`tanker:` per hub
   recorded only when ADS-B answered; the SITREP Ops "Lift" row (`liftRead`)
-  appears for a base that is a hub on a board. `cpact:<id>` records 1/0 per
+  appears for a base that is a hub on a board, and the Crisis-map hub /
+  CRF / gateway popups carry the same line (`lift` rides the
+  `/api/airfield-weather` response — one query, no new fetch). `cpact:<id>` records 1/0 per
   strait per day; `ChokepointTransit` carries `history`/`direction`/
   `suppressedDays`; `ChokepointRead.transitLead` = `precedes(suppressed,
   acts, 3)`; `chokepointState` adds +0.05 confidence when the strait's own
@@ -2801,8 +2803,10 @@ stays visible).
   `SpectrumSummary.trend` (G-scale share, KEV cadence vs own normal after
   14 prior days, one direction): the Glance tile's ↗/↘, the Weather card's
   history line, the SITREP Spectrum "Cadence" line. `px:<symbol>` closes
-  (LAST, keyed by quote date, the fetched month backfilled once per process
-  day) → `EnergyQuote.baseline` vs the 90-day mean after
+  (LAST, keyed by quote date; the request path records only today's close,
+  and the month-long backfill is `backfillEnergyCloses()` from the heartbeat,
+  once per process day — never on a request) → `EnergyQuote.baseline` vs the
+  90-day mean after
   `ENERGY_BASELINE_MIN_DAYS` = 20; `timeline.lag` = strait acts (Hormuz /
   Bab-el-Mandeb `cpact:`) preceding Brent ≥3% day-moves. Trends:
   `rollingHigh` (this week above every prior 7-day window in 90 d, only

@@ -267,6 +267,10 @@ export default function CrisisMap() {
   const [airfieldCaps, setAirfieldCaps] = useState<Record<string, { lengthFt: number; surface: string; lighted: boolean; cls: string }>>({});
   type Wx = { flightCategory: FlightCategory; windKt: number | null; gustKt: number | null; visMi: number | null; ceilingFt: number | null; observedAt: string };
   const [flightCat, setFlightCat] = useState<Record<string, Wx>>({});
+  // Lift at a hub vs its own recorded normal (mob:<icao>, PLAN §5 C2) — rides
+  // the airfield-weather call; only fields with a series are present.
+  type Lift = { today: number | null; normal: number | null; high: boolean | null; label: string };
+  const [nodeLift, setNodeLift] = useState<Record<string, Lift>>({});
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
@@ -577,8 +581,9 @@ export default function CrisisMap() {
     const ids = Array.from(new Set([...CRF, ...ENROUTE, ...GATEWAYS].map((n) => n.icao)));
     fetch(`/api/airfield-weather?icao=${ids.join(",")}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { byIcao?: Record<string, Wx>; live?: boolean } | null) => {
+      .then((d: { byIcao?: Record<string, Wx>; live?: boolean; lift?: Record<string, Lift> } | null) => {
         if (!cancelled && d?.byIcao) { setFlightCat(d.byIcao); markSrc("METAR (flight cat)", d.live === false); }
+        if (!cancelled && d?.lift) setNodeLift(d.lift);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -832,6 +837,13 @@ export default function CrisisMap() {
     if (!w || !CAT_COLOR[w.flightCategory]) return null;
     const bits = [w.visMi != null ? `vis ${w.visMi}mi` : "", w.ceilingFt != null ? `ceil ${w.ceilingFt}ft` : "", w.gustKt != null ? `G${w.gustKt}kt` : ""].filter(Boolean).join(" · ");
     return <div style={{ color: CAT_COLOR[w.flightCategory] }}>Wx: {w.flightCategory}{bits ? ` · ${bits}` : ""}</div>;
+  };
+  // Lift line for a node popup — today's mobility aircraft within 600 km vs
+  // the field's own recorded normal; absent when the field has no series.
+  const liftLine = (icao: string) => {
+    const l = nodeLift[icao];
+    if (!l || l.today == null) return null;
+    return <div className={l.high ? "text-amber-700" : "text-slate-600"}>Lift: {l.label}</div>;
   };
 
   return (
@@ -1190,13 +1202,13 @@ export default function CrisisMap() {
             {on.enroute && ENROUTE.map((h) => (
               <Marker key={`er-${h.icao}`} position={[h.lat, h.lon]} icon={enrouteIcon}>
                 {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{h.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}<div className="text-slate-500">En route / mobility hub</div></div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}<div className="text-slate-500">En route / mobility hub</div></div></Popup>
               </Marker>
             ))}
             {on.crf && CRF.map((h) => (
               <Marker key={`crf-${h.icao}`} position={[h.lat, h.lon]} icon={crfIcon}>
                 {on.labels && <Tooltip permanent direction="right" offset={[7, 0]} className="cm-label cm-crf">{h.crf} · {h.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}</div></Popup>
               </Marker>
             ))}
             {on.airfields && GATEWAYS.map((g) => {
@@ -1204,7 +1216,7 @@ export default function CrisisMap() {
               return (
               <Marker key={`af-${g.icao}`} position={[g.lat, g.lon]} icon={airfieldIcon}>
                 {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{g.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div>{cap ? <div className={cap.cls === "C-17" ? "text-emerald-700" : cap.cls === "C-130" ? "text-amber-700" : "text-slate-500"}>Longest rwy {cap.lengthFt.toLocaleString()}ft{cap.surface ? ` · ${cap.surface}` : ""}{cap.lighted ? " · lit" : ""} — {cap.cls}{cap.cls !== "light" ? " capable" : ""}</div> : <div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div>}{wxLine(g.icao)}<div className="text-slate-500">Candidate open/reopen field for HADR / evac{cap ? " · rwy advisory (OurAirports)" : ""}</div></div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div>{cap ? <div className={cap.cls === "C-17" ? "text-emerald-700" : cap.cls === "C-130" ? "text-amber-700" : "text-slate-500"}>Longest rwy {cap.lengthFt.toLocaleString()}ft{cap.surface ? ` · ${cap.surface}` : ""}{cap.lighted ? " · lit" : ""} — {cap.cls}{cap.cls !== "light" ? " capable" : ""}</div> : <div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div>}{wxLine(g.icao)}{liftLine(g.icao)}<div className="text-slate-500">Candidate open/reopen field for HADR / evac{cap ? " · rwy advisory (OurAirports)" : ""}</div></div></Popup>
               </Marker>
             );})}
             {on.tracked && tracked.map((t, i) => (

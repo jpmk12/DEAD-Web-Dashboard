@@ -12,7 +12,7 @@ shot() { # file.html out.png WxH scale
     --screenshot="$OUT/$2" "file://$DIR/$1" 2>/dev/null
   echo "wrote docs/$2"
 }
-shot hero.html            hero.png            1600,1000 2
+shot hero.html            hero.png            1600,1560 2
 shot mission-profile.html mission-profile.png 1180,880  2
 shot sitrep.html          sitrep.png          1180,700  2
 shot iw-board.html        iw-board.png        1060,660  2

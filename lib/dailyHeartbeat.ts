@@ -19,7 +19,7 @@
 import { getUserPrefs } from "./userPrefs";
 import { getDemandHorizon } from "./demandAssemble";
 import { assembleSitrep, sitrepSummary } from "./sitrep";
-import { getEnergyQuotes } from "./energyPrices";
+import { getEnergyQuotes, backfillEnergyCloses } from "./energyPrices";
 import { getSpectrumSummary } from "./spectrum";
 import { listCrewRows, snapshotCrewDay } from "./crewStore";
 
@@ -52,7 +52,7 @@ async function runPass(): Promise<void> {
   const prefs = await bounded(getUserPrefs(), 10_000);
   await Promise.all([
     bounded(getDemandHorizon()),
-    bounded(getEnergyQuotes()),
+    bounded(getEnergyQuotes().then(() => backfillEnergyCloses())),
     bounded(getSpectrumSummary({ maxWaitMs: 8_000 })),
     bounded(listCrewRows().then(snapshotCrewDay)),
     ...((prefs?.sitrepBases ?? []).map((b) => bounded(assembleSitrep(b).then(sitrepSummary)))),

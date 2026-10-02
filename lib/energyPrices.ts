@@ -145,17 +145,15 @@ export async function getEnergyQuotes(): Promise<EnergyQuote[]> {
     return { ...base, price: null, changePct: null, asOf: "", source: null };
   }));
 
-  // Record the closes (LAST policy, keyed by the quote's own date) — the
-  // fetched month backfills once per process day so the 90-day baseline
-  // forms from history rather than waiting three months. Then read the
-  // baseline back and attach it. Fail-safe: a store fault leaves the quote
-  // as it was.
+  // Record today's close (LAST policy, keyed by the quote's own date) and
+  // read the 90-day baseline back. One upsert and one read per symbol on the
+  // request path; the month-long backfill is the heartbeat's job
+  // (backfillEnergyCloses). Fail-safe: a store fault leaves the quote as it was.
   const today = new Date().toISOString().slice(0, 10);
   await Promise.all(out.map(async (q) => {
     try {
       const key = sensorKey("px", q.symbol);
-      if (q.series?.length && backfilledDay !== today) for (const p of q.series) await recordSensorDay(key, p.date, p.close);
-      else if (q.price != null && q.asOf) await recordSensorDay(key, q.asOf, q.price);
+      if (q.price != null && q.asOf) await recordSensorDay(key, q.asOf, q.price);
       if (q.price == null) return;
       const b = await getSensorBaseline(key, today, 90);
       if (b.mean != null && b.mean > 0 && b.samples >= ENERGY_BASELINE_MIN_DAYS) {
@@ -163,12 +161,29 @@ export async function getEnergyQuotes(): Promise<EnergyQuote[]> {
       }
     } catch { /* baseline is a footnote */ }
   }));
-  if (out.some((q) => q.series?.length)) backfilledDay = today;
 
   if (out.some((q) => q.price != null)) cache = { data: out, expires: Date.now() + TTL };
   return cache?.data ?? out;
 }
+
 let backfilledDay = "";
+
+/** Backfill the fetched month of closes into the px: series — once per
+ *  process day, from the heartbeat, never on a request. Lets the 90-day
+ *  baseline form from history instead of waiting three months. */
+export async function backfillEnergyCloses(): Promise<number> {
+  const today = new Date().toISOString().slice(0, 10);
+  if (backfilledDay === today) return 0;
+  const quotes = await getEnergyQuotes();
+  let n = 0;
+  for (const q of quotes) {
+    if (!q.series?.length) continue;
+    const key = sensorKey("px", q.symbol);
+    for (const p of q.series) { try { await recordSensorDay(key, p.date, p.close); n++; } catch { /* skip */ } }
+  }
+  if (n > 0) backfilledDay = today;
+  return n;
+}
 
 // Owner-only diagnostic: per-symbol, per-source HTTP status so a blank panel
 // shows its real cause (403/404/timeout) instead of just dashes. Mirrors the
