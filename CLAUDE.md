@@ -891,10 +891,21 @@ rediscovered:
    propagate. `GET ?step=debug` (owner-only) returns the exact `redirectUri` the
    flow will send plus `fromEnv`/`clientIdSet`/`clientSecretSet` for diffing
    against the Console without decoding a Google error page.
-4. **Redirects are `no-store` + `force-dynamic`.** Without it, mobile Safari (and
-   sometimes Chrome) caches the `initiate`→Google hop and replays a stale
-   authorize URL. An already-cached browser still needs a one-time site-data
-   clear; the headers only stop *re-*caching.
+4. **Redirects are `no-store` + `force-dynamic`, AND the link is uncacheable
+   by construction.** Mobile Safari (and sometimes Chrome) caches the
+   `initiate`→Google hop and replays a stale authorize URL. The headers only
+   stop *re-*caching — a browser that cached the OLD redirect (with the
+   rejected `?step=callback` redirect_uri) kept replaying it, which is what
+   the phone's bare "400 … malformed" on "Add second Gmail" turned out to be
+   (2026-10-04; the desktop, with no stale entry, worked against the SAME
+   env-pinned redirect_uri). A cache entry is keyed by the request URL, so
+   the UI now links to a clean path no browser has ever requested,
+   `/api/auth/gmail-secondary/start`, with a per-tap nonce
+   (`lib/secondaryStartLink.ts` — plain href for SSR/no-JS, nonced
+   `window.location.assign` on click). The handler is shared
+   (`lib/secondaryStart.ts`) with the legacy `?step=initiate`, which still
+   works, and the redirect carries `no-store`, `Pragma`, `Expires: 0` and
+   `Vary: *`. Do not point the UI back at the query form.
 5. **`prompt: "select_account consent"`.** This is an "add a *different* account"
    flow, so `select_account` forces Google's account chooser — otherwise Google
    silently reuses the browser's active session (usually the primary), which is

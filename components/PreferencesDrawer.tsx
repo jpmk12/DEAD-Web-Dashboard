@@ -4,6 +4,7 @@ import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary, AiUsageDay } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
+import { secondaryStartAnchorProps } from "@/lib/secondaryStartLink";
 import { classifyAor, AOR_LABELS, type Aor } from "@/lib/aor";
 import { GATEWAYS } from "@/lib/airfields";
 import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
@@ -3302,7 +3303,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                         </button>
                       ) : (
                         <a
-                          href="/api/auth/gmail-secondary?step=initiate"
+                          {...secondaryStartAnchorProps()}
                           className="flex-shrink-0 text-[11px] text-emerald-500 hover:text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60 px-2.5 py-1 rounded-lg transition-all font-mono"
                         >
                           Connect

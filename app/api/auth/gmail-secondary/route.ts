@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { COOKIE_NAME, decryptToken } from "@/lib/secondaryAuth";
-import { STATE_COOKIE, resolveRedirectUri, buildOAuth2Client } from "@/lib/secondaryOAuth";
+import { resolveRedirectUri } from "@/lib/secondaryOAuth";
+import { beginSecondaryOAuth } from "@/lib/secondaryStart";
 
 // Never let a browser cache these responses — mobile Safari in particular caches
 // redirects, and a cached `initiate` → Google redirect pins a stale authorize URL
@@ -50,43 +51,10 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // ── Initiate ───────────────────────────────────────────────────────────────
-  if (step === "initiate") {
-    if (!process.env.GOOGLE_CLIENT_ID?.trim() || !process.env.GOOGLE_CLIENT_SECRET?.trim()) {
-      return new NextResponse(
-        "Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing).",
-        { status: 500 },
-      );
-    }
-    const state = crypto.randomUUID();
-    const authUrl = buildOAuth2Client(resolveRedirectUri(request.nextUrl.origin)).generateAuthUrl({
-      access_type: "offline",
-      // `select_account` forces Google's account chooser even when the browser
-      // already has an active Google session. This is a "connect a *different*
-      // (secondary) account" flow, so without it Google silently reuses the
-      // signed-in account (usually the primary) instead of letting the user pick
-      // the secondary one. `consent` stays so we always get a refresh token.
-      prompt: "select_account consent",
-      scope: [
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/calendar.readonly",
-      ],
-      state,
-    });
-    cookieStore.set(STATE_COOKIE, state, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 600,
-      sameSite: "lax",
-      path: "/",
-    });
-    const res = NextResponse.redirect(authUrl);
-    // Belt-and-suspenders against redirect caching (mobile Safari): without this
-    // the browser can pin this initiate→Google hop and replay a stale authorize
-    // URL whose redirect_uri no longer matches what's registered.
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
-  }
+  // ── Initiate (legacy query form) ──────────────────────────────────────────
+  // The UI links to the clean /api/auth/gmail-secondary/start path (see
+  // lib/secondaryStart.ts for why); this form is kept for old bookmarks.
+  if (step === "initiate") return beginSecondaryOAuth(request);
 
   // The OAuth callback now lives at /api/auth/gmail-secondary/callback (a clean
   // path, not ?step=callback) — see that route.

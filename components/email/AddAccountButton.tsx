@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { secondaryStartAnchorProps } from "@/lib/secondaryStartLink";
 
 interface AddAccountButtonProps {
   connected: boolean;
@@ -51,7 +52,7 @@ export default function AddAccountButton({ connected, primaryEmail, secondaryEma
     <div className="flex items-center gap-2 flex-wrap">
       {primary}
       <a
-        href="/api/auth/gmail-secondary?step=initiate"
+        {...secondaryStartAnchorProps()}
         className="text-xs text-green-500 hover:text-green-400 font-mono transition-colors"
       >
         + Add second Gmail
