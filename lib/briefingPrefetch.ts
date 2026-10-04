@@ -15,14 +15,18 @@
 // unless it really adds a section, and never more than once a day.
 
 import { clientCache, CACHE_TTL } from "./clientCache";
-import { shouldUpgradeBrief, type BriefInputs } from "./briefingUpgrade";
+import { shouldUpgradeBrief, generationsOf, MAX_GENERATIONS, type BriefInputs, type BriefUpgradeRecord } from "./briefingUpgrade";
 
 export const CACHE_KEY = "briefing:result";
 
 let inflight: Promise<void> | null = null;
-/** The inputs the brief now in clientCache was generated (or served) with. */
-let lastInputs: BriefInputs | null = null;
-let upgradedThisSession = false;
+/** What the brief now in clientCache was generated (or served) from — its
+ *  inputs, its generation count and whether it has any sections — so the
+ *  SAME rule the server applies can decide whether a re-ask would spend. */
+let lastBrief: BriefUpgradeRecord | null = null;
+/** Re-asks this page has made; together with the server's generation count
+ *  this keeps the client from asking past MAX_GENERATIONS. */
+let reasksThisSession = 0;
 /** The server rate-limits generation to one per 15 s per user; an upgrade
  *  re-ask arriving inside that window would 429 and be lost. */
 const UPGRADE_GAP_MS = 16_000;
@@ -39,13 +43,17 @@ export function prefetchBriefing(
   const inputs: BriefInputs = { articles: articles.length, newsletters: newsletters.length, osint: osint.length, events: events.length };
 
   if (clientCache.isFresh(CACHE_KEY)) {
-    // Held brief is thin and the missing inputs are here now: one re-ask,
-    // spaced past the server's rate limit.
-    if (!upgradedThisSession && lastInputs && shouldUpgradeBrief({ inputs: lastInputs }, inputs) && !upgradeTimer) {
+    // Held brief is thin and the missing inputs are here now: a bounded
+    // re-ask, spaced past the server's rate limit. The server applies the
+    // same rule, so a re-ask it disagrees with costs one cached read.
+    const canReask = lastBrief
+      && generationsOf(lastBrief) + reasksThisSession < MAX_GENERATIONS
+      && shouldUpgradeBrief(lastBrief, inputs);
+    if (canReask && !upgradeTimer) {
       const wait = Math.max(0, UPGRADE_GAP_MS - (Date.now() - lastPostAt));
       upgradeTimer = setTimeout(() => {
         upgradeTimer = null;
-        upgradedThisSession = true;
+        reasksThisSession += 1;
         post(articles, newsletters, events, osint, inputs);
       }, wait);
     }
@@ -72,9 +80,8 @@ function post(articles: unknown[], newsletters: unknown[], events: unknown[], os
         clientCache.set(CACHE_KEY, data.briefing, CACHE_TTL.NEWS);
         // Prefer the server's own record of what the brief was built from
         // (a cached brief from another device carries its inputs); else ours.
-        const b = data.briefing as { inputs?: BriefInputs } | undefined;
-        lastInputs = b?.inputs ?? inputs;
-        if (b && (b as { upgraded?: boolean }).upgraded) upgradedThisSession = true;
+        const b = (data.briefing ?? {}) as BriefUpgradeRecord;
+        lastBrief = { ...b, inputs: b.inputs ?? inputs };
       }
     })
     .catch(() => {})

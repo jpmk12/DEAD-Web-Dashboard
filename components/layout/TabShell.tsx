@@ -470,6 +470,7 @@ export default function TabShell() {
         articles={articles}
         newsletters={newsletters}
         calendarEvents={calendarEvents}
+        osintTop={osintTop}
         tasks={tasks}
         previousSeenNews={previousSeen.news}
       />

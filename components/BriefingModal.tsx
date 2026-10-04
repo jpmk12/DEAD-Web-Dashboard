@@ -11,6 +11,9 @@ import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from 
 import { buildBriefingHTML, buildDigestHTML, openPrintWindow, downloadHTML } from "@/lib/exports";
 import type { SitrepSummary } from "@/lib/sitrep";
 
+/** How long the modal waits for the news feed before briefing without it. */
+const NEWS_WAIT_MS = 20_000;
+
 interface Briefing {
   headline: string;
   schedule: string[];
@@ -38,6 +41,10 @@ interface BriefingModalProps {
   articles?: NewsItem[];
   newsletters?: NewsletterSummary[];
   calendarEvents?: CalendarEvent[];
+  // The OSINT signals the shell holds — the same input the background
+  // prefetch sends. The modal's own POSTs used to omit it, so a brief
+  // generated from the modal never had the OSINT section.
+  osintTop?: { title: string; priority: string; reason: string; sources: number }[];
   // Pending Google Tasks (from the shell) — renders the deterministic
   // "Your day" block, never baked into the day-cached AI brief.
   tasks?: GoogleTask[];
@@ -53,10 +60,17 @@ export default function BriefingModal({
   articles = [],
   newsletters = [],
   calendarEvents = [],
+  osintTop = [],
   tasks = [],
   previousSeenNews = 0,
 }: BriefingModalProps) {
   const [loading, setLoading] = useState(false);
+  // The modal opened before the news feed had loaded. Posting then built a
+  // brief from ZERO articles — a single force-posture headline that the day
+  // cache then locked in (2026-10-04). Wait for articles (the effect re-runs
+  // when they land) up to NEWS_WAIT_MS, then post anyway so a dead feed
+  // still yields the stopgap brief the upgrade rule can later replace.
+  const [newsWaitExpired, setNewsWaitExpired] = useState(false);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +209,7 @@ export default function BriefingModal({
           articles,
           newsletters,
           events: calendarEvents,
+          osint: osintTop,
           tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
@@ -210,7 +225,7 @@ export default function BriefingModal({
   };
 
   useEffect(() => {
-    if (!open) { setError(null); return; }
+    if (!open) { setError(null); setNewsWaitExpired(false); return; }
 
     setError(null);
     let cancelled = false;
@@ -239,7 +254,16 @@ export default function BriefingModal({
         return () => { cancelled = true; };
       }
 
-      // 3. Nothing cached or in-flight — fetch now
+      // 3a. No articles yet — the feed is still loading. Do NOT post: that is
+      //     how a one-line brief got cached for the day. The effect re-runs
+      //     when articles land; after NEWS_WAIT_MS it posts regardless.
+      if (articles.length === 0 && !newsWaitExpired) {
+        const t = setTimeout(() => { if (!cancelled) setNewsWaitExpired(true); }, NEWS_WAIT_MS);
+        return () => { cancelled = true; clearTimeout(t); };
+      }
+
+      // 3b. Nothing cached or in-flight — fetch now, with everything the
+      //     shell holds (the same inputs the background prefetch sends).
       fetch("/api/briefing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -247,6 +271,7 @@ export default function BriefingModal({
           articles,
           newsletters,
           events: calendarEvents,
+          osint: osintTop,
           tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
         signal: controller.signal,
@@ -301,7 +326,7 @@ export default function BriefingModal({
 
     return () => { cancelled = true; controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode]);
+  }, [open, mode, articles.length === 0, newsWaitExpired]);
 
   if (!open) return null;
 
@@ -384,7 +409,9 @@ export default function BriefingModal({
                 <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-bounce [animation-delay:300ms]" />
               </div>
               <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">
-                {isBriefing ? "Generating brief…" : "Analysing reading patterns…"}
+                {isBriefing
+                  ? (articles.length === 0 && !newsWaitExpired ? "Waiting for today's news to load…" : "Generating brief…")
+                  : "Analysing reading patterns…"}
               </p>
             </div>
           )}

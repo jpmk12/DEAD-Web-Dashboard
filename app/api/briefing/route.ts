@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { getCachedBriefing, saveCachedBriefing } from "@/lib/briefingCache";
-import { shouldUpgradeBrief, type BriefInputs } from "@/lib/briefingUpgrade";
+import { shouldUpgradeBrief, generationsOf, isSectionless, type BriefInputs } from "@/lib/briefingUpgrade";
 import { normEmail } from "@/lib/allowlist";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
@@ -176,6 +176,7 @@ export async function POST(request: Request) {
     events: Array.isArray(events) ? events.length : 0,
   };
   let upgrading = false;
+  let priorGenerations = 0;
   if (!forceRefresh) {
     const cached = await getCachedBriefing(cacheKey, tz, normEmail(session.user?.email)).catch(() => null);
     if (cached) {
@@ -183,6 +184,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ briefing: cached.briefing, cached: true, generatedAt: cached.generatedAt });
       }
       upgrading = true;
+      priorGenerations = generationsOf(cached.briefing);
     }
   }
 
@@ -418,6 +420,11 @@ export async function POST(request: Request) {
       generatedTz: tz,
       inputs,
       upgraded: upgrading,
+      // Per-day generation count (upgrades included) — the cap the upgrade
+      // rule enforces instead of the single `upgraded` boolean, which
+      // stranded a brief whose one upgrade was spent while articles were
+      // still zero. `upgraded` stays for readers that predate it.
+      generations: priorGenerations + 1,
     };
     // Don't trust the model to round-trip data we already computed. When we have
     // real day forecasts but the model dropped the "weather" field (it's buried
@@ -435,6 +442,14 @@ export async function POST(request: Request) {
       briefing.topStories.length === 0;
     if (isEmpty) {
       throw new BriefError(502, { error: "Briefing response was empty — please retry" });
+    }
+    // A headline with NO sections, when the model was GIVEN articles, is a
+    // truncated or failed reply (the salvage parse above yields exactly
+    // this shape), not a brief — refuse to cache it for the day. With zero
+    // articles it is an honest stopgap and is cached; the upgrade rule
+    // (lib/briefingUpgrade.ts) replaces it as soon as articles arrive.
+    if (isSectionless(briefing) && inputs.articles > 0) {
+      throw new BriefError(502, { error: "Briefing response was incomplete — please retry" });
     }
     // Resolve the coalesced promise BEFORE the fire-and-forget cache write so a
     // waiting concurrent request gets the result immediately.

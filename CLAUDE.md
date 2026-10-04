@@ -2364,13 +2364,32 @@ day. Three parts, keep all three:
   fires after a 1.5-s settle so the child effects that report
   `osintTop`/`newsletters` land before the POST (child effects run before
   the parent's in the same commit).
-- **One bounded upgrade** (`lib/briefingUpgrade.ts`, PURE, tested, shared
+- **Bounded upgrades** (`lib/briefingUpgrade.ts`, PURE, tested, shared
   by client and server): a cached brief carrying `inputs` with ZERO
-  newsletters or ZERO OSINT signals regenerates ONCE when a later request
-  brings them (`upgraded:true` is then stamped; some → more never
-  upgrades; a brief with no `inputs` never upgrades). `briefingPrefetch`
-  re-asks 16 s after its first POST (past the 15-s rate limit); the route
-  applies the same rule before spending. Caps the day at two generations.
+  newsletters, ZERO OSINT signals **or ZERO articles** regenerates when a
+  later request brings them (some → more never upgrades a brief WITH
+  sections; a brief with no `inputs` never upgrades). The day is capped at
+  `MAX_GENERATIONS` = 3 model calls via a `generations` count stamped on the
+  cached object (the legacy `upgraded:true` reads as 2). `briefingPrefetch`
+  re-asks 16 s after its last POST (past the 15-s rate limit); the route
+  applies the same rule before spending.
+- **The headline-only brief (2026-10-04).** The Glance card showed one
+  sentence ("State ordered departure in effect for Jordan …") all day. The
+  modal's fallback path had POSTed the moment it opened on a phone, before
+  the news feed had loaded — ZERO articles and (the modal never sent them)
+  no OSINT signals. The model built a headline from the force-posture line,
+  every section came back empty, the empty-brief guard passed because the
+  headline existed, and articles were not in the upgrade rule, so nothing
+  replaced it. Three fixes, keep all three: (1) `BriefingModal` WAITS for
+  articles up to `NEWS_WAIT_MS` = 20 s ("Waiting for today's news to
+  load…") before posting, and sends `osint` like the prefetch does
+  (`osintTop` prop from `TabShell`); (2) the route refuses to CACHE a
+  sectionless brief (`isSectionless` — no key developments, stories or
+  focus) when articles were supplied — that shape is the salvage of a
+  truncated reply, answered 502 "incomplete — please retry"; with zero
+  articles it is an honest stopgap and IS cached; (3) a cached sectionless
+  brief upgrades whenever more articles exist than it was built from, under
+  the same generation cap.
 
 ### Morning Brief cross-device cache
 `briefing_cache` PK is **(date, user_email, tz)** — zone-briefs coexist per
