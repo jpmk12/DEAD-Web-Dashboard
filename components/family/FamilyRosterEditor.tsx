@@ -16,6 +16,7 @@ export default function FamilyRosterEditor({
   const [senders, setSenders] = useState<FamilySender[]>(profile.senders);
   const [household, setHousehold] = useState(profile.includeHousehold);
   const [autoDiscover, setAutoDiscover] = useState(profile.autoDiscover !== false);
+  const [markRead, setMarkRead] = useState(profile.markRead !== false);
   const [billers, setBillers] = useState<FamilyBiller[]>(profile.billers ?? []);
   const [documents, setDocuments] = useState<FamilyDocument[]>(profile.documents ?? []);
   const [bPattern, setBPattern] = useState("");
@@ -106,7 +107,7 @@ export default function FamilyRosterEditor({
       const res = await fetch("/api/family/roster", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: { people, senders, includeHousehold: household, billers, documents, expectations, autoDiscover } }),
+        body: JSON.stringify({ profile: { people, senders, includeHousehold: household, billers, documents, expectations, autoDiscover, markRead } }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Save failed");
       onSaved();
@@ -289,6 +290,13 @@ export default function FamilyRosterEditor({
             <span>
               Look for undeclared senders by itself, about weekly, when this tab is opened.
               <span className="block text-[10px] text-slate-500">Subject lines and addresses only, never bodies — the same scan as the Scan button, without having to remember to press it. Off = the button is the only trigger.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-[11px] text-slate-300">
+            <input type="checkbox" checked={markRead} onChange={(e) => setMarkRead(e.target.checked)} className="accent-emerald-500 mt-0.5" />
+            <span>
+              Mark mail read in Gmail once a digest has read it.
+              <span className="block text-[10px] text-slate-500">Only after the summary actually succeeds — a failed digest leaves every badge in place. Mail you still need to open yourself (an undated deadline, a declined payment or final notice) stays unread. Off = the digest never touches read state.</span>
             </span>
           </label>
 

@@ -2589,6 +2589,34 @@ The client sends ids + From lines it already holds; the route reads nothing.
 `categoryForLabel` lets "Seed from label" pre-select the bucket for a
 `Family/*` label. Works on both accounts (secondary via the cookie token).
 
+### Family digests mark mail read — after success, with exceptions (`lib/familyMarkRead.ts`)
+Neither Family digest touched read state before 2026-10-04; the Newsletters
+route always had, by marking every fetched email read at FETCH time, before
+summarising. The Family tab's promise is "we read this so you don't have
+to", so both digests now mark read too, with three differences from that
+precedent, each load-bearing and tested (`tests/familyMarkRead.test.ts`):
+- **Only after the model pass SUCCEEDED.** `messagesToMarkRead()` is PURE and
+  takes an explicit `ok`; it never infers success from an empty result. The
+  school digest calls it after the parse lands (inside the `try`, so the
+  `catch` marks nothing); the household digest gates on `Facts.ok`, which
+  `extractFacts` sets true only on a parsed reply. A disabled AI feature
+  returns before either point. A failed digest therefore leaves every inbox
+  badge in place — the last safety net against the buried obligation the tab
+  exists to catch.
+- **Mail the board could not finish with stays UNREAD.** `keep` = an undated
+  deadline's source, an event with `needsConfirm`, and every account-jeopardy
+  hit (declined payment, final notice). Those findings say "open the email";
+  clearing the badge on them would be a small lie. Household also touches only
+  ATTRIBUTED mail — a message the biller query returned from an undeclared
+  sender was never read by the model.
+- **`FamilyProfile.markRead`** (default true, sanitizer honours only a literal
+  `false`) is the roster switch, next to the weekly-discovery checkbox.
+**Do NOT add `is:unread` to the Gmail queries** — the silence watch, cadence
+learning and 14-day deadline persistence all re-read mail already seen, and
+marking read is safe for them only because the queries ignore read state.
+Uses the existing `gmail.modify` scope via `markAsRead` (fire-and-forget,
+same token that fetched). No new dep.
+
 ### Family/Household learning layer (six surfaces)
 A survey for "what should the Family tab learn / capture" found a **serious hole
 first**: `gmailQueryFor` scopes the school digest to `newer_than:14d` and

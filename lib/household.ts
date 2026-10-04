@@ -15,7 +15,8 @@ import { checkExpectations, worthShowing, expectationLine, type ExpectationResul
 // has to be right.
 
 import { anthropic } from "./claude";
-import { fetchNewsletterEmails } from "./gmail";
+import { fetchNewsletterEmails, markAsRead } from "./gmail";
+import { messagesToMarkRead } from "./familyMarkRead";
 import { logCall } from "./anthropicLog";
 import { extractJsonObject } from "./aiJson";
 import { isFeatureEnabled } from "./aiFeatures";
@@ -161,7 +162,7 @@ export async function assembleHouseholdDigest(
     seenDate: (msg.date || "").slice(0, 10),
   })));
 
-  let facts: Facts = { bills: {}, wellbeing: [], mentions: [], documents: [] };
+  let facts: Facts = { ok: false, bills: {}, wellbeing: [], mentions: [], documents: [] };
   if (attributed.length > 0) {
     facts = await extractFacts(attributed, userEmail);
   }
@@ -270,11 +271,30 @@ export async function assembleHouseholdDigest(
     ...(mail.length === 0 ? { empty: "no-mail" as const } : {}),
   };
   cache.set(cacheKey, { at: Date.now(), value });
+
+  // Mark the statements the model read as read — only when the fact pass
+  // SUCCEEDED (`facts.ok`; a thrown call returns the deterministic half and
+  // marks nothing), and never a message with an account-jeopardy hit: a
+  // declined payment or final notice is the one bill that must stay loud
+  // until the user has opened it. Only ATTRIBUTED mail is touched — a message
+  // the biller query returned from an undeclared sender was never read.
+  const toMark = messagesToMarkRead({
+    read: attributed.map(({ msg }) => msg.id),
+    keep: jeopardy.map((j) => j.sourceId),
+    ok: facts.ok,
+    enabled: profile.markRead,
+  });
+  if (toMark.length) markAsRead(accessToken, toMark).catch(() => {});
+
   return value;
 }
 
 interface RawBill { amountCents: number | null; dueISO: string | null; account: string | null; note: string }
-interface Facts { bills: Record<string, RawBill>; wellbeing: WellbeingItem[]; mentions: unknown; documents: unknown }
+interface Facts {
+  /** True only when the model call returned and parsed — the gate for marking read. */
+  ok: boolean;
+  bills: Record<string, RawBill>; wellbeing: WellbeingItem[]; mentions: unknown; documents: unknown;
+}
 
 // Each biller with its `auto` cadence resolved against the history, plus the
 // per-biller record of what was resolved and why (for the UI).
@@ -340,13 +360,13 @@ async function extractFacts(
       .sort((a, b) => rank(a.severity) - rank(b.severity))
       .slice(0, 8);
 
-    return { bills, wellbeing, mentions: parsed.mentions, documents: parsed.documents };
+    return { ok: true, bills, wellbeing, mentions: parsed.mentions, documents: parsed.documents };
   } catch (err) {
     console.error("Household fact extraction failed:", err);
     // Facts are unavailable, but the DETERMINISTIC half still works: cadence
     // and document runway don't need the model, so the pane degrades to those
-    // rather than going blank.
-    return { bills: {}, wellbeing: [], mentions: [], documents: [] };
+    // rather than going blank. `ok:false` also keeps every badge in the inbox.
+    return { ok: false, bills: {}, wellbeing: [], mentions: [], documents: [] };
   }
 }
 

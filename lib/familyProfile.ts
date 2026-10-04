@@ -118,10 +118,17 @@ export interface FamilyProfile {
   // the only thing that changes is that the user no longer has to remember to
   // press Scan. Off = the button is the only trigger.
   autoDiscover: boolean;
+  // After a SUCCESSFUL digest, mark the mail the model read as read in Gmail —
+  // except messages whose finding sends the user to the email itself (an
+  // undated deadline, an account-jeopardy hit). A failed or disabled model
+  // pass marks nothing. See lib/familyMarkRead.ts. Off = the digest never
+  // touches read state.
+  markRead: boolean;
 }
 
 export const EMPTY_FAMILY_PROFILE: FamilyProfile = {
   people: [], senders: [], includeHousehold: true, billers: [], documents: [], expectations: [], autoDiscover: true,
+  markRead: true,
 };
 
 const CAPS = { people: 12, senders: 40, billers: 40, documents: 30, expectations: 30 };
@@ -244,6 +251,7 @@ export function sanitizeFamilyProfile(raw: unknown): FamilyProfile {
   return {
     people, senders, includeHousehold: r.includeHousehold !== false, billers, documents, expectations,
     autoDiscover: r.autoDiscover !== false,
+    markRead: r.markRead !== false,
   };
 }
 

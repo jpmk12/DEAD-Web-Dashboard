@@ -10,7 +10,8 @@
 // messages per fortnight, one Sonnet call, cached 15 minutes.
 
 import { anthropic } from "./claude";
-import { fetchNewsletterEmails } from "./gmail";
+import { fetchNewsletterEmails, markAsRead } from "./gmail";
+import { messagesToMarkRead } from "./familyMarkRead";
 import { logCall } from "./anthropicLog";
 import { extractJsonObject } from "./aiJson";
 import { isFeatureEnabled } from "./aiFeatures";
@@ -212,6 +213,19 @@ export async function assembleFamilyDigest(
       },
     };
     cache.set(cacheKey, { at: Date.now(), value });
+
+    // Mark what the model read as read — ONLY now, after the parse landed, so
+    // a failed pass (the catch below) leaves every badge in place. Mail the
+    // board could not finish with stays unread: an undated deadline and an
+    // unconfirmed event both say "open the email". Fire-and-forget like the
+    // Newsletters route; the digest is already built.
+    const keep = [
+      ...deadlines.filter((d) => !d.dueISO).map((d) => d.sourceId),
+      ...events.filter((e) => e.needsConfirm).map((e) => e.sourceId),
+    ];
+    const toMark = messagesToMarkRead({ read: mail.map((m) => m.id), keep, ok: true, enabled: profile.markRead });
+    if (toMark.length) markAsRead(accessToken, toMark).catch(() => {});
+
     return value;
   } catch (err) {
     console.error("Family digest failed:", err);
