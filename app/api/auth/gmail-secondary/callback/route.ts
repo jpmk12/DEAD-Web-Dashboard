@@ -10,8 +10,19 @@ export const dynamic = "force-dynamic";
 // see lib/secondaryOAuth.ts for why). Exchanges the code, stores the encrypted
 // token in an httpOnly cookie, and returns the user to the Email tab.
 export async function GET(request: NextRequest) {
+  const base = process.env.NEXTAUTH_URL ?? request.nextUrl.origin;
   const session = await auth();
-  if (!session) return new NextResponse("Unauthorized", { status: 401 });
+  if (!session) {
+    // The primary session was not present when Google returned (mobile:
+    // the OAuth hop can land in a browser context whose cookie jar is not
+    // the one that started it). A bare 401 here used to strand the user,
+    // who then signed in fresh — and Google, with the second account now
+    // active, signed them in AS the second account. Send them to the login
+    // page with the reason; it names the primary account to Google.
+    const res = NextResponse.redirect(new URL("/login?error=SecondaryNoSession&callbackUrl=%2F%3Ftab%3Demail", base));
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
+  }
 
   const cookieStore = await cookies();
   const code = request.nextUrl.searchParams.get("code");
@@ -41,6 +52,24 @@ export async function GET(request: NextRequest) {
   // Use Authorization header — token never touches a URL
   const email = await getEmailFromToken(tokens.access_token);
 
+  // A "second" account that IS the primary is not a second account. Google's
+  // chooser does not know which one we already hold, so a tap on the wrong
+  // row (or a browser with only the primary signed in) came back as a
+  // duplicate: both chips showed the same address and the user read it as
+  // the dashboard having switched accounts. Refuse it, keep the primary
+  // untouched, and say so on the Email tab.
+  const primary = (session.user?.email ?? "").trim().toLowerCase();
+  if (email && primary && email.trim().toLowerCase() === primary) {
+    fetch("https://oauth2.googleapis.com/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: tokens.access_token }),
+    }).catch(() => {});
+    const res = NextResponse.redirect(new URL("/?tab=email&secondary=same", base));
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
+  }
+
   const encrypted = await encryptToken({
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token ?? undefined,
@@ -61,9 +90,7 @@ export async function GET(request: NextRequest) {
     path: "/",
   });
 
-  const res = NextResponse.redirect(
-    new URL("/?tab=email", process.env.NEXTAUTH_URL ?? request.nextUrl.origin),
-  );
+  const res = NextResponse.redirect(new URL("/?tab=email&secondary=added", base));
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }

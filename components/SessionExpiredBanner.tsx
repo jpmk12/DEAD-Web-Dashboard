@@ -11,13 +11,19 @@ export default function SessionExpiredBanner() {
   const { data, status } = useSession();
   if (status !== "authenticated" || data?.error !== "RefreshAccessTokenError") return null;
 
+  // Name the account that just expired so the re-sign-in lands on IT — not on
+  // whichever Google account is active in this browser (after connecting a
+  // second Gmail, that is the second Gmail). See lib/primaryHint.ts.
+  const email = data?.user?.email ?? "";
+  const href = email ? `/login?hint=${encodeURIComponent(email)}` : "/login";
+
   return (
     <div className="bg-red-500/15 border-b border-red-500/40 text-red-200 text-xs px-4 py-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
       <span>
         Your Google session expired — calendar, email, weather and OSINT data can&apos;t load until you sign in again.
       </span>
       <a
-        href="/login"
+        href={href}
         className="font-bold uppercase tracking-wider bg-red-500 hover:bg-red-400 text-slate-950 px-2.5 py-1 rounded-md transition-colors touch-manipulation"
       >
         Sign in again

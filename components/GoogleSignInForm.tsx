@@ -1,4 +1,5 @@
 import { signIn } from "@/lib/auth";
+import { primaryAuthParams } from "@/lib/primaryHint";
 
 // Sign-in that does not depend on client JavaScript.
 //
@@ -15,16 +16,22 @@ import { signIn } from "@/lib/auth";
 // OAuth flow after that point is ordinary top-level navigation, which nothing
 // about a restricted browser interferes with.
 //
+// `loginHint` names the account Google should sign in (lib/primaryHint.ts):
+// the one whose session just expired, or the last primary remembered on this
+// device. Without it the chooser is forced. Google is never left to pick the
+// browser's active account — that is how the secondary Gmail used to become
+// the primary on phones.
+//
 // Rendered from the server components that show the login screen and passed
 // into LoginPanel as children, because LoginPanel is "use client" and cannot
 // import a Server Action module itself.
 
-export default function GoogleSignInForm({ callbackUrl = "/" }: { callbackUrl?: string }) {
+export default function GoogleSignInForm({ callbackUrl = "/", loginHint = null }: { callbackUrl?: string; loginHint?: string | null }) {
   return (
     <form
       action={async () => {
         "use server";
-        await signIn("google", { redirectTo: callbackUrl });
+        await signIn("google", { redirectTo: callbackUrl }, primaryAuthParams(loginHint));
       }}
     >
       <button

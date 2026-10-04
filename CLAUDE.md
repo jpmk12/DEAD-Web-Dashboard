@@ -909,6 +909,35 @@ rediscovered:
    weekly; publish the consent screen to **Production** (bypass the unverified-app
    warning for own accounts) to stop that.
 
+7. **"It switched to my other Gmail instead of adding it" (phones, 2026-10-04) —
+   the PRIMARY sign-in must never let Google pick the account.** The secondary
+   flow never touches the primary login, but it makes the second account the
+   ACTIVE Google session in that browser. The primary sign-in asked for a bare
+   `prompt=consent` with no account named, which Google answers with the
+   active account — now the secondary. Under the Testing consent screen the
+   primary refresh token lapses weekly (item 6), so "Sign in again" came round
+   often and each time silently re-established the primary AS the secondary.
+   Phones showed it first: a phone's Safari usually holds one Google web
+   session (so no chooser ever appeared) and the installed app re-signs-in
+   more. Fix, in `lib/primaryHint.ts` (PURE, tested): the sign-in form passes
+   `login_hint` + `consent` when it knows the primary — from
+   `/login?hint=<email>` (the `SessionExpiredBanner` link carries the expired
+   session's own address) or from the device cookie `dead_primary_hint`
+   (httpOnly, 1 y, set by `POST /api/auth/primary-hint`, which
+   `PrimaryHintSync` in the root layout calls once per load; server-set
+   because iOS caps script-written cookies at 7 days, exactly the cadence
+   this must outlive) — and otherwise the provider default is now
+   `select_account consent`, i.e. the chooser is FORCED. `?hint=none` ("use a
+   different account" on the login page) drops the hint deliberately. Two
+   guards in the secondary callback close the other ways the symptom
+   appeared: a "second" account equal to the primary (case-insensitive) is
+   REFUSED (token revoked, `?secondary=same` notice on the Email tab — the
+   chooser cannot know which account we already hold), and a callback with
+   NO primary session redirects to `/login?error=SecondaryNoSession` instead
+   of a bare 401 (the stranded user used to sign in fresh — as the now-active
+   second account). `AddAccountButton` shows the primary address beside the
+   secondary so a swap or a duplicate is visible, not inferred.
+
 Scopes requested: `gmail.modify` + `calendar.readonly`. `lib/secondaryOAuth.ts`
 is `google-auth-library` + `@googleapis/gmail` only (no new esbuild —
 `grep -c esbuild package-lock.json` stays `0`).

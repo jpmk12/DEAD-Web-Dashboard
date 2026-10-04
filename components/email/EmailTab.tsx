@@ -29,8 +29,12 @@ interface EmailTabProps {
 }
 
 export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTabProps) {
-  const { status } = useSession();
+  const { status, data: session } = useSession();
+  const primaryEmail = session?.user?.email ?? undefined;
   const [emails, setEmails] = useState<EmailMessage[]>([]);
+  // Outcome of the "Add second Gmail" round-trip, read once from the URL the
+  // callback redirects to (`?secondary=same|added`) and then removed from it.
+  const [secondaryNotice, setSecondaryNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -91,6 +95,21 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
       setSecondaryEmail(data.email);
     } catch { /* ignore — secondary status is best-effort */ }
   };
+
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const outcome = url.searchParams.get("secondary");
+      if (!outcome) return;
+      if (outcome === "same") {
+        setSecondaryNotice("That account is already your primary sign-in, so it was not added as a second Gmail. Tap “Add second Gmail” again and pick the OTHER account in Google’s chooser.");
+      } else if (outcome === "added") {
+        setSecondaryNotice("Second Gmail connected. Both accounts are read together; your primary sign-in is unchanged.");
+      }
+      url.searchParams.delete("secondary");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch { /* URL parsing is cosmetic */ }
+  }, []);
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -539,6 +558,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
         <div className="flex items-center gap-3">
           <AddAccountButton
             connected={secondaryConnected}
+            primaryEmail={primaryEmail}
             secondaryEmail={secondaryEmail}
             onRevoked={() => { setSecondaryConnected(false); setSecondaryEmail(undefined); fetchEmails(true); }}
           />
@@ -576,6 +596,13 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
           </button>
         ))}
       </div>
+
+      {secondaryNotice && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-xl p-3 mb-4 text-xs flex items-start justify-between gap-3">
+          <span>{secondaryNotice}</span>
+          <button onClick={() => setSecondaryNotice(null)} className="text-amber-400 hover:text-amber-200 flex-shrink-0" aria-label="Dismiss">✕</button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4 mb-4 text-sm">

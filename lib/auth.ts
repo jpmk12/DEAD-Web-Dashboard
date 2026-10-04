@@ -49,7 +49,14 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           scope:
             "openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/tasks",
           access_type: "offline",
-          prompt: "consent",
+          // DEFAULT = force the account chooser. A bare `consent` let Google
+          // pick the browser's ACTIVE account, which after connecting a second
+          // Gmail is the second Gmail — so a weekly re-sign-in silently made
+          // the secondary the primary ("it switched accounts"). The sign-in
+          // form overrides this per call with `login_hint` + `consent` when it
+          // knows which account is the primary (lib/primaryHint.ts); either
+          // way Google never chooses for us.
+          prompt: "select_account consent",
         },
       },
     }),

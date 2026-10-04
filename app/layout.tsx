@@ -4,6 +4,7 @@ import { SessionProvider } from "next-auth/react";
 import ThemeApplicator from "@/components/ThemeApplicator";
 import ToastHost from "@/components/ToastHost";
 import AlertHeartbeat from "@/components/AlertHeartbeat";
+import PrimaryHintSync from "@/components/PrimaryHintSync";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -56,6 +57,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <ToastHost />
           <AlertHeartbeat />
+          <PrimaryHintSync />
         </SessionProvider>
       </body>
     </html>
