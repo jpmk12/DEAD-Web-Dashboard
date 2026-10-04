@@ -31,9 +31,20 @@ export async function GET(request: NextRequest) {
   // the flow will send to Google so it can be matched against the OAuth client's
   // "Authorized redirect URIs" without decoding a cryptic Google error page.
   if (step === "debug") {
+    // Both callbacks this app ever sends to Google, as THIS request would
+    // build them. Google's bare "400 … malformed" page on a phone carries no
+    // detail; a redirect-URI mismatch is the usual cause, and these two
+    // strings are what must appear byte-for-byte under the OAuth client's
+    // "Authorized redirect URIs". `requestOrigin` shows what the proxy
+    // presented, so a host mismatch between devices is visible too.
+    const authBase = (process.env.NEXTAUTH_URL ?? process.env.AUTH_URL ?? "").trim();
+    const primaryRedirectUri = `${authBase ? new URL(authBase).origin : request.nextUrl.origin}/api/auth/callback/google`;
     return NextResponse.json({
       redirectUri: resolveRedirectUri(request.nextUrl.origin),
       fromEnv: !!process.env.GMAIL_SECONDARY_REDIRECT_URI?.trim(),
+      primaryRedirectUri,
+      primaryFromEnv: !!authBase,
+      requestOrigin: request.nextUrl.origin,
       clientIdSet: !!process.env.GOOGLE_CLIENT_ID?.trim(),
       clientSecretSet: !!process.env.GOOGLE_CLIENT_SECRET?.trim(),
     });
