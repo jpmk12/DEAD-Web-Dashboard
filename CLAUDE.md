@@ -2213,6 +2213,50 @@ pair up on a phone. Order on Glance is now: header → clocks → brief →
 StatusRow → OeDeltaCard → Needs You Now → DemandHorizonCard → Global Reach
 → two-column body (Breaking, Today, Tomorrow, …). `hero.html` mirrors it.
 
+### Glance walkthrough fixes (2026-10-05, `docs/REVIEW-2026-10.md` G1–G15)
+Built from the operator's first-startup user story. The load-bearing pieces:
+- **One zone rule** — `lib/effectiveZone.ts` (PURE, tested): `resolveZone`
+  = pinned › **active trip** › device › saved pref › default. A declared TDY
+  is a stronger statement of "where I am" than a laptop clock that was never
+  changed (a 10:00 Amman event read "3:00 AM"). `/api/zone` (device zone in,
+  effective zone + source + label + trip out; `ensureTripTz` fills the
+  never-populated `trips.tz` from Open-Meteo `timezone=auto`, once, written
+  back) → `lib/zoneClient.ts` (`useEffectiveZone` hook, `zoneForRequests()`
+  for the brief POSTs, 10-min client cache). Glance Today/Tomorrow bucket in
+  that zone (`ymdInZone` / `zoneDayStartMs` / `zoneDayEndMs`) and **every
+  time carries its zone label**; the row tooltip gives the device time too
+  when the zones differ. `/api/briefing` resolves the SAME rule (trip
+  resolved before the cache check because it decides the day) and the
+  prefetch + modal send the effective zone, so the rail, the cache key and
+  the prose agree.
+- **Zulu is always the far-left clock** (`isZulu`, any UTC spelling); the
+  rest stay west→east.
+- **Today / Tomorrow moved under the Brief** (two-up grid, zone note in the
+  Today header) — they sat at the bottom of the rail.
+- **Status row** (`StatusRow.tsx`): labelled "RIGHT NOW"; each feed fetched
+  by its own `useFeed` (a slow route holds only its tile; `pending` demand /
+  spectrum re-asked at 10 s up to 3×); order Posture · Bases · I&W · Spectrum
+  · Demand · **Alerts** · Tasks · Family; Tasks/Family tooltips list the
+  items (`tasks.items` / `askItems`, family lapsed+dueSoon with days); the
+  Posture tile lands on `postureTarget()` (`lib/postureTarget.ts`, PURE,
+  tested: escalated-today RED › non-chronic RED › RED base › worst) via
+  `regional:select`; Spectrum names the board it opens.
+- **`watch:focus {kind:"iw", id}` now lands on THAT board**: `WatchPane`
+  keeps `iwFocus` and `WarningBoard` takes `focusProblemId` (scroll +
+  4-s sky ring on `#iw-board-<id>`, `onFocused` clears).
+- **`/api/demand-horizon` is bounded** (`getDemandHorizonBounded(8 s)` →
+  settled body, else last body `pending`, else stub; skill within 4 s) —
+  the tile sat on "loading" because the route awaited the bare fan-out.
+- **High-priority email lives in "Your actions"** (violet, under the tasks)
+  — it is yours to answer, not world state; the world list is weather /
+  disasters / posture / OSINT only.
+- **Brief force line says the direction**: "(ESCALATED from GREEN
+  yesterday)" / "(EASED from RED yesterday)" via `isWorse`.
+- **Markets block on Glance CUT** (`marketsWatchlist` prop gone from
+  GlanceTab/TabShell; the pref and its editor remain for the Economy tab).
+- `lib/exports.ts` schedule heading is "Schedule — today & tomorrow" (the
+  section always carried both).
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns

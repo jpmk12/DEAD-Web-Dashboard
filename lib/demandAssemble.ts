@@ -34,11 +34,30 @@ let inflight: Promise<DemandHorizonBody> | null = null;
 
 const isAor = (s: string): s is Aor => s in AOR_LABELS;
 
+/** The whole outlook, however long the cold assembly takes. Heartbeat and
+ *  exports use this; a REQUEST HANDLER must use the bounded form. */
 export async function getDemandHorizon(): Promise<DemandHorizonBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
   if (inflight) return inflight;
   inflight = assemble().then((body) => { cache = { at: Date.now(), body }; return body; }).finally(() => { inflight = null; });
   return inflight;
+}
+
+/** Bounded: a warm cache instantly; a cold assembly is STARTED and whatever
+ *  settles within `maxWaitMs` is returned — else the last body flagged
+ *  `pending`, else a pending stub. The Glance Demand tile sat on "loading"
+ *  (2026-10-05) because the route awaited the bare assembly and the gateway
+ *  answered 502 first. Same contract as spectrum and the economy board. */
+export async function getDemandHorizonBounded(maxWaitMs = 8_000): Promise<DemandHorizonBody & { pending?: boolean }> {
+  if (cache && Date.now() - cache.at < TTL) return cache.body;
+  const p = getDemandHorizon();
+  const settled = await new Promise<DemandHorizonBody | null>((resolve) => {
+    const t = setTimeout(() => resolve(null), maxWaitMs);
+    p.then((b) => { clearTimeout(t); resolve(b); }, () => { clearTimeout(t); resolve(null); });
+  });
+  if (settled) return settled;
+  if (cache) return { ...cache.body, pending: true };
+  return { horizonDays: HORIZON_DAYS, generatedAt: new Date().toISOString(), outlooks: [], sources: { iw: false, disaster: false, neo: false, posture: false, chokepoint: false }, pending: true };
 }
 
 export function resetDemandHorizonCache(): void { cache = null; }

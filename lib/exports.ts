@@ -109,7 +109,7 @@ export function buildBriefingHTML(b: Briefing, printOnOpen: boolean): string {
     </header>
 
     ${b.headline ? `<section><h2>Headline</h2><div class="card headline">${esc(b.headline)}</div></section>` : ""}
-    ${b.schedule?.length ? `<section><h2>Today’s Schedule</h2><div class="card">${list(b.schedule)}</div></section>` : ""}
+    ${b.schedule?.length ? `<section><h2>Schedule — today &amp; tomorrow</h2><div class="card">${list(b.schedule)}</div></section>` : ""}
     ${b.keyDevelopments?.length ? `<section><h2>Key Developments</h2><div class="card">${list(b.keyDevelopments)}</div></section>` : ""}
     ${b.topStories?.length ? `<section><h2>Top Stories</h2><div class="card">${list(b.topStories)}</div></section>` : ""}
     ${b.trends?.length ? `<section><h2>Trending — week over week</h2><div class="card">${list(b.trends)}</div></section>` : ""}

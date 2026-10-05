@@ -87,13 +87,22 @@ export function renderClock(nowMs: number, def: ClockDef, deviceTz: string): Clo
   };
 }
 
-/** Rendered west→east by the CURRENT UTC offset (so DST moves are honoured
- *  and an added zone slots in by itself); ties keep declared order; an
- *  invalid zone goes last. */
+/** Is this definition the Zulu clock? UTC under any of its spellings. */
+export function isZulu(tz: string): boolean {
+  return /^(UTC|Etc\/UTC|Etc\/GMT|GMT|Zulu|Etc\/Zulu|Etc\/Universal|Universal)$/i.test(tz);
+}
+
+/** Zulu is ALWAYS the far-left tile (the operator's reference clock, 2026-10-05
+ *  walkthrough); the rest render west→east by the CURRENT UTC offset (so DST
+ *  moves are honoured and an added zone slots in by itself); ties keep
+ *  declared order; an invalid zone goes last. */
 export function renderClocks(nowMs: number, defs: ClockDef[], deviceTz: string): ClockView[] {
   const d = new Date(nowMs);
   return defs
-    .map((c, i) => ({ view: renderClock(nowMs, c, deviceTz), i, off: isValidTz(c.tz) ? utcOffsetMinutes(d, c.tz) : Number.POSITIVE_INFINITY }))
+    .map((c, i) => ({
+      view: renderClock(nowMs, c, deviceTz), i,
+      off: isZulu(c.tz) ? Number.NEGATIVE_INFINITY : isValidTz(c.tz) ? utcOffsetMinutes(d, c.tz) : Number.POSITIVE_INFINITY,
+    }))
     .sort((a, b) => a.off - b.off || a.i - b.i)
     .map((x) => x.view);
 }

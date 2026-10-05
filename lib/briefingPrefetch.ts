@@ -16,6 +16,7 @@
 
 import { clientCache, CACHE_TTL } from "./clientCache";
 import { shouldUpgradeBrief, generationsOf, MAX_GENERATIONS, type BriefInputs, type BriefUpgradeRecord } from "./briefingUpgrade";
+import { fetchEffectiveZone, deviceZone } from "./zoneClient";
 
 export const CACHE_KEY = "briefing:result";
 
@@ -64,16 +65,18 @@ export function prefetchBriefing(
 }
 
 function post(articles: unknown[], newsletters: unknown[], events: unknown[], osint: unknown[], inputs: BriefInputs): void {
-  // Device IANA zone so the brief's "today"/schedule/weather match the device
-  // the user is reading on; the server resolves request → saved pref → default.
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // The EFFECTIVE zone (lib/effectiveZone: pin › active trip › device) so the
+  // brief's "today"/schedule/weather follow where the operator IS, not only
+  // the laptop clock. The server applies the same rule; sending the zone
+  // keeps the cache key and the prose in step with the Glance rail.
   lastPostAt = Date.now();
 
-  inflight = fetch("/api/briefing", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ articles, newsletters, events, osint, tz }),
-  })
+  inflight = fetchEffectiveZone()
+    .then((z) => fetch("/api/briefing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ articles, newsletters, events, osint, tz: z?.zone ?? deviceZone() }),
+    }))
     .then((r) => r.json())
     .then((data) => {
       if (!data.error) {

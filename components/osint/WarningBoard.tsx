@@ -47,9 +47,27 @@ const QUADRANT_LABEL: Record<string, string> = {
   quiet: "Quiet — nothing implied, nothing moving",
 };
 
-export default function WarningBoard({ active }: { active: boolean }) {
+export default function WarningBoard({ active, focusProblemId, onFocused }: {
+  active: boolean;
+  /** A board to scroll to and flash once the list is loaded (Glance tiles, the
+   *  palette). Cleared via `onFocused` so a later open does not re-scroll. */
+  focusProblemId?: string | null;
+  onFocused?: () => void;
+}) {
   const [problems, setProblems] = useState<WarningAssessmentPlus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusProblemId || !problems || !problems.some((p) => p.problemId === focusProblemId)) return;
+    const el = document.getElementById(`iw-board-${focusProblemId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setFlash(focusProblemId);
+    const t = setTimeout(() => setFlash(null), 4_000);
+    onFocused?.();
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusProblemId, problems]);
 
   useEffect(() => {
     if (!active || problems !== null) return;
@@ -73,7 +91,7 @@ export default function WarningBoard({ active }: { active: boolean }) {
       {problems === null && !error && <div className="text-xs text-slate-500 py-6">Assembling warning picture…</div>}
       {problems && problems.length === 0 && <div className="text-xs text-slate-500 py-6">No warning problems configured.</div>}
 
-      {problems?.map((p) => <ProblemCard key={p.problemId} p={p} />)}
+      {problems?.map((p) => <ProblemCard key={p.problemId} p={p} flash={flash === p.problemId} />)}
 
       {problems && problems.length > 0 && (
         <div className="text-[10px] text-slate-600 leading-relaxed border-t border-slate-800 pt-3">
@@ -86,11 +104,11 @@ export default function WarningBoard({ active }: { active: boolean }) {
   );
 }
 
-function ProblemCard({ p }: { p: WarningAssessmentPlus }) {
+function ProblemCard({ p, flash }: { p: WarningAssessmentPlus; flash?: boolean }) {
   const unreachable = p.sensorHealth.filter((h) => !h.live);
   const anomHot = p.level !== "calm";
   return (
-    <div className={`border ${CARD_ACCENT[p.level]} bg-slate-900/50 rounded-2xl p-4 space-y-3`}>
+    <div id={`iw-board-${p.problemId}`} className={`scroll-mt-24 border ${CARD_ACCENT[p.level]} bg-slate-900/50 rounded-2xl p-4 space-y-3 transition-shadow ${flash ? "ring-2 ring-sky-400/70 shadow-[0_0_0_4px_rgba(56,189,248,0.15)]" : ""}`}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <div className="text-[15px] font-bold text-slate-100">{p.label}</div>

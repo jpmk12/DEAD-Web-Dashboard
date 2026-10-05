@@ -58,6 +58,10 @@ export default function WatchPane({ active }: { active: boolean }) {
 
   const [iw, setIw] = useState<IwProblem[] | null>(null);
   const [iwOpen, setIwOpen] = useState(false);
+  // The board a `watch:focus {kind:"iw", id}` asked for. Before 2026-10-05 the
+  // id was only recorded (noteOpen) — the Glance Spectrum tile said "Taiwan"
+  // and landed on the first board in the list (REVIEW-2026-10 G4).
+  const [iwFocus, setIwFocus] = useState<string | null>(null);
   const [sitreps, setSitreps] = useState<SitrepSummary[]>([]);
   const [sitrepOpen, setSitrepOpen] = useState<string | null>(null);
   // Fold state for the "forming" group, remembered per browser.
@@ -77,7 +81,10 @@ export default function WatchPane({ active }: { active: boolean }) {
       const d = (e as CustomEvent<{ kind?: string; id?: string }>).detail;
       if (!d) return;
       if (d.kind === "sitrep" && typeof d.id === "string") { setSitrepOpen(d.id); noteOpen("base", d.id); }
-      else if (d.kind === "iw") { setIwOpen(true); if (typeof d.id === "string") noteOpen("board", d.id); }
+      else if (d.kind === "iw") {
+        setIwOpen(true);
+        if (typeof d.id === "string" && d.id) { setIwFocus(d.id); noteOpen("board", d.id); }
+      }
     };
     window.addEventListener("watch:focus", onFocus);
     return () => window.removeEventListener("watch:focus", onFocus);
@@ -154,7 +161,7 @@ export default function WatchPane({ active }: { active: boolean }) {
           </div>
           {iwOpen && (
             <div className="mt-3">
-              <WarningBoard active={active && iwOpen} />
+              <WarningBoard active={active && iwOpen} focusProblemId={iwFocus} onFocused={() => setIwFocus(null)} />
             </div>
           )}
         </div>

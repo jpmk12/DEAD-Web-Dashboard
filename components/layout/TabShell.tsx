@@ -20,7 +20,7 @@ import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
 import FloatingAssistant from "@/components/chat/FloatingAssistant";
-import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, TickerEntry } from "@/lib/types";
+import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
 
@@ -61,7 +61,6 @@ export default function TabShell() {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
 
   // "What changed since I last looked": frozen-at-mount snapshot of when the
   // user last viewed each surface. Drives dimming of items older than the
@@ -199,7 +198,6 @@ export default function TabShell() {
       .then((r) => r.json())
       .then(({ prefs }) => {
         setWatchlist(prefs?.watchlist ?? []);
-        setMarketsWatchlist(prefs?.marketsWatchlist ?? []);
       })
       .catch(() => {});
   }, []);
@@ -392,7 +390,6 @@ export default function TabShell() {
             osintSignals={osintSignals}
             previousSeen={previousSeen}
             watchlist={watchlist}
-            marketsWatchlist={marketsWatchlist}
             onNavigate={setActiveTab}
             onOpenBrief={openBriefing}
             onOpenDigest={openDigest}

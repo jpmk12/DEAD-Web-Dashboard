@@ -151,6 +151,13 @@ export async function getTripById(email: string, id: string): Promise<Trip | nul
 // source='manual' rows (the WHERE clause) — calendar trips are owned by their
 // source event and would just be re-synced, so the route blocks those earlier
 // with a clearer message. Returns the updated trip (or null if nothing matched).
+/** Write the trip's IANA zone once it is known (lib/timezoneLookup). */
+export async function setTripTz(email: string, id: string, tz: string): Promise<void> {
+  const pool = await getDb();
+  const sc = scopeClause(email);
+  await pool.execute(`UPDATE trips SET tz = ? WHERE id = ? AND ${sc.clause}`, [tz, id, ...sc.params]);
+}
+
 export async function updateTrip(
   email: string,
   id: string,

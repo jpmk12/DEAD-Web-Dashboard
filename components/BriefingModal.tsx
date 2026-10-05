@@ -6,6 +6,7 @@ import { clientCache } from "@/lib/clientCache";
 import type { TrendMover } from "@/lib/trends";
 import { suggestTrip, type TripSuggestion } from "@/lib/tripSuggest";
 import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPrefetch";
+import { zoneForRequests } from "@/lib/zoneClient";
 import { BriefIcon, DigestIcon } from "@/lib/icons";
 import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
 import { buildBriefingHTML, buildDigestHTML, openPrintWindow, downloadHTML } from "@/lib/exports";
@@ -210,7 +211,7 @@ export default function BriefingModal({
           newsletters,
           events: calendarEvents,
           osint: osintTop,
-          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          tz: zoneForRequests(),
         }),
       });
       const data = await res.json();
@@ -272,7 +273,7 @@ export default function BriefingModal({
           newsletters,
           events: calendarEvents,
           osint: osintTop,
-          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          tz: zoneForRequests(),
         }),
         signal: controller.signal,
       })

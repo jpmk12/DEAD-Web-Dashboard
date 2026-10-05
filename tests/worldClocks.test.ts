@@ -41,10 +41,19 @@ describe("renderClock — one instant, many zones", () => {
     expect(bad.time).toBe("--:--");
   });
 
-  it("renders the six defaults west→east by current UTC offset", () => {
+  it("renders Zulu first, then the rest west→east by current UTC offset", () => {
     const rows = renderClocks(NOW, DEFAULT_CLOCKS, "UTC");
-    expect(rows.map((r) => r.label)).toEqual(["New Jersey", "Zulu", "Moscow", "Amman", "Tehran", "Beijing"]);
+    expect(rows.map((r) => r.label)).toEqual(["Zulu", "New Jersey", "Moscow", "Amman", "Tehran", "Beijing"]);
     expect(rows.every((r) => r.valid)).toBe(true);
+  });
+
+  it("Zulu stays far left even when a zone lies west of it, under any UTC spelling", () => {
+    const rows = renderClocks(NOW, [
+      { label: "Honolulu", tz: "Pacific/Honolulu" },
+      { label: "Zulu", tz: "Etc/UTC" },
+      { label: "New Jersey", tz: "America/New_York" },
+    ], "UTC");
+    expect(rows.map((r) => r.label)).toEqual(["Zulu", "Honolulu", "New Jersey"]);
   });
 
   it("sorts by offset regardless of declared order, ties by declared order, invalid last", () => {

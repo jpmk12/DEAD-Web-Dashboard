@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getDemandHorizon } from "@/lib/demandAssemble";
+import { getDemandHorizonBounded } from "@/lib/demandAssemble";
 import { getDemandSkill } from "@/lib/demandVerifyAssemble";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +18,13 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
 // 10-min cache in the lib. `sources` says which sensor families answered.
 // `skill` scores the outlooks whose window has closed (lib/demandVerify);
 // null when the scorer did not answer in time.
+//
+// BOUNDED (2026-10-05): a cold assembly is started and the route answers
+// within ~8 s with what settled, else the last body flagged `pending`, else
+// a `pending` stub — never a gateway 502. Callers poll while `pending`.
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const [body, skill] = await Promise.all([getDemandHorizon(), within(getDemandSkill(), 4_000)]);
+  const [body, skill] = await Promise.all([getDemandHorizonBounded(8_000), within(getDemandSkill(), 4_000)]);
   return NextResponse.json({ ...body, skill });
 }

@@ -14,6 +14,9 @@ import { getTrendMovers, formatMoversForPrompt } from "@/lib/trends";
 import { geocodePlace } from "@/lib/geocode";
 import { getDayForecasts, forecastLine, type DayForecast } from "@/lib/forecast";
 import { getActiveTrip, tripProgress } from "@/lib/trips";
+import { ensureTripTz } from "@/lib/timezoneLookup";
+import { resolveZone, DEFAULT_ZONE } from "@/lib/effectiveZone";
+import { isWorse } from "@/lib/severity";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { extractJsonObject } from "@/lib/aiJson";
 import { todayInTz } from "@/lib/date";
@@ -143,19 +146,20 @@ export async function POST(request: Request) {
 
   const prefs = await getUserPrefs(normEmail(session.user?.email));
   const userContext = buildUserContext(prefs);
-  // Timezone resolution honours the user's Preferences choice:
-  //  • "pinned" → the saved pref zone overrides the device, so a traveler reads
+  // Timezone resolution is ONE rule, lib/effectiveZone.resolveZone:
+  //  • "pinned" → the saved pref zone overrides everything, so a traveler reads
   //    every brief in one fixed reference zone regardless of the device's clock.
-  //  • "auto" (default) → the device IANA zone the client sends
-  //    (Intl.resolvedOptions().timeZone) wins, so the brief's "today", schedule
-  //    labels, and weather follow whatever device opens it — no setup needed.
-  // The request zone is validity-guarded; an invalid/blank one falls back to the
-  // saved pref, and the default is the last resort.
+  //  • "auto" (default) → an ACTIVE TRIP's zone wins, then the device zone the
+  //    client sends, then the saved pref. A declared TDY is a stronger statement
+  //    of "where I am" than a laptop clock that was never changed — the
+  //    2026-10-05 walkthrough read a 10:00 Amman event as "3:00 AM".
+  // The request zone is validity-guarded; an invalid/blank one falls through.
+  // The trip is resolved HERE (before the cache check) because it decides the
+  // day; the trip's zone is looked up once and written back (ensureTripTz).
   const requestTz = typeof bodyTz === "string" && isValidTz(bodyTz) ? bodyTz : "";
-  const tz =
-    prefs.timezoneMode === "pinned"
-      ? prefs.timezone || requestTz || "America/Chicago"
-      : requestTz || prefs.timezone || "America/Chicago";
+  const activeTrip = await getActiveTrip(normEmail(session.user?.email), todayInTz(requestTz || prefs.timezone || DEFAULT_ZONE)).catch(() => null);
+  const tripTz = await ensureTripTz(normEmail(session.user?.email), activeTrip).catch(() => null);
+  const { zone: tz } = resolveZone({ mode: prefs.timezoneMode, pref: prefs.timezone, device: requestTz || null, trip: tripTz });
   // Include the tz in the key so changing timezone mid-day doesn't collide
   // a "Mar-14 in CT" cache with a "Mar-14 in JST" one. VARCHAR(10) is too
   // tight for that — but `date` column already varies cheaply via slice(0, 10).
@@ -263,10 +267,8 @@ export async function POST(request: Request) {
   // briefer leads with it when life/property is at risk. Disasters are global,
   // so this runs even when the user has no locations set. Best-effort; never
   // blocks brief generation.
-  // Effective location: an active TDY trip overrides home for weather. Resolved
-  // here (generation path only, after the cache check) so cache hits don't pay
-  // for the query.
-  const activeTrip = await getActiveTrip(normEmail(session.user?.email), cacheKey).catch(() => null);
+  // Effective location: the active TDY trip (resolved above, with the zone)
+  // overrides home for weather.
   // Home is ALWAYS a weather point — even on TDY you keep eyes on home. A trip is
   // an ADDITIONAL point ("where you are now"), never a swap that hides home.
   const homePoint: NamedPoint | null =
@@ -354,7 +356,11 @@ export async function POST(request: Request) {
     const notable = fp.assessments.filter((a) => a.composite === "red" || a.composite === "amber" || a.previousComposite);
     if (notable.length) {
       forceLine = notable.slice(0, 8).map((a) => {
-        const chg = a.previousComposite ? ` (was ${a.previousComposite.toUpperCase()} yesterday)` : "";
+        // Direction stated, not implied: "(was GREEN yesterday)" made the reader
+        // work out which way it moved (REVIEW-2026-10 G15).
+        const chg = a.previousComposite
+          ? ` (${isWorse(a.composite, a.previousComposite) ? "ESCALATED" : "EASED"} from ${a.previousComposite.toUpperCase()} yesterday)`
+          : "";
         return `[${a.composite.toUpperCase()}] ${a.kind === "country" ? "" : "base "}${a.label} (${a.cocom}) — ${a.topDriver}${chg}`;
       }).join("\n");
     }

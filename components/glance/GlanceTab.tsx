@@ -7,6 +7,8 @@ import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import StatusRow from "@/components/glance/StatusRow";
 import WorldClocks from "@/components/glance/WorldClocks";
+import { useEffectiveZone, type EffectiveZone } from "@/lib/zoneClient";
+import { ymdInZone, addDays, zoneDayStartMs, zoneDayEndMs, timeInZone, zoneLabel } from "@/lib/effectiveZone";
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
@@ -27,7 +29,6 @@ import {
   CalendarEvent,
   EmailMessage,
   GoogleTask,
-  TickerEntry,
   WeatherThreats,
   TravelAdvisory,
 } from "@/lib/types";
@@ -79,7 +80,6 @@ interface GlanceTabProps {
   osintSignals: number;
   previousSeen: SeenMap;
   watchlist: string[];
-  marketsWatchlist: TickerEntry[];
   onNavigate: (tab: Tab) => void;
   onOpenBrief: () => void;
   onOpenDigest: () => void;
@@ -88,28 +88,6 @@ interface GlanceTabProps {
 
 // ───────────────────────── time helpers ─────────────────────────
 
-function startOfToday(): number {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-function endOfToday(): number {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d.getTime();
-}
-function startOfTomorrow(): number {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-function endOfTomorrow(): number {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(23, 59, 59, 999);
-  return d.getTime();
-}
 function ms(iso?: string): number {
   if (!iso) return 0;
   const t = Date.parse(iso);
@@ -129,22 +107,28 @@ function relTime(iso?: string): string {
   const days = Math.round(hrs / 24);
   return `${past ? "" : "in "}${days}d${past ? " ago" : ""}`;
 }
-function clockTime(iso: string): string {
-  const t = ms(iso);
-  if (!t) return "";
-  return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
 // A Today/Tomorrow agenda row: time + title jumps to the Calendar; the quick
 // actions (AI-edit / edit / nudge / delete) come from the same shared cluster as
 // the Calendar upcoming view, so the two surfaces behave identically.
-function ScheduleRow({ e, onNavigate }: { e: CalendarEvent; onNavigate: (tab: Tab) => void }) {
+// The time is rendered in the EFFECTIVE zone (pin › active trip › device) and
+// is never shown without its zone label; when that differs from the device
+// zone the tooltip gives both, so "10:00 AM GMT+3" on a laptop still set to
+// New Jersey is read as what it is (REVIEW-2026-10 G10).
+function ScheduleRow({ e, zone, onNavigate }: { e: CalendarEvent; zone: EffectiveZone; onNavigate: (tab: Tab) => void }) {
   const a = useEventActions(e);
+  const t = ms(e.start);
+  const timed = !e.isAllDay && t > 0;
+  const label = timed ? zoneLabel(zone.zone, t) : "";
+  const deviceDiffers = timed && zone.device && zone.device !== zone.zone;
+  const tip = timed
+    ? `${timeInZone(t, zone.zone)} ${label}${zone.source === "trip" ? " (TDY zone)" : zone.source === "pinned" ? " (pinned zone)" : ""}${deviceDiffers ? ` · ${timeInZone(t, zone.device!)} ${zoneLabel(zone.device!, t)} on this device` : ""}`
+    : "All day";
   return (
     <li className="group hover:bg-slate-800/40 transition-colors">
       <div className="flex items-center">
-        <button onClick={() => onNavigate("calendar")} className="flex-1 min-w-0 text-left flex items-baseline gap-3 px-3 py-2.5">
-          <span className="text-[11px] font-mono font-semibold text-emerald-400 w-16 flex-shrink-0">
-            {e.isAllDay ? "All day" : clockTime(e.start)}
+        <button onClick={() => onNavigate("calendar")} title={tip} className="flex-1 min-w-0 text-left flex items-baseline gap-3 px-3 py-2.5">
+          <span className="text-[11px] font-mono font-semibold text-emerald-400 w-[4.5rem] sm:w-24 flex-shrink-0 whitespace-nowrap">
+            {timed ? <>{timeInZone(t, zone.zone)} <span className="text-[9px] text-emerald-600 font-normal">{label}</span></> : "All day"}
           </span>
           <span className="text-sm text-slate-200 truncate group-hover:text-slate-100">{e.title}</span>
         </button>
@@ -181,24 +165,12 @@ function localTodayStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-// Local calendar date string for today + an offset in days (0 = today, 1 =
-// tomorrow), in the browser's tz — same local basis as startOfToday().
-function localDateStr(offsetDays = 0): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-function localDateAddStr(dateStr: string, n: number): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, (m || 1) - 1, d || 1);
-  dt.setDate(dt.getDate() + n);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-}
-// Does an event cover the given LOCAL calendar date? All-day events carry
-// floating date-only start/end (end EXCLUSIVE) and must be compared as calendar
-// dates — converting them to an instant parses them as UTC midnight, which in
-// behind-UTC zones lands on the previous evening and leaks an all-day holiday
-// (e.g. "Flag Day") into BOTH today and tomorrow. Timed events keep instant math.
+// Does an event cover the given calendar date IN THE EFFECTIVE ZONE? All-day
+// events carry floating date-only start/end (end EXCLUSIVE) and must be
+// compared as calendar dates — converting them to an instant parses them as
+// UTC midnight, which in behind-UTC zones lands on the previous evening and
+// leaks an all-day holiday (e.g. "Flag Day") into BOTH today and tomorrow.
+// Timed events keep instant math against the zone's day bounds.
 function eventCoversLocalDate(
   e: { start: string; end: string; isAllDay?: boolean },
   dayStr: string,
@@ -209,7 +181,7 @@ function eventCoversLocalDate(
     const s = (e.start || "").slice(0, 10);
     if (!s) return false;
     const rawEnd = (e.end || "").slice(0, 10);
-    const endExclusive = rawEnd && rawEnd > s ? rawEnd : localDateAddStr(s, 1);
+    const endExclusive = rawEnd && rawEnd > s ? rawEnd : addDays(s, 1);
     return s <= dayStr && dayStr < endExclusive;
   }
   const t0 = ms(e.start), t1 = ms(e.end);
@@ -284,7 +256,6 @@ export default function GlanceTab({
   osintSignals,
   previousSeen,
   watchlist,
-  marketsWatchlist,
   onNavigate,
   onOpenBrief,
   onOpenDigest,
@@ -292,6 +263,9 @@ export default function GlanceTab({
 }: GlanceTabProps) {
   const { status } = useSession();
   useCacheTick(active);
+  // The effective zone (pin › active trip › device): Today/Tomorrow are
+  // bucketed in it and every time is labelled with it.
+  const zone = useEffectiveZone();
 
   const [tasks, setTasks] = useState<GoogleTask[]>([]);
   const [completingTasks, setCompletingTasks] = useState<Set<string>>(new Set());
@@ -547,19 +521,15 @@ export default function GlanceTab({
   // the panel (see below) so personal action items never get sorted below, or
   // sliced off behind, a busy news/alert day.
 
-  for (const e of emails.filter((e) => e.priority === "High").slice(0, 5)) {
-    const unseen = ms(e.date) > previousSeen.email;
-    urgent.push({
-      id: `email-${e.id}`,
-      rank: unseen ? 2 : 3,
-      tone: "amber",
-      icon: "◎",
-      label: e.subject || "(no subject)",
-      sub: `${senderName(e.from)}${e.summary ? ` — ${e.summary}` : ""}`,
-      meta: relTime(e.date),
-      onClick: () => onNavigate("email"),
-    });
-  }
+  // High-priority email is YOURS to answer, not world state: it renders in the
+  // violet "Your actions" group under the tasks (REVIEW-2026-10 G8), never
+  // among the red rows — a sender asking for a reply is a different kind of
+  // urgency from a base going RED.
+  const emailAsks = emails
+    .filter((e) => e.priority === "High")
+    .slice(0, 5)
+    .map((e) => ({ id: `email-${e.id}`, unseen: ms(e.date) > previousSeen.email, label: e.subject || "(no subject)", sub: `${senderName(e.from)}${e.summary ? ` — ${e.summary}` : ""}`, meta: relTime(e.date) }))
+    .sort((a, b) => Number(b.unseen) - Number(a.unseen));
 
   for (const s of osintTop.filter((s) => s.priority === "High").slice(0, 4)) {
     urgent.push({
@@ -723,14 +693,19 @@ export default function GlanceTab({
   };
 
   // ── Derived: today's schedule ──
+  const todayYmd = ymdInZone(Date.now(), zone.zone);
+  const tomorrowYmd = addDays(todayYmd, 1);
   const todayEvents = calendarEvents
-    .filter((e) => eventCoversLocalDate(e, localDateStr(0), startOfToday(), endOfToday()))
+    .filter((e) => eventCoversLocalDate(e, todayYmd, zoneDayStartMs(todayYmd, zone.zone), zoneDayEndMs(todayYmd, zone.zone)))
     .sort((a, b) => ms(a.start) - ms(b.start))
     .slice(0, 6);
   const tomorrowEvents = calendarEvents
-    .filter((e) => eventCoversLocalDate(e, localDateStr(1), startOfTomorrow(), endOfTomorrow()))
+    .filter((e) => eventCoversLocalDate(e, tomorrowYmd, zoneDayStartMs(tomorrowYmd, zone.zone), zoneDayEndMs(tomorrowYmd, zone.zone)))
     .sort((a, b) => ms(a.start) - ms(b.start))
     .slice(0, 6);
+  const scheduleZoneNote = zone.source === "trip" && zone.trip
+    ? `${zone.label} · TDY ${zone.trip.label}`
+    : zone.source === "pinned" ? `${zone.label} · pinned` : zone.label;
 
   // ── Derived: breaking & critical ──
   const criticalSource =
@@ -1007,13 +982,46 @@ export default function GlanceTab({
         )}
       </section>
 
+      {/* ── Your day: Today and Tomorrow, directly under the brief (they
+          sat at the bottom of the rail; "buried too far down", 2026-10-05).
+          Bucketed and labelled in the effective zone. ── */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Panel title="Today" badge={<span className="text-[10px] font-mono text-slate-500" title={zone.source === "trip" ? "Active TDY sets the zone" : zone.source === "pinned" ? "Pinned in Preferences → Profile" : "Device zone"}>{scheduleZoneNote}</span>} onJump={() => onNavigate("calendar")}>
+          {todayEvents.length === 0 ? (
+            <Empty>Nothing on the calendar today.</Empty>
+          ) : (
+            <ul className="divide-y divide-slate-800/60">
+              {todayEvents.map((e) => (
+                <ScheduleRow key={e.id} e={e} zone={zone} onNavigate={onNavigate} />
+              ))}
+            </ul>
+          )}
+        </Panel>
+        <Panel title="Tomorrow" onJump={() => onNavigate("calendar")}>
+          {tomorrowEvents.length === 0 ? (
+            <Empty>Nothing on the calendar tomorrow.</Empty>
+          ) : (
+            <ul className="divide-y divide-slate-800/60">
+              {tomorrowEvents.map((e) => (
+                <ScheduleRow key={e.id} e={e} zone={zone} onNavigate={onNavigate} />
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
+
       {/* ── Hero: live status row ──
           Posture · Bases · I&W · Demand · Alerts · Family — each a live tile
           that deep-links. The north star's verb is "see changes"; a hero of
           day-cached prose could not show one. The per-base LED strip that
           used to sit below the brief is folded into the Bases tile (the
           Watch pane keeps the full strip). */}
-      <StatusRow forceWatch={forceWatch} sitreps={sitreps} tasks={{ due: dueTasks.length, overdue: overdueTaskCount, asks: urgent.filter((u) => u.id.startsWith("email-")).length }} onNavigate={onNavigate} />
+      <StatusRow
+        forceWatch={forceWatch}
+        sitreps={sitreps}
+        tasks={{ due: dueTasks.length, overdue: overdueTaskCount, asks: emailAsks.length, items: dueTasks.map((x) => `${x.t.title}${x.state === "overdue" ? " (overdue)" : ""}`), askItems: emailAsks.map((e) => e.label) }}
+        onNavigate={onNavigate}
+      />
 
       {/* ── What moved since you last looked ── */}
       <OeDeltaCard />
@@ -1040,18 +1048,18 @@ export default function GlanceTab({
             }
             onJump={urgentJumpTarget ? () => onNavigate(urgentJumpTarget) : undefined}
           >
-            {dueTasks.length === 0 && urgentTop.length === 0 ? (
+            {dueTasks.length === 0 && emailAsks.length === 0 && urgentTop.length === 0 ? (
               warming ? <SkeletonRows n={3} /> : <Empty>Nothing demanding action right now.</Empty>
             ) : (
               <>
                 {/* Your actions — personal to-dos, pinned above world-state so they
                     never sort below or get sliced off behind a busy alert day.
                     Distinct violet "ownership" accent + an inline complete box. */}
-                {dueTasks.length > 0 && (
+                {(dueTasks.length > 0 || emailAsks.length > 0) && (
                   <div className="bg-violet-500/[0.06] border-b border-violet-500/20">
                     <div className="flex items-center gap-2 px-3 pt-2 pb-1">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-violet-300">Your actions</span>
-                      <span className="text-[10px] text-slate-600 truncate">tasks with your name on them</span>
+                      <span className="text-[10px] text-slate-600 truncate">tasks and mail with your name on them</span>
                       <button
                         onClick={() => onNavigate("calendar")}
                         className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-violet-300 transition-colors flex-shrink-0"
@@ -1101,12 +1109,29 @@ export default function GlanceTab({
                           </li>
                         );
                       })}
+                      {emailAsks.map((e) => (
+                        <li key={e.id}>
+                          <button
+                            onClick={() => onNavigate("email")}
+                            className="group w-full text-left flex items-start gap-3 px-3 py-2.5 border-l-2 border-l-violet-500/70 hover:bg-violet-500/[0.08] transition-colors"
+                          >
+                            <span className="mt-0.5 text-sm flex-shrink-0 text-violet-300">◎</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-medium text-slate-200 truncate group-hover:text-slate-100">{e.label}</span>
+                              <span className="block text-xs text-slate-500 truncate">{e.sub}</span>
+                            </span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider flex-shrink-0 text-violet-300">
+                              {e.unseen ? "New mail" : "Mail"}{e.meta ? ` · ${e.meta}` : ""}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 )}
 
                 {/* World-state alerts (weather / disasters / force protection /
-                    email / OSINT) — tasks intentionally excluded above. */}
+                    OSINT) — tasks and email intentionally excluded above. */}
                 {urgentTop.length > 0 && (
                   <ul className="divide-y divide-slate-800/60">
                     {urgentTop.map((u) => (
@@ -1254,32 +1279,6 @@ export default function GlanceTab({
 
         {/* Rail */}
         <div className="space-y-6">
-          {/* Today */}
-          <Panel title="Today" onJump={() => onNavigate("calendar")}>
-            {todayEvents.length === 0 ? (
-              <Empty>Nothing on the calendar today.</Empty>
-            ) : (
-              <ul className="divide-y divide-slate-800/60">
-                {todayEvents.map((e) => (
-                  <ScheduleRow key={e.id} e={e} onNavigate={onNavigate} />
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          {/* Tomorrow */}
-          <Panel title="Tomorrow" onJump={() => onNavigate("calendar")}>
-            {tomorrowEvents.length === 0 ? (
-              <Empty>Nothing on the calendar tomorrow.</Empty>
-            ) : (
-              <ul className="divide-y divide-slate-800/60">
-                {tomorrowEvents.map((e) => (
-                  <ScheduleRow key={e.id} e={e} onNavigate={onNavigate} />
-                ))}
-              </ul>
-            )}
-          </Panel>
-
           {/* Context */}
           <Panel
             title="On your radar"
@@ -1344,26 +1343,6 @@ export default function GlanceTab({
                         className="text-[11px] font-medium text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
                       >
                         {w}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {marketsWatchlist.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-                    Markets
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {marketsWatchlist.slice(0, 8).map((t) => (
-                      <button
-                        key={t.symbol}
-                        onClick={() => onNavigate("markets")}
-                        title={t.label}
-                        className="text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
-                      >
-                        {t.symbol.includes(":") ? t.symbol.split(":")[1] : t.symbol}
                       </button>
                     ))}
                   </div>
