@@ -19,13 +19,14 @@ import { getChokepointReads } from "./chokepointReads";
 import { aorFromCoords, AOR_LABELS, type Aor } from "./aor";
 import { demandHorizon, HORIZON_DAYS, type DemandInput, type DemandOutlook } from "./demandHorizon";
 import { recordDemandOutlooks } from "./demandStore";
+import { getPostureMovesFull } from "./postureMovesAssemble";
 
 export interface DemandHorizonBody {
   horizonDays: number;
   generatedAt: string;
   outlooks: DemandOutlook[];
   /** Which sensor families answered this pass. */
-  sources: Record<"iw" | "disaster" | "neo" | "posture" | "chokepoint", boolean>;
+  sources: Record<"iw" | "disaster" | "neo" | "posture" | "chokepoint" | "move", boolean>;
 }
 
 const TTL = 10 * 60 * 1000;
@@ -57,7 +58,7 @@ export async function getDemandHorizonBounded(maxWaitMs = 8_000): Promise<Demand
   });
   if (settled) return settled;
   if (cache) return { ...cache.body, pending: true };
-  return { horizonDays: HORIZON_DAYS, generatedAt: new Date().toISOString(), outlooks: [], sources: { iw: false, disaster: false, neo: false, posture: false, chokepoint: false }, pending: true };
+  return { horizonDays: HORIZON_DAYS, generatedAt: new Date().toISOString(), outlooks: [], sources: { iw: false, disaster: false, neo: false, posture: false, chokepoint: false, move: false }, pending: true };
 }
 
 export function resetDemandHorizonCache(): void { cache = null; }
@@ -71,10 +72,10 @@ async function assemble(): Promise<DemandHorizonBody> {
     ...(prefs?.trackedLocations ?? []).map((t) => ({ label: t.label, lat: t.lat, lon: t.lon })),
   ];
 
-  const sources: DemandHorizonBody["sources"] = { iw: false, disaster: false, neo: false, posture: false, chokepoint: false };
+  const sources: DemandHorizonBody["sources"] = { iw: false, disaster: false, neo: false, posture: false, chokepoint: false, move: false };
   const input: DemandInput = {
     today: new Date().toISOString().slice(0, 10),
-    watchedAors: [], boards: [], disasters: [], advisories: [], posture: [], chokepoints: [],
+    watchedAors: [], boards: [], disasters: [], advisories: [], posture: [], chokepoints: [], moves: [],
   };
 
   await Promise.all([
@@ -123,6 +124,16 @@ async function assemble(): Promise<DemandHorizonBody> {
           country: a.country, aor: isAor(a.aor) ? a.aor : "UNKNOWN",
           ordered: a.orderedDeparture, authorized: a.authorizedDeparture, pubDate: a.pubDate,
         });
+      }
+    }).catch(() => {}),
+
+    // Posture moves in the reporting (lib/postureMoves over the defense
+    // feeds). The sweep's own cache is 15 min; here it rides the 10-min one.
+    getPostureMovesFull().then((pm) => {
+      if (pm.pending) return;
+      sources.move = true;
+      for (const m of pm.moves) {
+        input.moves!.push({ headline: m.headline, aor: m.aor, kind: m.kind, actor: m.actor, side: m.side, pubDate: m.pubDate, sources: m.sources });
       }
     }).catch(() => {}),
 

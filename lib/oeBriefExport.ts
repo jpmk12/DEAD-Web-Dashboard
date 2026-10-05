@@ -37,6 +37,24 @@ const dirCls = (d: string) => (d === "rise" ? "r" : d === "fall" ? "g" : "u");
 
 const unavailable = (what: string) => `<p class="na">${esc(what)} — UNAVAILABLE at snapshot time (not clear).</p>`;
 
+/** The alert's family, from its title — the alert rows carry no kind. PURE. */
+export function alertKindOf(title: string): string {
+  const t = title.toLowerCase();
+  if (/force[- ]protection|posture/.test(t)) return "Force posture";
+  if (/departure|evacuat|neo\b/.test(t)) return "NEO";
+  if (/i&w|warning board|board at|alert level/.test(t)) return "I&W";
+  if (/space weather|geomagnetic|kev|cve-|pnt|gps|cyber|outage|internet/.test(t)) return "Spectrum";
+  if (/tornado|hurricane|flood|storm|weather|winter|heat|wind|blizzard|fire/.test(t)) return "Weather";
+  return "Other";
+}
+
+/** "Declared AO — hub X · spokes A/B · AOI …" → its parts, prefix dropped. PURE. */
+export function splitMissionSummary(summary: string | null | undefined): string[] {
+  if (!summary) return [];
+  const body = summary.replace(/^[^—]*declared AO\s*—\s*/i, "").trim();
+  return body.split(" · ").map((p) => p.trim()).filter(Boolean);
+}
+
 export function renderOeBriefHtml(input: OeBriefInput): string {
   const s = input.snapshot;
   const stamp = stampOf(s.atISO);
@@ -111,7 +129,7 @@ export function renderOeBriefHtml(input: OeBriefInput): string {
       ? `<p class="quiet">No warning problems configured.</p>`
       : s.boards.slice().sort((a, b) => (LVL_RANK[b.level] ?? 0) - (LVL_RANK[a.level] ?? 0)).map((b) =>
           `<div class="board"><div class="board-h"><span class="pill ${lvlCls(b.level)}">${esc(b.level.toUpperCase())}</span> <b>${esc(b.label)}</b> <span class="mono">anomaly ${b.anomaly >= 0 ? "+" : ""}${b.anomaly.toFixed(2)} · ${esc(b.trajectory)}</span>${b.learning ? ' <span class="note">learning mode — level capped</span>' : ""}</div>${
-            b.drivers.length ? `<div class="board-d">${b.drivers.slice(0, 3).map((d) => esc(d)).join(" · ")}</div>` : `<div class="board-d note">no active drivers</div>`
+            b.drivers.length ? `<ul class="drv">${b.drivers.slice(0, 3).map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : `<div class="board-d note">no active drivers — level is anomaly against this board's own baseline</div>`
           }</div>`).join("");
   const now = Date.parse(s.atISO) || Date.now();
   const callsHtml = input.openDecisions.length === 0
@@ -124,12 +142,21 @@ export function renderOeBriefHtml(input: OeBriefInput): string {
         }).join("")
       }</tbody></table>`;
 
-  // ── Alerts ──
+  // ── Alerts, grouped by kind (one list of fourteen mixed rows read as noise) ──
   const alertsHtml = s.alerts === null
     ? unavailable("Active alerts")
     : s.alerts.length === 0
       ? `<p class="quiet">None.</p>`
-      : `<ul class="al">${s.alerts.map((a) => `<li><span class="pill ${a.severity === "red" ? "r" : "a"}">${esc(a.severity.toUpperCase())}</span> <b>${esc(a.title)}</b> — ${esc(a.sub)}</li>`).join("")}</ul>`;
+      : (() => {
+          const groups = new Map<string, OeBriefInput["snapshot"]["alerts"]>();
+          for (const a of s.alerts) { const k = alertKindOf(a.title); (groups.get(k) ?? groups.set(k, []).get(k)!)!.push(a); }
+          return [...groups.entries()].map(([k, rows]) =>
+            `<div class="alk"><b>${esc(k)} (${rows!.length})</b><ul class="al">${rows!.map((a) => `<li><span class="pill ${a.severity === "red" ? "r" : "a"}">${esc(a.severity.toUpperCase())}</span> <b>${esc(a.title)}</b> — ${esc(a.sub)}</li>`).join("")}</ul></div>`).join("");
+        })();
+
+  // ── Masthead: the declared AO as a compact list, not one long sentence ──
+  const aoParts = splitMissionSummary(input.missionSummary);
+  const aoHtml = aoParts.length ? `<ul class="ao">${aoParts.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : `<div class="sub">No area of operations declared (Preferences → Mission Profile)</div>`;
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -142,7 +169,10 @@ export function renderOeBriefHtml(input: OeBriefInput): string {
 .mast h1{margin:0;font-size:18px;letter-spacing:.12em;text-transform:uppercase}.mast .sub{color:var(--mut);font-size:11px;margin-top:2px}
 .stamp{text-align:right;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--mut)}.stamp b{display:block;color:#fca5a5;font-size:12px;letter-spacing:.08em}
 h2{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin:12px 0 4px;border-bottom:1px solid var(--ln);padding-bottom:2px}
-.bluf{display:flex;flex-wrap:wrap;gap:6px}.bluf span{border:1px solid var(--ln);border-radius:4px;padding:2px 7px;font-size:11px;background:#111827}
+.bluf{margin:2px 0 4px;font-size:12.5px;line-height:1.5;font-weight:600}
+.ao{margin:3px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:3px 10px;color:var(--mut);font-size:10.5px}.ao li::before{content:"▸ ";color:var(--dim)}
+.alk{margin:3px 0}.alk b{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}ul.al{margin:1px 0 4px;padding-left:14px}
+ul.drv{margin:1px 0 0;padding-left:14px;color:var(--mut);font-size:11px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media(max-width:720px){.grid{grid-template-columns:1fr}}
 table{width:100%;border-collapse:collapse;font-size:11px}th{text-align:left;color:var(--dim);font-weight:600;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 4px;border-bottom:1px solid var(--ln)}
 td{padding:3px 4px;border-bottom:1px solid #111827;vertical-align:top}td.num{font-family:ui-monospace,Menlo,monospace;text-align:right}td.drv{color:var(--mut)}
@@ -157,10 +187,10 @@ tr.due td{background:#2a1a05}
 .foot{margin-top:12px;border-top:1px solid var(--ln);padding-top:6px;color:var(--dim);font-size:9.5px;line-height:1.5}
 @media print{body{background:#fff;color:#111}.page{padding:0}.mast .stamp b{color:#b91c1c}.bluf span,td,th,.board{border-color:#ddd}td.drv,.note,.mono,.quiet{color:#444}.pill{-webkit-print-color-adjust:exact;print-color-adjust:exact}h2{color:#333;border-color:#ccc}.foot{color:#555}}
 </style></head><body><div class="page">
-<div class="mast"><div><h1>Operational Environment Brief</h1><div class="sub">${esc(input.missionSummary ?? "DEAD's Dashboard — open-source, unofficial")}</div><div class="sub">Prepared by ${esc(input.preparedBy)}</div></div>
-<div class="stamp"><b>SNAPSHOT AS OF ${esc(stamp)} — NOT LIVE</b>7-day horizon · sources listed below${s.stale ? "<br>snapshot was stale at export" : ""}</div></div>
+<div class="mast"><div><h1>Operational Environment Brief</h1>${aoHtml}<div class="sub">Prepared by ${esc(input.preparedBy)} · DEAD's Dashboard — open-source, unofficial</div></div>
+<div class="stamp"><b>SNAPSHOT AS OF ${esc(stamp)} — NOT LIVE</b>7-day horizon · sources listed below${s.stale ? "<br>dashboard picture was older than its 5-min window at export — figures may lag the live feeds" : ""}</div></div>
 
-<h2>BLUF</h2><div class="bluf">${bluf.map((b) => `<span>${esc(b)}</span>`).join("")}</div>
+<h2>BLUF</h2><p class="bluf">${bluf.map((b) => esc(b)).join(" · ")}</p>
 
 <div class="grid">
 <div><h2>What changed since last look</h2>${deltaHtml}</div>

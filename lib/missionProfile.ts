@@ -374,7 +374,7 @@ export function missionSummaryLine(profile: MissionProfile): string {
       : "";
     parts.push(`AOI "${a.name}" (${a.aor}, ${a.intensity}: ${a.countries.slice(0, 8).join(", ")}${a.countries.length > 8 ? "…" : ""}${cp})`);
   }
-  return parts.length ? `Mobility commander's declared AO — ${parts.join(" · ")}` : "";
+  return parts.length ? `Declared AO — ${parts.join(" · ")}` : "";
 }
 
 // Countries the app proposes for an AOI in the given theater — the catalog's

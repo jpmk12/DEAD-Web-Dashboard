@@ -31,12 +31,14 @@ import type { Aor } from "./aor";
 import type { WarningLevel, Trajectory } from "./warning";
 
 export type DemandDirection = "rise" | "hold" | "fall";
-export type DemandSource = "iw" | "disaster" | "neo" | "posture" | "chokepoint";
+export type DemandSource = "iw" | "disaster" | "neo" | "posture" | "chokepoint" | "move";
 
 export interface DemandBoard { label: string; aor: Aor; level: WarningLevel; trajectory: Trajectory; learning: boolean }
 export interface DemandDisaster { title: string; aor: Aor; severity: "red" | "orange" | "green" | "unknown"; hadrScore: number; timeISO: string; nearBase: boolean }
 export interface DemandAdvisory { country: string; aor: Aor; ordered: boolean; authorized: boolean; pubDate: string }
 export interface DemandPosture { label: string; aor: Aor; composite: string; escalated: boolean; chronic: boolean }
+/** A force-posture move read from the reporting (lib/postureMoves). */
+export interface DemandMove { headline: string; aor: Aor; kind: "deploy" | "surge" | "mobilize" | "reposition" | "exercise" | "withdraw"; actor: string; side: "us" | "ally" | "adversary" | "other"; pubDate: string; sources: number }
 export interface DemandChokepoint { name: string; aor: Aor; score: number; acts: number; threats: number; /** AIS transit state when keyed. */ transit?: string }
 
 export interface DemandInput {
@@ -48,6 +50,8 @@ export interface DemandInput {
   advisories: DemandAdvisory[];
   posture: DemandPosture[];
   chokepoints: DemandChokepoint[];
+  /** Posture moves in the reporting; absent when the sweep did not run. */
+  moves?: DemandMove[];
 }
 
 export interface DemandDriver {
@@ -76,6 +80,13 @@ const MATERIAL = 8;
 const LEARNING_CAP = 12;
 /** Disasters cannot dominate an AOR on their own. */
 const DISASTER_CAP = 45;
+/** Reported posture moves cannot dominate an AOR on their own either — they
+ *  are reporting, not observation. */
+export const MOVE_CAP = 30;
+/** Per-kind base for a corroborated move by the U.S. or an adversary; a
+ *  withdrawal is demand FALLING (an opening), by half for a non-U.S. mover. */
+const MOVE_BASE: Record<DemandMove["kind"], number> = { deploy: 14, surge: 14, mobilize: 12, reposition: 8, exercise: 4, withdraw: -8 };
+const MOVE_SIDE: Record<DemandMove["side"], number> = { us: 1, adversary: 1, ally: 0.6, other: 0.5 };
 
 const DAY = 86_400_000;
 const daysAgo = (iso: string, todayMs: number): number | null => {
@@ -158,6 +169,27 @@ export function demandHorizon(input: DemandInput): DemandOutlook[] {
     if (suppressed) delta += 8;
     if (delta === 0) continue;
     add(c.aor, { source: "chokepoint", delta, text: `${c.name} interdiction — ${c.acts} act${c.acts === 1 ? "" : "s"}, ${c.threats} threat${c.threats === 1 ? "" : "s"}${suppressed ? ", AIS traffic suppressed" : ""}` });
+  }
+
+  // Posture moves — reporting of forces moving, decayed by age, capped per
+  // AOR. A single source is a lead (×0.6, said so); two or more corroborate.
+  // A withdrawal pulls the score DOWN.
+  const moveTotals = new Map<Aor, number>();
+  for (const m of (input.moves ?? []).slice().sort((a, b) => b.sources - a.sources)) {
+    const age = daysAgo(m.pubDate, todayMs);
+    if (age === null) continue;
+    const decay = age <= 2 ? 1 : age <= HORIZON_DAYS ? 0.6 : age <= 14 ? 0.25 : 0;
+    if (decay === 0) continue;
+    const corroborated = m.sources >= 2;
+    let delta = Math.round(MOVE_BASE[m.kind] * MOVE_SIDE[m.side] * decay * (corroborated ? 1 : 0.6));
+    if (delta === 0) continue;
+    const sofar = moveTotals.get(m.aor) ?? 0;
+    if (Math.abs(sofar) >= MOVE_CAP) continue;
+    if (Math.abs(sofar + delta) > MOVE_CAP) delta = Math.sign(delta) * (MOVE_CAP - Math.abs(sofar));
+    if (delta === 0) continue;
+    moveTotals.set(m.aor, sofar + delta);
+    const ageText = age < 1 ? "today" : `${Math.round(age)}d ago`;
+    add(m.aor, { source: "move", delta, text: `Posture move — ${m.actor} ${m.kind}: ${m.headline} (${ageText}${corroborated ? `, ${m.sources} sources` : ", single source"})` });
   }
 
   // One row per watched AOR plus any AOR with drivers; UNKNOWN only if driven.

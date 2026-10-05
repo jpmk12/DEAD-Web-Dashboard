@@ -37,7 +37,7 @@ const DIR = {
 } as const;
 
 const CONF: Record<DemandOutlook["confidence"], string> = { high: "●●●", medium: "●●○", low: "●○○" };
-const SRC_LABEL: Record<DemandDriver["source"], string> = { iw: "I&W", disaster: "HADR", neo: "NEO", posture: "Posture", chokepoint: "Strait" };
+const SRC_LABEL: Record<DemandDriver["source"], string> = { iw: "I&W", disaster: "HADR", neo: "NEO", posture: "Posture", chokepoint: "Strait", move: "Moves" };
 
 export default function DemandHorizonCard() {
   const [body, setBody] = useState<Body | null>(null);

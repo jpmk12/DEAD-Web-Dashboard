@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "@/lib/feedback";
 import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
+import { renderOeBriefViewerHtml } from "@/lib/oeBriefViewer";
+import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems, MOVE_LABEL, SIDE_LABEL, type PostureMove } from "@/lib/postureMoves";
+import type { MissionProfile } from "@/lib/missionProfile";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import StatusRow from "@/components/glance/StatusRow";
@@ -275,6 +278,40 @@ export default function GlanceTab({
   const [reachGroupsOpen, setReachGroupsOpen] = useState<Set<ReachCat>>(new Set());
   // Force Protection Watch — RED/AMBER locations surface in needs-you-now.
   const [forceWatch, setForceWatch] = useState<ForceWatchItem[]>([]);
+  // The declared hub/spokes (Mission Profile) — what "mine" means on the
+  // Global Reach list. One cheap GET, cached 10 min; no model call.
+  const [profile, setProfile] = useState<MissionProfile | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    const cached = clientCache.peek<MissionProfile | null>("mission:profile");
+    if (cached !== undefined && clientCache.isFresh("mission:profile")) { setProfile(cached); return; }
+    fetch("/api/mission-profile").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      const prof = (j && j.profile) ? (j.profile as MissionProfile) : null;
+      clientCache.set("mission:profile", prof, 10 * 60 * 1000);
+      setProfile(prof);
+    }).catch(() => {});
+  }, [active]);
+  // Force-posture moves from the server sweep of the defense feeds
+  // (/api/posture-moves, deterministic, 15-min cache); merged below with the
+  // same detector run over the articles + newsletters this client holds.
+  const [serverMoves, setServerMoves] = useState<PostureMove[] | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const load = async (attempt = 0) => {
+      try {
+        const r = await fetch("/api/posture-moves", { cache: "no-store" });
+        const j = r.ok ? await r.json() : null;
+        if (cancelled || !j) return;
+        if (Array.isArray(j.moves)) setServerMoves(j.moves);
+        if (j.pending && attempt < 3) retry = setTimeout(() => load(attempt + 1), 10_000);
+      } catch { /* the client-side detector still runs */ }
+    };
+    load();
+    const id = setInterval(() => load(), 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
+  }, [active]);
 
   // Header greeting + date are LOCAL-time derived. Rendering them during SSR
   // computes them in the server's (UTC) zone/locale, then the client recomputes
@@ -648,6 +685,19 @@ export default function GlanceTab({
     }
   }
 
+  // "Mine" — rows that touch the declared hub / spokes (Mission Profile) or
+  // the active TDY location are pinned to the top and marked (REVIEW-2026-10
+  // G9): the app knows which airfields matter most; the list should too.
+  const mineNames: string[] = [];
+  if (profile?.home) mineNames.push(profile.home.label, profile.home.icao, profile.home.country);
+  else if (profile?.homeIcao) mineNames.push(profile.homeIcao);
+  for (const sp of profile?.spokes ?? []) mineNames.push(sp.label, sp.icao, sp.country);
+  if (zone.trip?.label) mineNames.push(zone.trip.label.split(/[,(]/)[0]);
+  const mineRe = mineNames.map((n) => n.trim()).filter((n) => n.length >= 3).map((n) => new RegExp(`(?<![A-Za-z])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z])`, "i"));
+  const isMine = (r: { title: string; sub: string }) => mineRe.some((re) => re.test(`${r.title} ${r.sub}`));
+  const reachMine = new Set<string>();
+  for (const r of reach) if (isMine(r)) { reachMine.add(r.id); r.score += 200; }
+
   reach.sort((a, b) => b.score - a.score);
 
   // De-crowd: when a category floods (≥ GROUP_AT) collapse it to one summary
@@ -665,8 +715,9 @@ export default function GlanceTab({
       return reach.filter((r) => r.cat === reachFilter).slice(0, 10).map((item) => ({ kind: "item" as const, item, score: item.score }));
     }
     const byCat: Record<ReachCat, ReachItem[]> = { neo: [], disaster: [], weather: [], conflict: [], gps: [], airspace: [] };
-    for (const r of reach) byCat[r.cat].push(r);
     const out: ReachEntry[] = [];
+    // Mine rows never fold into a category group — they are the point.
+    for (const r of reach) { if (reachMine.has(r.id)) out.push({ kind: "item", item: r, score: r.score }); else byCat[r.cat].push(r); }
     REACH_CAT_ORDER.forEach((cat) => {
       const items = byCat[cat];
       if (items.length === 0) return;
@@ -684,6 +735,9 @@ export default function GlanceTab({
           <span className="block text-sm text-slate-200 truncate group-hover:text-emerald-400 transition-colors">{r.title}</span>
           {r.sub && <span className="block text-[11px] text-slate-500 truncate">{r.sub}</span>}
         </span>
+        {reachMine.has(r.id) && (
+          <span title="Touches your declared hub / spokes or your TDY location" className="text-[8px] font-mono uppercase tracking-wider text-violet-300 border border-violet-500/40 bg-violet-500/10 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">mine</span>
+        )}
         <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">{r.tag}</span>
       </>
     );
@@ -713,6 +767,13 @@ export default function GlanceTab({
       ? curated.critical
       : [...articles].sort((a, b) => ms(b.pubDate) - ms(a.pubDate));
   const breaking = criticalSource.slice(0, 5);
+
+  // ── Derived: force-posture moves — the server sweep merged with this
+  //    client's own reading of its articles + newsletter bullets (pure
+  //    detector, same grammar both sides). ──
+  const localMoves = detectPostureMoves([...articles, ...newsletterBulletsAsItems(newsletters)]);
+  const postureMoves = mergePostureMoves(serverMoves ?? [], localMoves).slice(0, 6);
+  const movesLoading = serverMoves === null && articles.length === 0;
 
   // ── Derived: context strip ──
   const recentNewsletters = [...newsletters]
@@ -817,22 +878,41 @@ export default function GlanceTab({
   const exportOeBrief = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
+    // Open the viewer tab NOW, inside the click, so a popup blocker does not
+    // eat it; fill it when the snapshot lands. If the browser refuses, fall
+    // back to the plain download (2026-10-05: "should pop up in browser view").
+    let win: Window | null = null;
+    try {
+      win = window.open("", "_blank");
+      if (win) {
+        win.document.write('<!doctype html><title>OE brief — building…</title><body style="margin:0;background:#0b1220;color:#94a3b8;font:14px -apple-system,Segoe UI,Roboto,sans-serif;padding:24px">Building the OE brief from the live picture…</body>');
+      }
+    } catch { win = null; }
     try {
       const r = await fetch("/api/oe-brief", { cache: "no-store" });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(j.error || "Could not build the OE brief."); return; }
+      if (!r.ok) { toast.error(j.error || "Could not build the OE brief."); win?.close(); return; }
       const html = renderOeBriefHtml(j);
+      const name = oeBriefFilename(j.snapshot.atISO);
+      if (win && !win.closed) {
+        win.document.open();
+        win.document.write(renderOeBriefViewerHtml(html, name));
+        win.document.close();
+        toast.ok("OE brief opened in a new tab — Download HTML or Print / save as PDF from its toolbar.");
+        return;
+      }
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = oeBriefFilename(j.snapshot.atISO);
+      a.download = name;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-      toast.ok("OE brief downloaded — standalone HTML, no scripts.");
+      toast.ok("OE brief downloaded — standalone HTML, no scripts. (Allow pop-ups to open it in a tab next time.)");
     } catch (e) {
+      win?.close();
       toast.error(`OE brief failed: ${(e as Error).message}`);
     } finally { setExporting(false); }
   }, [exporting]);
@@ -872,7 +952,7 @@ export default function GlanceTab({
           <button
             onClick={exportOeBrief}
             disabled={exporting}
-            title="Download a one-page OE brief — standalone HTML, no scripts, prints to one page"
+            title="Open the one-page OE brief in a new tab — Download HTML (no scripts) or Print / save as PDF from there"
             className="flex items-center gap-1 px-2 py-1 rounded-md border border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors disabled:opacity-50"
           >
             ⇩ {exporting ? "Building…" : "OE brief"}
@@ -1230,6 +1310,52 @@ export default function GlanceTab({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main column */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Posture moves — forces moving in the reporting. Nearly missed in
+              the 2026-10-05 walkthrough as one headline among forty; for a
+              mobility squadron a posture move IS the demand signal. Pure
+              phrase grammar (lib/postureMoves); corroborated rows first;
+              a single source is a lead and says so. */}
+          <Panel
+            title="Posture moves"
+            badge={postureMoves.length > 0 ? (
+              <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border text-amber-300 bg-amber-500/15 border-amber-500/30">
+                {postureMoves.filter((m) => m.corroborated).length} corroborated · {postureMoves.length} total
+              </span>
+            ) : undefined}
+            onJump={() => { document.getElementById("glance-demand")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+          >
+            {postureMoves.length === 0 ? (
+              movesLoading ? <SkeletonRows n={2} /> : <Empty>No force-posture move read in the last 14 days of your feeds — absence of a report, not evidence of none.</Empty>
+            ) : (
+              <ul className="divide-y divide-slate-800/60">
+                {postureMoves.map((m) => {
+                  const sideCls = m.side === "adversary" ? "text-red-300 border-red-500/40 bg-red-500/10" : m.side === "us" ? "text-sky-300 border-sky-500/40 bg-sky-500/10" : "text-slate-300 border-slate-600 bg-slate-800/40";
+                  const inner = (
+                    <>
+                      <span className={`text-[8px] font-mono uppercase tracking-wider border rounded px-1 py-0.5 flex-shrink-0 mt-0.5 ${sideCls}`} title={`${SIDE_LABEL[m.side]} · ${m.actor}`}>{m.actor}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-slate-200 truncate group-hover:text-emerald-400 transition-colors">{m.headline}</span>
+                        <span className="block text-[11px] text-slate-500 truncate" title={`Falsifier: ${m.falsifier}`}>
+                          {MOVE_LABEL[m.kind]} · {m.aor !== "UNKNOWN" ? m.aor : "AOR unresolved"} · {relTime(m.pubDate)} · {m.corroborated ? `${m.sources} sources` : `single source — ${m.source}`}
+                        </span>
+                      </span>
+                      <span className={`text-[8px] font-mono uppercase tracking-wider rounded px-1 py-0.5 flex-shrink-0 mt-0.5 border ${m.corroborated ? "text-amber-300 border-amber-500/40" : "text-slate-500 border-slate-700"}`}>{m.corroborated ? "corroborated" : "lead"}</span>
+                    </>
+                  );
+                  const cls = `group w-full text-left flex items-start gap-3 px-3 py-2 border-l-2 ${m.corroborated ? "border-l-amber-500/70" : "border-l-slate-600"} hover:bg-slate-800/40 transition-colors`;
+                  return (
+                    <li key={m.id}>
+                      {m.link
+                        ? <a href={m.link} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
+                        : <button onClick={() => onNavigate("news")} className={cls}>{inner}</button>}
+                    </li>
+                  );
+                })}
+                <li className="px-3 py-1.5 text-[10px] text-slate-600">Feeds a <button onClick={() => document.getElementById("glance-demand")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="underline decoration-dotted hover:text-slate-400">demand-horizon driver</button> (decayed by age, capped per command). Hover a row for its falsifier.</li>
+              </ul>
+            )}
+          </Panel>
+
           {/* Breaking & critical */}
           <Panel title="Breaking & critical" onJump={() => onNavigate("news")}>
             {breaking.length === 0 ? (

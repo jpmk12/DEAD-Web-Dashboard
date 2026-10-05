@@ -2256,6 +2256,37 @@ Built from the operator's first-startup user story. The load-bearing pieces:
   GlanceTab/TabShell; the pref and its editor remain for the Economy tab).
 - `lib/exports.ts` schedule heading is "Schedule — today & tomorrow" (the
   section always carried both).
+- **Global Reach "mine"** (G9): rows whose text names the declared hub /
+  spokes (label, ICAO, country — `/api/mission-profile`, 10-min client
+  cache) or the active TDY label get +200 and a violet `mine` chip, and are
+  never folded into a category group.
+- **OE brief opens in a tab** (G13): `lib/oeBriefViewer.ts` (PURE, tested)
+  wraps the zero-JS render in a toolbar — Download HTML (the CLEAN file,
+  carried as a JSON literal so the saved file is byte-identical and still
+  script-free), Print / save as PDF, Close; hidden in print. The tab is
+  opened INSIDE the click (popup blockers) and filled when the snapshot
+  lands; refused → plain download. `oeBriefExport.ts` layout: masthead AO
+  as a compact list (`splitMissionSummary`), stale note explained, BLUF one
+  line, alerts grouped by family (`alertKindOf`, from the title — rows carry
+  no kind), board drivers as bullets. `missionSummaryLine` now reads
+  "Declared AO —" (role-neutral; it is also the AI context line).
+- **Posture moves** (G11): `lib/postureMoves.ts` (PURE, tested) reads
+  articles + newsletter bullets for force MOVEMENT — deploy / surge /
+  mobilize / reposition / exercise / withdraw — PHRASES behind a force-noun
+  gate (a software "deploys" never matches), actor by proximity (the named
+  force nearest BEFORE the phrase; `US` is matched case-sensitively so the
+  pronoun never is), AOR from region phrases then country names with the
+  mover's own name stripped ("Russia deploys bombers to Venezuela" →
+  SOUTHCOM), one row per (kind, actor, AOR) with distinct-source
+  corroboration and a falsifier per kind. `lib/postureMovesAssemble.ts`
+  (server, 15-min cache, bounded `getPostureMoves(maxWaitMs)` → `pending`)
+  sweeps the defense/strategic/overview RSS + one GDELT query →
+  `/api/posture-moves`; Glance's **Posture moves** panel (above Breaking)
+  merges that with the client's own reading (`mergePostureMoves`). Demand
+  horizon: `DemandInput.moves` → source `move` (base deploy/surge 14,
+  mobilize 12, reposition 8, exercise 4, withdraw −8; ally ×0.6 / other
+  ×0.5; single source ×0.6; decay 1 / 0.6 / 0.25 at 2 / 7 / 14 d;
+  `MOVE_CAP` 30 per AOR) — reporting can never dominate observation.
 
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
