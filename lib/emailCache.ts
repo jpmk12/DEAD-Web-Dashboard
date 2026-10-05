@@ -9,7 +9,10 @@ interface CacheRow extends RowDataPacket {
   account_email: string;
   priority: EmailPriority;
   summary: string;
+  dates: unknown;
 }
+
+export type CachedHit = { priority: EmailPriority; summary: string; dates?: CachedEmailClassification["dates"] };
 
 // Look up classifications for a set of (id, accountEmail) pairs. Only returns
 // rows where prompt_hash matches AND cached_at is within TTL. The returned
@@ -18,8 +21,8 @@ interface CacheRow extends RowDataPacket {
 export async function getCachedClassifications(
   items: { id: string; accountEmail: string }[],
   promptHash: string,
-): Promise<Map<string, { priority: EmailPriority; summary: string }>> {
-  const result = new Map<string, { priority: EmailPriority; summary: string }>();
+): Promise<Map<string, CachedHit>> {
+  const result = new Map<string, CachedHit>();
   if (items.length === 0) return result;
   const pool = await getDb();
   const cutoff = Date.now() - CACHE_TTL_MS;
@@ -31,13 +34,13 @@ export async function getCachedClassifications(
   params.push(promptHash, cutoff);
 
   const [rows] = await pool.query<CacheRow[]>(
-    `SELECT id, account_email, priority, summary FROM email_classification_cache
+    `SELECT id, account_email, priority, summary, dates FROM email_classification_cache
      WHERE (id, account_email) IN (${tuples})
        AND prompt_hash = ? AND cached_at >= ?`,
     params,
   );
   for (const r of rows) {
-    result.set(r.id, { priority: r.priority, summary: r.summary });
+    result.set(r.id, { priority: r.priority, summary: r.summary, dates: Array.isArray(r.dates) ? (r.dates as CachedEmailClassification["dates"]) : undefined });
   }
   return result;
 }
@@ -49,20 +52,21 @@ export async function cacheClassifications(rows: CachedEmailClassification[]): P
   const pool = await getDb();
   const now = Date.now();
 
-  const placeholders = rows.map(() => "(?, ?, ?, ?, ?, ?)").join(",");
-  const values: (string | number)[] = [];
+  const placeholders = rows.map(() => "(?, ?, ?, ?, ?, ?, CAST(? AS JSON))").join(",");
+  const values: (string | number | null)[] = [];
   for (const r of rows) {
-    values.push(r.id, r.accountEmail, r.priority, r.summary, r.promptHash, now);
+    values.push(r.id, r.accountEmail, r.priority, r.summary, r.promptHash, now, r.dates && r.dates.length ? JSON.stringify(r.dates) : null);
   }
   await pool.query(
     `INSERT INTO email_classification_cache
-       (id, account_email, priority, summary, prompt_hash, cached_at)
+       (id, account_email, priority, summary, prompt_hash, cached_at, dates)
      VALUES ${placeholders}
      ON DUPLICATE KEY UPDATE
        priority    = VALUES(priority),
        summary     = VALUES(summary),
        prompt_hash = VALUES(prompt_hash),
-       cached_at   = VALUES(cached_at)`,
+       cached_at   = VALUES(cached_at),
+       dates       = VALUES(dates)`,
     values,
   );
 

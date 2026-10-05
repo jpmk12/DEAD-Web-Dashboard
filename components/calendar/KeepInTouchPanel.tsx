@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Contact, ContactStatus } from "@/lib/contacts";
 
 type Row = Contact & { status: ContactStatus };
@@ -25,9 +25,10 @@ function statusChip(s: ContactStatus): { text: string; cls: string } {
   }
 }
 
-export default function KeepInTouchPanel() {
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
+// Controlled by the Calendar tab (REVIEW-2026-10 C4): the rows come from the
+// parent (which also feeds the Don't-miss list), mutations stay here and
+// report back with `onChanged` so both surfaces refresh together.
+export default function KeepInTouchPanel({ rows, loading, onChanged }: { rows: Row[]; loading: boolean; onChanged: () => void }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -41,14 +42,7 @@ export default function KeepInTouchPanel() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<{ name: string; email: string; reason: string }[]>([]);
 
-  const load = () => {
-    fetch("/api/contacts")
-      .then((r) => r.json())
-      .then((d: { contacts?: Row[] }) => setRows(Array.isArray(d.contacts) ? d.contacts : []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
-  useEffect(load, []);
+  const load = onChanged;
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2200); };
 
@@ -86,7 +80,7 @@ export default function KeepInTouchPanel() {
 
   const remove = async (id: string) => {
     await fetch(`/api/contacts?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
-    setRows((prev) => prev.filter((r) => r.id !== id));
+    load();
   };
 
   const openSuggest = () => {

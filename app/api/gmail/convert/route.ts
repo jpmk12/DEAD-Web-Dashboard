@@ -54,7 +54,11 @@ export async function POST(request: Request) {
   if (!token) return NextResponse.json({ error: "Account not connected" }, { status: 400 });
 
   const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
-  const tz = prefs?.timezone || "America/Chicago";
+  // A reviewed plan may carry the EFFECTIVE zone the client formatted its
+  // wall-clock times in (the Calendar's Dates-in-your-mail rows); else the pref.
+  const planTz = typeof (body.plan as { timeZone?: unknown } | undefined)?.timeZone === "string" ? String((body.plan as { timeZone: string }).timeZone) : "";
+  const tzOk = (z: string) => { try { new Intl.DateTimeFormat("en-US", { timeZone: z }); return true; } catch { return false; } };
+  const tz = (planTz && tzOk(planTz) ? planTz : "") || prefs?.timezone || "America/Chicago";
   const accountEmail = account === "secondary" ? "" : ((session as { user?: { email?: string } }).user?.email ?? "");
 
   // ── Create the reviewed task/event ──

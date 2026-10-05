@@ -2348,6 +2348,60 @@ Built from the operator's first-startup user story. The load-bearing pieces:
   `getLatestSession()` (today or yesterday); Glance's Breaking & critical
   panel leads with a "🧵 Rising threads" row (sessions, 2 d).
 
+### Calendar tab rebuilt (2026-10-05, `docs/REVIEW-2026-10.md` §3 C1–C9, all three decisions yes)
+The tab is a container, `components/calendar/CalendarTab.tsx`, that OWNS
+tasks, contacts, family dates, trips, dismissals and the mail-dates feed,
+and hands them to a controlled `CalendarPanel` (left) and a controlled
+`KeepInTouchPanel` + `TasksPanel` rail (right, `lg:w-80 xl:w-96`, no
+collapse — `CalendarRail.tsx` is deleted; the groups fold instead, Later
+and No date closed by default). `TabShell` renders `CalendarTab` and keeps
+`onTasksLoaded` so Glance's task counts are unchanged.
+- **Don't miss** (`lib/calendarDontMiss.ts`, PURE, tested): ONE list across
+  the three sources that each kept their own overdue state — family
+  deadlines (late / due today, `handled` excluded), tasks (late / today /
+  within 7 d), keep-in-touch (never / overdue / due). Sorted late → today →
+  week, most-late first; each row carries its source and its own actions
+  (family: ✓ done = `PATCH /api/family {state:"done"}` for deadlines, else
+  open Family; snooze 7 d; task: done / tomorrow; people: contacted /
+  schedule a check-in tomorrow 09:00). `todayCounts` feeds the Today strip
+  chips. **Past-due family items LEAVE the agenda** — a calendar that opens
+  on last Thursday reads as broken.
+- **Agenda starts today** and family rows are **deduplicated at render**
+  (`dedupeFamilyDates`: same date + kind + title-token overlap ≥
+  `MERGE_OVERLAP` 0.6 → one row, "×N mentions", shortest title, late/soon
+  tone beats handled). The STORE keeps every extraction on purpose (its key
+  is message + title, so one deadline in three newsletters is three rows
+  and each can be marked done by its own source). Family horizon on the
+  agenda is `AGENDA_FAMILY_HORIZON_DAYS` = 45; rows render as a dashed
+  violet register with the kind glyph and a "Family →" door.
+- **Dates in your mail** (`lib/mailDates.ts`, PURE, tested): the email
+  triage's Haiku call returns ONE more field, `dates` (max 3 per email:
+  `when` ONLY for an unambiguous calendar date, `whenText`, `what`) — the
+  Family-proposals trick, same call, never a second call. **Never a guessed
+  date**: `normalizeMailDates` keeps `when` only as `yyyy-mm-dd` or
+  `…Thh:mm`; a relative phrase (even one the model put IN `when`) survives
+  with `when: null` and renders "Open email", never "＋ Event"; past and
+  >400-d dates are dropped. Cached beside the classification
+  (`email_classification_cache.dates JSON`, additive) so a cached triage
+  carries its dates. Panel actions: ＋ Event (`POST /api/gmail/convert`
+  mode create with `eventPlanFor` — all-day for a bare date, 30 min for a
+  timed one — and `plan.timeZone` = the effective zone; the route takes a
+  valid `plan.timeZone` over the pref), ＋ Task (`POST /api/tasks`, notes
+  "From: subject"), Open email, ✕ dismiss (UI state
+  `calendar.mailDatesDismissed`, cross-device). The panel reads the Email
+  tab's already-loaded mail via `clientCache.peek("gmail:emails")` — it
+  never fetches Gmail itself.
+- **Effective zone everywhere** (C6): the agenda buckets days with
+  `ymdInZone` in `useEffectiveZone()`'s zone; every timed event shows its
+  zone label and the device time in the tooltip when they differ; the Today
+  strip names the zone and its source (pinned / trip / device).
+- **Today strip** (C7): zone, TDY chip, up to 3 of today's events, counts
+  (overdue tasks / family due / check-ins). **TDY chips** (C9,
+  `tripChipFor` → "TDY · Amman — day 5 of 9") on the day headers inside a
+  trip, from `/api/trips`.
+- Mockup: `docs/mockups/calendar-proposed.html` → `docs/calendar.png`. No
+  new npm dep (esbuild `0`).
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns

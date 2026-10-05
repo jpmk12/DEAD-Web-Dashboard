@@ -672,6 +672,8 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // that moves through the day cannot spend past THREADS_MAX_GENERATIONS.
   { table: "thread_sessions", column: "generations",           ddl: "ALTER TABLE thread_sessions ADD COLUMN generations INT NOT NULL DEFAULT 1" },
   { table: "threads",         column: "amc",                   ddl: "ALTER TABLE threads ADD COLUMN amc TEXT NULL" },
+  // Dates in your mail (2026-10-05): the triage's `dates` ride the same cache row.
+  { table: "email_classification_cache", column: "dates",      ddl: "ALTER TABLE email_classification_cache ADD COLUMN dates JSON NULL" },
   { table: "news_overview_cache", column: "ctx_hash",          ddl: "ALTER TABLE news_overview_cache ADD COLUMN ctx_hash VARCHAR(16) NOT NULL DEFAULT ''" },
   // Threads run on Opus over the whole article set — the priciest call in the
   // app. Hash of the article ids + user context; an unchanged set replays the

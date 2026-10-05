@@ -9,6 +9,7 @@ export const UI_KEYS = {
   crisisAor: "crisisMap.aor",
   crisisBasemap: "crisisMap.basemap",
   newsletterQuietDismissed: "newsletter.quietDismissed",
+  mailDatesDismissed: "calendar.mailDatesDismissed",
 } as const;
 
 export async function fetchUiState(): Promise<Record<string, unknown>> {

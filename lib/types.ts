@@ -55,6 +55,8 @@ export interface EmailMessage {
   bodyPreview: string;
   priority: EmailPriority;
   summary: string;
+  /** Dates the email states (lib/mailDates; same triage call). Absent when none. */
+  dates?: { when?: unknown; whenText?: unknown; what?: unknown }[];
 }
 
 export interface NewsletterSummary {
@@ -442,6 +444,7 @@ export interface CachedEmailClassification {
   priority: EmailPriority;
   summary: string;
   promptHash: string;
+  dates?: { when?: unknown; whenText?: unknown; what?: unknown }[];
 }
 
 export interface ActionItem {

@@ -7,8 +7,7 @@ import SessionExpiredBanner from "@/components/SessionExpiredBanner";
 import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon, MenuIcon, SearchIcon } from "@/lib/icons";
 import CommandPalette from "@/components/CommandPalette";
 import NewsShell from "@/components/news/NewsShell";
-import CalendarPanel from "@/components/calendar/CalendarPanel";
-import CalendarRail from "@/components/calendar/CalendarRail";
+import CalendarTab from "@/components/calendar/CalendarTab";
 import EmailTab from "@/components/email/EmailTab";
 import MarketsTab from "@/components/markets/MarketsTab";
 import WeatherTab from "@/components/weather/WeatherTab";
@@ -411,15 +410,7 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "calendar" ? "hidden" : ""}>
-          <div className="flex flex-col lg:flex-row gap-6">
-            <div className="flex-1 min-w-0">
-              <CalendarPanel onEventsLoaded={handleEventsLoaded} />
-            </div>
-            <CalendarRail
-              tasksRefreshKey={tasksRefreshKey}
-              onTasksLoaded={setTasks}
-            />
-          </div>
+          <CalendarTab active={activeTab === "calendar"} onEventsLoaded={handleEventsLoaded} tasksRefreshKey={tasksRefreshKey} onTasksLoaded={setTasks} />
         </div>
 
         <div className={activeTab !== "email" ? "hidden" : ""}>
