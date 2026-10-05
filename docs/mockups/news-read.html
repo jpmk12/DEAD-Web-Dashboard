@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>news — read (proposed)</title><link rel="stylesheet" href="shot.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:22px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .n{margin:2px 0 0}
+  .views{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .seg{display:inline-flex;gap:2px;background:rgba(30,41,59,.6);border:1px solid rgba(51,65,85,.8);border-radius:8px;padding:3px}
+  .seg span{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;border-radius:6px;color:var(--mut)}
+  .seg span.on2{background:#334155;color:#f1f5f9}
+  .views .meta{margin-left:auto;font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;display:flex;gap:12px}
+  /* newsletter queue */
+  .nq{border:1px solid rgba(51,65,85,.6);border-radius:12px;background:rgba(15,23,42,.6);margin-bottom:14px;overflow:hidden}
+  .nq .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35);flex-wrap:wrap}
+  .nq .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8}
+  .src{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.06em;border:1px solid var(--bd2);border-radius:6px;padding:3px 8px;color:#cbd5e1;font-family:ui-monospace,Menlo,monospace}
+  .src b{color:#fcd34d}
+  .src.pol{color:#93c5fd;border-color:rgba(59,130,246,.4)}.src.asf{color:#fcd34d;border-color:rgba(245,158,11,.4)}.src.mrg{color:#93c5fd;border-color:rgba(59,130,246,.3)}
+  .catch{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .catch .b{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;border-radius:6px;border:1px solid var(--bd2);color:#94a3b8}
+  .catch .b.pri{background:var(--acc2);border-color:var(--acc2);color:#022c22}
+  .nl{display:flex;align-items:center;gap:10px;padding:7px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:12.5px}
+  .nl:first-of-type{border-top:0}
+  .nl .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e2e8f0}
+  .nl .t em{font-style:normal;color:var(--mut);font-size:10.5px;margin-left:8px}
+  .nl .why{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#fdba74;background:rgba(249,115,22,.12);border-radius:3px;padding:1px 5px;flex-shrink:0}
+  .nl .why.thr{color:#6ee7b7;background:rgba(16,185,129,.12)}
+  .nl .ic{color:var(--mut2);font-size:11px;letter-spacing:4px;flex-shrink:0}
+  .nq .foot{padding:7px 14px;border-top:1px solid var(--bd);font-size:10.5px;color:var(--mut);display:flex;gap:14px;align-items:center}
+  /* trending */
+  .tr{display:flex;align-items:center;gap:6px;flex-wrap:wrap;border:1px solid var(--bd);border-radius:10px;padding:7px 10px;margin-bottom:14px;background:rgba(15,23,42,.4)}
+  .tr .k{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-right:2px}
+  .tr .g{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:0 4px;margin-left:6px}
+  .tr .g.up{color:#6ee7b7}.tr .g.new{color:#fda4af}.tr .g.dn{color:#64748b}
+  .tc{font-size:10px;font-family:ui-monospace,Menlo,monospace;border:1px solid var(--bd2);border-radius:5px;padding:2px 7px;color:#94a3b8}
+  .tc.up{color:#6ee7b7;border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.08)}
+  .tc.new{color:#fda4af;border-color:rgba(244,63,94,.4);background:rgba(244,63,94,.08)}
+  .tc.dn{color:#64748b}
+  .tc small{opacity:.7}
+  /* lanes */
+  .lanes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px}
+  .laneh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .laneh .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+  .laneh .k.depth{color:#c4b5fd}.laneh .k.now{color:#fcd34d}
+  .laneh .line{flex:1;height:1px;background:var(--bd)}
+  .laneh .m{font-size:9.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .card{border:1px solid var(--bd);border-radius:10px;background:rgba(15,23,42,.6);padding:11px 12px;margin-bottom:9px;border-left-width:3px}
+  .card.depth{border-left-color:rgba(139,92,246,.6)}.card.now{border-left-color:rgba(245,158,11,.6)}
+  .card .s{display:flex;gap:6px;align-items:center;margin-bottom:5px}
+  .srcb{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border:1px solid;border-radius:4px;padding:1px 6px}
+  .srcb.v{color:#c4b5fd;border-color:rgba(139,92,246,.4)}.srcb.g{color:#6ee7b7;border-color:rgba(16,185,129,.4)}.srcb.b{color:#93c5fd;border-color:rgba(59,130,246,.4)}
+  .card .thr{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#fdba74;background:rgba(249,115,22,.12);border-radius:3px;padding:1px 5px}
+  .card .ico{margin-left:auto;color:var(--mut2);font-size:11px;letter-spacing:5px}
+  .card h4{margin:0;font-size:13.5px;font-weight:700;line-height:1.35;color:#f1f5f9}
+  .card p{margin:4px 0 0;font-size:11.5px;color:#94a3b8;line-height:1.45}
+  .card .ft{display:flex;gap:10px;align-items:center;margin-top:7px;font-size:10px;color:var(--mut)}
+  .card .ft .th{border:1px solid var(--bd2);border-radius:4px;padding:1px 7px;color:#94a3b8;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:9px}
+  .card .ft .rel{margin-left:auto;letter-spacing:.06em;text-transform:uppercase;font-size:9px}
+  .fold{display:flex;align-items:center;gap:8px;padding:8px 2px;color:var(--mut);font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+  .fold .line{flex:1;height:1px;background:var(--bd)}
+  .cats{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .cats .chip{font-size:10px;padding:2px 9px}
+</style></head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab active">News <span class="badge">14</span></span><span class="tab">Calendar</span><span class="tab">Email <span class="badge">3</span></span><span class="tab">Family</span><span class="tab">OSINT <span class="badge">9+</span></span><span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+  <div class="views">
+    <div class="seg"><span>⌥ Threads</span><span class="on2">☰ Read <small style="font-weight:600;opacity:.8">14 unread</small></span></div>
+    <div class="meta"><span>43m ago</span><span>↻ Refresh</span></div>
+  </div>
+
+  <!-- newsletter queue -->
+  <div class="nq">
+    <div class="hd"><span class="k">Newsletters</span><span class="src pol">POLITICO <b>9</b></span><span class="src asf">A&amp;SF <b>3</b></span><span class="src mrg">THE MERGE <b>2</b></span><span class="hint">14 unread · oldest 5 d</span><span class="n">1</span>
+      <div class="catch"><span class="b pri">≡ Catch me up</span><span class="b">✓ Mark all read</span><span class="b">show all 14 ▾</span></div></div>
+    <div class="nl"><span class="why">⚑ houthis</span><span class="t">What to do about the Houthis <em>Politico · 5 d</em></span><span class="ic">↗ ☆ ✕ ▾</span></div>
+    <div class="nl"><span class="why thr">thread · Iran war</span><span class="t">Scrutinizing Trump&rsquo;s boat strikes <em>Politico · 3 d</em></span><span class="ic">↗ ☆ ✕ ▾</span></div>
+    <div class="nl"><span class="why thr">thread · Autonomy</span><span class="t">B-1s Empty Out of Fairford <em>A&amp;SF · 10 h</em></span><span class="ic">↗ ☆ ✕ ▾</span></div>
+    <div class="nl"><span class="why">⚑ spacecom</span><span class="t">News Alert | Miller Nominated to Lead SPACECOM <em>A&amp;SF · 5 d</em></span><span class="ic">↗ ☆ ✕ ▾</span></div>
+    <div class="nl"><span class="t" style="color:#cbd5e1">USAF Adjusts Maintenance Career Field Overhaul <em>A&amp;SF · 3 d</em></span><span class="ic">↗ ☆ ✕ ▾</span></div>
+    <div class="foot"><span>Showing the 5 that touch your watchlist or a thread; 9 more are routine.<span class="n">2</span></span><span style="margin-left:auto">13 series you&rsquo;ve never opened → <u style="text-decoration-style:dotted">review sources</u></span></div>
+  </div>
+
+  <!-- trending, sorted -->
+  <div class="tr"><span class="k">Trending</span><span class="n">3</span>
+    <span class="g up">▲ rising</span><span class="tc up">israel <small>150 · ×2.1</small></span><span class="tc up">boeing <small>18 · ×1.9</small></span><span class="tc up">yemen <small>14 · ×1.8</small></span>
+    <span class="g new">✦ new</span><span class="tc new">bab el-mandeb <small>9</small></span><span class="tc new">combat pay <small>7</small></span><span class="tc new">israel + forces</span>
+    <span class="g dn">▼ fading</span><span class="tc dn">golden dome <small>5 · ×0.4</small></span><span class="tc dn">cisa <small>3</small></span>
+  </div>
+
+  <div class="cats"><span class="chip on">All</span><span class="chip">Defense 91</span><span class="chip">Strategic 48</span><span class="chip">Overview 10</span><span class="chip">Domestic 18</span><span class="chip">Space 22</span><span class="chip">Cyber 27</span><span class="chip">Local 10</span><span class="chip">★ Saved 6</span><span class="n">4</span></div>
+
+  <div class="lanes">
+    <div>
+      <div class="laneh"><span class="k depth">◆ Strategic depth</span><span class="line"></span><span class="m">long-form · 7 today</span><span class="n">5</span></div>
+      <div class="card depth"><div class="s"><span class="srcb v">War on the Rocks</span><span class="thr">Indo-Pacific hedge</span><span class="ico">▤ ☆</span></div><h4>How Closed Airspace Threatens U.S. Military Mobility Across Eurasia</h4><p>For much of the modern aviation era, geography was something the global aviation industry learned to overcome…</p><div class="ft"><span class="th">✦ Thesis</span><span>18 min read</span><span class="rel">Relevant? ▲ ▼</span></div></div>
+      <div class="card depth"><div class="s"><span class="srcb v">Foreign Affairs</span><span class="thr">Iran war</span><span class="ico">▤ ☆</span></div><h4>Why Iran Escalates</h4><p>Tehran&rsquo;s strategy to drive America out of the Middle East.</p><div class="ft"><span class="th">✦ Thesis</span><span>14 min read</span><span class="rel">Relevant? ▲ ▼</span></div></div>
+      <div class="card depth"><div class="s"><span class="srcb v">War on the Rocks</span><span class="thr">Indo-Pacific hedge</span><span class="ico">▤ ☆</span></div><h4>China is Watching Us. Is the U.S. Air Force Still Watching China?</h4><p>On Oct. 1, 2026, Beijing celebrated the 77th anniversary of the founding of the PRC and the…</p><div class="ft"><span class="th">✦ Thesis</span><span>11 min read</span><span class="rel">Relevant? ▲ ▼</span></div></div>
+    </div>
+    <div>
+      <div class="laneh"><span class="k now">⚑ Operational now</span><span class="line"></span><span class="m">touches AMC · 6 today</span></div>
+      <div class="card now"><div class="s"><span class="srcb g">Task &amp; Purpose</span><span class="thr">Iran war</span><span class="ico">▤ ☆</span></div><h4>Pentagon increases combat pay as war with Iran continues</h4><p>Troops can now earn $450 per month in hostile fire pay and as much as $275 in imminent danger pay…</p><div class="ft"><span class="th">✦ Thesis</span><span style="color:#fcd34d">sustained OPTEMPO signal</span><span class="rel">Relevant? ▲ ▼</span></div></div>
+      <div class="card now"><div class="s"><span class="srcb b">SCMP</span><span class="thr">Bab el-Mandeb</span><span class="ico">▤ ☆</span></div><h4>Yemeni government forces seize control of Bab el-Mandeb Strait, minister says</h4><p>Saudi-backed Yemeni government forces have secured effective control of the strait…</p><div class="ft"><span class="th">✦ Thesis</span><span style="color:#fcd34d">chokepoint · Red Sea routing</span><span class="rel">Relevant? ▲ ▼</span></div></div>
+      <div class="card now"><div class="s"><span class="srcb g">Defense News</span><span class="thr">Indo-Pacific hedge</span><span class="ico">▤ ☆</span></div><h4>Taiwan&rsquo;s first two F-16V fighter jets arrive to bolster defenses against China</h4><p>The first two of a batch of 66 new F-16V Block 70 fighter jets ordered in 2019 arrived in Taiwan…</p><div class="ft"><span class="th">✦ Thesis</span><span style="color:#fcd34d">posture move · INDOPACOM</span><span class="rel">Relevant? ▲ ▼</span></div></div>
+    </div>
+  </div>
+  <div class="fold"><span>Everything else · 195</span><span class="line"></span><span>▾</span><span class="n">6</span></div>
+
+  <div class="notes">
+    <h3>Proposed changes — Read view (newsletters + articles)</h3>
+    <ol>
+      <li><span class="n">1</span><span><b>Newsletters become a queue, not a list.</b> Per-source unread counts, age of the oldest, and <b>Catch me up</b> as the primary action (the Digest already exists — it becomes the way to clear the stack). Mark all read for the days you cannot.</span></li>
+      <li><span class="n">2</span><span><b>Only the newsletters that earned a row show by default</b> — a watchlist hit (⚑) or a thread match — with the reason on the row; the routine ones fold behind &ldquo;show all&rdquo;. Nothing is hidden from Catch me up.</span></li>
+      <li><span class="n">3</span><span><b>Trending is sorted and grouped</b> rising → new → fading, each chip with its count and velocity; a chip filters the lanes below.</span></li>
+      <li><span class="n">4</span><span><b>Category tabs become secondary chips</b> under Trending; they filter the lanes rather than replacing them.</span></li>
+      <li><span class="n">5</span><span><b>Two lanes instead of one grid:</b> <i>Strategic depth</i> (long-form from the analysis sources — WOTR, Foreign Affairs, CSIS, RAND, Lawfare, War Zone features — by source + length, deterministic) and <i>Operational now</i> (today&rsquo;s AI-curated &ldquo;Critical for you&rdquo;, with the AMC reason on the card). Each card names the thread it belongs to.</span></li>
+      <li><span class="n">6</span><span><b>Everything else folds</b> — &ldquo;nice to have&rdquo; stays one click away, never in the way.</span></li>
+    </ol>
+  </div>
+</main>
+<div class="mockcap">illustrative render · proposed</div>
+</body></html>

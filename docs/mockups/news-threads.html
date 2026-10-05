@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>news — threads (proposed)</title><link rel="stylesheet" href="shot.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:22px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .n{margin:2px 0 0}
+  /* view toggle */
+  .views{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .seg{display:inline-flex;gap:2px;background:rgba(30,41,59,.6);border:1px solid rgba(51,65,85,.8);border-radius:8px;padding:3px}
+  .seg span{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;border-radius:6px;color:var(--mut)}
+  .seg span.on{background:var(--acc2);color:#022c22;box-shadow:0 0 14px -4px rgba(16,185,129,.6)}
+  .seg span.on2{background:#334155;color:#f1f5f9}
+  .views .meta{margin-left:auto;font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;display:flex;gap:12px;align-items:center}
+  /* layout */
+  .lay{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+  /* through-line */
+  .tl{border:1px solid rgba(51,65,85,.6);border-left:3px solid var(--acc);border-radius:12px;background:rgba(15,23,42,.7);padding:14px 18px;margin-bottom:14px}
+  .tl .k{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+  .tl p{margin:8px 0 0;font-size:13.5px;line-height:1.55;color:#e2e8f0}
+  .tl .vs{margin-top:9px;padding-top:8px;border-top:1px solid rgba(30,41,59,.8);font-size:11px;color:var(--mut)}
+  .tl .vs b{color:#cbd5e1}
+  /* pills */
+  .pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;align-items:center}
+  .pills .k{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-right:4px}
+  .pill{font-size:10px;font-weight:800;letter-spacing:.06em;padding:4px 9px;border-radius:7px;border:1px solid}
+  .pill.r{color:#fca5a5;border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.1)}
+  .pill.a{color:#fcd34d;border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.1)}
+  .pill.b{color:#93c5fd;border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.1)}
+  .pill.v{color:#c4b5fd;border-color:rgba(139,92,246,.4);background:rgba(139,92,246,.1)}
+  .pill.g{color:#6ee7b7;border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.1)}
+  .pill.o{color:#fdba74;border-color:rgba(249,115,22,.4);background:rgba(249,115,22,.1)}
+  .pill.c{color:#67e8f9;border-color:rgba(6,182,212,.4);background:rgba(6,182,212,.1)}
+  .pill.p{color:#f9a8d4;border-color:rgba(236,72,153,.4);background:rgba(236,72,153,.1)}
+  .pill small{opacity:.7;font-weight:600;margin-left:4px}
+  /* thread card */
+  .th{border:1px solid rgba(51,65,85,.6);border-radius:12px;overflow:hidden;margin-bottom:12px;background:rgba(15,23,42,.6)}
+  .th.r{border-color:rgba(239,68,68,.35)}.th.a{border-color:rgba(245,158,11,.35)}.th.b{border-color:rgba(59,130,246,.35)}
+  .th .hd{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(30,41,59,.35)}
+  .th .hd .idx{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--mut2)}
+  .th .hd .right{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+  .trend{font-weight:800}.trend.up{color:#fca5a5}.trend.flat{color:#94a3b8}.trend.dn{color:#64748b}
+  .run{color:var(--mut);font-weight:600}
+  .spark{display:inline-flex;align-items:flex-end;gap:2px;height:14px}
+  .spark i{display:block;width:4px;background:#475569;border-radius:1px}
+  .spark i.hi{background:#f87171}.spark i.md{background:#fbbf24}
+  .th .bd{padding:12px 14px 10px}
+  .th h3{font-size:14px;font-weight:700;line-height:1.35;color:#f1f5f9;margin-bottom:6px}
+  .th p{margin:0;font-size:12px;line-height:1.5;color:#94a3b8}
+  .th .amc{margin-top:8px;padding:7px 10px;border-radius:8px;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);font-size:11.5px;color:#a7f3d0;line-height:1.45}
+  .th .amc b{color:var(--acc);font-size:9px;letter-spacing:.14em;text-transform:uppercase;margin-right:6px}
+  .th .diff{margin-top:8px;font-size:11px;color:var(--mut);display:flex;gap:8px;align-items:flex-start}
+  .th .diff b{color:#cbd5e1;font-weight:700;font-size:9px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;margin-top:2px}
+  .links{margin-top:9px;padding-top:8px;border-top:1px solid rgba(30,41,59,.8);display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}
+  .links div{font-size:11px;color:#94a3b8;display:flex;gap:6px;align-items:baseline;line-height:1.45}
+  .links div::before{content:"•";color:#475569}
+  .links div em{font-style:normal;color:#475569;font-size:10px}
+  .lane{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:3px;padding:1px 4px;flex-shrink:0}
+  .lane.depth{color:#c4b5fd;background:rgba(139,92,246,.15)}.lane.now{color:#fcd34d;background:rgba(245,158,11,.15)}
+  .acts{display:flex;gap:6px;padding:8px 14px;border-top:1px solid rgba(30,41,59,.8);background:rgba(2,6,23,.4);flex-wrap:wrap;align-items:center}
+  .act{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:6px;padding:4px 9px;color:#94a3b8}
+  .act.pri{border-color:rgba(52,211,153,.5);color:var(--acc)}
+  .act.on{border-color:rgba(249,115,22,.5);color:#fdba74;background:rgba(249,115,22,.08)}
+  .link-iw{margin-left:auto;font-size:10px;color:#fcd34d;font-family:ui-monospace,Menlo,monospace}
+  /* right rail: moving */
+  .rail .panel{margin-bottom:14px}
+  .mv{display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid rgba(30,41,59,.6);font-size:11px}
+  .mv:first-child{border-top:0}
+  .mv .l{font-family:ui-monospace,Menlo,monospace;font-weight:800;font-size:10px;color:#e2e8f0;width:118px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mv .t{width:14px;text-align:center;font-weight:800}
+  .mv .d{color:var(--mut);font-size:10px;margin-left:auto;white-space:nowrap}
+  .mvh{display:flex;align-items:center;gap:7px;padding:6px 12px;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;border-top:1px solid var(--bd);background:rgba(2,6,23,.35)}
+  .mvh.r{color:#fca5a5}.mvh.g{color:#6ee7b7}.mvh.a{color:#fcd34d}.mvh.d{color:#64748b}
+  .flag{font-size:9px}
+  .assist{border:1px solid rgba(52,211,153,.35);border-radius:10px;padding:10px 12px;background:rgba(16,185,129,.05);font-size:11.5px;color:#cbd5e1;line-height:1.5}
+  .assist .k{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);display:flex;gap:8px;align-items:center}
+  .assist .q{margin-top:7px;border:1px solid var(--bd2);border-radius:7px;padding:6px 9px;font-size:11px;color:var(--mut);background:rgba(2,6,23,.5)}
+  .assist .sug{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .assist .sug span{font-size:10px;border:1px solid var(--bd2);border-radius:999px;padding:2px 8px;color:#94a3b8}
+</style></head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab active">News <span class="badge">14</span></span><span class="tab">Calendar</span><span class="tab">Email <span class="badge">3</span></span><span class="tab">Family</span><span class="tab">OSINT <span class="badge">9+</span></span><span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+  <div class="views">
+    <div class="seg"><span class="on">⌥ Threads</span><span>☰ Read <small style="font-weight:600;opacity:.8">14 unread</small></span></div><span class="n">1</span>
+    <span class="hint" style="white-space:nowrap">History → <b style="color:#cbd5e1">Moving</b> rail + card trajectories<span class="n">2</span></span>
+    <div class="meta"><span>▾ Oct 5 · analysed 14:41 · 42 articles · 108 nl</span><span>↻ Regenerate</span><span>PDF · HTML</span></div>
+  </div>
+
+  <div class="lay">
+  <div>
+    <div class="tl">
+      <div class="k">Through-line <span class="n">3</span></div>
+      <p>Two simultaneous hot wars — an institutionalising US-Iran conflict and Russia&rsquo;s grinding campaign against Ukraine — set against a strategic backdrop where the Trump-Xi summit has rattled Indo-Pacific allies even as the Pentagon doubles down on First Island Chain area denial. Underneath, a force-structure transformation is accelerating. <b style="color:#a7f3d0">For AMC: Bab el-Mandeb is now contested terrain for CENTCOM flows, Iran-war pay signals sustained OPTEMPO, and the autonomy wave will reshape what strategic lift and tanking must enable.</b></p>
+      <div class="vs"><b>vs yesterday:</b> Bab el-Mandeb is NEW (Yemeni offensive); Iran war moved stable → rising (combat-pay decision); Ukraine unchanged; Golden Dome folded into Arsenal rebuild.</div>
+    </div>
+
+    <div class="pills"><span class="k">Today</span>
+      <span class="pill r">⚑ IRAN WAR ↑ <small>3 · 3rd day</small></span><span class="pill a">BAB EL-MANDEB ↑ <small>2 · new</small></span><span class="pill b">INDO-PACIFIC HEDGE ↑ <small>6</small></span><span class="pill o">⚑ EU-CHINA DECOUPLING ↑ <small>2</small></span><span class="pill o">⚑ UKRAINE → <small>3 · 9th day</small></span><span class="pill g">AUTONOMY WAVE ↑ <small>2</small></span><span class="pill c">ARSENAL REBUILD ↑ <small>2</small></span><span class="pill p">FORCE SHAPING → <small>3 · fading</small></span>
+    </div>
+
+    <!-- thread 01 -->
+    <div class="th r">
+      <div class="hd"><span class="idx">01</span><span class="pill r">⚑ IRAN WAR</span>
+        <div class="right"><span class="spark"><i style="height:4px"></i><i style="height:4px"></i><i style="height:6px"></i><i style="height:5px"></i><i style="height:7px"></i><i class="md" style="height:9px"></i><i class="hi" style="height:12px"></i><i class="hi" style="height:14px"></i></span><span class="n">4</span><span class="trend up">↑ Rising</span><span class="run">3rd day</span><span style="color:var(--mut)">3 sources</span></div>
+      </div>
+      <div class="bd">
+        <h3>The US-Iran war is being institutionalised as a sustained conflict, with combat pay raised for the first time since 2002 and strategic analysts framing it as a new &lsquo;forever war.&rsquo;</h3>
+        <p>Pentagon&rsquo;s hostile-fire and imminent-danger pay increases are a bureaucratic tell that this fight is not ending soon. Foreign Affairs frames both Tehran&rsquo;s escalation logic (drive the US out) and the mutual inability to achieve victory.</p>
+        <div class="amc"><b>So what · AMC</b>Enduring rotational lift, tanker and CRF demand signals against Iran, with Hormuz and Red Sea routing assumptions baked in for the long haul.<span class="n">5</span></div>
+        <div class="diff"><b>Δ yesterday</b><span>Yesterday read <i>stable</i> on 2 sources (&ldquo;Why Iran Escalates&rdquo;); today the combat-pay decision adds Task &amp; Purpose and moves it to rising.</span><span class="n">6</span></div>
+        <div class="links">
+          <div><span class="lane depth">depth</span>Why Iran Escalates <em>Foreign Affairs</em></div>
+          <div><span class="lane depth">depth</span>The New Forever War <em>Foreign Affairs</em></div>
+          <div><span class="lane now">now</span>Pentagon increases combat pay as war with Iran continues <em>Task &amp; Purpose</em></div>
+        </div>
+      </div>
+      <div class="acts"><span class="act pri">✦ Ask about this</span><span class="act">⧉ Save to Docs</span><span class="act on">⚑ Following</span><span class="act">⌁ Add to watchlist</span><span class="link-iw">→ I&amp;W CENTCOM · Iran WATCH ↗ · Demand CENTCOM ▲</span><span class="n">7</span></div>
+    </div>
+
+    <!-- thread 02 -->
+    <div class="th a">
+      <div class="hd"><span class="idx">02</span><span class="pill a">BAB EL-MANDEB</span>
+        <div class="right"><span class="spark"><i style="height:3px"></i><i style="height:3px"></i><i style="height:3px"></i><i style="height:3px"></i><i style="height:3px"></i><i style="height:3px"></i><i style="height:3px"></i><i class="hi" style="height:14px"></i></span><span class="trend up">↑ Rising</span><span class="run">new today</span><span style="color:var(--mut)">2 sources</span></div>
+      </div>
+      <div class="bd">
+        <h3>Saudi-backed Yemeni government forces have seized effective control of Bab el-Mandeb and launched a broader offensive to retake all Houthi-held territory.</h3>
+        <p>A potentially decisive shift at one of the named chokepoints. Heavy Saudi air support enabled the coastal advance; if consolidated, the Red Sea transit risk calculus changes materially for both commercial shipping and military lift routing between EUCOM and CENTCOM.</p>
+        <div class="amc"><b>So what · AMC</b>Red Sea routing assumptions may ease within weeks — watch the chokepoint board for AIS transit recovery before changing planning factors.</div>
+        <div class="diff"><b>Δ yesterday</b><span>Not on yesterday&rsquo;s board. Chokepoint board: Bab-el-Mandeb reads <i>act reported</i>, AIS transits <i>suppressed</i> (0.5× normal).</span></div>
+        <div class="links">
+          <div><span class="lane now">now</span>Yemeni government launches offensive to seize all areas from Iran-backed Houthis <em>Defense News</em></div>
+          <div><span class="lane now">now</span>Yemeni government forces seize control of Bab el-Mandeb Strait <em>SCMP</em></div>
+        </div>
+      </div>
+      <div class="acts"><span class="act pri">✦ Ask about this</span><span class="act">⧉ Save to Docs</span><span class="act">⚑ Follow</span><span class="act">⌁ Add to watchlist</span><span class="link-iw">→ Chokepoint Bab-el-Mandeb 62 · AIS suppressed</span></div>
+    </div>
+
+    <!-- thread 03 (collapsed form) -->
+    <div class="th b">
+      <div class="hd"><span class="idx">03</span><span class="pill b">INDO-PACIFIC HEDGE</span>
+        <div class="right"><span class="spark"><i style="height:5px"></i><i style="height:6px"></i><i style="height:5px"></i><i style="height:8px"></i><i style="height:7px"></i><i class="md" style="height:9px"></i><i class="md" style="height:10px"></i><i class="hi" style="height:13px"></i></span><span class="trend up">↑ Rising</span><span class="run">2nd day</span><span style="color:var(--mut)">6 sources</span></div>
+      </div>
+      <div class="bd">
+        <h3>Allies are reading mixed signals from the Trump-Xi summit even as the Pentagon formalises First Island Chain area denial and Taiwan takes delivery of its first F-16Vs.</h3>
+        <div class="amc"><b>So what · AMC</b>Forward-deployed munitions along the First Island Chain are a strategic-lift bill before they are a deterrent; allied anxiety is the connective tissue.</div>
+        <div class="links">
+          <div><span class="lane depth">depth</span>China is Watching Us. Is the USAF Still Watching China? <em>War on the Rocks</em></div>
+          <div><span class="lane depth">depth</span>Japan Is Giving the United States a Chance in Asia <em>Foreign Affairs</em></div>
+          <div><span class="lane now">now</span>Taiwan&rsquo;s first two F-16V jets arrive <em>Defense News</em></div>
+          <div><span class="lane now">now</span>Pentagon doubles down on Pacific area denial <em>USNI News</em></div>
+        </div>
+      </div>
+      <div class="acts"><span class="act pri">✦ Ask about this</span><span class="act">⧉ Save to Docs</span><span class="act">⚑ Follow</span><span class="link-iw">→ I&amp;W INDOPACOM · Taiwan CALM · learning</span></div>
+    </div>
+    <div class="hint" style="text-align:center;padding:4px 0 2px">05 more threads below — EU-China decoupling · Ukraine · Autonomy wave · Arsenal rebuild · Force shaping</div>
+  </div>
+
+  <!-- right rail -->
+  <div class="rail">
+    <div class="panel">
+      <div class="phead"><span class="ptitle">Moving · 30d</span><span class="pjump">7d · 14d · <b style="color:#e2e8f0">30d</b> · 60d</span><span class="n">8</span></div>
+      <div class="mvh r">⚡ Sustained escalation</div>
+      <div class="mv"><span class="l">IRAN WAR</span><span class="t" style="color:#fca5a5">↑</span><span class="spark"><i style="height:4px"></i><i style="height:6px"></i><i class="md" style="height:9px"></i><i class="hi" style="height:12px"></i><i class="hi" style="height:14px"></i></span><span class="d">3rd day · 11×</span></div>
+      <div class="mvh g">↑ Rising</div>
+      <div class="mv"><span class="l">INDO-PACIFIC HEDGE</span><span class="t" style="color:#fca5a5">↑</span><span class="spark"><i style="height:5px"></i><i style="height:5px"></i><i style="height:8px"></i><i class="md" style="height:10px"></i><i class="hi" style="height:13px"></i></span><span class="d">2nd day · 6×</span></div>
+      <div class="mv"><span class="l">ARSENAL REBUILD</span><span class="t" style="color:#fca5a5">↑</span><span class="spark"><i style="height:3px"></i><i style="height:3px"></i><i style="height:6px"></i><i class="md" style="height:9px"></i><i class="hi" style="height:11px"></i></span><span class="d">4×</span></div>
+      <div class="mv"><span class="l">AUTONOMY WAVE</span><span class="t" style="color:#fca5a5">↑</span><span class="spark"><i style="height:3px"></i><i style="height:4px"></i><i style="height:4px"></i><i class="md" style="height:8px"></i><i class="hi" style="height:11px"></i></span><span class="d">3×</span></div>
+      <div class="mvh a">↩ Re-emerging</div>
+      <div class="mv"><span class="l">EU-CHINA DECOUPLING</span><span class="t" style="color:#fcd34d">↑</span><span class="spark"><i class="md" style="height:9px"></i><i style="height:3px"></i><i style="height:3px"></i><i style="height:3px"></i><i class="hi" style="height:12px"></i></span><span class="d">gap 18d · 5×</span></div>
+      <div class="mvh d">→ Steady</div>
+      <div class="mv"><span class="l">UKRAINE</span><span class="t" style="color:#94a3b8">→</span><span class="spark"><i style="height:8px"></i><i style="height:8px"></i><i style="height:7px"></i><i style="height:8px"></i><i style="height:8px"></i></span><span class="d">9th day · 24×</span></div>
+      <div class="mvh d">↓ Fading</div>
+      <div class="mv"><span class="l">FORCE SHAPING</span><span class="t" style="color:#64748b">↓</span><span class="spark"><i class="md" style="height:10px"></i><i style="height:8px"></i><i style="height:6px"></i><i style="height:4px"></i><i style="height:3px"></i></span><span class="d">fading · 7×</span></div>
+      <div class="mv"><span class="l">GOLDEN DOME</span><span class="t" style="color:#64748b">↓</span><span class="spark"><i class="md" style="height:9px"></i><i style="height:7px"></i><i style="height:4px"></i><i style="height:2px"></i><i style="height:2px"></i></span><span class="d">last 09-30 · 5×</span></div>
+      <div class="mvh" style="color:#64748b">▦ Past days</div>
+      <div class="mv"><span class="l" style="color:#94a3b8">Oct 4 · Sat</span><span style="font-size:10px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Combat-pay decision; Golden Dome funding crunch…</span><span class="d">8 thr</span></div>
+      <div class="mv"><span class="l" style="color:#94a3b8">Oct 3 · Fri</span><span style="font-size:10px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Trump-Xi summit read-outs; Houthi…</span><span class="d">7 thr</span></div>
+    </div>
+
+    <div class="assist">
+      <div class="k">✦ Assistant · news context loaded <span class="n">9</span></div>
+      <div>Same assistant as everywhere else — here it already holds today&rsquo;s 42 articles, 108 newsletter bullets, the 8 threads and the OE picture. The separate &ldquo;News analyst&rdquo; is retired.</div>
+      <div class="sug"><span>Explain IRAN WAR for CENTCOM lift</span><span>What changed since Friday?</span><span>Less Golden Dome</span><span>Connect Bab el-Mandeb to the chokepoint board</span></div>
+      <div class="q">Message… (Enter to send)</div>
+    </div>
+  </div>
+  </div>
+
+  <div class="notes">
+    <h3>Proposed changes — Threads view (the News landing page)</h3>
+    <ol>
+      <li><span class="n">1</span><span><b>Threads is the landing view.</b> Two views, not three: Threads (default) and Read (newsletters + articles). The unread newsletter count rides the Read chip.</span></li>
+      <li><span class="n">2</span><span><b>History folds into Threads.</b> Signals become the Moving rail; Labels become the sparkline + run on each card; Sessions become the &ldquo;▾ Oct 5&rdquo; date picker and the Past days rows.</span></li>
+      <li><span class="n">3</span><span><b>Through-line ends with the AMC sentence</b> (the model already writes it) and gains a one-line <i>vs yesterday</i> diff — pure, from the stored sessions.</span></li>
+      <li><span class="n">4</span><span><b>Trajectory on every card:</b> 14-day sparkline from label history, the arrow, and the run (&ldquo;3rd day rising&rdquo;, &ldquo;new today&rdquo;). The History tab&rsquo;s best data, where it is read.</span></li>
+      <li><span class="n">5</span><span><b>&ldquo;So what · AMC&rdquo; is its own line</b>, split out of the summary (the model writes it already; today it is the last sentence of a grey paragraph).</span></li>
+      <li><span class="n">6</span><span><b>Δ yesterday per thread:</b> what moved against the previous session with the same label — trend change, sources added, headline shift. Pure diff, no model call.</span></li>
+      <li><span class="n">7</span><span><b>Exploit the thread:</b> Ask about this (seeds the assistant), Save to Docs (a 🧵 thread doc with a Trace that renders as the timeline the Docs tab already has), Follow (pins it to Glance), Add to watchlist, and a door-in chip to the I&amp;W board / chokepoint / demand row it touches.</span></li>
+      <li><span class="n">8</span><span><b>Moving rail sorted the way you asked:</b> sustained escalation → rising → re-emerging → steady → fading, each with its run and sparkline; click opens the label timeline in a drawer. Window 7/14/30/60 d.</span></li>
+      <li><span class="n">9</span><span><b>One assistant.</b> The News analyst pane and the floating assistant merge: on this tab the dock opens with threads + articles + newsletters already in context, and the conversation survives across tabs.</span></li>
+    </ol>
+  </div>
+</main>
+<div class="mockcap">illustrative render · proposed</div>
+</body></html>
