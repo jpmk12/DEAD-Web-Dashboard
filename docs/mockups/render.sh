@@ -21,3 +21,4 @@ shot household.html       household.png       1240,1330 2
 shot cyber-space.html       cyber-space.png       1220,2300 2
 shot news-threads.html     news-threads.png     1280,2000 2
 shot news-read.html        news-read.png        1280,1330 2
+shot calendar-proposed.html calendar.png        1280,1500 2

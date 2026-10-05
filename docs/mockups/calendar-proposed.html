@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>calendar (proposed)</title><link rel="stylesheet" href="shot.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:22px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .n{margin:2px 0 0}
+  .lay{display:grid;grid-template-columns:1fr 330px;gap:18px;align-items:start}
+  /* today strip */
+  .today{display:flex;align-items:center;gap:14px;border:1px solid rgba(16,185,129,.3);background:rgba(16,185,129,.05);border-radius:12px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap}
+  .today .k{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+  .today .d{font-size:13px;font-weight:700;color:#f1f5f9}
+  .today .z{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .today .ev{display:flex;align-items:center;gap:8px;font-size:12px;color:#cbd5e1}
+  .today .ev b{color:var(--amber);font-family:ui-monospace,Menlo,monospace;font-weight:700}
+  .today .cnt{margin-left:auto;display:flex;gap:6px}
+  /* don't miss */
+  .dm{border:1px solid rgba(239,68,68,.35);border-radius:12px;background:rgba(239,68,68,.04);margin-bottom:14px;overflow:hidden}
+  .dm .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(239,68,68,.2)}
+  .dm .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#fca5a5}
+  .dm .hd .s{font-size:10px;color:var(--mut)}
+  .dmrow{display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:12.5px}
+  .dmrow:first-of-type{border-top:0}
+  .dmrow .src{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:3px;padding:2px 5px;flex-shrink:0;width:52px;text-align:center}
+  .src.fam{color:#c4b5fd;background:rgba(139,92,246,.15)}.src.task{color:#fcd34d;background:rgba(245,158,11,.15)}.src.ppl{color:#fda4af;background:rgba(244,63,94,.15)}.src.mail{color:#7dd3fc;background:rgba(56,189,248,.15)}
+  .dmrow .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e2e8f0}
+  .dmrow .t em{font-style:normal;color:var(--mut);font-size:10.5px;margin-left:8px}
+  .dmrow .late{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#fca5a5;flex-shrink:0}
+  .act{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:3px 7px;color:#94a3b8;flex-shrink:0}
+  .act.pri{border-color:rgba(52,211,153,.5);color:var(--acc)}
+  .act.sky{border-color:rgba(56,189,248,.5);color:#7dd3fc}
+  /* dates in mail */
+  .dim{border:1px solid rgba(56,189,248,.3);border-radius:12px;background:rgba(56,189,248,.04);margin-bottom:14px;overflow:hidden}
+  .dim .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(56,189,248,.2)}
+  .dim .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#7dd3fc}
+  .dim .hd .s{font-size:10px;color:var(--mut)}
+  .mrow{display:grid;grid-template-columns:78px 1fr auto;gap:10px;align-items:center;padding:8px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:12.5px}
+  .mrow:first-of-type{border-top:0}
+  .mrow .when{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#bae6fd;font-weight:700}
+  .mrow .when.unk{color:var(--amber)}
+  .mrow .what{min-width:0}
+  .mrow .what .t{color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mrow .what .f{font-size:10.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mrow .acts{display:flex;gap:5px}
+  /* agenda */
+  .ag{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);overflow:hidden}
+  .ag .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35)}
+  .ag .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8}
+  .ag .hd .s{font-size:10px;color:var(--mut);margin-left:auto;font-family:ui-monospace,Menlo,monospace}
+  .day{display:flex;align-items:baseline;gap:8px;padding:7px 14px;background:rgba(2,6,23,.4);border-top:1px solid var(--bd);border-bottom:1px solid rgba(30,41,59,.6)}
+  .day b{font-size:12.5px;color:#e2e8f0}.day span{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .day .tdy{margin-left:auto;font-size:8.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#fcd34d;background:rgba(245,158,11,.12);border-radius:3px;padding:1px 6px}
+  .evr{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;padding:8px 14px;border-top:1px solid rgba(30,41,59,.5)}
+  .evr .tm{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#6ee7b7;text-align:right}
+  .evr .tm small{display:block;color:var(--mut2);font-size:9px}
+  .evr .allday{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.25);border-radius:3px;padding:2px 6px;justify-self:end}
+  .evr .t{font-size:13px;color:#e2e8f0}
+  .evr .s{font-size:10.5px;color:var(--mut)}
+  .evr .ic{color:var(--mut2);font-size:11px;letter-spacing:4px}
+  .famr{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;padding:6px 14px;border-top:1px dashed rgba(139,92,246,.25);background:rgba(139,92,246,.03)}
+  .famr .g{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#c4b5fd;justify-self:end}
+  .famr .t{font-size:12px;color:#cbd5e1}
+  .famr .t em{font-style:normal;color:var(--mut);font-size:10px;margin-left:8px}
+  /* rail */
+  .rc{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);overflow:hidden;margin-bottom:14px}
+  .rc .hd{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35)}
+  .rc .hd .k{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#cbd5e1}
+  .rc .hd .b{font-size:9px;font-weight:800;border-radius:4px;padding:1px 6px}
+  .b.red{color:#fca5a5;background:rgba(239,68,68,.15)}.b.vio{color:#c4b5fd;background:rgba(139,92,246,.15)}
+  .pr{padding:8px 12px;border-top:1px solid rgba(30,41,59,.6)}
+  .pr .nm{font-size:12.5px;color:#e2e8f0;font-weight:600;display:flex;align-items:center;gap:8px}
+  .pr .st{font-size:9px;font-family:ui-monospace,Menlo,monospace;border:1px solid;border-radius:4px;padding:1px 5px}
+  .st.r{color:#fda4af;border-color:rgba(244,63,94,.4)}.st.a{color:#fcd34d;border-color:rgba(245,158,11,.4)}
+  .pr .ac{display:flex;gap:5px;margin-top:5px}
+  .tg{padding:6px 12px 2px;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;display:flex;gap:6px;align-items:center}
+  .tg.red{color:#fca5a5}.tg.gr{color:#6ee7b7}.tg.bl{color:#93c5fd}.tg.mut{color:var(--mut)}
+  .tr{display:flex;gap:8px;align-items:flex-start;padding:5px 12px;font-size:12px;color:#e2e8f0}
+  .tr .cb{width:14px;height:14px;border-radius:4px;border:1px solid #475569;flex-shrink:0;margin-top:2px}
+  .tr .d{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;margin-left:auto;white-space:nowrap}
+  .tr .fr{display:block;font-size:10px;color:var(--mut2)}
+  .addt{display:flex;gap:6px;padding:8px 12px;border-top:1px solid rgba(30,41,59,.6)}
+  .addt .in{flex:1;border:1px solid var(--bd2);border-radius:7px;padding:5px 9px;font-size:11px;color:var(--mut);background:rgba(2,6,23,.5)}
+  .addt .pl{font-size:11px;color:var(--mut);align-self:center}
+</style></head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab">News</span><span class="tab active">Calendar <span class="badge">4</span></span><span class="tab">Email <span class="badge">1</span></span><span class="tab">Family</span><span class="tab">OSINT</span><span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+  <div class="lay">
+  <div>
+    <!-- today strip -->
+    <div class="today">
+      <span class="k">Today</span><span class="d">Monday, October 5</span><span class="z">GMT+3 · TDY Amman <span class="n">1</span></span>
+      <span class="ev"><b>09:00</b> Staff sync — I&amp;W review</span><span class="ev"><b>14:00</b> TACC channel-mission telecon</span>
+      <span class="cnt"><span class="tag red">1 overdue task</span><span class="tag violet">1 family due</span><span class="tag amber">3 check-ins due</span></span>
+    </div>
+
+    <!-- don't miss -->
+    <div class="dm">
+      <div class="hd"><span class="k">⚠ Don&rsquo;t miss</span><span class="s">late and due-today, from every source — one list, deduplicated</span><span class="n">2</span></div>
+      <div class="dmrow"><span class="src fam">family</span><span class="t">Scholastic Book Fair — set up the e-wallet <em>×3 newsletters · Oct 1 · buried</em></span><span class="late">late 4 d</span><span class="act sky">Open email</span><span class="act">Snooze</span><span class="act pri">Done</span></div>
+      <div class="dmrow"><span class="src fam">family</span><span class="t">Class T-shirt order due <em>Oct 2 · Abigail</em></span><span class="late">late 3 d</span><span class="act sky">Open email</span><span class="act">Snooze</span><span class="act pri">Done</span></div>
+      <div class="dmrow"><span class="src task">task</span><span class="t">Update change of address <em>due Aug 5</em></span><span class="late">late 61 d</span><span class="act">⏭ tmrw</span><span class="act pri">✓ Done</span></div>
+      <div class="dmrow"><span class="src ppl">people</span><span class="t">John O&rsquo;Quinn — never contacted <em>every 90 d</em></span><span class="late">overdue</span><span class="act">📅 Schedule</span><span class="act pri">✓ Contacted</span></div>
+      <div class="dmrow"><span class="src task">task</span><span class="t">Respond to the Pass Day closure notice <em>due Oct 9 · from AFCYP email</em></span><span class="late" style="color:#fcd34d">this week</span><span class="act">⏭ tmrw</span><span class="act pri">✓ Done</span></div>
+    </div>
+
+    <!-- dates in your mail -->
+    <div class="dim">
+      <div class="hd"><span class="k">📅 Dates in your mail</span><span class="s">explicit dates the email triage found this week — nothing is added until you tap</span><span class="n">3</span></div>
+      <div class="mrow"><span class="when">Thu Oct 9</span><span class="what"><span class="t">Pass Day closure — childcare arrangement needed</span><span class="f">AFCYP · Re: Pass Day Closure 9 Oct 2026 · 2 d ago</span></span><span class="acts"><span class="act sky">＋ Event</span><span class="act">＋ Task</span><span class="act">✕</span></span></div>
+      <div class="mrow"><span class="when">Wed Oct 15 · 1500</span><span class="what"><span class="t">DV airlift request — reply needed before the ATO cut</span><span class="f">Col Mattis · RE: DV airlift request — Thursday · 5 h ago</span></span><span class="acts"><span class="act sky">＋ Event</span><span class="act">＋ Task</span><span class="act">✕</span></span></div>
+      <div class="mrow"><span class="when">Oct 31</span><span class="what"><span class="t">Monthly Claude API spend report — review limits</span><span class="f">Anthropic · Monthly Claude API Spe… · 1 d ago</span></span><span class="acts"><span class="act sky">＋ Event</span><span class="act">＋ Task</span><span class="act">✕</span></span></div>
+      <div class="mrow"><span class="when unk">“next Friday”</span><span class="what"><span class="t">Picture day retakes — date not anchored</span><span class="f">Oakwood Elementary · 3 d ago · the app will not guess the date</span></span><span class="acts"><span class="act sky">Open email</span><span class="act">✕</span></span></div>
+    </div>
+
+    <!-- agenda -->
+    <div class="ag">
+      <div class="hd"><span class="k">Upcoming</span><span class="s">from today · 30 d · jpmk12@gmail.com + 1</span><span class="n">4</span></div>
+      <div class="day"><b>Tomorrow</b><span>Tue, Oct 6</span></div>
+      <div class="evr"><span class="tm">10:00 – 10:45<small>GMT+3 · 3:00 AM EDT</small></span><span><div class="t">Better Up</div><div class="s">jpmk12@gmail.com</div></span><span class="ic">✦ ✎ ⏭ ×</span></div>
+      <div class="day"><b>Friday</b><span>Oct 9</span><span class="tdy">TDY · Amman — day 5 of 9</span><span class="n">5</span></div>
+      <div class="evr"><span class="allday">All day</span><span><div class="t">School Closed — Staff In-Service</div><div class="s">Oakwood · added from the Family tab</div></span><span class="ic">✦ ✎ ⏭ ×</span></div>
+      <div class="famr"><span class="g">⚑ family</span><span class="t">Pass Day closure — childcare <em>deadline · from AFCYP email</em></span><span class="act">Family →</span><span class="n">6</span></div>
+      <div class="day"><b>Mon, Oct 12</b><span>2026</span></div>
+      <div class="evr"><span class="allday">All day</span><span><div class="t">School Closed — Columbus Day</div><div class="s">Oakwood</div></span><span class="ic">✦ ✎ ⏭ ×</span></div>
+      <div class="day"><b>Thu, Oct 15</b><span>2026</span></div>
+      <div class="evr"><span class="allday">All day</span><span><div class="t">Picture Day</div><div class="s">Oakwood · <s style="color:#475569">Picture Day · Picture Day</s> merged ×3</div></span><span class="ic">✦ ✎ ⏭ ×</span></div>
+      <div class="famr"><span class="g">$ bill</span><span class="t">PSE&amp;G electric <em>manual — will not pay itself · $212 last month</em></span><span class="act">Family →</span></div>
+      <div class="day"><b>Mon, Oct 20</b><span>2026</span></div>
+      <div class="famr"><span class="g">⬒ document</span><span class="t">Abigail&rsquo;s passport — act by <em>183-day lead; expires Apr 20</em></span><span class="act">Family →</span></div>
+    </div>
+  </div>
+
+  <!-- rail -->
+  <div>
+    <div class="rc">
+      <div class="hd"><span class="k">♥ Your people</span><span class="b red">3 due</span><span style="margin-left:auto;font-size:9px;color:var(--mut)">✨ suggest · ＋</span><span class="n">7</span></div>
+      <div class="pr"><div class="nm">John O&rsquo;Quinn <span class="st r">never contacted</span></div><div class="ac"><span class="act pri">✓ Contacted</span><span class="act sky">📅 Schedule</span><span style="margin-left:auto;font-size:9px;color:var(--mut2)">every 90 d</span></div></div>
+      <div class="pr"><div class="nm">John D <span class="st r">overdue 18 d</span></div><div class="ac"><span class="act pri">✓ Contacted</span><span class="act sky">📅 Schedule</span><span style="margin-left:auto;font-size:9px;color:var(--mut2)">every 90 d</span></div></div>
+      <div class="pr"><div class="nm">Sean Cain <span class="st a">due in 4 d</span></div><div class="ac"><span class="act pri">✓ Contacted</span><span class="act sky">📅 Schedule</span><span style="margin-left:auto;font-size:9px;color:var(--mut2)">every 90 d</span></div></div>
+      <div class="pr" style="font-size:10px;color:var(--mut);text-align:center">▾ 4 caught up</div>
+    </div>
+    <div class="rc">
+      <div class="hd"><span class="k">◎ Tasks</span><span class="b vio">6</span><span style="margin-left:auto;font-size:9px;color:var(--mut)">no collapse — always here</span><span class="n">8</span></div>
+      <div class="addt"><span class="in">Add a task…</span><span class="pl">+ date</span><span class="act pri">＋</span></div>
+      <div class="tg red">Overdue <span style="color:var(--mut2)">1</span></div>
+      <div class="tr"><span class="cb"></span><span>Update change of address<span class="fr">Aug 5</span></span></div>
+      <div class="tg gr">Today <span style="color:var(--mut2)">0</span></div>
+      <div class="tg bl">This week <span style="color:var(--mut2)">2</span></div>
+      <div class="tr"><span class="cb"></span><span>Respond to the Pass Day closure notice<span class="fr">From: AFCYP Re: Pass Day Closure 9 Oct</span></span><span class="d">Oct 9</span></div>
+      <div class="tr"><span class="cb"></span><span>Respond regarding childcare for the Oct 9 Pass Day<span class="fr">From: AFCYP Re: ACTION REQUIRED</span></span><span class="d">Oct 9</span></div>
+      <div class="tg mut">Later · No date <span style="color:var(--mut2)">3 ▾</span></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="notes">
+    <h3>Proposed changes — Calendar</h3>
+    <ol>
+      <li><span class="n">1</span><span><b>Today strip</b> on top: the date in the effective zone (same rule as Glance — TDY wins), today&rsquo;s events, and the three counts that matter (overdue tasks, family due, check-ins due).</span></li>
+      <li><span class="n">2</span><span><b>Don&rsquo;t miss</b> replaces late items scattered through the agenda: late family deadlines, overdue tasks, overdue check-ins and due-this-week tasks in ONE list with a source chip and the action each needs. The agenda no longer starts with past days.</span></li>
+      <li><span class="n">3</span><span><b>Dates in your mail</b>: explicit dates the email triage already reads (same model call, one more field) become rows with ＋ Event / ＋ Task / dismiss; a relative phrase is shown as unanchored with &ldquo;Open email&rdquo; — never a guessed date.</span></li>
+      <li><span class="n">4</span><span><b>Agenda starts today</b>, 30 days, both accounts; family rows are a quieter dashed register under the day, never interleaved as peers of events.</span></li>
+      <li><span class="n">5</span><span><b>TDY chip on the day header</b> for days inside an active trip (trips were never on the calendar).</span></li>
+      <li><span class="n">6</span><span><b>Family rows deduplicated</b> (the same obligation from three newsletters was three LATE rows) and labelled by kind: ⚑ deadline · $ bill · ⬒ document.</span></li>
+      <li><span class="n">7</span><span><b>Your people</b> (Keep in Touch) keeps its place: due/overdue only, caught-up folded; overdue ones also appear in Don&rsquo;t miss.</span></li>
+      <li><span class="n">8</span><span><b>Tasks always visible</b> — the rail collapse (and its vertical &ldquo;Tasks&rdquo; strip) is removed; groups fold instead, date field hides behind &ldquo;+ date&rdquo;.</span></li>
+    </ol>
+  </div>
+</main>
+<div class="mockcap">illustrative render · proposed</div>
+</body></html>
