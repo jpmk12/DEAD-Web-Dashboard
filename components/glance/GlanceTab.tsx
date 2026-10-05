@@ -295,6 +295,19 @@ export default function GlanceTab({
   // (/api/posture-moves, deterministic, 15-min cache); merged below with the
   // same detector run over the articles + newsletters this client holds.
   const [serverMoves, setServerMoves] = useState<PostureMove[] | null>(null);
+  // Rising threads from the News tab's latest stored session (today or
+  // yesterday) — one row at the top of Breaking & critical (REVIEW-2026-10
+  // N11). Stored rows, no model call, one cheap GET when Glance is active.
+  const [risingThreads, setRisingThreads] = useState<{ date: string; labels: string[] } | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    fetch("/api/thread-history?view=sessions&days=2").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      const s = Array.isArray(d?.sessions) ? d.sessions[0] : null;
+      if (!s) return;
+      const labels = (s.threads as { label: string; trend: string }[]).filter((t) => t.trend === "rising").map((t) => t.label);
+      setRisingThreads({ date: s.date, labels });
+    }).catch(() => {});
+  }, [active]);
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
@@ -1358,6 +1371,13 @@ export default function GlanceTab({
 
           {/* Breaking & critical */}
           <Panel title="Breaking & critical" onJump={() => onNavigate("news")}>
+            {risingThreads && risingThreads.labels.length > 0 && (
+              <button onClick={() => onNavigate("news")} className="w-full text-left flex items-center gap-2 px-3 py-2 border-b border-slate-800/60 bg-amber-500/[0.04] hover:bg-amber-500/[0.08] transition-colors" title={`Threads rising on the News tab's ${risingThreads.date} board`}>
+                <span className="text-[9px] font-bold uppercase tracking-widest text-amber-300 flex-shrink-0">🧵 Rising threads</span>
+                <span className="text-[11px] text-slate-300 truncate">{risingThreads.labels.join(" · ")}</span>
+                <span className="ml-auto text-[10px] text-slate-600 flex-shrink-0">News →</span>
+              </button>
+            )}
             {breaking.length === 0 ? (
               warming ? <SkeletonRows n={4} /> : <Empty>No critical stories surfaced.</Empty>
             ) : (

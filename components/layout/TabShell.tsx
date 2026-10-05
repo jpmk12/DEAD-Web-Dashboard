@@ -20,7 +20,7 @@ import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
 import FloatingAssistant from "@/components/chat/FloatingAssistant";
-import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
+import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
 
@@ -81,6 +81,8 @@ export default function TabShell() {
   // keeps its own watermark that advances when the user dwells on News.
   const [newsSeenLocal, setNewsSeenLocal] = useState(0);
   // Top OSINT signals, fed into the morning brief so it reflects monitored feeds.
+  // The News tab's threads analysis, handed to the assistant (one assistant).
+  const [threads, setThreads] = useState<ThreadsResult | null>(null);
   const [osintTop, setOsintTop] = useState<{ title: string; priority: string; reason: string; sources: number }[]>([]);
 
   useEffect(() => {
@@ -401,6 +403,7 @@ export default function TabShell() {
           <NewsShell
             onArticlesChange={setArticles}
             onNewslettersChange={handleNewslettersChange}
+            onThreadsChange={setThreads}
             watchlist={watchlist}
             previousSeenNews={previousSeen.news}
             previousSeenNewsletters={previousSeen.newsletters}
@@ -488,6 +491,7 @@ export default function TabShell() {
         tasks={tasks}
         articles={articles}
         newsletters={newsletters}
+        threads={threads}
         onTaskAdded={() => setTasksRefreshKey((k) => k + 1)}
       />
     </div>

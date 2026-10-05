@@ -470,6 +470,8 @@ export interface NewsThread {
   articleIds: string[];
   sources: string[];
   newsletterContext?: string;
+  /** The "so what for AMC" sentence, split out of the summary (2026-10-05). */
+  amc?: string;
 }
 
 export interface ThreadsResult {

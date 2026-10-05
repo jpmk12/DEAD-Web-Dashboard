@@ -13,6 +13,8 @@ export interface StoredThread {
   trend: "rising" | "stable" | "fading";
   sources: string[];
   newsletterContext?: string;
+  amc?: string;
+  articleIds?: string[];
 }
 
 export interface StoredSession {
@@ -22,6 +24,8 @@ export interface StoredSession {
   throughLine: string;
   articleCount: number;
   threads: StoredThread[];
+  /** Model calls made for this day (threads-first cap, 2026-10-05). */
+  generations?: number;
 }
 
 export interface LabelOccurrence {
@@ -60,6 +64,7 @@ interface ThreadRow extends RowDataPacket {
   sources: string[] | null;
   newsletter_context: string | null;
   article_ids: string[] | null;
+  amc: string | null;
 }
 
 interface SessionRow extends RowDataPacket {
@@ -85,6 +90,8 @@ function rowToThread(row: ThreadRow): StoredThread {
     trend: row.trend as StoredThread["trend"],
     sources: asStringArray(row.sources),
     newsletterContext: row.newsletter_context ?? undefined,
+    amc: row.amc ?? undefined,
+    articleIds: asStringArray(row.article_ids),
   };
 }
 
@@ -105,13 +112,14 @@ export async function saveSession(
 
     // Upsert session for today, then look up its id (LAST_INSERT_ID isn't reliable across upserts)
     await conn.execute(
-      `INSERT INTO thread_sessions (date, generated_at, through_line, article_count, article_hash)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO thread_sessions (date, generated_at, through_line, article_count, article_hash, generations)
+       VALUES (?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
          generated_at  = VALUES(generated_at),
          through_line  = VALUES(through_line),
          article_count = VALUES(article_count),
-         article_hash  = VALUES(article_hash)`,
+         article_hash  = VALUES(article_hash),
+         generations   = generations + 1`,
       [today, now, result.throughLine, articleCount, articleHash]
     );
 
@@ -127,8 +135,8 @@ export async function saveSession(
     for (const thread of result.threads) {
       await conn.execute(
         `INSERT INTO threads
-           (session_id, label, headline, summary, trend, sources, newsletter_context, article_ids)
-         VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), ?, CAST(? AS JSON))`,
+           (session_id, label, headline, summary, trend, sources, newsletter_context, article_ids, amc)
+         VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), ?, CAST(? AS JSON), ?)`,
         [
           sessionId,
           thread.label,
@@ -138,6 +146,7 @@ export async function saveSession(
           JSON.stringify(thread.sources),
           thread.newsletterContext ?? null,
           JSON.stringify(thread.articleIds),
+          thread.amc ?? null,
         ]
       );
     }
@@ -171,10 +180,7 @@ export async function getTodaySession(articleHash: string): Promise<ThreadsResul
   const session = sessions[0];
   if (!session || (session.article_hash ?? "") !== articleHash) return null;
 
-  const [threadRows] = await pool.query<ThreadRow[]>(
-    "SELECT id, session_id, label, headline, summary, trend, sources, newsletter_context, article_ids FROM threads WHERE session_id = ? ORDER BY id",
-    [session.id]
-  );
+  const [threadRows] = await pool.query<ThreadRow[]>(`SELECT ${THREAD_COLS} FROM threads WHERE session_id = ? ORDER BY id`, [session.id]);
   if (threadRows.length === 0) return null;
 
   return {
@@ -187,8 +193,64 @@ export async function getTodaySession(articleHash: string): Promise<ThreadsResul
       articleIds: asStringArray(r.article_ids),
       sources: asStringArray(r.sources),
       newsletterContext: r.newsletter_context ?? undefined,
+      amc: r.amc ?? undefined,
     })),
   };
+}
+
+const THREAD_COLS = "id, session_id, label, headline, summary, trend, sources, newsletter_context, article_ids, amc";
+
+/** Today's stored session WHATEVER the article hash — what the cap serves
+ *  once the day's generations are spent — with its generation count. */
+export async function getTodaySessionAny(): Promise<{ result: ThreadsResult; generations: number; generatedAt: string } | null> {
+  const pool = await getDb();
+  const today = new Date().toISOString().slice(0, 10);
+  const [sessions] = await pool.query<(SessionRow & { generations: number })[]>(
+    "SELECT id, date, generated_at, through_line, article_count, generations FROM thread_sessions WHERE date = ?",
+    [today]
+  );
+  const session = sessions[0];
+  if (!session) return null;
+  const [threadRows] = await pool.query<ThreadRow[]>(`SELECT ${THREAD_COLS} FROM threads WHERE session_id = ? ORDER BY id`, [session.id]);
+  if (threadRows.length === 0) return null;
+  return {
+    generations: Number(session.generations ?? 1),
+    generatedAt: session.generated_at.toISOString(),
+    result: {
+      throughLine: session.through_line,
+      threads: threadRows.map((r) => ({
+        label: r.label, headline: r.headline, summary: r.summary, trend: r.trend as "rising" | "stable" | "fading",
+        articleIds: asStringArray(r.article_ids), sources: asStringArray(r.sources),
+        newsletterContext: r.newsletter_context ?? undefined, amc: r.amc ?? undefined,
+      })),
+    },
+  };
+}
+
+/** The most recent session strictly before `beforeDate` (yyyy-mm-dd) — the
+ *  baseline for "Δ yesterday" on the cards and the through-line diff. */
+export async function getPreviousSession(beforeDate: string): Promise<StoredSession | null> {
+  const pool = await getDb();
+  const [sessions] = await pool.query<SessionRow[]>(
+    "SELECT id, date, generated_at, through_line, article_count FROM thread_sessions WHERE date < ? ORDER BY date DESC LIMIT 1",
+    [beforeDate]
+  );
+  const s = sessions[0];
+  if (!s) return null;
+  const [threadRows] = await pool.query<ThreadRow[]>(`SELECT ${THREAD_COLS} FROM threads WHERE session_id = ? ORDER BY id`, [s.id]);
+  return { id: s.id, date: s.date, generatedAt: s.generated_at.toISOString(), throughLine: s.through_line, articleCount: s.article_count, threads: threadRows.map(rowToThread) };
+}
+
+/** The newest session of all (for the brief and Glance). */
+export async function getLatestSession(): Promise<StoredSession | null> {
+  const pool = await getDb();
+  const [sessions] = await pool.query<SessionRow[]>(
+    "SELECT id, date, generated_at, through_line, article_count FROM thread_sessions ORDER BY date DESC LIMIT 1"
+  );
+  const s = sessions[0];
+  if (!s) return null;
+  const [threadRows] = await pool.query<ThreadRow[]>(`SELECT ${THREAD_COLS} FROM threads WHERE session_id = ? ORDER BY id`, [s.id]);
+  return { id: s.id, date: s.date, generatedAt: s.generated_at.toISOString(), throughLine: s.through_line, articleCount: s.article_count, threads: threadRows.map(rowToThread) };
 }
 
 export async function getRecentSessions(days: number): Promise<StoredSession[]> {
@@ -202,10 +264,7 @@ export async function getRecentSessions(days: number): Promise<StoredSession[]> 
   if (sessions.length === 0) return [];
 
   const ids = sessions.map((s) => s.id);
-  const [threadRows] = await pool.query<ThreadRow[]>(
-    "SELECT id, session_id, label, headline, summary, trend, sources, newsletter_context, article_ids FROM threads WHERE session_id IN (?) ORDER BY session_id, id",
-    [ids]
-  );
+  const [threadRows] = await pool.query<ThreadRow[]>(`SELECT ${THREAD_COLS} FROM threads WHERE session_id IN (?) ORDER BY session_id, id`, [ids]);
 
   const threadsBySession = new Map<number, StoredThread[]>();
   for (const r of threadRows) {
@@ -354,7 +413,7 @@ export async function searchThreads(
   try {
     const [rows] = await pool.query<(ThreadRow & { date: string })[]>(
       `SELECT t.id, t.session_id, t.label, t.headline, t.summary, t.trend,
-              t.sources, t.newsletter_context, t.article_ids, s.date
+              t.sources, t.newsletter_context, t.article_ids, t.amc, s.date
        FROM threads t
        JOIN thread_sessions s ON t.session_id = s.id
        WHERE MATCH(t.label, t.headline, t.summary) AGAINST (? IN BOOLEAN MODE)

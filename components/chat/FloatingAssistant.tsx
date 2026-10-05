@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
+import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 import ChatPanel from "./ChatPanel";
 import { AssistantIcon } from "@/lib/icons";
 
@@ -10,13 +10,14 @@ interface FloatingAssistantProps {
   tasks: GoogleTask[];
   articles: NewsItem[];
   newsletters: NewsletterSummary[];
+  threads?: ThreadsResult | null;
   onTaskAdded: () => void;
 }
 
 // Global AI assistant available on every tab: a fixed launcher button that opens
 // the same ChatPanel (calendar/tasks/news context, can create events & tasks) in
 // a right-side slide-over. The Calendar tab keeps its inline rail assistant too.
-export default function FloatingAssistant({ calendarEvents, tasks, articles, newsletters, onTaskAdded }: FloatingAssistantProps) {
+export default function FloatingAssistant({ calendarEvents, tasks, articles, newsletters, threads = null, onTaskAdded }: FloatingAssistantProps) {
   const [open, setOpen] = useState(false);
   // A prompt to prefill the composer with, seeded from elsewhere (e.g. a Glance
   // "reschedule" click dispatches `assistant:open` with a starter sentence).
@@ -95,6 +96,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
                 tasks={fetchedTasks ?? tasks}
                 articles={articles}
                 newsletters={newsletters}
+                threads={threads}
                 onTaskAdded={() => { onTaskAdded(); loadTasks(); }}
                 onEventChanged={() => window.dispatchEvent(new Event("calendar:changed"))}
                 initialInput={seed?.text}

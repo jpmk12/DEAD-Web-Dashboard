@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { NewsItem, SavedItem } from "@/lib/types";
+import { NewsItem, NewsThread, SavedItem } from "@/lib/types";
+import { laneFor, mentionsTerm, threadForArticle } from "@/lib/newsLanes";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import NewsCard from "./NewsCard";
 import TrendStrip from "./TrendStrip";
@@ -71,6 +72,10 @@ interface NewsFeedProps {
   onLoadingChange?: (loading: boolean) => void;
   watchlist?: string[];
   previousSeen?: number;
+  /** Today's threads, so each card can name the thread it belongs to. */
+  threads?: NewsThread[];
+  /** The curated "critical" ids, reported up (the Threads view lanes its linked articles the same way). */
+  onCuratedChange?: (ids: string[]) => void;
 }
 
 export default function NewsFeed({
@@ -79,6 +84,8 @@ export default function NewsFeed({
   onLoadingChange,
   watchlist = [],
   previousSeen = 0,
+  threads = [],
+  onCuratedChange,
 }: NewsFeedProps) {
   const { status } = useSession();
   const [items, setItems] = useState<NewsItem[]>([]);
@@ -88,7 +95,12 @@ export default function NewsFeed({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
+  // Category chips are a SECONDARY filter over the lanes (REVIEW-2026-10
+  // N9); "overview" = all lanes, the default. Saved stays its own view.
   const [tab, setTab] = useState<TabId>("overview");
+  // A trending chip picked on the strip filters the lanes (N7).
+  const [pickedTerm, setPickedTerm] = useState<string | null>(null);
+  const [showRest, setShowRest] = useState(false);
   // Persisted saved items are the source of truth for the Saved tab — they
   // outlive the live RSS feed, so a saved article that has rolled off the feed
   // still shows (the count and the list stay in sync). savedIds is derived for
@@ -171,8 +183,10 @@ export default function NewsFeed({
   // day to keep cost down and the list stable). A manual refresh (refreshKey)
   // forces a regenerate with ?refresh=1; otherwise the session-level cache keeps
   // tab switches and background refreshes from re-POSTing.
+  useEffect(() => { onCuratedChange?.((curated?.critical ?? []).map((c) => c.id)); }, [curated, onCuratedChange]);
+
   useEffect(() => {
-    if (status !== "authenticated" || tab !== "overview" || items.length === 0) return;
+    if (status !== "authenticated" || items.length === 0) return;
 
     // "Manual" = this refreshKey hasn't been curated yet (the Refresh button
     // bumped the monotonic counter). It stays true until a curation actually
@@ -212,7 +226,7 @@ export default function NewsFeed({
       .catch(() => {})
       .finally(() => setCurating(false));
     return () => controller.abort();
-  }, [status, tab, items, refreshKey, prefsVersion]);
+  }, [status, items, refreshKey, prefsVersion]);
 
   // Callbacks must be declared before any early returns (React rules of hooks)
   const handleFeedback = useCallback((title: string, source: string, action: "useful" | "not_useful" | "opened") => {
@@ -266,18 +280,24 @@ export default function NewsFeed({
     })),
   [savedItems]);
 
-  const visible = useMemo(() =>
-    tab === "saved" ? savedAsItems :
-    tab === "all"   ? items :
-    items.filter((i) => i.category === tab),
-  [tab, items, savedAsItems]);
-
-  // The curated set is frozen server-side, so render it directly rather than
-  // mapping ids against the live feed (which rolls older articles off).
+  // The curated set is frozen server-side; its ids decide the "now" lane.
   const criticalItems = curated?.critical ?? [];
-  const discoverItems = curated?.discover ?? [];
+  const criticalIds = useMemo(() => new Set(criticalItems.map((c) => c.id)), [criticalItems]);
   // Show a skeleton while the first curation of the day is in flight.
   const overviewLoading = curating && criticalItems.length === 0;
+
+  // The lanes (lib/newsLanes, pure): depth by source/length, now by curation,
+  // the rest folded. Category chip and trending term narrow all three.
+  const lanes = useMemo(() => {
+    const base = tab === "saved" ? [] : items.filter((i) => (tab === "overview" || tab === "all" || i.category === tab) && (!pickedTerm || mentionsTerm(i, pickedTerm)));
+    const depth: NewsItem[] = [], now: NewsItem[] = [], rest: NewsItem[] = [];
+    // Curated-critical items that rolled off the live feed still belong in "now".
+    const seen = new Set<string>();
+    for (const it of base) { seen.add(it.id); const l = laneFor(it, criticalIds); (l === "depth" ? depth : l === "now" ? now : rest).push(it); }
+    if (tab === "overview" || tab === "all") for (const c of criticalItems) if (!seen.has(c.id) && (!pickedTerm || mentionsTerm(c, pickedTerm))) (laneFor(c, criticalIds) === "depth" ? depth : now).push(c);
+    return { depth, now, rest };
+  }, [items, tab, pickedTerm, criticalIds, criticalItems]);
+  const visible = tab === "saved" ? savedAsItems : [];
 
   if (status === "unauthenticated") {
     return (
@@ -302,9 +322,8 @@ export default function NewsFeed({
   }
 
   const getCount = (id: TabId) => {
-    if (id === "all") return items.length;
+    if (id === "all" || id === "overview") return items.length;
     if (id === "saved") return savedIds.size;
-    if (id === "overview") return criticalItems.length;
     return countByCategory[id] ?? 0;
   };
 
@@ -321,13 +340,22 @@ export default function NewsFeed({
       watchlist={watchlist}
       previousSeen={previousSeen}
       showThesis={showThesis}
+      threadLabel={threadForArticle(item.id, threads)}
     />
+  );
+
+  const laneHead = (k: "depth" | "now", n: number) => (
+    <div className="flex items-center gap-2 mb-3">
+      <span className={`text-[11px] font-bold uppercase tracking-widest ${k === "depth" ? "text-violet-300" : "text-amber-300"}`}>{k === "depth" ? "◆ Strategic depth" : "⚑ Operational now"}</span>
+      <div className="flex-1 h-px bg-slate-800" />
+      <span className="text-[9.5px] font-mono text-slate-600">{k === "depth" ? `long-form · ${n}` : `${curated?.mode === "ai" ? "AI-curated" : "by your interests"} · ${n}`}</span>
+    </div>
   );
 
   return (
     <div>
-      {/* Week-over-week movers — the "sense the trend before it's obvious" strip. */}
-      <TrendStrip />
+      {/* Week-over-week movers — sorted and grouped; a chip filters the lanes. */}
+      <TrendStrip picked={pickedTerm} onPick={setPickedTerm} />
 
       {/* TDY strip — local coverage for where you are now, separate from the home
           feed so it never displaces home news. */}
@@ -366,29 +394,21 @@ export default function NewsFeed({
         </div>
       )}
 
-      {/* Category tab bar */}
-      <div className="flex items-center gap-0 mb-5 border-b border-slate-800 overflow-x-auto scrollbar-none -mx-1 px-1">
-        {TABS.map(({ id, label }) => {
+      {/* Category chips — a SECONDARY filter over the lanes (N9). */}
+      <div className="flex items-center gap-1.5 mb-5 flex-wrap">
+        {TABS.filter((t) => t.id !== "all").map(({ id, label }) => {
           const count = getCount(id);
           const isActive = tab === id;
           return (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${
-                isActive
-                  ? "border-emerald-500 text-emerald-400"
-                  : "border-transparent text-slate-500 hover:text-slate-300 hover:border-slate-700"
+              className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-all whitespace-nowrap ${
+                isActive ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300" : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"
               }`}
             >
-              {label}
-              {count > 0 && (
-                <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono leading-none ${
-                  isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-600"
-                }`}>
-                  {count}
-                </span>
-              )}
+              {id === "overview" ? "All" : label}
+              {count > 0 && <span className="text-[9px] font-mono opacity-70">{count}</span>}
             </button>
           );
         })}
@@ -425,68 +445,51 @@ export default function NewsFeed({
         </div>
       )}
 
-      {/* Overview — AI-curated "critical for you" + collapsed discovery.
-          Drawn from the whole feed, so it never blanks when a single
-          source (e.g. DVIDS) is disabled. */}
-      {!loading && !error && tab === "overview" && (
-        <div>
-          {overviewLoading && <SkeletonGrid />}
-
-          {!overviewLoading && criticalItems.length === 0 && (
-            <div className="text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">
-              {items.length === 0 ? "No articles loaded" : "Nothing critical surfaced — check the All tab"}
-            </div>
-          )}
-
-          {criticalItems.length > 0 && (
-            <>
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Critical for you</span>
-                <div className="flex-1 h-px bg-slate-800" />
-                <span className="text-[10px] font-mono text-slate-600 uppercase tracking-wider">
-                  {curated?.mode === "ai" ? "AI-curated" : "by your interests"}
-                </span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {criticalItems.map((it) => renderCard(it, true))}
-              </div>
-            </>
-          )}
-
-          {discoverItems.length > 0 && (
-            <div className="mt-8">
-              <button
-                onClick={() => setShowDiscover((v) => !v)}
-                className="flex items-center gap-2 w-full text-left mb-4 group"
-              >
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-500 group-hover:text-slate-300 transition-colors">
-                  More to discover
-                </span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono leading-none bg-slate-800 text-slate-600">
-                  {discoverItems.length}
-                </span>
-                <div className="flex-1 h-px bg-slate-800" />
-                <span className="text-slate-600 text-xs">{showDiscover ? "▲" : "▼"}</span>
-              </button>
-              {showDiscover && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {discoverItems.map((it) => renderCard(it, true))}
-                </div>
-              )}
-            </div>
+      {/* Lanes: Strategic depth · Operational now · everything else folded
+          (REVIEW-2026-10 N9). The category chips above narrow all three. */}
+      {!loading && !error && tab === "saved" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {visible.map((it) => renderCard(it, true))}
+          {visible.length === 0 && (
+            <div className="col-span-full text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">No saved articles yet — star articles to save them</div>
           )}
         </div>
       )}
 
-      {!loading && !error && tab !== "overview" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Thesis is on every card. It's free to render — the model is only
-              called on click (and cached after), so there's no cost to offering
-              it everywhere. */}
-          {visible.map((it) => renderCard(it, true))}
-          {visible.length === 0 && (
-            <div className="col-span-full text-center py-12 text-slate-600 text-sm font-mono uppercase tracking-wider">
-              {tab === "saved" ? "No saved articles yet — star articles to save them" : `No ${tab === "all" ? "" : tab + " "}articles loaded`}
+      {!loading && !error && tab !== "saved" && (
+        <div>
+          {overviewLoading && lanes.now.length === 0 && <SkeletonGrid />}
+          {pickedTerm && (
+            <p className="mb-3 text-[11px] text-slate-500">Filtered to <span className="text-slate-200 font-mono">{pickedTerm}</span> — {lanes.depth.length + lanes.now.length + lanes.rest.length} article{lanes.depth.length + lanes.now.length + lanes.rest.length === 1 ? "" : "s"}.</p>
+          )}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div className="min-w-0">
+              {laneHead("depth", lanes.depth.length)}
+              {lanes.depth.length === 0
+                ? <p className="text-xs text-slate-600 py-4">No long-form analysis in this slice.</p>
+                : <div className="space-y-3">{lanes.depth.slice(0, 12).map((it) => renderCard(it, true))}</div>}
+            </div>
+            <div className="min-w-0">
+              {laneHead("now", lanes.now.length)}
+              {lanes.now.length === 0
+                ? <p className="text-xs text-slate-600 py-4">{overviewLoading ? "Curating today's critical set…" : items.length === 0 ? "No articles loaded" : "Nothing curated as critical in this slice."}</p>
+                : <div className="space-y-3">{lanes.now.slice(0, 12).map((it) => renderCard(it, true))}</div>}
+            </div>
+          </div>
+
+          {lanes.rest.length > 0 && (
+            <div className="mt-8">
+              <button onClick={() => setShowRest((v) => !v)} className="flex items-center gap-2 w-full text-left mb-4 group">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-500 group-hover:text-slate-300 transition-colors">Everything else</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono leading-none bg-slate-800 text-slate-600">{lanes.rest.length}</span>
+                <div className="flex-1 h-px bg-slate-800" />
+                <span className="text-slate-600 text-xs">{showRest ? "▲" : "▼"}</span>
+              </button>
+              {showRest && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {lanes.rest.map((it) => renderCard(it, true))}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -14,6 +14,7 @@ import { getTrendMovers, formatMoversForPrompt } from "@/lib/trends";
 import { geocodePlace } from "@/lib/geocode";
 import { getDayForecasts, forecastLine, type DayForecast } from "@/lib/forecast";
 import { getActiveTrip, tripProgress } from "@/lib/trips";
+import { getLatestSession } from "@/lib/threadHistory";
 import { ensureTripTz } from "@/lib/timezoneLookup";
 import { resolveZone, DEFAULT_ZONE } from "@/lib/effectiveZone";
 import { isWorse } from "@/lib/severity";
@@ -290,6 +291,20 @@ export async function POST(request: Request) {
 
   let weatherLine = "";
   let trendLines = "";
+  // The News tab's thread analysis, when it ran today or yesterday: the
+  // rising threads with their AMC sentence (REVIEW-2026-10 N11). Stored
+  // rows, no model call.
+  let threadLines = "";
+  try {
+    const latest = await getLatestSession();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    if (latest && latest.date >= yesterday) {
+      const rising = latest.threads.filter((t) => t.trend === "rising").slice(0, 5);
+      if (rising.length) {
+        threadLines = rising.map((t) => `↑ ${t.label} — ${t.headline}${t.amc ? ` (AMC: ${t.amc})` : ""}`).join("\n");
+      }
+    }
+  } catch { /* threads are best-effort in the brief */ }
   const assemblyStart = Date.now();
   // Week-over-week movers from the deterministic trend layer (P1) — cheap SQL,
   // no extra model call; the brief just narrates them. Best-effort.
@@ -371,6 +386,7 @@ export async function POST(request: Request) {
     weatherLine && `SEVERE WEATHER & DISASTERS (prioritise life-threatening or near the user's locations; note HADR relevance):\n${weatherLine}`,
     forceLine && `FORCE PROTECTION (watched countries/bases — fused threat posture. Call out RED and newly-escalated locations prominently, e.g. in the headline or topStories; tie to where the user's forces operate):\n${forceLine}`,
     dayWeatherBlock && `DAY WEATHER (today's forecast — first line is your current base location, the rest are destinations from your calendar; use for the "weather" field):\n${dayWeatherBlock}`,
+    threadLines && `RISING THREADS (the News tab's own synthesis of the recent feed — use to connect the stories; do not restate verbatim):\n${threadLines}`,
     trendLines && `WEEK-OVER-WEEK SIGNAL (deterministic counts from the user's monitored feeds — use for the "trends" field):\n${trendLines}`,
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
     newsletterBullets && `NEWSLETTER HIGHLIGHTS:\n${newsletterBullets}`,

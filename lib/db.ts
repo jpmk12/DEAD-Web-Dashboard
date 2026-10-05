@@ -668,6 +668,10 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "user_prefs",  column: "osint_feeds",               ddl: "ALTER TABLE user_prefs ADD COLUMN osint_feeds                JSON NULL" },
   { table: "user_memory", column: "pending_exchanges",         ddl: "ALTER TABLE user_memory ADD COLUMN pending_exchanges JSON NULL" },
   { table: "briefing_cache", column: "tz",                     ddl: "ALTER TABLE briefing_cache ADD COLUMN tz VARCHAR(64) NOT NULL DEFAULT 'UTC'" },
+  // Threads-first landing (2026-10-05): the day's generation count, so a feed
+  // that moves through the day cannot spend past THREADS_MAX_GENERATIONS.
+  { table: "thread_sessions", column: "generations",           ddl: "ALTER TABLE thread_sessions ADD COLUMN generations INT NOT NULL DEFAULT 1" },
+  { table: "threads",         column: "amc",                   ddl: "ALTER TABLE threads ADD COLUMN amc TEXT NULL" },
   { table: "news_overview_cache", column: "ctx_hash",          ddl: "ALTER TABLE news_overview_cache ADD COLUMN ctx_hash VARCHAR(16) NOT NULL DEFAULT ''" },
   // Threads run on Opus over the whole article set — the priciest call in the
   // app. Hash of the article ids + user context; an unchanged set replays the

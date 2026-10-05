@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarEvent, ChatMessage as ChatMessageType, GoogleTask, NewsItem, NewsletterSummary } from "@/lib/types";
+import { CalendarEvent, ChatMessage as ChatMessageType, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 import ChatMessage from "./ChatMessage";
 import { AssistantIcon } from "@/lib/icons";
 import ChatInput from "./ChatInput";
@@ -11,6 +11,8 @@ interface ChatPanelProps {
   tasks?: GoogleTask[];
   articles?: NewsItem[];
   newsletters?: NewsletterSummary[];
+  /** The News tab's threads analysis, when it has run (one assistant, 2026-10-05). */
+  threads?: ThreadsResult | null;
   onTaskAdded?: () => void;
   onEventChanged?: () => void;   // fired after a successful add/move/edit/delete
   initialInput?: string;         // prefill the composer (e.g. seeded from Glance)
@@ -354,6 +356,7 @@ export default function ChatPanel({
   tasks = [],
   articles = [],
   newsletters = [],
+  threads = null,
   onTaskAdded,
   onEventChanged,
   initialInput,
@@ -534,6 +537,7 @@ export default function ChatPanel({
           tasks,
           articles,
           newsletters,
+          threads,
         }),
       });
 

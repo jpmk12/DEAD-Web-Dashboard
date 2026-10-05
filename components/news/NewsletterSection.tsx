@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { NewsletterSummary } from "@/lib/types";
+import { NewsletterSummary, NewsThread } from "@/lib/types";
+import { queueReason, perSource, oldestAgeDays } from "@/lib/newsletterQueue";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { DigestIcon } from "@/lib/icons";
 import { gmailMessageUrl } from "@/lib/gmailLink";
@@ -50,6 +51,8 @@ interface NewsletterSectionProps {
   onLoadingChange?: (loading: boolean) => void;
   watchlist?: string[];
   previousSeen?: number;
+  /** Today's threads — a newsletter that matches one earns a default row. */
+  threads?: Pick<NewsThread, "label">[];
 }
 
 const LS_DISMISSED = "nl-dismissed";
@@ -89,7 +92,7 @@ function bulletMatchesWatchlist(bullet: string, watchlist: string[]): boolean {
   return watchlist.some((t) => lower.includes(t.toLowerCase()));
 }
 
-export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, onLoadingChange, watchlist = [], previousSeen = 0 }: NewsletterSectionProps) {
+export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, onLoadingChange, watchlist = [], previousSeen = 0, threads = [] }: NewsletterSectionProps) {
   const { status } = useSession();
   const [newsletters, setNewsletters] = useState<NewsletterSummary[]>([]);
   // id → display badge, supplied by /api/newsletters (resolved from the user's
@@ -125,6 +128,10 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   const [showHidden, setShowHidden] = useState(false);
   const [showQuietList, setShowQuietList] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
+  // The QUEUE (REVIEW-2026-10 N8): by default only the rows that earned one
+  // (a watchlist hit, a thread match, a kept pin) show; "show all" opens
+  // the rest. Nothing is hidden from Catch me up (the digest).
+  const [showAll, setShowAll] = useState(false);
 
   const onSummariesLoadedRef = useRef(onSummariesLoaded);
   useEffect(() => { onSummariesLoadedRef.current = onSummariesLoaded; });
@@ -275,9 +282,25 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     [newsletters, dismissed]
   );
 
-  const sorted = useMemo(() =>
-    [...visibleNewsletters].sort((a, b) => (kept.has(b.id) ? 1 : 0) - (kept.has(a.id) ? 1 : 0)),
-  [visibleNewsletters, kept]);
+  const reasons = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof queueReason>>();
+    for (const n of visibleNewsletters) m.set(n.id, queueReason(n, watchlist, threads, kept));
+    return m;
+  }, [visibleNewsletters, watchlist, threads, kept]);
+  const earned = useMemo(() => visibleNewsletters.filter((n) => reasons.get(n.id)), [visibleNewsletters, reasons]);
+  const routineCount = visibleNewsletters.length - earned.length;
+  const sorted = useMemo(() => {
+    const base = showAll || earned.length === 0 ? visibleNewsletters : earned;
+    const rank = (n: NewsletterSummary) => (kept.has(n.id) ? 0 : reasons.get(n.id) ? 1 : 2);
+    return [...base].sort((a, b) => rank(a) - rank(b));
+  }, [visibleNewsletters, earned, showAll, kept, reasons]);
+  const sources = useMemo(() => perSource(visibleNewsletters), [visibleNewsletters]);
+  const oldest = useMemo(() => oldestAgeDays(visibleNewsletters), [visibleNewsletters]);
+  const clearQueue = () => {
+    const ids = visibleNewsletters.map((n) => n.id);
+    setDismissed((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); saveSet(LS_DISMISSED, next); return next; });
+    ids.forEach((id) => syncHideKeep(id, "hide"));
+  };
 
   const sortedBullets = useMemo(() =>
     compactMode
@@ -353,23 +376,49 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
   return (
     <section className="mb-8">
-      {/* Quiet-series prompt: newsletter subjects the user has never expanded.
-          Counter is clickable — expands a per-series list so the user can see
-          exactly which series are being flagged and hide them selectively. */}
-      {actionableQuiet.length > 0 && !loading && (
-        <div className="mb-3 bg-slate-900/60 border border-slate-700/60 rounded-lg text-xs">
-          <div className="flex items-center gap-2 px-3 py-2">
-            <span className="text-slate-500 text-base leading-none">○</span>
-            <button
-              type="button"
-              onClick={() => setShowQuietList((v) => !v)}
-              title={showQuietList ? "Collapse list" : "Show which series"}
-              className="text-slate-400 hover:text-slate-200 flex-1 text-left"
-            >
-              <span className="font-semibold text-slate-200">{actionableQuiet.length}</span>{" "}
-              newsletter series you&apos;ve never opened
-              <span className="ml-1 text-slate-600">{showQuietList ? "▴" : "▾"}</span>
-            </button>
+      {/* The queue header: per-source unread counts, the age of the oldest,
+          Catch me up (the digest) as the primary action, Clear queue, show all. */}
+      {!loading && visibleNewsletters.length > 0 && (
+        <div className="mb-3 bg-slate-900/60 border border-slate-700/60 rounded-xl">
+          <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
+            <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Newsletters</span>
+            {sources.map((s) => { const b = badgeFor(s.source); return <span key={s.source} className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded-md ${b.className}`}>{b.label} <span className="opacity-90">{s.count}</span></span>; })}
+            <span className="text-[10px] text-slate-600 font-mono">{visibleNewsletters.length} unread{oldest !== null && oldest > 0 ? ` · oldest ${oldest} d` : ""}</span>
+            <div className="ml-auto flex items-center gap-1.5">
+              <button
+                onClick={() => window.dispatchEvent(new Event("digest:open"))}
+                title="The digest reads every unread newsletter, including the routine ones folded below"
+                className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-md transition-all"
+              >
+                <DigestIcon size={13} strokeWidth={2.5} className="leading-none" /> Catch me up
+              </button>
+              <button onClick={clearQueue} title="Remove every unread newsletter from the queue (the digest has already read them)" className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-2 py-1 rounded-md transition-all">✓ Clear queue</button>
+              {routineCount > 0 && earned.length > 0 && (
+                <button onClick={() => setShowAll((v) => !v)} className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-2 py-1 rounded-md transition-all">
+                  {showAll ? "earned only" : `show all ${visibleNewsletters.length} ▾`}
+                </button>
+              )}
+              <button
+                onClick={() => setCompactMode((m) => !m)}
+                title={compactMode ? "Switch to card view" : "Flat bullets from every newsletter"}
+                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border transition-all ${compactMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300"}`}
+              >
+                ≡ bullets
+              </button>
+            </div>
+          </div>
+          <div className="px-3 pb-2 flex items-center gap-3 text-[10px] text-slate-600 flex-wrap">
+            {earned.length > 0 && !showAll && routineCount > 0 && <span>Showing the {earned.length} that touch your watchlist, a thread or a pin; {routineCount} more {routineCount === 1 ? "is" : "are"} routine.</span>}
+            {earned.length === 0 && <span>None touch your watchlist or a thread today — all {visibleNewsletters.length} shown.</span>}
+            {actionableQuiet.length > 0 && (
+              <button type="button" onClick={() => setShowQuietList((v) => !v)} className="ml-auto text-slate-500 hover:text-slate-300 underline decoration-dotted">
+                {actionableQuiet.length} series you&apos;ve never opened — review {showQuietList ? "▴" : "▾"}
+              </button>
+            )}
+          </div>
+          {showQuietList && actionableQuiet.length > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-800/60 text-xs">
+            <span className="text-slate-500 flex-1">Series you have never expanded — hide them so they stop queueing, or keep them.</span>
             <button
               onClick={hideQuietSeries}
               className="text-[10px] font-bold uppercase tracking-wider bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 hover:text-red-300 px-2 py-1 rounded-md transition-all"
@@ -384,7 +433,8 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
               Ignore
             </button>
           </div>
-          {showQuietList && (
+          )}
+          {showQuietList && actionableQuiet.length > 0 && (
             <ul className="border-t border-slate-800/60 divide-y divide-slate-800/40">
               {actionableQuiet.map((key) => {
                 // Map normalized key back to a representative original subject
@@ -421,30 +471,13 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
         </div>
       )}
 
-      {/* Section header */}
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Newsletters</span>
-        <div className="flex-1 h-px bg-slate-800" />
-        {loading && (
-          <span className="text-[10px] text-slate-600 font-mono uppercase tracking-wider animate-pulse">
-            Summarising…
-          </span>
-        )}
-        {!loading && newsletters.length > 0 && (
-          <button
-            onClick={() => setCompactMode((m) => !m)}
-            title={compactMode ? "Switch to card view" : "Switch to digest view — all bullets flat"}
-            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border transition-all font-mono font-bold uppercase tracking-wider ${
-              compactMode
-                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                : "text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300 bg-slate-800/50"
-            }`}
-          >
-            <DigestIcon size={14} strokeWidth={2.25} className="leading-none" />
-            Digest
-          </button>
-        )}
-      </div>
+      {loading && (
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Newsletters</span>
+          <div className="flex-1 h-px bg-slate-800" />
+          <span className="text-[10px] text-slate-600 font-mono uppercase tracking-wider animate-pulse">Summarising…</span>
+        </div>
+      )}
 
       {loading && (
         <div className="space-y-2">
@@ -537,10 +570,10 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                     </span>
                   )}
 
-                  {/* Watchlist flag */}
-                  {hasWatchlistMatch && (
-                    <span className="flex-shrink-0 text-[11px] font-bold text-orange-400">⚑</span>
-                  )}
+                  {/* Why this row earned its place */}
+                  {(() => { const r = reasons.get(n.id); return r ? (
+                    <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 ${r.kind === "watch" ? "text-orange-300 bg-orange-500/15" : r.kind === "thread" ? "text-emerald-300 bg-emerald-500/15" : "text-slate-300 bg-slate-700/60"}`}>{r.text}</span>
+                  ) : hasWatchlistMatch ? <span className="flex-shrink-0 text-[11px] font-bold text-orange-400">⚑</span> : null; })()}
 
                   {/* Subject + date */}
                   <div className="flex-1 min-w-0">

@@ -2288,6 +2288,66 @@ Built from the operator's first-startup user story. The load-bearing pieces:
   ×0.5; single source ×0.6; decay 1 / 0.6 / 0.25 at 2 / 7 / 14 d;
   `MOVE_CAP` 30 per AOR) — reporting can never dominate observation.
 
+### News tab rebuilt (2026-10-05, `docs/REVIEW-2026-10.md` §2 N1–N11, all four decisions yes)
+- **Two views, Threads first.** `NewsShell` views are `threads` (landing) and
+  `read`. The Read view stays hidden-mounted so the feed loads (Threads
+  needs the articles). **Cost rule**: `/api/threads` is still day-cached by
+  article hash, and now capped at `THREADS_MAX_GENERATIONS` = 3 model calls
+  per day (`thread_sessions.generations`, additive column; `saveSession`
+  increments on upsert) — past the cap the day's last session is served
+  with `capped:true` and the header says "day's last read". `?refresh=1`
+  (↻ Regenerate) is the only way past it. The response also carries
+  `previous` (the most recent session before today, `getPreviousSession`).
+- **History folded in** (`ThreadHistoryPanel.tsx` DELETED): `MovingRail.tsx`
+  (labels 7/14/30/60 d → `movingGroups`: sustained → rising → re-emerging →
+  steady → fading, each with run + sparkline; past days; search),
+  `LabelDrawer.tsx` (label timeline / search results), and the cards'
+  trajectory. `/api/thread-history` is unchanged.
+- **`lib/threadTrajectory.ts` (PURE, tested)**: `threadRun` ("3rd day" /
+  "new today" / "back after 18 d" — never a guessed run), `sparkCells`
+  (14 calendar days, null = no session), `threadDiff` (sources added /
+  dropped, trend move, vs the previous session's same-label thread),
+  `throughLineDiff` (new / moved / unchanged / dropped), `splitAmc` (an
+  explicit `amc` field wins; else the LAST sentence naming mobility is
+  lifted out of the summary), `threadDoors` (board label words ≥ 4 letters
+  excluding command names; chokepoint keywords; cap 3), `movingGroups`,
+  `threadDocMarkdown` (Latest section replaced; the Trace list gains ONE
+  stop per date — re-saving a day replaces its stop; `parseThreadTrace`
+  reads it back). `NewsThread.amc` is new (prompt field + `threads.amc`
+  column, additive); older rows fall back to `splitAmc`.
+- **Thread actions** (`lib/threadActions.ts`, client fetch helpers): Ask
+  (seeds `assistant:open`), Save to Docs (`/api/documents/titles` → PATCH
+  the existing "Thread: LABEL" doc or POST a `thread`-typed one), Follow
+  (`/api/osint/watchlist-suggestions` add/remove — owner-only route; the
+  watchlist already pins ⚑ and feeds Glance/alerts), door chips (board →
+  `watch:focus {kind:"iw"}`; chokepoint → Economy tab).
+- **ONE assistant** (`NewsChatPanel.tsx` + `/api/news-chat` DELETED;
+  `ChatRail` no longer used on News). `/api/chat` accepts `threads`; on a
+  `news*` surface it takes 40 articles with summaries + 30 newsletters +
+  the threads block, and the cacheable identity gained the analyst's lines
+  (explain / connect / strategic context / remember more-less-of). Plumbing:
+  `NewsShell.onThreadsChange` → `TabShell` → `FloatingAssistant` →
+  `ChatPanel.threads` → body. `NewsAssistantCard` on the rail seeds it. The
+  `news_chat` AI-feature key is left in place (harmless; ledger history).
+- **Read view**: `lib/newsLanes.ts` (PURE, tested) — `laneFor` = depth by
+  `DEPTH_SOURCES` or body ≥ 900 chars › now (curated-critical ids) › rest;
+  `groupMovers` (rising by velocity, new by count, fading); `threadForArticle`.
+  `NewsFeed` renders two lanes + "Everything else" folded; category tabs are
+  chips (secondary filter); `TrendStrip` is grouped and a chip FILTERS the
+  lanes (`onPick`); `NewsCard` shows the thread badge. Curation now runs
+  regardless of the chip (it feeds the "now" lane); `onCuratedChange` reports
+  the ids up for the Threads view's lane tags.
+- **Newsletter queue** (`lib/newsletterQueue.ts`, PURE, tested): per-source
+  counts, oldest age, **Catch me up** (= `digest:open`), **Clear queue**
+  (= hide all, the digest has read them), and by default only EARNED rows
+  (`queueReason`: watchlist hit › thread match on the label's words ≥ 3
+  letters minus a stoplist › kept pin) with the reason chip; "show all"
+  reveals the routine rest. The never-opened-series prompt moved to the
+  footer ("review ▾").
+- **N11**: `/api/briefing` gets a RISING THREADS block from
+  `getLatestSession()` (today or yesterday); Glance's Breaking & critical
+  panel leads with a "🧵 Rising threads" row (sessions, 2 d).
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns
