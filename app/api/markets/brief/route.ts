@@ -6,7 +6,7 @@ import { getUserPrefs, buildUserContext } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { extractJsonObject } from "@/lib/aiJson";
+import { salvageJsonObject } from "@/lib/aiJson";
 import { todayInTz } from "@/lib/date";
 import { NewsItem } from "@/lib/types";
 import { getEnergyQuotes } from "@/lib/energyPrices";
@@ -52,7 +52,19 @@ interface MacroBrief {
   /** True when the model returned nothing usable and this is the
    *  deterministic board rendered as prose (REVIEW-2026-10 §10 E8). */
   fallback?: boolean;
+  /** Why the fallback was used, in words the panel can show. */
+  fallbackReason?: string;
+  /** The reply was cut off at the output cap and repaired — what is shown
+   *  is what the model finished writing. */
+  truncated?: boolean;
 }
+
+// Output cap. 1024 was the cause of a week of empty reads: eight actor
+// calls (call + falsifier + decision line each) do not fit, the reply was
+// cut mid-string, JSON.parse threw and the route saw {}. The prompt's
+// shape is ~1,600–2,400 tokens at eight actors; 3,000 leaves room, and
+// `salvageJsonObject` keeps what was finished if it is ever exceeded.
+const MAX_OUTPUT_TOKENS = 3000;
 
 type EwBody = Awaited<ReturnType<typeof getEconomicWarfare>>;
 
@@ -60,11 +72,11 @@ type EwBody = Awaited<ReturnType<typeof getEconomicWarfare>>;
 // ("Empty read — please retry") and the panel showed that sentence all
 // day. Now the board the model was handed is rendered as the read itself,
 // flagged `fallback`, cached only briefly, and the panel retries once.
-function fallbackBrief(ew: EwBody | null, energyLine: string): MacroBrief {
+function fallbackBrief(ew: EwBody | null, energyLine: string, reason: string): MacroBrief {
   if (!ew || ew.actors.length === 0) {
     return {
       read: "The model returned an empty read and the actor board is unavailable this pass — every actor is UNKNOWN, not calm.",
-      actors: [], fuelLogistics: energyLine ? `Prices this session: ${energyLine}.` : "", watchItems: [], fallback: true,
+      actors: [], fuelLogistics: energyLine ? `Prices this session: ${energyLine}.` : "", watchItems: [], fallback: true, fallbackReason: reason,
     };
   }
   const name = (id: string) => INSTRUMENT_META[id as Instrument]?.label ?? "U.S. counter-pressure";
@@ -86,7 +98,7 @@ function fallbackBrief(ew: EwBody | null, energyLine: string): MacroBrief {
     actors,
     fuelLogistics: energyLine ? `Prices this session: ${energyLine}.` : "",
     watchItems: ew.timeline.sequences.slice(0, 3).map((s) => `${s.actorLabel}: ${s.firstLabel} → ${s.secondLabel} (${s.gapDays}d)`),
-    fallback: true,
+    fallback: true, fallbackReason: reason,
   };
 }
 
@@ -249,7 +261,7 @@ async function generate(prefs: Awaited<ReturnType<typeof getUserPrefs>>, article
   // generous, but a hung call must not hold the inflight slot all day.
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 1024,
+    max_tokens: MAX_OUTPUT_TOKENS,
     system: [
       { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
       ...(buildUserContext(prefs) ? [{ type: "text" as const, text: buildUserContext(prefs) }] : []),
@@ -259,9 +271,13 @@ async function generate(prefs: Awaited<ReturnType<typeof getUserPrefs>>, article
   logCall({ route: "markets_brief", model: "claude-sonnet-4-6", usage: response.usage, user }).catch(() => {});
   {
     const textBlock = response.content.find((b) => b.type === "text");
-    const raw = textBlock?.type === "text" ? textBlock.text : "{}";
-    let p: Record<string, unknown> = {};
-    try { p = JSON.parse(extractJsonObject(raw)); } catch { /* leave empty */ }
+    const raw = textBlock?.type === "text" ? textBlock.text : "";
+    const salvaged = salvageJsonObject(raw);
+    const p: Record<string, unknown> = salvaged.value ?? {};
+    const cutOff = response.stop_reason === "max_tokens";
+    if (!salvaged.value) {
+      console.error(`markets/brief: reply not parseable (stop_reason=${response.stop_reason}, ${raw.length} chars): ${raw.slice(0, 200).replace(/\s+/g, " ")}`);
+    }
 
     const strArr = (v: unknown) => Array.isArray(v) ? (v as unknown[]).map((s) => String(s).slice(0, 200)).slice(0, 6) : [];
     const boardLevel = new Map((ew?.actors ?? []).map((b) => [b.actor.label.toLowerCase(), b.assessment.level]));
@@ -283,9 +299,15 @@ async function generate(prefs: Awaited<ReturnType<typeof getUserPrefs>>, article
       actors,
       fuelLogistics: String(p.fuelLogistics ?? "").slice(0, 500),
       watchItems: strArr(p.watchItems),
+      ...(salvaged.truncated || cutOff ? { truncated: true } : {}),
     };
     if (!brief.read.trim() && brief.actors.length === 0) {
-      return fallbackBrief(ew, energyLine);
+      const reason = !raw.trim()
+        ? "the model returned no text"
+        : cutOff
+          ? `the reply was cut off at the ${MAX_OUTPUT_TOKENS}-token output cap and nothing complete could be recovered`
+          : `the reply was not valid JSON (${raw.length} chars, stop reason ${response.stop_reason ?? "unknown"})`;
+      return fallbackBrief(ew, energyLine, reason);
     }
     return brief;
   }

@@ -735,6 +735,22 @@ boxes are working", "how were these chosen, can they be edited", "what is
   client cache, and retries the model ONCE after 30 s (`?refresh=1`).
 - **Order on the tab** (E9): Read → **Chokepoints** → actor board → energy
   → regulatory → news.
+- **"The model returned an empty read" on every pass (bug report, same
+  day)**: the fallback was firing constantly because the model's reply was
+  CUT OFF — `max_tokens` was 1024 and eight actor calls (call + falsifier
+  + decision line each) need ~1,600–2,400 tokens; the truncated JSON threw
+  in `JSON.parse`, the route saw `{}`, and before the fallback this was the
+  "Empty read — please retry" of the week before. Two fixes, keep both:
+  `MAX_OUTPUT_TOKENS` = 3000 in `/api/markets/brief`, and
+  `salvageJsonObject` in `lib/aiJson.ts` (PURE, tested) — repairs a cut-off
+  reply by closing the open string and brackets, cutting back to the last
+  `,` when that fails — so a reply that overruns the cap still yields the
+  actors it finished (`truncated: true`, the panel says an actor or two may
+  be missing). A fallback now carries `fallbackReason` (no text / cut off /
+  not JSON with the stop reason) and the route logs the first 200 chars of
+  an unparseable reply. Any other route that asks the model for a long
+  JSON object should parse through `salvageJsonObject`, not bare
+  `JSON.parse(extractJsonObject(...))`.
 - **"The actor editor doesn't open" (bug report, same day)**: the editor
   rendered BELOW the tile grid — two rows down, off-screen from the ⚙
   button — and the header row could not wrap, so a long live-sensors line

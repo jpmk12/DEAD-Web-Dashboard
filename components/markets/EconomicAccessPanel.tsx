@@ -13,6 +13,9 @@ interface AccessBrief {
   watchItems: string[];
   /** The deterministic board rendered as prose because the model returned nothing (§10 E8). */
   fallback?: boolean;
+  fallbackReason?: string;
+  /** The reply was cut off at the output cap and repaired — partial, not wrong. */
+  truncated?: boolean;
 }
 
 const FALLBACK_RETRY_MS = 30_000;
@@ -132,8 +135,11 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
         <div className="space-y-3">
           {brief.fallback && (
             <p className="text-[10.5px] text-amber-200/90 border border-amber-500/30 bg-amber-500/[0.06] rounded-md px-2.5 py-1.5 leading-snug">
-              The model returned an empty read — this is the deterministic board rendered as prose, not an analyst&rsquo;s call.{retried.current ? " One automatic retry has been made; ↻ refresh tries again." : " Retrying once in 30 s."}
+              The model returned an empty read{brief.fallbackReason ? ` (${brief.fallbackReason})` : ""} — this is the deterministic board rendered as prose, not an analyst&rsquo;s call.{retried.current ? " One automatic retry has been made; ↻ refresh tries again." : " Retrying once in 30 s."}
             </p>
+          )}
+          {!brief.fallback && brief.truncated && (
+            <p className="text-[10px] text-slate-500 italic">The model&rsquo;s reply was cut off at the output cap and repaired — what is shown is what it finished; an actor or two may be missing. ↻ refresh asks again.</p>
           )}
           <p className="text-xs text-slate-300 leading-relaxed">{brief.read}</p>
           {brief.actors.length > 0 && (

@@ -1,5 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { extractJsonObject, extractJsonArray } from "@/lib/aiJson";
+import { extractJsonObject, extractJsonArray, salvageJsonObject } from "@/lib/aiJson";
+
+describe("salvageJsonObject — a cut-off reply keeps what it finished", () => {
+  it("parses a whole object with truncated:false", () => {
+    expect(salvageJsonObject('```json\n{"read":"ok","actors":[]}\n```')).toEqual({ value: { read: "ok", actors: [] }, truncated: false });
+  });
+  it("repairs a reply cut inside an actor's string value", () => {
+    const raw = '{"read":"Iran is pressing.","actors":[{"actor":"Iran","level":"watch","call":"Seizure reported."},{"actor":"Russia","level":"calm","call":"Gas flows resu';
+    const { value, truncated } = salvageJsonObject(raw);
+    expect(truncated).toBe(true);
+    expect(value?.read).toBe("Iran is pressing.");
+    const actors = value?.actors as { actor: string }[];
+    expect(actors.map((a) => a.actor)).toContain("Iran");
+  });
+  it("repairs a reply cut after a key or a comma", () => {
+    expect(salvageJsonObject('{"read":"r","actors":[{"actor":"Iran","level":"watch"}],"fuelLogistics":').value).toMatchObject({ read: "r" });
+    expect(salvageJsonObject('{"read":"r","actors":[{"actor":"Iran","level":"watch"},').value).toMatchObject({ read: "r", actors: [{ actor: "Iran" }] });
+  });
+  it("returns null when nothing object-shaped survives", () => {
+    expect(salvageJsonObject("no json").value).toBeNull();
+    expect(salvageJsonObject('{"read').value).toBeNull();
+  });
+});
 
 describe("extractJsonObject", () => {
   it("returns a plain object string unchanged (parseable)", () => {
