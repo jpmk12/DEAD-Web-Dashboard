@@ -23,6 +23,7 @@ interface Row extends RowDataPacket {
   state: string;
   state_at: Date | null;
   snoozed_until: string | null;
+  due_source: string | null;
 }
 
 const toStored = (r: Row): StoredDeadline => ({
@@ -38,6 +39,7 @@ const toStored = (r: Row): StoredDeadline => ({
   state: (r.state as DeadlineState) ?? "open",
   stateAt: r.state_at ? r.state_at.toISOString() : null,
   snoozedUntil: r.snoozed_until ?? null,
+  dueSource: r.due_source === "user" ? "user" : r.due_source === "model" ? "model" : null,
 });
 
 /** Everything we hold for this user. The pane decides what to show — a done
@@ -86,7 +88,8 @@ export async function upsertDeadlines(userEmail: string, rows: StoredDeadline[])
        ON DUPLICATE KEY UPDATE
          title    = VALUES(title),
          detail   = VALUES(detail),
-         due_iso  = COALESCE(family_deadlines.due_iso, VALUES(due_iso)),
+         due_iso  = CASE WHEN family_deadlines.due_source = 'user' THEN family_deadlines.due_iso
+                         ELSE COALESCE(family_deadlines.due_iso, VALUES(due_iso)) END,
          buried   = VALUES(buried),
          last_seen = VALUES(last_seen)`,
       values,
@@ -139,5 +142,21 @@ export async function pruneHandledDeadlines(userEmail: string, days = 180): Prom
     );
   } catch {
     /* best-effort */
+  }
+}
+
+/** The operator sets (yyyy-mm-dd) or clears (null) a deadline's date. Marked
+ *  `due_source = 'user'` so no extraction overwrites it (REVIEW-2026-10 F3).
+ *  Open rows only — a handled row's date is history. */
+export async function setDeadlineDue(userEmail: string, id: string, dueISO: string | null): Promise<boolean> {
+  try {
+    const pool = await getDb();
+    const [res] = await pool.execute(
+      `UPDATE family_deadlines SET due_iso = ?, due_source = 'user' WHERE id = ? AND user_email = ? AND state = 'open'`,
+      [dueISO, id, userEmail],
+    );
+    return (res as { affectedRows?: number }).affectedRows === 1;
+  } catch {
+    return false;
   }
 }

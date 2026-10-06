@@ -2466,6 +2466,77 @@ inputs).
 - Mockup: `docs/mockups/email-proposed.html` → `docs/email.png`. No new
   npm dep (esbuild `0`).
 
+### Family tab rebuilt (2026-10-06, `docs/REVIEW-2026-10.md` §5 F1–F9, all three decisions yes)
+`FamilyTab` now reads: attention line → Needs you → kids (left) / While you
+are away + Coverage (right) → proposals → folded discovery. The pieces,
+each a pure join unless it says otherwise:
+- **Needs you** (F1, F2): `dedupeDeadlines` (PURE, in `familyDeadlines.ts`)
+  merges rows at RENDER — same person, same due date (or both undated),
+  same handled-ness, title-token overlap ≥ `DEADLINE_MERGE_OVERLAP` 0.6 →
+  one row with `mergedIds` / "×N newsletters"; Done / Not mine / Set date /
+  snooze apply to every merged id. The STORE still keeps every extraction
+  (its key is message + title by design). `splitHandled` sends done and
+  dismissed rows into ONE folded line ("5 done this fortnight — show ·
+  undo"); the header count is open rows only; every write is followed by a
+  QUIET reload (`?silent=1`) so the rollup catches up without bumping the
+  visit.
+- **Set date** (F3): `PATCH /api/family {id, dueIso}` (yyyy-mm-dd or null)
+  → `setDeadlineDue` writes `due_source = 'user'` (additive column), and
+  BOTH the upsert SQL (`CASE WHEN due_source='user'`) and `mergeDeadlines`
+  (`prev.dueSource === "user"` keeps `prev.dueISO`, even null) refuse to let
+  an extraction overwrite it. The Later button is one menu: the dates the
+  email itself names as chips (`lib/datesInText.ts`, PURE, tested —
+  explicit month-day / day-month / m/d / ISO forms only, year resolved
+  into [-60 d, +365 d] leaning forward; relative phrases are NOT
+  recognised, by design), a date input, the snoozes. Nothing is assigned
+  automatically — the chip is the operator's tap. Undated rows whose text
+  names a date say so inline and count in the attention line.
+- **Running brief per person** (F4): `family_person_brief` (user, person,
+  summary, whats_new, source_ids, updated_at; `lib/familyBriefStore.ts`).
+  `assembleFamilyDigest` hands the model each person's PREVIOUS BRIEF and
+  marks each message `isNew` (not in any brief's `source_ids` — a set
+  difference, never a guess); the prompt says UPDATE, not rewrite, and
+  returns `whatsNew` separately (rendered as the highlighted sentence).
+  `FamilyPersonDigest` gained `whatsNew`, `updatedAt`, `newMail`, `stale`;
+  `upcoming[]` carries `sourceId`. A failed model call returns the stored
+  briefs marked `stale` (`briefFailed: true`) instead of blank cards.
+  **Cost rule**: past the 15-min cache the model runs ONLY when the message
+  id set changed — one `listMessageIds` call decides (`sameSet` against
+  `FamilyDigest.mailIds`); `?refresh=1` still forces. `GET /api/family?
+  check=1` → `countNewFamilyMail` (ids only, no bodies, no model) is what
+  the tab polls every 10 min while open and visible (and on becoming
+  visible); only `newMail > 0` triggers a re-read. "New since your last
+  visit" anchors on `surface_state` surface **`family`** (added to
+  `Surface`), bumped AFTER the read and only on a plain open (not on
+  `refresh` or `silent`) — `isNewSince(firstSeen, lastVisitMs)` for
+  deadlines, `newMail` per person from the briefs.
+- **While you are away** (F6): `lib/familyAway.ts` (PURE, tested):
+  `pickTrip` = the trip you are on, else the next one — a past trip never
+  matches (the old block matched every stored trip); `awayList` splits
+  `happened` (dated items inside the trip whose date has passed, handled
+  included, 14-day lookback) from `ahead` (unhandled, from today); `awayText`
+  is the copy-as-a-list text. The route returns `away` (the old
+  `tripConflicts` field is gone from `/api/family`; `/api/family/week` and
+  the brief still use `findTripConflicts`). The trip is named ONCE in the
+  header with day N of M.
+- **Events per person** (F7): the kid card lists `digest.events` for that
+  person with ＋ Add / "on calendar ✓" / the not-guessed line; events with
+  no person sit on the Household card. The separate "Dates found" card is
+  retired.
+- **Proposals** (F8): `SenderMention` carries `sourceSubject` /
+  `sourceDate` / `sourceFrom` (filled by the assembler from the mail it
+  read); the prompt asks for the SENTENCE around the mention, never a bare
+  link; `ProposalsCard` renders "In “subject” (sender · date): “sentence”",
+  what tracking will read, and an "open the email" link.
+- **Orientation** (F5, F9): the attention line (need you · undated-but-
+  named · land while away · to file ↓ · updated N min ago · new since your
+  last visit · checks every 10 min); a person with nothing this fortnight
+  says so with the last handled item; `SenderDiscoveryCard` takes
+  `exclude` — Household excludes `school`/`activity`, School excludes
+  `biller` — so a scan row lands on the pane that owns it.
+- Mockup: `docs/mockups/family-proposed.html` → `docs/family-proposed.png`.
+  No new npm dep (esbuild `0`).
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns

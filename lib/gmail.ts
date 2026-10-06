@@ -154,6 +154,15 @@ export async function getUnreadEmails(
   return messageRefs.map((id) => byId.get(id)).filter((m): m is EmailMessage => !!m);
 }
 
+/** Message ids only — one messages.list call, no message bodies. The Family
+ *  tab's new-mail check (REVIEW-2026-10 F4) compares this against the ids
+ *  the last digest read, so the model runs only when mail actually changed. */
+export async function listMessageIds(accessToken: string, query: string, maxResults = 30): Promise<string[]> {
+  const gmail = buildClient(accessToken);
+  const listRes = await gmail.users.messages.list({ userId: "me", q: query, maxResults });
+  return (listRes.data.messages ?? []).map((r) => r.id).filter((id): id is string => !!id);
+}
+
 export async function fetchNewsletterEmails(
   accessToken: string,
   query: string,

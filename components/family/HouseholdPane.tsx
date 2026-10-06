@@ -175,6 +175,7 @@ export default function HouseholdPane({ active, autoDiscover = false }: { active
         intro="You cannot be reminded of a bill you forgot you had — everything else on this pane only looks at senders you named."
         onAccepted={() => load(true)}
         autoDiscover={autoDiscover}
+        exclude={["school", "activity"]}
       />
 
       {/* ── account jeopardy ──

@@ -52,6 +52,9 @@ export interface StoredDeadline {
   /** yyyy-mm-dd until which the row stays out of the way. "Not now" is a real
    *  answer, distinct from done and not-mine: the record stays OPEN. */
   snoozedUntil?: string | null;
+  /** "user" when the operator set (or cleared) the date — an extraction then
+   *  never overwrites it. Absent/"model" for an extracted date. */
+  dueSource?: "user" | "model" | null;
 }
 
 /** What the UI renders — stored, plus derived position in its lifecycle. */
@@ -184,8 +187,9 @@ export function mergeDeadlines(
         // Detail and buried-ness can legitimately sharpen on a re-read.
         detail: f.detail || prev.detail,
         buried: f.buried ?? prev.buried,
-        // Keep a date we already had; accept one we did not.
-        dueISO: prev.dueISO ?? f.dueISO ?? null,
+        // Keep a date we already had; accept one we did not. A date the USER
+        // set (or deliberately cleared) is theirs — never touched.
+        dueISO: prev.dueSource === "user" ? prev.dueISO : (prev.dueISO ?? f.dueISO ?? null),
         personId: prev.personId ?? f.personId ?? null,
         lastSeen: nowIso,
         // state and stateAt are deliberately untouched.
@@ -241,4 +245,69 @@ export function rollup(views: DeadlineView[]): DeadlineRollup {
  *  timezone's date rather than UTC — the brief already resolves one. */
 export function todayYmd(nowMs = Date.now()): string {
   return ymd(nowMs);
+}
+
+// ── Render-time grouping (REVIEW-2026-10 F1/F2/F9) ──────────────────────────
+
+export interface GroupedDeadline extends DeadlineView {
+  /** Every stored id this row stands for (itself first). */
+  mergedIds: string[];
+  mergedCount: number;
+}
+
+const tokens = (s: string): Set<string> => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3));
+function overlap(a: string, b: string): number {
+  const ta = tokens(a), tb = tokens(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let n = 0;
+  for (const w of ta) if (tb.has(w)) n++;
+  return n / Math.min(ta.size, tb.size);
+}
+
+/** Title overlap at or above this merges two rows (same person, same date). */
+export const DEADLINE_MERGE_OVERLAP = 0.6;
+
+/**
+ * One row per obligation. The STORE keeps every extraction (its key is
+ * message + title by design — one deadline in three newsletters is three
+ * rows), so the join happens here: same person, same due date (or both
+ * undated), same handled-ness, title overlap ≥ DEADLINE_MERGE_OVERLAP. The
+ * kept row is the earliest-first-seen one (the oldest record of the
+ * obligation); the shortest title tends to be the cleanest and is used.
+ */
+export function dedupeDeadlines(views: DeadlineView[]): GroupedDeadline[] {
+  const out: GroupedDeadline[] = [];
+  const handled = (v: DeadlineView) => v.phase === "done" || v.phase === "dismissed";
+  for (const v of views) {
+    const hit = out.find((o) =>
+      (o.personId ?? null) === (v.personId ?? null) &&
+      (o.dueISO ?? null) === (v.dueISO ?? null) &&
+      handled(o) === handled(v) &&
+      overlap(o.title, v.title) >= DEADLINE_MERGE_OVERLAP);
+    if (hit) {
+      hit.mergedIds.push(v.id);
+      hit.mergedCount++;
+      if (v.title.length < hit.title.length) hit.title = v.title;
+      if (!hit.detail && v.detail) hit.detail = v.detail;
+      if (v.buried) hit.buried = true;
+      if (Date.parse(v.firstSeen) < Date.parse(hit.firstSeen)) { hit.firstSeen = v.firstSeen; hit.ageDays = Math.max(hit.ageDays, v.ageDays); }
+    } else {
+      out.push({ ...v, mergedIds: [v.id], mergedCount: 1 });
+    }
+  }
+  return out;
+}
+
+export function splitHandled<T extends DeadlineView>(views: T[]): { open: T[]; handled: T[] } {
+  return {
+    open: views.filter((v) => v.phase !== "done" && v.phase !== "dismissed"),
+    handled: views.filter((v) => v.phase === "done" || v.phase === "dismissed"),
+  };
+}
+
+/** True when the row first appeared after the user's last visit. */
+export function isNewSince(v: Pick<DeadlineView, "firstSeen">, lastVisitMs: number): boolean {
+  if (!lastVisitMs) return false;
+  const t = Date.parse(v.firstSeen);
+  return Number.isFinite(t) && t > lastVisitMs;
 }

@@ -37,6 +37,12 @@ export interface SenderMention {
   /** Distinct messages that mentioned it. */
   sightings: number;
   sourceIds: string[];
+  /** The email the first mention came from (subject · date), filled by the
+   *  assembler from the mail it read — so the row names its source, not a
+   *  raw link (REVIEW-2026-10 F8). */
+  sourceSubject?: string;
+  sourceDate?: string;
+  sourceFrom?: string;
 }
 
 export interface DocumentProposal {
@@ -182,7 +188,7 @@ export function normalizeDocumentProposals(
 /** The prompt fragment both model calls append, so the two stay in step. */
 export const PROPOSALS_PROMPT = `
 Also return, in the same object:
-  "mentions":  [ { "name": "SignUpGenius", "domain": "signupgenius.com" | null, "kind": "biller"|"school"|"activity"|"medical"|"travel"|"admin"|"other", "why": "one clause quoting the email", "sourceId": "..." } ]
+  "mentions":  [ { "name": "SignUpGenius", "domain": "signupgenius.com" | null, "kind": "biller"|"school"|"activity"|"medical"|"travel"|"admin"|"other", "why": "the SENTENCE around the mention, quoted — what it is for and any date it gives; never a bare link", "sourceId": "..." } ]
   "documents": [ { "label": "Passport — Emma", "kind": "expiry"|"renewal", "dateISO": "YYYY-MM-DD" | null, "why": "one clause quoting the email", "sourceId": "..." } ]
 - "mentions" are OTHER organisations the household clearly deals with that are named in these emails — a payment portal, a club, a clinic, an insurer, a coach's organisation. Not the sender itself. Include "domain" only if an address or web domain is actually visible in the text; never guess one.
 - "documents" are things with an expiry or renewal date that the email STATES explicitly — a passport, licence, registration, policy, membership, ID. "dateISO" only when the email prints a calendar date; otherwise null and it will be ignored. Never calculate a date.

@@ -37,7 +37,7 @@ const TRACKS: Record<string, string> = {
 const AUTO_KEY = "family.discover.lastAuto";
 const AUTO_EVERY_MS = 7 * 86_400_000;
 
-export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDiscover = false }: {
+export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDiscover = false, exclude = [] }: {
   heading: string;
   /** One sentence on why this pane wants the scan. */
   intro: string;
@@ -45,6 +45,9 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
   onAccepted?: () => void;
   /** From the roster: run the scan by itself about weekly on mount. */
   autoDiscover?: boolean;
+  /** Categories this pane does not own (REVIEW-2026-10 F9): a school sender
+   *  proposed on the Household pane belongs to the School pane, not here. */
+  exclude?: ProposalCategory[];
 }) {
   // Discovery is null until the user has scanned at least once — an empty array
   // means "scanned, found nothing", and the two read very differently.
@@ -143,8 +146,11 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
     }
   };
 
+  // The rows this pane shows: the scan is shared, the ownership is not.
+  const shown = discovery === null ? null : discovery.filter((c) => !exclude.includes(c.category));
+
   const acceptAll = async () => {
-    const rows = discovery ?? [];
+    const rows = shown ?? [];
     if (rows.length === 0) return;
     setAdding("*");
     let ok = 0;
@@ -188,13 +194,13 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
           </span>
         </div>
 
-        {discovery === null ? (
+        {shown === null ? (
           <p className="px-3.5 py-2 text-[10px] text-slate-600 leading-snug">
             {intro} This checks the last 120 days for category-shaped subjects from senders you have NOT declared. It reads subject lines and addresses only, never message bodies.
             {autoDiscover ? " It runs by itself about once a week when you open this tab; Scan runs it now." : " It runs only when you press Scan."}
             {" "}Seed from label proposes everyone in one of your own Gmail labels instead.
           </p>
-        ) : discovery.length === 0 ? (
+        ) : shown.length === 0 ? (
           <p className="px-3.5 py-2 text-[10px] text-slate-600 leading-snug">
             {seededFrom
               ? <>Nothing undeclared in your &ldquo;{seededFrom}&rdquo; label from the last year.</>
@@ -207,7 +213,7 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
                 From your &ldquo;{seededFrom}&rdquo; label — the label is the evidence, so the category is a guess. Check the dropdowns, then Track all.
               </p>
             )}
-            {discovery.map((c) => {
+            {shown.map((c) => {
               const chosen = pick[c.domain] ?? c.category;
               return (
                 <div key={c.domain} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/50">
@@ -265,10 +271,10 @@ export default function SenderDiscoveryCard({ heading, intro, onAccepted, autoDi
                 learned from its statements; the silence watch never accuses a biller it has only just met.
                 Declining is permanent.
               </p>
-              {discovery.length > 1 && (
+              {shown.length > 1 && (
                 <button onClick={acceptAll} disabled={adding !== null}
                   className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded px-2.5 py-1 border border-emerald-500/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40">
-                  {adding === "*" ? "Adding…" : `＋ Track all ${discovery.length}`}
+                  {adding === "*" ? "Adding…" : `＋ Track all ${shown.length}`}
                 </button>
               )}
             </div>

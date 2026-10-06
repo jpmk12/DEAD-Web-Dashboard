@@ -13,11 +13,35 @@ import { toast } from "@/lib/feedback";
 // makes. Nothing new is read. The model proposed, the server validated, and
 // this card is where you dispose: one tap writes the roster row you would
 // have typed; Never is permanent.
+//
+// Each row names the email it came from and the sentence around the mention
+// (REVIEW-2026-10 F8) — a raw link told the operator nothing, so they had to
+// go and look — and says what Track will do.
 
 const ALL_CATEGORIES: ProposalCategory[] = ["biller", ...SENDER_CATEGORIES];
 const CAT_LABEL: Record<string, string> = { biller: "Bill", ...SENDER_CATEGORY_LABEL };
+const TRACKS: Record<string, string> = {
+  biller: "its statements, their cadence and a silence watch if it stops writing",
+  school: "its newsletters for deadlines, closures and forms",
+  activity: "its sign-up windows, fees and schedule changes",
+  medical: "appointments and records requests",
+  travel: "bookings and check-in windows",
+  admin: "renewals and notices",
+  other: "whatever it sends, for dates and asks",
+};
 
-export default function ProposalsCard({ proposals, onChanged }: { proposals: FamilyProposals; onChanged?: () => void }) {
+const fmtDate = (iso?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-US", { day: "numeric", month: "short" }) : "";
+};
+const senderName = (from?: string): string => {
+  if (!from) return "";
+  const m = from.match(/^\s*"?([^"<]+?)"?\s*</);
+  return (m ? m[1] : from.split("@")[0]).trim();
+};
+
+export default function ProposalsCard({ proposals, onChanged, accountEmail }: { proposals: FamilyProposals; onChanged?: () => void; accountEmail?: string }) {
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [pick, setPick] = useState<Record<string, ProposalCategory>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -40,7 +64,7 @@ export default function ProposalsCard({ proposals, onChanged }: { proposals: Fam
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || "Could not add it");
       hide(m.domain);
-      toast.ok(`Tracking ${m.name}`, `as ${CAT_LABEL[category]}`);
+      toast.ok(`Tracking ${m.name}`, `as ${CAT_LABEL[category]} — its mail is read from the next digest`);
       onChanged?.();
     } catch (e) {
       toast.error("Could not add that sender", e);
@@ -72,6 +96,7 @@ export default function ProposalsCard({ proposals, onChanged }: { proposals: Fam
     else toast.error("Could not save that dismissal");
   };
 
+  const gmailHref = (id: string) => `https://mail.google.com/mail/?${accountEmail ? `authuser=${encodeURIComponent(accountEmail)}` : ""}#all/${encodeURIComponent(id)}`;
   const btn = "flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border disabled:opacity-40";
 
   return (
@@ -84,13 +109,22 @@ export default function ProposalsCard({ proposals, onChanged }: { proposals: Fam
       {senders.map((m) => {
         const key = m.domain ?? mentionKey(m.name);
         const chosen = m.domain ? (pick[m.domain] ?? m.category) : m.category;
+        const src = m.sourceSubject ? `${senderName(m.sourceFrom) || "an email"}${m.sourceDate ? ` · ${fmtDate(m.sourceDate)}` : ""}` : "";
         return (
-          <div key={key} className="flex items-start gap-3 px-3.5 py-2 border-t border-slate-800/50 first:border-t-0">
+          <div key={key} className="flex items-start gap-3 px-3.5 py-2.5 border-t border-slate-800/50 first:border-t-0">
             <span className="flex-1 min-w-0">
-              <span className="block text-[12.5px] font-semibold text-slate-100">{m.name}</span>
-              <span className="block text-[10px] font-mono text-slate-500">{m.domain ?? "no address seen in the mail — add it by hand if you want it tracked"}</span>
-              <span className="block text-[10.5px] text-slate-500 mt-0.5">
-                &ldquo;{m.evidence}&rdquo;{m.sightings > 1 ? ` · mentioned in ${m.sightings} messages` : ""}
+              <span className="block text-[12.5px] font-semibold text-slate-100">
+                {m.name}
+                <span className="ml-2 text-[10px] font-mono font-normal text-slate-500">{m.domain ?? "no address seen in the mail — add it by hand if you want it tracked"}</span>
+              </span>
+              <span className="block text-[11px] text-slate-400 mt-0.5 leading-snug">
+                {m.sourceSubject && <>In <b className="text-slate-200 font-semibold">“{m.sourceSubject}”</b>{src ? ` (${src})` : ""}: </>}
+                <b className="text-slate-300 font-medium">“{m.evidence}”</b>
+                {m.sightings > 1 ? ` · mentioned in ${m.sightings} messages` : ""}
+              </span>
+              <span className="block text-[10px] text-slate-500 mt-0.5">
+                Tracking it reads {TRACKS[chosen] ?? TRACKS.other} from the next digest.
+                {m.sourceIds[0] && <> <a href={gmailHref(m.sourceIds[0])} target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300">open the email ↗</a></>}
               </span>
             </span>
             {m.domain && (

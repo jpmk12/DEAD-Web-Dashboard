@@ -648,8 +648,23 @@ const SCHEMA_STATEMENTS = [
     state       VARCHAR(16)  NOT NULL DEFAULT 'open',
     state_at    DATETIME(3)  NULL,
     snoozed_until VARCHAR(10) NULL,
+    due_source  VARCHAR(8)   NULL,
     PRIMARY KEY (id, user_email),
     INDEX idx_fd_user (user_email, due_iso)
+  ) ENGINE=InnoDB`,
+
+  // The running brief per family member (REVIEW-2026-10 F4): the previous
+  // text plus only NEW mail goes to the model, which updates it. source_ids
+  // = the message ids the brief has incorporated, so "new" is a set
+  // difference, never a guess.
+  `CREATE TABLE IF NOT EXISTS family_person_brief (
+    user_email  VARCHAR(255) NOT NULL,
+    person_id   VARCHAR(40)  NOT NULL,
+    summary     TEXT         NOT NULL,
+    whats_new   TEXT         NULL,
+    source_ids  JSON         NULL,
+    updated_at  BIGINT       NOT NULL,
+    PRIMARY KEY (user_email, person_id)
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS thread_sessions (
@@ -722,6 +737,8 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "sitrep_status_daily", column: "infra",             ddl: "ALTER TABLE sitrep_status_daily ADD COLUMN infra VARCHAR(1) NULL" },
   { table: "sitrep_status_daily", column: "spectrum",          ddl: "ALTER TABLE sitrep_status_daily ADD COLUMN spectrum VARCHAR(1) NULL" },
   { table: "family_deadlines", column: "snoozed_until",        ddl: "ALTER TABLE family_deadlines ADD COLUMN snoozed_until VARCHAR(10) NULL" },
+  // Set date (2026-10-06): "user" marks a date the operator set or cleared; an extraction never overwrites it.
+  { table: "family_deadlines", column: "due_source",           ddl: "ALTER TABLE family_deadlines ADD COLUMN due_source VARCHAR(8) NULL" },
   { table: "x_upload_tokens", column: "expected_interval_hours", ddl: "ALTER TABLE x_upload_tokens ADD COLUMN expected_interval_hours INT NULL" },
   { table: "user_prefs",  column: "mission_profile",           ddl: "ALTER TABLE user_prefs ADD COLUMN mission_profile JSON NULL" },
   { table: "user_prefs",  column: "newsletter_sources",        ddl: "ALTER TABLE user_prefs ADD COLUMN newsletter_sources JSON NULL" },
