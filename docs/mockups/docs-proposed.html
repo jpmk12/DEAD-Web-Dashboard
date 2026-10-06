@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>docs (proposed)</title><link rel="stylesheet" href="shot.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:22px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .n{margin:2px 0 0}
+  .lbl{margin:0 0 8px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin-bottom:18px}
+  /* a news card with the selection chip */
+  .ncard{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);padding:12px 14px;position:relative}
+  .ncard .src{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#7dd3fc;background:rgba(56,189,248,.12);border-radius:4px;padding:1px 6px}
+  .ncard h4{font-size:14px;margin:6px 0 4px;color:#f1f5f9}
+  .ncard p{font-size:12px;color:#cbd5e1;margin:0;line-height:1.5}
+  .ncard .sel{background:rgba(56,189,248,.28);border-radius:2px}
+  .thesis{margin-top:8px;border:1px solid rgba(167,139,250,.3);background:rgba(167,139,250,.06);border-radius:8px;padding:8px 10px}
+  .thesis .k{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#c4b5fd}
+  .thesis p{font-size:12px;color:#e2e8f0;margin:3px 0 6px}
+  .acts{display:flex;gap:6px;flex-wrap:wrap}
+  .act{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:3px 8px;color:#94a3b8;white-space:nowrap}
+  .act.pri{border-color:rgba(52,211,153,.5);color:var(--acc)}
+  .act.vio{border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  .chipfloat{position:absolute;right:18px;top:62px;display:inline-flex;align-items:center;gap:6px;background:#0f172a;border:1px solid rgba(52,211,153,.6);border-radius:999px;padding:4px 10px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc);box-shadow:0 8px 24px -8px rgba(0,0,0,.8)}
+  /* append picker */
+  .modal{border:1px solid var(--bd2);border-radius:14px;background:#0f172a;box-shadow:0 24px 60px -20px rgba(0,0,0,.9);overflow:hidden}
+  .modal .hd{padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px}
+  .modal .hd .k{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+  .modal .hd .s{font-size:10px;color:var(--mut)}
+  .modal .inp{margin:10px 14px 0;border:1px solid rgba(52,211,153,.5);border-radius:8px;padding:7px 10px;font-size:13px;color:#f1f5f9;background:#020617}
+  .modal .inp i{font-style:normal;color:var(--mut2)}
+  .trow{display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;padding:8px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:12px}
+  .trow:first-of-type{border-top:0}
+  .trow.on{background:rgba(52,211,153,.07)}
+  .trow .t{color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trow .t em{font-style:normal;color:var(--mut);font-size:10.5px;margin-left:6px}
+  .trow .m{font-size:9.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+  .grp{padding:8px 14px 2px;font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2)}
+  .prev{margin:10px 14px;border:1px solid var(--bd);border-radius:8px;background:#020617;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#cbd5e1;line-height:1.5;white-space:pre-wrap}
+  .prev b{color:#7dd3fc}
+  .modal .ft{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--bd)}
+  .modal .ft .hint{font-size:9.5px;color:var(--mut);margin-left:auto}
+  /* docs landing */
+  .land{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);overflow:hidden;margin-bottom:18px}
+  .land .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35)}
+  .land .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8}
+  .land .hd .s{font-size:10px;color:var(--mut)}
+  .land .hd .r{margin-left:auto;display:flex;gap:6px}
+  .logs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:12px 14px}
+  .log{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:rgba(2,6,23,.45)}
+  .log .top{display:flex;align-items:center;gap:7px}
+  .log .top .ic{font-size:13px}
+  .log .top b{font-size:12.5px;color:#f1f5f9}
+  .log .top .m{margin-left:auto;font-size:9px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .log .last{font-size:11px;color:#cbd5e1;margin-top:5px;line-height:1.45}
+  .log .last em{font-style:normal;color:var(--mut);font-size:10px;display:block;margin-top:2px}
+  .log .ft{display:flex;gap:6px;margin-top:7px}
+  /* files */
+  .fl{display:grid;grid-template-columns:300px 1fr;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:rgba(15,23,42,.55);min-height:420px}
+  .fside{border-right:1px solid var(--bd);background:#020617;position:relative}
+  .drop{margin:10px;border:2px dashed rgba(52,211,153,.45);border-radius:10px;padding:14px 10px;text-align:center;background:rgba(52,211,153,.05)}
+  .drop b{display:block;font-size:11px;color:var(--acc);letter-spacing:.08em;text-transform:uppercase}
+  .drop span{font-size:10px;color:var(--mut)}
+  .q{margin:0 10px 8px;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+  .q .qr{display:grid;grid-template-columns:1fr auto;gap:8px;padding:5px 9px;font-size:10.5px;border-top:1px solid rgba(30,41,59,.6);color:#cbd5e1}
+  .q .qr:first-child{border-top:0}
+  .q .qr .st{font-size:9px;font-family:ui-monospace,Menlo,monospace;color:var(--mut)}
+  .q .qr .st.ok{color:var(--acc)}.q .qr .st.er{color:var(--red)}
+  .q .bar{height:3px;background:#1e293b}.q .bar i{display:block;height:100%;background:var(--acc2);width:62%}
+  .bulk{margin:0 10px 8px;border:1px solid rgba(52,211,153,.4);border-radius:8px;background:rgba(52,211,153,.06);padding:6px 9px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;color:#cbd5e1}
+  .frow{display:grid;grid-template-columns:18px 20px 1fr auto;gap:8px;align-items:center;padding:7px 10px;border-top:1px solid rgba(30,41,59,.6);font-size:11.5px}
+  .frow.on{background:rgba(30,41,59,.5);border-left:2px solid var(--acc2)}
+  .frow .cb{width:12px;height:12px;border:1px solid var(--bd2);border-radius:3px;display:inline-block}
+  .frow .cb.on{background:var(--acc2);border-color:var(--acc2)}
+  .frow .nm{color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .frow .nm small{display:block;font-size:9px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .frow .dl{font-size:9px;color:var(--mut);font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+  .fview{display:flex;flex-direction:column}
+  .fview .hd{padding:10px 14px;border-bottom:1px solid var(--bd)}
+  .fview .hd .t{font-size:14px;font-weight:800;color:#f1f5f9}
+  .fview .hd .m{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;margin-top:2px}
+  .fview .hd .acts{margin-top:8px}
+  .pdf{flex:1;background:#e5e7eb;color:#111827;padding:18px 24px;font-family:Georgia,serif;font-size:11px;line-height:1.5}
+  .pdf h5{font-size:13px;margin:0 0 6px}
+  .pdf p{margin:0 0 6px}
+  .pdf .pg{float:right;font-size:9px;color:#6b7280}
+</style>
+</head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab active">News <span class="badge">9+</span></span><span class="tab">Calendar</span><span class="tab">Email <span class="badge">6</span></span><span class="tab">Family</span><span class="tab">OSINT</span><span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+
+  <span class="lbl">From any tab — append a thought to a running log without leaving the page</span>
+  <div class="two">
+    <div class="ncard">
+      <span class="src">Foreign Policy</span> <span class="src" style="color:#fcd34d;background:rgba(245,158,11,.12)">Thread: PRC coercion</span>
+      <h4>Beijing&rsquo;s rare-earth licensing is a sanctions playbook in reverse</h4>
+      <p>The new MOFCOM licensing regime does not ban exports; it makes every shipment a decision Beijing can revisit. <span class="sel">That is the structure of a sanctions regime, applied by the target — a reversible chokehold that costs China nothing until it is used.</span> Western fabs have 60–90 days of gallium on hand.</p>
+      <span class="chipfloat">⧉ Append to…<span class="n" style="margin-left:4px;box-shadow:none;width:15px;height:15px">1</span></span>
+      <div class="thesis"><span class="k">✦ Thesis</span><span class="n" style="width:15px;height:15px;font-size:9px">2</span><p>China is building a reversible export-control chokehold on critical minerals that functions as reverse sanctions: cheap to hold, costly to trigger, and timed to Western inventory cycles.</p>
+        <div class="acts"><span class="act pri">⧉ Append to China references</span><span class="act">⧉ Append to…</span><span class="act">Save as new doc</span><span class="act vio">Ask</span></div></div>
+    </div>
+
+    <div class="modal">
+      <div class="hd"><span class="k">Append to</span><span class="s">a running log · dated entry · source kept</span><span class="n">3</span></div>
+      <div class="inp">chin<i>a</i></div>
+      <div class="grp">Your logs — most recently appended first</div>
+      <div class="trow on"><span>📓</span><span class="t">China references<em>log · 14 entries · last 2 d ago · aliases: PRC, Beijing</em></span><span class="m">↵ append</span></div>
+      <div class="trow"><span>📓</span><span class="t">PRC coercion — thread<em>thread · from News · 6 stops</em></span><span class="m"></span></div>
+      <div class="trow"><span>📓</span><span class="t">Economic warfare — reading log<em>log · 31 entries · last 5 d ago</em></span><span class="m"></span></div>
+      <div class="grp">Other matches</div>
+      <div class="trow"><span>📝</span><span class="t">PRC Thoughts<em>note · pinned · tags PRC, China</em></span><span class="m"></span></div>
+      <div class="trow"><span>＋</span><span class="t" style="color:var(--acc)">New log “China”<em>starts a 📓 log with this as the first entry</em></span><span class="m"></span></div>
+      <div class="prev"><b>### 2026-10-06 — from News · Foreign Policy</b>
+China is building a reversible export-control chokehold on critical minerals that functions as reverse sanctions: cheap to hold, costly to trigger, and timed to Western inventory cycles.
+_Beijing’s rare-earth licensing is a sanctions playbook in reverse_ · [source](https://foreignpolicy.com/…) · thread [[PRC coercion]]<span class="n" style="width:15px;height:15px;font-size:9px">4</span></div>
+      <div class="ft"><span class="act pri">Append ↵</span><span class="act">Edit entry first</span><span class="act">Open the log</span><span class="hint">Esc closes · ⌘K “Append to a log” · /log china: … in Capture</span></div>
+    </div>
+  </div>
+
+  <!-- Docs landing -->
+  <span class="lbl">Docs tab landing — the logs, not an empty pane</span>
+  <div class="land">
+    <div class="hd"><span class="k">📓 Running logs</span><span class="s">one doc per subject you keep coming back to — newest entry on top, appended from anywhere</span><span class="n">5</span><span class="r"><span class="act">＋ New log</span><span class="act">all docs</span></span></div>
+    <div class="logs">
+      <div class="log"><div class="top"><span class="ic">📓</span><b>China references</b><span class="m">14 entries · 2 d</span></div><div class="last">Reversible export-control chokehold on critical minerals — reverse sanctions timed to Western inventory cycles.<em>today · from News · Foreign Policy</em></div><div class="ft"><span class="act">open</span><span class="act">⧉ append</span><span class="act">⇩ export</span></div></div>
+      <div class="log"><div class="top"><span class="ic">📓</span><b>Hormuz — interdiction patterns</b><span class="m">22 entries · 1 d</span></div><div class="last">IRGCN seizures cluster 48–72 h after a designation; the AIS suppression precedes the seizure by a day.<em>yesterday · from OSINT · X capture</em></div><div class="ft"><span class="act">open</span><span class="act">⧉ append</span><span class="act">⇩ export</span></div></div>
+      <div class="log"><div class="top"><span class="ic">📓</span><b>Economic warfare — reading log</b><span class="m">31 entries · 5 d</span></div><div class="last">Counter-pressure recency, not count, is what the actor reacts to.<em>5 d ago · from the assistant</em></div><div class="ft"><span class="act">open</span><span class="act">⧉ append</span><span class="act">⇩ export</span></div></div>
+    </div>
+    <div style="padding:0 14px 12px;font-size:10.5px;color:var(--mut)">Also here: Recent (6) · Pinned · From news · Threads · Lexicon — unchanged.</div>
+  </div>
+
+  <!-- Files -->
+  <span class="lbl">Files — bulk, drop anywhere, preview that works, download that is visible</span>
+  <div class="fl">
+    <div class="fside">
+      <div class="drop"><b>Drop files or folders anywhere in this pane</b><span>or ↑ Upload · 30 MB per file · 250 MB total · 41 MB used</span><span class="n">6</span></div>
+      <div class="q">
+        <div class="qr"><span>AMC_C17_crosswind_limits.pdf</span><span class="st ok">✓ 2.1 MB</span></div>
+        <div class="qr"><span>CENTCOM_overflight_2026Q4.pdf</span><span class="st">uploading · 62%</span></div><div class="bar"><i></i></div>
+        <div class="qr"><span>ramp_photo_IMG_4471.heic</span><span class="st er">⚠ 34 MB — over the 30 MB limit · retry smaller</span></div>
+      </div>
+      <div class="bulk"><b>3 selected</b> · <span class="act">tag</span><span class="act">attach to doc</span><span class="act pri">⇩ download .zip</span><span class="act" style="color:var(--red);border-color:rgba(248,113,113,.4)">delete</span><span class="n" style="width:15px;height:15px;font-size:9px">7</span></div>
+      <div class="frow on"><span class="cb on"></span><span>📕</span><span class="nm">AMC_C17_crosswind_limits.pdf<small>2.1 MB · 3 min ago · tags: C-17, limits</small></span><span class="dl">⇩</span></div>
+      <div class="frow"><span class="cb on"></span><span>📕</span><span class="nm">OJAQ_airfield_diagram.pdf<small>840 KB · yesterday · attached to SITREP — OJAQ</small></span><span class="dl">⇩</span></div>
+      <div class="frow"><span class="cb on"></span><span>🖼</span><span class="nm">hormuz_ais_2026-10-05.png<small>1.4 MB · yesterday</small></span><span class="dl">⇩</span></div>
+      <div class="frow"><span class="cb"></span><span>📊</span><span class="nm">crew_rest_tracker.xlsx<small>120 KB · 4 d ago</small></span><span class="dl">⇩</span></div>
+      <div class="frow"><span class="cb"></span><span>📃</span><span class="nm">sortie_plan_draft.docx<small>88 KB · 6 d ago</small></span><span class="dl">⇩</span></div>
+    </div>
+    <div class="fview">
+      <div class="hd"><div class="t">AMC_C17_crosswind_limits.pdf</div><div class="m">2.1 MB · application/pdf · uploaded today 14:02 · tags C-17, limits</div>
+        <div class="acts"><span class="act pri">⇩ Download</span><span class="act">↗ Open in new tab</span><span class="act">attach to doc…</span><span class="act">edit</span><span class="act" style="color:var(--red);border-color:rgba(248,113,113,.4)">delete</span><span class="n">8</span></div></div>
+      <div class="pdf"><span class="pg">1 / 12</span><h5>C-17A Crosswind Limits — Quick Reference</h5><p>Dry runway, max demonstrated crosswind component: 30 kt. Wet runway: 25 kt. Contaminated (ice): 15 kt. Gust component counts in full. Refer to the flight manual for assault-landing limits.</p><p>Preview renders in place again — the page&rsquo;s own Content-Security-Policy had been refusing to frame its own files.<span class="n" style="width:15px;height:15px;font-size:9px">9</span></p></div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h3>Callouts — what changes and why</h3>
+    <ol>
+      <li><span class="n">1</span><b>Select text anywhere → “⧉ Append to…”</b> — a floating chip on any selection in the app (News, OSINT, Email, a chat answer, the SITREP). One tap, no tab flip.</li>
+      <li><span class="n">2</span>A thesis (and every Save-to-Docs button) gets <b>two verbs</b>: append to a log, or save as a new doc. The first shows the log you used last for this subject.</li>
+      <li><span class="n">3</span><b>The Append picker</b>: your logs first (most recently appended first, aliases and tags searched), other docs after, and “New log” last. Same shape as the Track picker.</li>
+      <li><span class="n">4</span>The entry is a <b>dated heading</b> with the text, the source line and a wiki-link to the thread — editable before it lands; the article is recorded as a link so the log shows in the article&rsquo;s backlinks.</li>
+      <li><span class="n">5</span>Docs opens on the <b>logs</b> (a new 📓 doc type), newest entry on top, rather than “No document selected”.</li>
+      <li><span class="n">6</span><b>The whole Files pane is the drop zone</b>, folders included; a queue shows each file&rsquo;s state and lets one failure be retried without re-dropping the rest.</li>
+      <li><span class="n">7</span><b>Multi-select + bulk bar</b> for files: tag, attach to a doc, download as one .zip, delete — the Docs list already has this; Files had none.</li>
+      <li><span class="n">8</span><b>Download is a button</b>, on every row and in the viewer header, with “Open in new tab” for PDFs.</li>
+      <li><span class="n">9</span><b>PDF preview was blocked by our own CSP</b> (`frame-src` without `'self'`, and `frame-ancestors 'none'` applied to the file response itself). A header fix, not a viewer rewrite.</li>
+    </ol>
+  </div>
+</main>
+<div class="mockcap">mockup · docs (proposed) · 2026-10-06</div>
+</body></html>

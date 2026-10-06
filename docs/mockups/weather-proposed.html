@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>weather (proposed)</title><link rel="stylesheet" href="shot.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:22px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .n{margin:2px 0 0}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  /* glance inset */
+  .inset{border:1px solid rgba(167,139,250,.35);border-radius:12px;background:rgba(167,139,250,.04);padding:10px 14px;margin-bottom:18px}
+  .inset .k{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#c4b5fd}
+  .clocks{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:8px 0}
+  .clk{border:1px solid var(--bd);border-radius:8px;padding:6px 8px;background:rgba(2,6,23,.5)}
+  .clk .off{font-size:8px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace}
+  .clk .t{font-size:18px;font-weight:800;font-family:ui-monospace,Menlo,monospace;color:#f1f5f9;letter-spacing:-.02em}
+  .clk .l{font-size:9px;color:var(--mut)}
+  .clk.z .t{color:var(--acc)}
+  .clk.me{border-color:rgba(56,189,248,.5)}
+  .where{display:flex;align-items:center;gap:12px;border:1px solid rgba(56,189,248,.35);background:rgba(56,189,248,.05);border-radius:10px;padding:8px 12px;flex-wrap:wrap}
+  .where .k{font-size:9px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#7dd3fc}
+  .where .big{font-size:20px;font-weight:800;color:#f1f5f9;font-family:ui-monospace,Menlo,monospace}
+  .where .seg{font-size:11.5px;color:#cbd5e1;display:inline-flex;align-items:center;gap:6px}
+  .where .seg b{color:#f1f5f9}
+  .where .div{width:1px;height:16px;background:var(--bd2)}
+  .where .door{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+  .vfr{font-size:9px;font-weight:800;letter-spacing:.08em;border-radius:3px;padding:1px 5px}
+  .vfr.g{color:#34d399;background:rgba(52,211,153,.12)}.vfr.b{color:#7dd3fc;background:rgba(56,189,248,.14)}.vfr.r{color:#f87171;background:rgba(248,113,113,.14)}.vfr.u{color:#94a3b8;background:rgba(148,163,184,.12)}
+  .briefw{margin-top:8px;border-top:1px dashed rgba(167,139,250,.3);padding-top:8px;font-size:11.5px;color:#cbd5e1}
+  .briefw b{color:#7dd3fc;font-size:9px;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px}
+  .briefw p{margin:0 0 2px}
+  /* weather header */
+  .wh{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+  .wh .ico{width:28px;height:28px;border-radius:6px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3);display:flex;align-items:center;justify-content:center;color:#38bdf8}
+  .wh .k{font-size:13px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#e2e8f0}
+  .wh .s{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .wh .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .act{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:3px 8px;color:#94a3b8;white-space:nowrap}
+  .act.pri{border-color:var(--acc2);background:var(--acc2);color:#022c22}
+  .act.ghost{border-style:dashed}
+  .srcs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px}
+  .src{display:inline-flex;align-items:center;gap:6px;font-size:10px;border:1px solid var(--bd);border-radius:999px;padding:3px 9px;color:#cbd5e1;background:rgba(15,23,42,.6)}
+  .src .led{width:7px;height:7px}
+  .src i{font-style:normal;color:var(--mut);font-size:9.5px}
+  .src.down{border-color:rgba(251,191,36,.5)}
+  .srcs .why{font-size:10px;color:var(--mut);margin-left:4px}
+  /* sections */
+  .sec{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);overflow:hidden;margin-bottom:14px}
+  .sec .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35);flex-wrap:wrap}
+  .sec .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8}
+  .sec .hd .s{font-size:10px;color:var(--mut)}
+  .sec .hd .r{margin-left:auto;display:flex;gap:6px}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 14px}
+  .card{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:rgba(2,6,23,.45);position:relative}
+  .card.sel{border-color:rgba(56,189,248,.6);box-shadow:0 0 14px -4px rgba(56,189,248,.5)}
+  .card .x{position:absolute;top:8px;right:9px;font-size:11px;color:var(--mut2)}
+  .card .tag{font-size:8px;margin-bottom:2px}
+  .card .nm{font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:14px}
+  .card .ll{font-size:9px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace}
+  .card .cur{display:flex;align-items:center;gap:10px;margin:8px 0 2px}
+  .card .cur .ic{font-size:22px}
+  .card .cur .tp{font-size:24px;font-weight:800;color:#f1f5f9;line-height:1}
+  .card .cur .w{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;text-transform:uppercase}
+  .card .cond{font-size:10px;color:#94a3b8}
+  .card .mets{font-size:10px;color:#94a3b8;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 10px}
+  .card .mets b{color:#cbd5e1}
+  .card .days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)}
+  .card .days div{text-align:center}
+  .card .days .d{font-size:8px;color:var(--mut2)}
+  .card .days .i{font-size:12px}
+  .card .days .h{font-size:10px;font-weight:700;color:#cbd5e1}
+  .card .days .lo{font-size:8.5px;color:var(--mut)}
+  .card .days .p{font-size:8px;color:#38bdf8;font-family:ui-monospace,Menlo,monospace}
+  .card .srcl{font-size:8px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;margin-top:6px}
+  .card.add{border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;min-height:120px}
+  .alert{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border-radius:4px;padding:1px 6px;background:#f59e0b;color:#0b1220;display:inline-block;margin-top:4px}
+  /* airfields by command */
+  .cmd{border-top:1px solid var(--bd)}
+  .cmd .ch{display:flex;align-items:center;gap:10px;padding:7px 14px;background:rgba(2,6,23,.35);font-size:11px}
+  .cmd .ch b{color:#e2e8f0;letter-spacing:.06em}
+  .cmd .ch .cnt{font-size:9.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .cmd .ch .worst{margin-left:auto;font-size:10px;color:#94a3b8}
+  .fields{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:10px 14px}
+  .fld{border:1px solid var(--bd);border-radius:10px;padding:9px 11px;background:rgba(2,6,23,.45)}
+  .fld .top{display:flex;align-items:center;gap:7px}
+  .fld .top .icao{font-family:ui-monospace,Menlo,monospace;font-weight:800;font-size:12.5px;color:#f1f5f9}
+  .fld .top .nm{font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .fld .top .role{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:3px;padding:0 4px;color:#94a3b8}
+  .fld .top .star{color:var(--amber);font-size:11px}
+  .fld .top .x{margin-left:auto;color:var(--mut2);font-size:11px}
+  .fld .sum{font-size:11px;color:#cbd5e1;margin-top:5px;line-height:1.4}
+  .fld .chips{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:9.5px;color:#94a3b8;font-family:ui-monospace,Menlo,monospace}
+  .fld .chips b{color:#cbd5e1;font-weight:600}
+  .taf{margin-top:7px}
+  .taf .lbl2{display:flex;justify-content:space-between;font-size:8px;color:var(--mut2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px}
+  .bar{display:flex;height:9px;border-radius:3px;overflow:hidden;border:1px solid var(--bd)}
+  .bar i{display:block;height:100%}
+  .bar .v{background:#10b981}.bar .m{background:#38bdf8}.bar .if{background:#ef4444}.bar .l{background:#d946ef}.bar .u{background:#334155}
+  .taf .hz{display:flex;justify-content:space-between;font-size:8px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;margin-top:2px}
+  .fld .haz{font-size:10px;color:var(--amber);margin-top:5px}
+  .fld .haz.red{color:var(--red)}
+  .fld .ft{display:flex;gap:8px;margin-top:6px;align-items:center}
+  .fld .ft .door{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+  .fld .ft .srcl{font-size:8px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;margin-left:auto}
+  /* threats */
+  .trow{display:grid;grid-template-columns:18px 110px 1fr auto;gap:10px;align-items:center;padding:7px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:11.5px}
+  .trow .ic{text-align:center}
+  .trow .kind{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8}
+  .trow .t{color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trow .t em{font-style:normal;color:var(--mut);font-size:10.5px;margin-left:6px}
+  .trow .srcl{font-size:8.5px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace}
+  .quiet{padding:7px 14px;font-size:10.5px;color:var(--mut);border-top:1px solid rgba(30,41,59,.6)}
+  /* map */
+  .mapbar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--bd)}
+  .ov{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:5px;color:var(--mut)}
+  .ov.on{color:#7dd3fc;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.4)}
+  .map{height:230px;background:radial-gradient(ellipse at 40% 50%,rgba(56,189,248,.12),transparent 60%),linear-gradient(180deg,#0b1220,#060b16);position:relative;display:flex;align-items:center;justify-content:center;color:var(--mut2);font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  .map .pin{position:absolute;font-size:10px;color:#f1f5f9;background:rgba(2,6,23,.7);border:1px solid var(--bd2);border-radius:4px;padding:1px 6px;font-family:ui-monospace,Menlo,monospace}
+  /* space one-liner */
+  .spc{display:flex;align-items:center;gap:12px;padding:10px 14px;flex-wrap:wrap}
+  .spc .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#c4b5fd}
+  .spc .line{font-size:12px;color:#e2e8f0}
+  .spc .leds{display:flex;gap:8px;font-size:10px;color:#94a3b8;align-items:center}
+  .spc .leds span{display:inline-flex;align-items:center;gap:4px}
+  .spc .fold{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+  .spc .sub{width:100%;font-size:10px;color:var(--mut)}
+</style>
+</head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab">News <span class="badge">9+</span></span><span class="tab">Calendar</span><span class="tab">Email <span class="badge">6</span></span><span class="tab">Family</span><span class="tab">OSINT</span><span class="tab active">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+
+  <!-- Glance inset: weather where you are, before you ever open this tab -->
+  <div class="inset">
+    <span class="k">On Glance — before you open this tab</span><span class="n">1</span>
+    <div class="clocks">
+      <div class="clk z"><div class="off">UTC</div><div class="t">18:36<span style="font-size:11px">Z</span></div><div class="l">Zulu · Tue</div></div>
+      <div class="clk"><div class="off">UTC−4</div><div class="t">14:36</div><div class="l">New Jersey · day</div></div>
+      <div class="clk me"><div class="off">UTC+3</div><div class="t">21:36</div><div class="l">Amman · dusk · TDY</div></div>
+      <div class="clk"><div class="off">UTC+3</div><div class="t">21:36</div><div class="l">Moscow · night</div></div>
+      <div class="clk"><div class="off">UTC+3:30</div><div class="t">22:06</div><div class="l">Tehran · night</div></div>
+      <div class="clk"><div class="off">UTC+8</div><div class="t">02:36</div><div class="l">Beijing · night</div></div>
+    </div>
+    <div class="where">
+      <span class="k">Where you are</span>
+      <span class="seg"><span style="font-size:18px">☁</span><span class="big">70°</span><b>Amman</b> <i style="font-style:normal;color:var(--mut);font-size:10px">(TDY · day 5 of 9)</i></span>
+      <span class="div"></span>
+      <span class="seg">cloudy · ↑76° ↓66° · 💧 30% · 2 mph NNE</span>
+      <span class="div"></span>
+      <span class="seg"><b>OJAQ</b> <span class="vfr g">VFR</span> → <span class="vfr r">IFR</span> by 14Z <em style="font-style:normal;color:var(--amber);font-size:10.5px">gusts 38 kt 14–18Z</em></span>
+      <span class="div"></span>
+      <span class="seg" style="color:var(--mut)">home McGuire 63° sunny · KWRI <span class="vfr g">VFR</span></span>
+      <span class="door">Weather →</span>
+    </div>
+    <div class="briefw"><b>Morning brief · Weather &amp; travel</b><span class="n">2</span>
+      <p>Amman (TDY): 76°/66°F, cloudy, 30% rain — gusts to 38 kt mid-afternoon; allow for crosswind on the 06/24 runway.</p>
+      <p>Home (McGuire): 70°/45°F, sunny, 0% rain.</p>
+      <p>Ops Group sync 15:30 @ Marka: same cell — plan the drive before 14Z.</p>
+    </div>
+  </div>
+
+  <!-- Weather tab header + sources strip -->
+  <div class="wh">
+    <div class="ico">☼</div>
+    <div><div class="k">Weather</div><div class="s">2 places · 7 airfields · 6 commands · updated 5m ago</div></div>
+    <div class="r"><span class="act pri">＋ Place</span><span class="act">＋ Airfield</span><span class="act ghost">manage ▾</span><span class="act">↻ Refresh</span></div>
+  </div>
+  <div class="srcs"><span class="n" style="margin:0 2px 0 0">3</span>
+    <span class="src"><span class="led g"></span>NWS <i>US forecast · alerts</i></span>
+    <span class="src"><span class="led g"></span>Open-Meteo <i>global now · 7-day · 30-h hazards</i></span>
+    <span class="src"><span class="led g"></span>AWC <i>METAR · TAF</i></span>
+    <span class="src"><span class="led g"></span>NHC <i>tropical</i></span>
+    <span class="src"><span class="led g"></span>GDACS · USGS · ReliefWeb <i>disasters</i></span>
+    <span class="src down"><span class="led a"></span>DAIP <i>NOTAMs — unreachable 12m</i></span>
+    <span class="src"><span class="led g"></span>SWPC <i>space</i></span>
+    <span class="src"><span class="led g"></span>Windy <i>map</i></span>
+    <span class="why">keyless feeds that fill each other&rsquo;s gaps — what you edit is the places and airfields, not the feeds</span>
+  </div>
+
+  <!-- Places: where you are, home, the civil points -->
+  <div class="sec">
+    <div class="hd"><span class="k">◎ Places</span><span class="s">where you are · home · civil points you track (forecast cards — not bases)</span><span class="n">4</span><span class="r"><span class="act">＋ Place</span></span></div>
+    <div class="cards">
+      <div class="card sel"><span class="x">✕</span><span class="tag amber">✈ TDY · day 5 of 9</span><div class="nm">Amman — Jordan (TDY)</div><div class="ll">31.95, 35.93</div>
+        <div class="cur"><span class="ic">☁</span><span class="tp">70°</span><span class="w">2 mph NNE</span></div><div class="cond">Cloudy</div>
+        <div class="mets"><span>💧 <b>30%</b></span><span>feels <b>70°</b></span><span>hum <b>57%</b></span><span>↑<b>76°</b> ↓<b>66°</b></span><span>☀ 6:28a ☾ 6:11p</span></div>
+        <div class="days"><div><div class="d">Wed</div><div class="i">☁</div><div class="h">76</div><div class="lo">66</div><div class="p">30%</div></div><div><div class="d">Thu</div><div class="i">☀</div><div class="h">79</div><div class="lo">63</div></div><div><div class="d">Fri</div><div class="i">☀</div><div class="h">81</div><div class="lo">64</div></div><div><div class="d">Sat</div><div class="i">⛅</div><div class="h">78</div><div class="lo">62</div><div class="p">10%</div></div><div><div class="d">Sun</div><div class="i">☀</div><div class="h">77</div><div class="lo">60</div></div><div><div class="d">Mon</div><div class="i">☀</div><div class="h">79</div><div class="lo">61</div></div><div><div class="d">Tue</div><div class="i">☀</div><div class="h">80</div><div class="lo">62</div></div></div>
+        <div class="srcl">Open-Meteo · no NWS coverage here<span class="n" style="margin-left:6px">5</span></div>
+      </div>
+      <div class="card"><span class="tag green">🏠 Home</span><div class="nm">McGuire AFB, NJ</div><div class="ll">40.03, −74.58</div>
+        <div class="cur"><span class="ic">☀</span><span class="tp">63°</span><span class="w">10–15 mph NW · <span style="color:var(--red)">G13</span></span></div><div class="cond">Sunny</div>
+        <div class="mets"><span>💧 <b>0%</b></span><span>feels <b>54°</b></span><span>hum <b>41%</b></span><span>↑<b>61°</b> ↓<b>45°</b></span><span>☀ 6:59a ☾ 6:32p</span></div>
+        <div class="days"><div><div class="d">Tonight</div><div class="i">☾</div><div class="h">39</div><div class="lo">&nbsp;</div></div><div><div class="d">Wed</div><div class="i">☀</div><div class="h">70</div><div class="lo">53</div></div><div><div class="d">Thu</div><div class="i">☀</div><div class="h">78</div><div class="lo">55</div></div><div><div class="d">Fri</div><div class="i">⛅</div><div class="h">74</div><div class="lo">52</div><div class="p">20%</div></div><div><div class="d">Sat</div><div class="i">🌧</div><div class="h">66</div><div class="lo">50</div><div class="p">60%</div></div><div><div class="d">Sun</div><div class="i">⛅</div><div class="h">68</div><div class="lo">48</div></div><div><div class="d">Mon</div><div class="i">☀</div><div class="h">71</div><div class="lo">47</div></div></div>
+        <div class="srcl">NWS periods · Open-Meteo now</div>
+      </div>
+      <div class="card"><span class="x">✕</span><div class="nm">62269, O&rsquo;Fallon</div><div class="ll">38.59, −89.92</div>
+        <div class="cur"><span class="ic">☀</span><span class="tp">79°</span><span class="w">6 mph S · <span style="color:var(--red)">G15</span></span></div><div class="cond">Sunny</div>
+        <div class="alert">⚠ Moderate · Wind advisory</div>
+        <div class="mets"><span>💧 <b>0%</b></span><span>feels <b>74°</b></span><span>hum <b>31%</b></span><span>↑<b>78°</b> ↓<b>47°</b></span></div>
+        <div class="days"><div><div class="d">Tonight</div><div class="i">☾</div><div class="h">54</div><div class="lo">&nbsp;</div></div><div><div class="d">Wed</div><div class="i">☀</div><div class="h">87</div><div class="lo">57</div></div><div><div class="d">Thu</div><div class="i">☀</div><div class="h">83</div><div class="lo">55</div></div><div><div class="d">Fri</div><div class="i">⛈</div><div class="h">72</div><div class="lo">50</div><div class="p">70%</div></div><div><div class="d">Sat</div><div class="i">⛅</div><div class="h">69</div><div class="lo">48</div></div><div><div class="d">Sun</div><div class="i">☀</div><div class="h">73</div><div class="lo">49</div></div><div><div class="d">Mon</div><div class="i">☀</div><div class="h">75</div><div class="lo">51</div></div></div>
+        <div class="srcl">NWS · Open-Meteo</div>
+      </div>
+      <div class="card add">＋ Add a place — city, ZIP or coordinates<span class="n">6</span></div>
+    </div>
+  </div>
+
+  <!-- My airfields, by combatant command -->
+  <div class="sec">
+    <div class="hd"><span class="k">✈ My airfields</span><span class="s">METAR · TAF · 30-h hazards · NOTAM-closures — grouped by combatant command, hub › ★ › spokes › rest, same order as the OSINT board</span><span class="n">7</span><span class="r"><span class="act">＋ Airfield</span><span class="act ghost">hide green</span></span></div>
+
+    <div class="cmd"><div class="ch"><span class="led a"></span><b>USCENTCOM</b><span class="cnt">3 fields · 1 amber</span><span class="worst">worst: OJAQ — IFR forecast by 14Z, gusts 38 kt</span></div>
+      <div class="fields">
+        <div class="fld"><div class="top"><span class="star">★</span><span class="icao">OJAQ</span><span class="nm">King Abdullah II AB · Jordan</span><span class="role">AOI</span><span class="vfr g">VFR</span><span class="x">✕</span></div>
+          <div class="sum">Winds 290° at 7 kt. Vis 10+ mi. Few 4,500. Temp 24°C, dewpoint 8°C. Alt 30.05&quot;.</div>
+          <div class="chips"><span>wind <b>290@07kt</b></span><span>vis <b>10+ mi</b></span><span>ceil <b>none</b></span><span>xwind 06/24 <b>6 kt</b></span><span>baro <b>↓ falling</b></span><span>obs <b>9m ago</b></span></div>
+          <div class="taf"><div class="lbl2"><span>TAF · next 24 h<span class="n" style="width:15px;height:15px;font-size:9px">8</span></span><span>worst ahead: <span style="color:var(--red)">IFR 14–19Z</span></span></div><div class="bar"><i class="v" style="width:30%"></i><i class="m" style="width:12%"></i><i class="if" style="width:21%"></i><i class="m" style="width:12%"></i><i class="v" style="width:25%"></i></div><div class="hz"><span>now</span><span>06Z</span><span>12Z</span><span>18Z</span><span>+24h</span></div></div>
+          <div class="haz">⚠ Gusts 38 kt 14–18Z · Thunderstorms 15–17Z <i style="font-style:normal;color:var(--mut2)">· model (Open-Meteo)</i></div>
+          <div class="ft"><span class="door">SITREP →</span><span class="door">map</span><span class="srcl">AWC · Open-Meteo</span></div>
+        </div>
+        <div class="fld"><div class="top"><span class="icao">OTBH</span><span class="nm">Al Udeid AB · Qatar</span><span class="role">auto</span><span class="vfr g">VFR</span><span class="x">✕</span></div>
+          <div class="sum">Winds 340° at 9 kt. Vis 10+ mi. Sky clear. Temp 33°C, dewpoint 19°C. Alt 29.88&quot;.</div>
+          <div class="chips"><span>wind <b>340@09kt</b></span><span>vis <b>10+ mi</b></span><span>ceil <b>none</b></span><span>obs <b>14m ago</b></span></div>
+          <div class="taf"><div class="lbl2"><span>TAF · next 24 h</span><span>worst ahead: VFR</span></div><div class="bar"><i class="v" style="width:100%"></i></div><div class="hz"><span>now</span><span>06Z</span><span>12Z</span><span>18Z</span><span>+24h</span></div></div>
+          <div class="ft"><span class="door">SITREP →</span><span class="door">map</span><span class="srcl">AWC · Open-Meteo</span></div>
+        </div>
+        <div class="fld"><div class="top"><span class="icao">ORER</span><span class="nm">Erbil Intl · Iraq</span><span class="role">spoke</span><span class="vfr b">MVFR</span><span class="x">✕</span></div>
+          <div class="sum">Winds 120° at 11 kt. Vis 4 mi haze. Scattered 2,500. Temp 27°C, dewpoint 6°C.</div>
+          <div class="chips"><span>wind <b>120@11kt</b></span><span>vis <b>4 mi</b></span><span>ceil <b>none</b></span><span>obs <b>21m ago</b></span></div>
+          <div class="taf"><div class="lbl2"><span>TAF · next 24 h</span><span>worst ahead: MVFR</span></div><div class="bar"><i class="m" style="width:45%"></i><i class="v" style="width:55%"></i></div><div class="hz"><span>now</span><span>06Z</span><span>12Z</span><span>18Z</span><span>+24h</span></div></div>
+          <div class="ft"><span class="door">SITREP →</span><span class="door">map</span><span class="srcl">AWC · Open-Meteo</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cmd"><div class="ch"><span class="led g"></span><b>USNORTHCOM</b><span class="cnt">3 fields · all VFR</span><span class="worst">KWRI RWY 06/24 CLSD from 12 Oct (NOTAM) — not weather, shown because it bounds the TAF</span></div>
+      <div class="fields">
+        <div class="fld"><div class="top"><span class="star">★</span><span class="icao">KWRI</span><span class="nm">McGuire AFB · NJ</span><span class="role">hub</span><span class="vfr g">VFR</span><span class="x">✕</span></div>
+          <div class="sum">Winds 290° at 7 kt. Vis 10+ mi. No cloud layers. Temp 16°C, dewpoint 2°C. Alt 30.13&quot;.</div>
+          <div class="chips"><span>wind <b>290@07kt</b></span><span>vis <b>10+ mi</b></span><span>ceil <b>none</b></span><span>xwind 06/24 <b>3 kt</b></span><span>obs <b>41m ago</b></span></div>
+          <div class="taf"><div class="lbl2"><span>TAF · next 24 h</span><span>worst ahead: VFR</span></div><div class="bar"><i class="v" style="width:100%"></i></div><div class="hz"><span>now</span><span>06Z</span><span>12Z</span><span>18Z</span><span>+24h</span></div></div>
+          <div class="ft"><span class="door">SITREP →</span><span class="door">map</span><span class="srcl">AWC</span></div>
+        </div>
+        <div class="fld"><div class="top"><span class="icao">KLTS</span><span class="nm">Altus AFB · OK</span><span class="vfr g">VFR</span><span class="x">✕</span></div>
+          <div class="sum">Winds 180° at 6 kt gusting 15. Vis 10+ mi. No cloud layers. Temp 30°C.</div>
+          <div class="chips"><span>wind <b>180@06G15kt</b></span><span>vis <b>10+ mi</b></span><span>obs <b>41m ago</b></span></div>
+          <div class="taf"><div class="lbl2"><span>TAF · next 24 h</span><span>worst ahead: MVFR 09–12Z</span></div><div class="bar"><i class="v" style="width:60%"></i><i class="m" style="width:12%"></i><i class="v" style="width:28%"></i></div><div class="hz"><span>now</span><span>06Z</span><span>12Z</span><span>18Z</span><span>+24h</span></div></div>
+          <div class="ft"><span class="door" style="color:var(--mut2)">no SITREP · ★ to add</span><span class="door">map</span><span class="srcl">AWC</span></div>
+        </div>
+        <div class="fld"><div class="top"><span class="icao">KNEL</span><span class="nm">Lakehurst Field · NJ</span><span class="vfr u">UNKNOWN</span><span class="x">✕</span></div>
+          <div class="sum" style="color:var(--mut)">No observation reported in 3 h — the field may not report at night. UNKNOWN is not VFR.<span class="n">9</span></div>
+          <div class="ft"><span class="door">map</span><span class="srcl">AWC · no data</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cmd"><div class="ch"><span class="led a"></span><b>USEUCOM</b><span class="cnt">1 field · 1 amber</span><span class="worst">ETAD — IFR vis forecast 21Z</span></div>
+      <div class="fields">
+        <div class="fld"><div class="top"><span class="icao">ETAD</span><span class="nm">Ramstein AB · Germany</span><span class="role">spoke</span><span class="vfr g">VFR</span><span class="x">✕</span></div>
+          <div class="sum">Winds 080° at 4 kt. Vis 6 mi. No cloud layers. Temp 11°C, dewpoint 8°C. Alt 29.99&quot;.</div>
+          <div class="chips"><span>wind <b>080@04kt</b></span><span>vis <b>6 mi</b></span><span>obs <b>12m ago</b></span></div>
+          <div class="taf"><div class="lbl2"><span>TAF · next 24 h</span><span>worst ahead: <span style="color:var(--red)">IFR 21–03Z</span></span></div><div class="bar"><i class="v" style="width:55%"></i><i class="m" style="width:12%"></i><i class="if" style="width:25%"></i><i class="m" style="width:8%"></i></div><div class="hz"><span>now</span><span>06Z</span><span>12Z</span><span>18Z</span><span>+24h</span></div></div>
+          <div class="haz">⚠ IFR vis 21–03Z (fog) · model</div>
+          <div class="ft"><span class="door">SITREP →</span><span class="door">map</span><span class="srcl">AWC · Open-Meteo</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="quiet">USINDOPACOM · USAFRICOM · USSOUTHCOM — no airfield tracked. <span style="color:var(--acc)">＋ Airfield</span> adds one (posture + METAR by default).</div>
+  </div>
+
+  <!-- Threats by command -->
+  <div class="sec">
+    <div class="hd"><span class="k">⚠ Threats &amp; disasters</span><span class="s">alerts · tropical · 30-h hazards · disasters — by combatant command, worst first; near-my-airfields marked</span><span class="n">10</span><span class="r"><span class="chip on">All</span><span class="chip">CENTCOM 2</span><span class="chip">NORTHCOM 4</span><span class="chip">INDOPACOM 1</span></span></div>
+    <div class="cmd"><div class="ch"><span class="led a"></span><b>USCENTCOM</b><span class="cnt">2 items</span><span class="worst">no official alerts (NWS is US-only) — model hazards carry the read here</span></div>
+      <div class="trow"><span class="ic" style="color:var(--amber)">●</span><span class="kind">hazard · model</span><span class="t">OJAQ — gusts 38 kt 14–18Z · thunderstorms 15–17Z<em>near OJAQ · you are here</em></span><span class="srcl">Open-Meteo</span></div>
+      <div class="trow"><span class="ic" style="color:var(--amber)">●</span><span class="kind">hazard · model</span><span class="t">ORER — IFR vis 02–05Z (dust)</span><span class="srcl">Open-Meteo</span></div>
+    </div>
+    <div class="cmd"><div class="ch"><span class="led a"></span><b>USNORTHCOM</b><span class="cnt">4 items</span><span class="worst">Wind advisory at O&rsquo;Fallon · 1 tropical · 2 volcano watches</span></div>
+      <div class="trow"><span class="ic" style="color:var(--amber)">▲</span><span class="kind">alert · Moderate</span><span class="t">Wind advisory — O&rsquo;Fallon<em>until 7 PM CDT</em></span><span class="srcl">NWS</span></div>
+      <div class="trow"><span class="ic" style="color:#38bdf8">🌀</span><span class="kind">tropical</span><span class="t">Hurricane Rachel — 75 kt · 977 mb · moving 275° at 8 kt<em>no tracked point within 500 km</em></span><span class="srcl">NHC</span></div>
+      <div class="trow"><span class="ic" style="color:var(--amber)">⛰</span><span class="kind">disaster</span><span class="t">Great Sitkin — WATCH · Alaska</span><span class="srcl">USGS-VHP</span></div>
+      <div class="trow"><span class="ic" style="color:var(--amber)">⛰</span><span class="kind">disaster</span><span class="t">Kīlauea — WATCH · Hawaii</span><span class="srcl">USGS-VHP</span></div>
+    </div>
+    <div class="cmd"><div class="ch"><span class="led g"></span><b>USINDOPACOM</b><span class="cnt">1 item</span></div>
+      <div class="trow"><span class="ic" style="color:var(--acc)">⊕</span><span class="kind">disaster</span><span class="t">M 5.9 — 264 km SSW of Severo-Kuril&rsquo;sk, Russia<em>green · no tracked point near</em></span><span class="srcl">USGS</span></div>
+    </div>
+    <div class="quiet">USEUCOM · USAFRICOM · USSOUTHCOM — nothing reported at your points · absence of signal, not evidence of calm.</div>
+  </div>
+
+  <!-- Map -->
+  <div class="sec">
+    <div class="mapbar"><span class="ov on">⊚ Radar</span><span class="ov">〜 Wind</span><span class="ov">◦ Rain</span><span class="ov">◎ Temp</span><span class="ov">◌ Clouds</span><span class="ov">◉ Pressure</span><span class="s" style="margin-left:10px;font-size:10px;color:var(--mut)">centred on <b style="color:#cbd5e1">OJAQ</b> — follows the selected place or airfield</span><span class="n">11</span></div>
+    <div class="map">Windy · radar<span class="pin" style="left:46%;top:44%">◎ OJAQ</span><span class="pin" style="left:38%;top:52%">Amman</span><span class="pin" style="left:70%;top:30%">ORER</span></div>
+  </div>
+
+  <!-- Space weather, one line -->
+  <div class="sec">
+    <div class="spc"><span class="k">☀ Space weather</span><span class="n">12</span>
+      <span class="line"><b>No impact today.</b> HF, GPS approaches and SATCOM normal; 3-day outlook quiet.</span>
+      <span class="leds"><span><span class="led g"></span>HF</span><span><span class="led g"></span>GPS / PNT</span><span><span class="led g"></span>SATCOM</span><span><span class="led u"></span>radiation at altitude — polar routes not declared</span></span>
+      <span class="fold">Kp · G/R/S scales · history ▾</span>
+      <span class="sub">Environment, not warning — these rows colour the SITREP Spectrum card and page you only at R3/G3/S3+. When a scale is at 3+, this line says what breaks and when: &ldquo;R3 — HF blackout on the sunlit side 14–16Z; oceanic HF position reports affected.&rdquo;</span>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h3>Callouts — what changes and why</h3>
+    <ol>
+      <li><span class="n">1</span>Glance gets a <b>Where you are</b> strip under the clocks: the effective location (TDY › home, the clocks&rsquo; own rule), now · high/low · precip · wind, your nearest tracked airfield&rsquo;s flight category with the TAF turn and the 30-h hazard, and home in one muted phrase. Deterministic, from routes that already exist; a door to the tab.</li>
+      <li><span class="n">2</span>The brief&rsquo;s <b>Weather &amp; travel</b> lines already exist in the cached brief; they render only in the modal today. They join the open brief card on Glance at zero cost.</li>
+      <li><span class="n">3</span>A <b>sources strip</b> names every feed, what it supplies and whether it is up. Feeds are keyless and fill each other&rsquo;s gaps (NWS is US-only; Open-Meteo is global; AWC is the aviation truth), so they are not user-removable — what you edit is places and airfields.</li>
+      <li><span class="n">4</span>Cards split into <b>Places</b> (civil forecast points) and <b>My airfields</b> (the aviation read). The same point is never in both.</li>
+      <li><span class="n">5</span>OCONUS cards get a <b>7-day</b> from Open-Meteo daily (today the trend and next-4 are NWS-only, so the card for where you ARE is the thinnest on the page). Source named on every card.</li>
+      <li><span class="n">6</span><b>＋ / ✕ on the page</b>: add a place (city, ZIP, coordinates), remove a card, add or remove an airfield — all through the one Track command with Undo. No trip to Preferences.</li>
+      <li><span class="n">7</span>Airfields grouped by <b>combatant command</b>, ordered hub › ★ › spokes › rest, worst field named on the header — the same hierarchy as the OSINT board, so the two tabs read alike. Quiet commands fold to one line.</li>
+      <li><span class="n">8</span>Each field shows its <b>24-h TAF category bar</b> (the SITREP already computes it), the worst category ahead with its window, the model hazard, a crosswind chip when runways are known, and a SITREP door.</li>
+      <li><span class="n">9</span><b>UNKNOWN is not VFR</b> — a field with no observation says why, in words, instead of an empty card.</li>
+      <li><span class="n">10</span>Threats by command: alerts, tropical, hazards and disasters under one header per COCOM, worst first, with the source and &ldquo;near &hellip;&rdquo; on each row. Airfields finally get the 30-h hazard scan (today only home and civil places are scanned).</li>
+      <li><span class="n">11</span>The map follows the selected place <i>or</i> airfield; airfields are pinned on it.</li>
+      <li><span class="n">12</span>Space weather is <b>one sentence</b> in crew terms with four LEDs; the Kp/G/R/S tiles and history fold under it. At a scale of 3+ the sentence says what breaks and when.</li>
+    </ol>
+  </div>
+</main>
+<div class="mockcap">mockup · weather (proposed) · 2026-10-06</div>
+</body></html>
