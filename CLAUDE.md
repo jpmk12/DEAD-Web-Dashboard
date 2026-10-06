@@ -735,6 +735,15 @@ boxes are working", "how were these chosen, can they be edited", "what is
   client cache, and retries the model ONCE after 30 s (`?refresh=1`).
 - **Order on the tab** (E9): Read → **Chokepoints** → actor board → energy
   → regulatory → news.
+- **"The actor editor doesn't open" (bug report, same day)**: the editor
+  rendered BELOW the tile grid — two rows down, off-screen from the ⚙
+  button — and the header row could not wrap, so a long live-sensors line
+  could push the button past the card's clipped edge. It now opens
+  DIRECTLY under the header (above the tiles), scrolls itself into view,
+  the button shows ▾/▴ with `aria-expanded`, and the header wraps with the
+  sensors line truncated. Verified by driving the real component in a
+  throwaway jsdom test (not kept — jsdom/testing-library would pull esbuild
+  into the tree).
 No new npm dep (esbuild `0`).
 
 ### Weather tab cards (`LocationCard` + Open-Meteo enrichment)

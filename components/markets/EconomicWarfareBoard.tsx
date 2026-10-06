@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EconomicWarfareBody, ActorBoard } from "@/lib/economicWarfareAssess";
 import type { TimelineDot, DotKind } from "@/lib/economicTimeline";
 import type { LeverageEntry } from "@/lib/leverage";
@@ -200,6 +200,11 @@ const FIX_LABEL: Record<string, string> = { excluded: "excluded", chokepoint: "c
  *  Mission Profile `economy` overlay; crew sees the same list read-only. */
 function ActorEditor({ body, canEdit, busy, onPatch, onClose }: { body: EconomicWarfareBody; canEdit: boolean; busy: boolean; onPatch: (next: EconomyEdits) => void; onClose: () => void }) {
   const [add, setAdd] = useState("");
+  // The editor sits directly under the header, and still scrolls itself
+  // into view on open — the first cut rendered it BELOW two rows of tiles,
+  // off-screen, and read as "the editor doesn't open" (bug report 2026-10-06).
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { rootRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
   const edits = body.edits;
   const excluded = body.skipped.filter((s) => s.fix === "excluded");
   const problems = body.skipped.filter((s) => s.fix !== "excluded");
@@ -215,8 +220,8 @@ function ActorEditor({ body, canEdit, busy, onPatch, onClose }: { body: Economic
   const row = "flex items-start gap-2 px-3 py-1.5 text-[10.5px]";
   const btn = "text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-slate-700 text-slate-300 hover:border-slate-500 disabled:opacity-40 flex-shrink-0";
   return (
-    <div className="border-t border-slate-800 bg-slate-950/40">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-800/60">
+    <div ref={rootRef} className="border-b border-slate-800 bg-slate-950/40" data-testid="actor-editor">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 border-b border-slate-800/60">
         <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Actors — who is on the board and why</span>
         <span className="text-[9px] text-slate-600">{canEdit ? "✕ removes · ↩ restores · add by country name" : "read-only — the owner edits the register"}</span>
         <a href="?prefs=mission" className="ml-auto text-[9px] text-sky-400 hover:text-sky-300">edit tracking →</a>
@@ -355,7 +360,7 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
       <div className="bg-slate-900/60 border border-amber-500/30 rounded-xl overflow-hidden">
         <div className="flex items-center gap-2 px-3.5 py-2.5">
           <p className="text-[11px] text-amber-200/90 flex-1 min-w-0">{body.note}</p>
-          <button onClick={() => setShowEditor((v) => !v)} className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-700 text-slate-300 hover:border-slate-500 flex-shrink-0">⚙ Actors</button>
+          <button type="button" onClick={() => setShowEditor((v) => !v)} aria-expanded={showEditor} className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-700 text-slate-300 hover:border-slate-500 flex-shrink-0">⚙ Actors{showEditor ? " ▴" : " ▾"}</button>
         </div>
         {showEditor && <ActorEditor body={body} canEdit={canEdit} busy={busy} onPatch={patchEdits} onClose={() => setShowEditor(false)} />}
       </div>
@@ -379,26 +384,30 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
     <div className="space-y-3">
       {/* Actor tiles */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-        <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
+        <div className="flex flex-wrap items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
           <span className="text-[11px] font-bold uppercase tracking-widest text-orange-300">Actors</span>
-          <span className="text-[10px] text-slate-600">{body.actors.length} tracked · worst {LEVEL_LABEL[worst]}{body.pending ? " · refreshing…" : ""}</span>
+          <span className="text-[10px] text-slate-600 whitespace-nowrap">{body.actors.length} tracked · worst {LEVEL_LABEL[worst]}{body.pending ? " · refreshing…" : ""}</span>
           {body.skipped.some((s) => s.fix !== "excluded") && (
             <button onClick={() => setShowEditor(true)} className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-300 bg-amber-500/10" title="Tracked names that could not become actors">
               {body.skipped.filter((s) => s.fix !== "excluded").length} skipped
             </button>
           )}
-          <span className="ml-auto text-[9.5px] text-slate-600 font-mono hidden sm:inline">
+          <span className="ml-auto min-w-0 max-w-[55%] truncate text-[9.5px] text-slate-600 font-mono hidden sm:inline" title="live sensors this pass">
             {[body.sources.gdelt ? "GDELT" : null, body.sources.federalRegister ? "Fed. Register" : null, body.sources.foreign ? `EU/UK lists${body.foreign.failed.length ? ` (${body.foreign.failed.join("/")} down)` : ""}` : "EU/UK lists down", body.sources.chokepoints ? "chokepoints" : null, ...body.sources.ownSources].filter(Boolean).join(" · ") || "no live sensor"}
           </span>
-          <button onClick={() => setShowEditor((v) => !v)} className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${showEditor ? "border-slate-500 text-slate-100 bg-slate-700/40" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>⚙ Actors</button>
+          <button type="button" onClick={() => setShowEditor((v) => !v)} aria-expanded={showEditor} aria-controls="econ-actor-editor"
+            className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${showEditor ? "border-slate-500 text-slate-100 bg-slate-700/40" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+            ⚙ Actors{showEditor ? " ▴" : " ▾"}
+          </button>
         </div>
+        {/* The editor opens DIRECTLY under the header, above the tiles, so the tap and its result are on the same screen. */}
+        {showEditor && <div id="econ-actor-editor"><ActorEditor body={body} canEdit={canEdit} busy={busy} onPatch={patchEdits} onClose={() => setShowEditor(false)} /></div>}
         <div className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
           {body.actors.map((b) => (
             <ActorTile key={b.actor.id} b={b} selected={actor === b.actor.id} onSelect={() => setActor(actor === b.actor.id ? null : b.actor.id)}
               canEdit={canEdit} onExclude={() => patchEdits({ ...body.edits, exclude: [...body.edits.exclude.filter((e) => e.toLowerCase() !== b.actor.label.toLowerCase()), b.actor.label], add: body.edits.add.filter((a) => a.toLowerCase() !== b.actor.label.toLowerCase()) })} />
           ))}
         </div>
-        {showEditor && <ActorEditor body={body} canEdit={canEdit} busy={busy} onPatch={patchEdits} onClose={() => setShowEditor(false)} />}
         {error && <p className="px-3.5 pb-2 text-[10px] text-red-300">{error}</p>}
       </div>
 
