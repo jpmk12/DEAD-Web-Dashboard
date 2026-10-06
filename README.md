@@ -88,19 +88,22 @@ close/reopen.
   compose-to-deliverable, split-at-headings, templates, version history, and a
   file repo. Quick capture (⌘K) routes thoughts here (`doc` kind + a findable
   "Capture Inbox"), with high-confidence tasks auto-committed behind an Undo.
-- **OSINT** — four panes: **◉ Watch · ▤ Regional · ≣ Feeds · ⇪ Sources**.
-  **Watch** is the command dashboard, one scroll in decision order — the I&W
-  strip (one card per AOI board, full board expands inline), the Base SITREP
-  LED strip (full per-base report expands inline), then the **Crisis map**:
-  disasters, conflict
-  (UCDP/ACLED), weather hazards, GPS interference, FIR/overflight NOTAMs, live
-  military ADS-B + AIS, AMC hubs/gateways with runway capability + live flight
-  categories, and planning-grade reach rings. The map remembers your view and
-  AOR filter, stays mounted across pane hops, and a **⌂ My AO** preset opens
-  on your declared theater. **Regional** is the per-country situation room
-  (incidents, advisories, health, holidays, your captured sources, AI SITREP),
-  its rail grouped by your AOIs — each header carrying that board's I&W level.
-  **Feeds** merges the reporting list (kind + time-window filters, clustering,
+- **OSINT** — three panes: **◆ Commands · ≣ Feeds · ⇪ Sources**.
+  **Commands** is one page in drill order: **Where to look first** (a ranked,
+  deterministic primer — every line a door to the exact level; an AI read on
+  tap), **My airfields** (hub, spokes and ★ fields with their five LEDs),
+  then **one row per combatant command** — I&W, posture, bases, 7-day demand,
+  events, Δ since your last look, with a why — that drills in place to its
+  I&W boards → its countries (★ first, then worst) → a country's situation
+  room (incidents, advisories, health, holidays, your captured sources, AI
+  SITREP) → its airfields → the full base SITREP. **★ must-tracks** on any
+  command, country or airfield order and pin everything (and take the six
+  SITREP slots). Below it the **Crisis map** follows whatever is open:
+  disasters, conflict (UCDP/ACLED), weather hazards, GPS interference,
+  FIR/overflight NOTAMs, live military ADS-B + AIS, AMC hubs/gateways with
+  runway capability + live flight categories, planning-grade reach rings, and
+  the **Significant events** list with "near my airfields" and "new since
+  look" lenses. **Feeds** merges the reporting list (kind + time-window filters, clustering,
   triage, the Situation line). The **Sources pane** is
   the ingestion control room — browser-captured X posts / analysis articles /
   LiveUAMap events (captured in *your* logged-in browser, never server-side),
@@ -115,7 +118,7 @@ close/reopen.
 
 ![SITREP — base LED tiles, mission-capability BLUF with LIMFACs, 24-h TAF category timeline, and closure windows with a runway-closure × forecast-IFR conflict called out](docs/sitrep.png)
 
-Up to 4 fields get the full treatment: decoded METAR + 24-h TAF category
+Up to 6 fields get the full treatment (hub first, then ★ must-tracks): decoded METAR + 24-h TAF category
 timeline, bucketed DAIP NOTAMs with a **closure-window timeline**
 (runway-closure × forecast-IFR conflicts called out), per-runway crosswind
 advisories, ARTCC center NOTAMs, astro/illumination + BASH, force protection,

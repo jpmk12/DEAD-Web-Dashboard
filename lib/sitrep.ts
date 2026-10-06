@@ -17,7 +17,7 @@ import { getDisasters, haversineKm } from "./disasters";
 import { getForceProtection } from "./forceProtection";
 import { gdeltLocalNews } from "./localNews";
 import { getCenterNotams, getFuelNotams } from "./airspace";
-import { classifyAor } from "./aor";
+import { classifyAor, type Aor } from "./aor";
 import {
   groupNotams, filterImpactNews, tafTimeline, wxLed, opsLed, threatLed, runwayWinds,
   type NotamGroup, type TafSegment, type Led, type RunwayWind,
@@ -152,6 +152,9 @@ export interface SitrepPayload {
 export interface SitrepSummary {
   icao: string;
   label: string;
+  /** The base's country and command, so the command board can place it. */
+  country: string;
+  aor: Aor;
   status: SitrepPayload["status"];
   driver: string;    // short tile line — the worst axis explains itself
   line: string;      // 1-2 sentence Morning Brief read
@@ -162,8 +165,14 @@ const LED_RANK: Record<Led, number> = { u: 0, g: 1, a: 2, r: 3 };
 
 export function sitrepSummary(p: SitrepPayload): SitrepSummary {
   const prev = p.history.length >= 2 ? p.history[p.history.length - 2] : null;
+  // All five axes. Infra and spectrum are nullable on older history rows —
+  // an unobserved yesterday is skipped, never read as green (REVIEW-2026-10
+  // §6 O6: before this only wx/ops/threat could flag "worse than yesterday").
   const worse = prev
-    ? (["wx", "ops", "threat"] as const).filter((k) => LED_RANK[p.status[k]] > LED_RANK[prev[k]] && prev[k] !== "u")
+    ? (["wx", "ops", "threat", "infra", "spectrum"] as const).filter((k) => {
+        const was = prev[k] as Led | null | undefined;
+        return was != null && was !== "u" && LED_RANK[p.status[k]] > LED_RANK[was];
+      })
     : [];
 
   const cat = p.weather.now?.flightCategory ?? null;
@@ -208,7 +217,28 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
   const xwClause = xw ? `; crosswind advisory RWY ${xw.ident} (${xw.crossKt}kt${xw.gustCrossKt ? ` G${xw.gustCrossKt}` : ""})` : "";
   const line = `${fieldClause}; ${wxClause}. ${infraShort.charAt(0).toUpperCase()}${infraShort.slice(1)}${xwClause}.`;
 
-  return { icao: p.base.icao, label: p.base.label, status: p.status, driver, line, worse: [...worse] };
+  return {
+    icao: p.base.icao, label: p.base.label,
+    country: p.base.country || "",
+    aor: classifyAor({ lat: p.base.lat, lon: p.base.lon, name: p.base.country }),
+    status: p.status, driver, line, worse: [...worse],
+  };
+}
+
+/** All-UNKNOWN summary for a base whose assembly failed — a missing tile would
+ *  read as "fine". Shared by the summary route, the heartbeat and the command
+ *  board so every surface degrades the same way. */
+export function sitrepStub(base: SitrepBase): SitrepSummary {
+  return {
+    icao: base.icao,
+    label: base.label,
+    country: base.country || "",
+    aor: classifyAor({ lat: base.lat, lon: base.lon, name: base.country }),
+    status: { wx: "u", ops: "u", threat: "u", infra: "u", spectrum: "u" },
+    driver: "assembly failed — UNKNOWN",
+    line: `${base.icao} assembly failed this cycle — status UNKNOWN, not clear.`,
+    worse: [],
+  };
 }
 
 const TTL_MS = 10 * 60 * 1000;

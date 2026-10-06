@@ -1505,6 +1505,7 @@ const ROUTE_LABEL_OVERRIDES: Record<string, string> = {
   force_read: "Force protection read",
   ground_sitrep: "Country SITREP",
   sitrep_read: "Base commander's read",
+  commands_read: "Command board read",
 };
 
 const ROUTE_LABEL: Record<string, string> = {

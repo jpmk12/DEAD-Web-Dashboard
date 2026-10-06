@@ -3,10 +3,13 @@ import { auth } from "@/lib/auth";
 import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
 import { resolveAirfield } from "@/lib/resolveAirfield";
 import type { SitrepBase } from "@/lib/types";
+import { SITREP_MAX } from "@/lib/missionProfile";
 
 export const dynamic = "force-dynamic";
 
-const MAX_BASES = 4;
+// One cap for every door into the SITREP set (the pane, the profile Apply,
+// the ★ sync): lib/missionProfile.SITREP_MAX.
+const MAX_BASES = SITREP_MAX;
 
 // Resolve an ICAO to a SitrepBase via the shared resolver (curated sets →
 // OurAirports). Extracted to lib/resolveAirfield so the Mission Profile spoke

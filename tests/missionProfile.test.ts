@@ -280,3 +280,42 @@ describe("spectrum dependencies (team config, never a prompt)", () => {
     expect(line).toContain("Strait of Hormuz");
   });
 });
+
+// ── Must-tracks (REVIEW-2026-10 §6, decision 4) ──────────────────────────────
+import { sanitizeMustTrack, toggleMustTrack, isStarCountry, sitrepBasesForStars } from "@/lib/missionProfile";
+
+describe("must-tracks", () => {
+  it("sanitizes: valid AORs only, countries deduped case-insensitively, ICAOs upper-cased 4-char", () => {
+    const mt = sanitizeMustTrack({ aors: ["centcom", "MORDOR", "CENTCOM", "EUCOM"], countries: ["Jordan", " jordan ", "", "Iraq"], icaos: ["ojaq", "KWRI", "bad", "KWRI"] });
+    expect(mt).toEqual({ aors: ["CENTCOM", "EUCOM"], countries: ["Jordan", "Iraq"], icaos: ["OJAQ", "KWRI"] });
+    expect(sanitizeMustTrack(null)).toEqual({ aors: [], countries: [], icaos: [] });
+    expect(sanitizeMissionProfile({ mustTrack: { icaos: ["OJAQ"] } }).mustTrack.icaos).toEqual(["OJAQ"]);
+  });
+
+  it("toggles each kind and matches countries case-insensitively", () => {
+    let mt = toggleMustTrack({ aors: [], countries: [], icaos: [] }, "aor", "centcom");
+    expect(mt.aors).toEqual(["CENTCOM"]);
+    mt = toggleMustTrack(mt, "country", "Jordan");
+    expect(isStarCountry(mt, "JORDAN")).toBe(true);
+    mt = toggleMustTrack(mt, "country", "jordan");
+    expect(mt.countries).toEqual([]);
+    mt = toggleMustTrack(mt, "icao", "ojaq");
+    expect(mt.icaos).toEqual(["OJAQ"]);
+  });
+
+  it("SITREP candidates: hub first, then ★ fields, then spokes; cap is 6", () => {
+    const p: MissionProfile = { ...HUB_AND_SPOKE, mustTrack: { aors: [], countries: [], icaos: ["OTBH", "KADW"] } };
+    const d = deriveTracking(p);
+    expect(SITREP_MAX).toBe(6);
+    expect(d.sitrepCandidates.map((s) => s.icao).slice(0, 4)).toEqual(["KWRI", "OTBH", "KADW", "KCHS"]);
+    expect(d.warningProblems[0].ownHubs.map((h) => h.icao)).toEqual(["KWRI", "KCHS", "KADW"]);
+  });
+
+  it("sitrepBasesForStars: hub, ★ in order, then the current set, capped — unknown ★ skipped unless resolved", () => {
+    const b = (icao: string) => ({ icao, label: icao, lat: 0, lon: 0, country: "X", place: icao });
+    const current = [b("OJAQ"), b("ETAD"), b("LLBG"), b("ORER"), b("OEPS"), b("OKAS")];
+    const out = sitrepBasesForStars(current, [b("KWRI")], ["LLBG", "ZZZZ", "OTBH"], "KWRI", { OTBH: b("OTBH") });
+    expect(out.map((x) => x.icao)).toEqual(["KWRI", "LLBG", "OTBH", "OJAQ", "ETAD", "ORER"]);
+    expect(out).toHaveLength(6);
+  });
+});

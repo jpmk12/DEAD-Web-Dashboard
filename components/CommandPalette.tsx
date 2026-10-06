@@ -28,8 +28,7 @@ const STALE_MS = 5 * 60 * 1000;
 
 const STATIC: Command[] = [
   ...TABS.map((t) => ({ id: `go:${t.id}`, group: "go" as const, label: t.label, hint: "tab" })),
-  { id: "go:osint:watch", group: "go", label: "OSINT · Watch", hint: "I&W · SITREP · crisis map", keywords: ["crisis", "map", "iw", "sitrep"] },
-  { id: "go:osint:regional", group: "go", label: "OSINT · Regional", hint: "country situation rooms", keywords: ["ground", "truth", "dossier"] },
+  { id: "go:osint:commands", group: "go", label: "OSINT · Commands", hint: "command board · I&W · SITREP · countries · crisis map", keywords: ["crisis", "map", "iw", "sitrep", "watch", "regional", "ground", "cocom", "command"] },
   { id: "go:osint:feeds", group: "go", label: "OSINT · Feeds", hint: "social · telegram · news", keywords: ["x", "telegram", "rss"] },
   { id: "go:osint:sources", group: "go", label: "OSINT · Sources", hint: "feeds, watchlist suggestions, capture", keywords: ["watchlist", "capture"] },
   { id: "act:brief", group: "act", label: "Morning brief", hint: "open today's brief", keywords: ["briefing"] },
@@ -68,21 +67,24 @@ function run(cmd: Command) {
       return;
     }
     case "prefs": emit("prefs:open", key); return;
+    // The three OSINT entity doors land on the command board at the right
+    // level (watch:focus → that field's SITREP / that board; regional:select →
+    // that country's row). The legacy pane ids still map to Commands.
     case "base": {
       emit("app:navigate", "osint");
-      later(40, () => emit("osint:set-pane", "watch"));
+      later(40, () => emit("osint:set-pane", "commands"));
       later(160, () => emit("watch:focus", { kind: "sitrep", id: key }));
       return;
     }
     case "board": {
       emit("app:navigate", "osint");
-      later(40, () => emit("osint:set-pane", "watch"));
+      later(40, () => emit("osint:set-pane", "commands"));
       later(160, () => emit("watch:focus", { kind: "iw", id: key }));
       return;
     }
     case "country": {
       emit("app:navigate", "osint");
-      later(40, () => emit("osint:set-pane", "regional"));
+      later(40, () => emit("osint:set-pane", "commands"));
       later(160, () => emit("regional:select", key));
       return;
     }

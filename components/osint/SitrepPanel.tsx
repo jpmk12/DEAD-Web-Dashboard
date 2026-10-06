@@ -5,6 +5,7 @@ import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
 import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
 import { renderSitrepHtml } from "@/lib/sitrepExport";
+import { SITREP_MAX } from "@/lib/missionProfile";
 import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
 
 const LED_CLASS: Record<Led, string> = {
@@ -107,7 +108,14 @@ function Row({ sev, children, src }: { sev: "g" | "a" | "r" | "u" | "b"; childre
 // The OSINT SITREP pane: a squadron commander's situation report for 1-4
 // configured bases — weather, airfield ops, threats, and an AI BLUF, every
 // row source-attributed and every gap an explicit UNKNOWN.
-export default function SitrepPanel({ active, focusIcao }: { active: boolean; focusIcao?: string }) {
+export default function SitrepPanel({ active, focusIcao, single = false }: {
+  active: boolean;
+  focusIcao?: string | null;
+  /** ONE base, no tile strip, no add-base control — the command board renders
+   *  the SITREP inline under its airfield row and already shows the LEDs
+   *  there (REVIEW-2026-10 §6 O2: the strip was rendered twice). */
+  single?: boolean;
+}) {
   const [bases, setBases] = useState<SitrepBase[] | null>(null);
   const [icao, setIcao] = useState<string | null>(null);
   const [payload, setPayload] = useState<SitrepPayload | null>(null);
@@ -347,9 +355,10 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
   return (
     <div className="space-y-3">
       {/* Multi-base LED strip — every configured base at a glance; click to
-          open, double-click to remove. Tiles with a problem announce it. */}
+          open, double-click to remove. Tiles with a problem announce it.
+          Hidden in `single` mode (the command board's airfield row IS the tile). */}
       <div className="flex items-stretch gap-2 flex-wrap">
-        {bases.map((b) => {
+        {!single && bases.map((b) => {
           const s = summaries[b.icao] ?? null;
           const worstLed: Led = s
             ? ((["r", "a", "g", "u"] as Led[]).find((l) => Object.values(s.status).includes(l)) ?? "u")
@@ -392,7 +401,7 @@ export default function SitrepPanel({ active, focusIcao }: { active: boolean; fo
             </button>
           );
         })}
-        {bases.length < 4 && (
+        {!single && bases.length < SITREP_MAX && (
           <div className="flex items-center gap-1.5">
             {addOpen ? (
               <>

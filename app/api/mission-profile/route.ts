@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail, isOwner } from "@/lib/allowlist";
-import { getMissionProfile, saveMissionProfile, applyMissionProfile } from "@/lib/missionProfileApply";
-import { sanitizeMissionProfile } from "@/lib/missionProfile";
+import { getMissionProfile, saveMissionProfile, applyMissionProfile, patchMustTrack } from "@/lib/missionProfileApply";
+import { sanitizeMissionProfile, SITREP_MAX } from "@/lib/missionProfile";
 import { clearBriefingCache } from "@/lib/briefingCache";
+import { resetCommandsCache } from "@/lib/commandsAssemble";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,10 @@ export const dynamic = "force-dynamic";
 //   PUT  { profile }              → owner-only: save the declaration
 //   POST { profile, sitrepPicks } → owner-only: save + derive + MATERIALIZE
 //                                   into the existing user_prefs tracking lists
+//   PATCH { mustTrack }           → owner-only: the ★ must-tracks alone (the
+//                                   OSINT command board's ★ taps); keeps the
+//                                   SITREP base set in step (hub, ★, current,
+//                                   cap SITREP_MAX)
 // The materialized fields are team config, so writes are owner-gated like the
 // user-prefs POST.
 
@@ -53,15 +58,34 @@ export async function POST(req: Request) {
   let body: { profile?: unknown; sitrepPicks?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const picks = Array.isArray(body.sitrepPicks)
-    ? body.sitrepPicks.filter((p): p is string => typeof p === "string").slice(0, 4)
+    ? body.sitrepPicks.filter((p): p is string => typeof p === "string").slice(0, SITREP_MAX)
     : [];
   try {
     const result = await applyMissionProfile(body.profile, picks);
     // Materializing changes team tracking config → every user's brief is stale.
     clearBriefingCache().catch((err) => console.error("Briefing cache invalidation failed:", err));
+    resetCommandsCache();
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("mission-profile apply failed:", err);
     return NextResponse.json({ error: "Apply failed — database unavailable." }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  const session = await auth();
+  if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isOwner(normEmail(session.user?.email))) {
+    return NextResponse.json({ error: "Must-tracks are shared team config — owner only." }, { status: 403 });
+  }
+  let body: { mustTrack?: unknown };
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try {
+    const result = await patchMustTrack(body.mustTrack);
+    resetCommandsCache();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("mission-profile must-track patch failed:", err);
+    return NextResponse.json({ error: "Could not save — database unavailable." }, { status: 500 });
   }
 }

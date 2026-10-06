@@ -15,6 +15,9 @@ import { spacePowersIn } from "./spaceCatalog";
 import { firsForCountry } from "./firData";
 import { CHOKEPOINTS } from "./chokepoints";
 import { ALL_AIRFIELDS } from "./airfields";
+import { aorFromCoords, type Aor } from "./aor";
+
+const VALID_AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM", "INDOPACOM"];
 
 // ── Spectrum indicators (docs/REVIEW-CYBER-SPACE.md §3.1) ───────────────────
 // The same three on every board, parameterised by the AOI's name; the space
@@ -152,6 +155,10 @@ export function warningProblemById(id: string): WarningProblemDef | undefined {
 // Profile AOI. PURE (client-safe).
 
 export interface ProblemGeo {
+  /** The combatant command the board belongs to — DECLARED (the AOI's
+   *  `aor`), never derived from the bbox centre, which can disagree with the
+   *  declaration near a seam (REVIEW-2026-10 §6 O1). */
+  aor: Aor;
   bbox: { latMin: number; latMax: number; lonMin: number; lonMax: number };
   countries: string[];
   /** `icao` names the hub for the per-hub lift series (sensor keys mob:/tanker:). */
@@ -166,6 +173,7 @@ export interface ProblemGeo {
 }
 
 export const CENTCOM_GEO: ProblemGeo = {
+  aor: "CENTCOM",
   bbox: { latMin: 12, latMax: 40, lonMin: 34, lonMax: 64 },
   countries: [
     "Iran", "Iraq", "Israel", "Yemen", "Saudi Arabia", "United Arab Emirates",
@@ -195,6 +203,10 @@ export interface WarningProblemSeed {
   chokepointId: string | null;
   /** Carry space_activity when the AOI holds a space power (default true). */
   spaceActivity?: boolean;
+  /** The operator's own airfields (hub + spokes). Those inside the bbox lead
+   *  the board's `hubs` so the lift sensor reads the fields crews actually
+   *  launch from (REVIEW-2026-10 §6 O6). */
+  ownHubs?: { lat: number; lon: number; icao: string }[];
 }
 
 const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -220,7 +232,16 @@ export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblem
 
   const inBbox = (lat: number, lon: number) =>
     lat >= bbox.latMin && lat <= bbox.latMax && lon >= bbox.lonMin && lon <= bbox.lonMax;
-  const hubs = ALL_AIRFIELDS.filter((a) => inBbox(a.lat, a.lon)).slice(0, 8).map((a) => ({ lat: a.lat, lon: a.lon, icao: a.icao }));
+  // Own-force fields inside the bbox first, then the catalogue's AMC hubs,
+  // then gateways — eight in all. Before this the first eight catalogue
+  // entries won by file order, which is not a judgement about anything.
+  const ownIn = (seed.ownHubs ?? []).filter((h) => inBbox(h.lat, h.lon));
+  const seenHub = new Set(ownIn.map((h) => h.icao));
+  const catalogue = ALL_AIRFIELDS
+    .filter((a) => inBbox(a.lat, a.lon) && !seenHub.has(a.icao))
+    .sort((a, b) => (a.kind === "amc-hub" ? 0 : 1) - (b.kind === "amc-hub" ? 0 : 1));
+  const hubs = [...ownIn, ...catalogue.map((a) => ({ lat: a.lat, lon: a.lon, icao: a.icao }))].slice(0, 8);
+  const aor: Aor = (VALID_AORS as string[]).includes(seed.aor) ? (seed.aor as Aor) : aorFromCoords((bbox.latMin + bbox.latMax) / 2, (bbox.lonMin + bbox.lonMax) / 2);
 
   const firs = [...new Set(seed.countries.flatMap((c) => firsForCountry(c).map((f) => f.code)))].slice(0, 10);
 
@@ -288,7 +309,7 @@ export function problemFromSeed(seed: WarningProblemSeed): { def: WarningProblem
   };
 
   const geo: ProblemGeo = {
-    bbox, countries: seed.countries, hubs, firs, terms,
+    aor, bbox, countries: seed.countries, hubs, firs, terms,
     conflictIndicatorId: "conflict_intensity",
     chokepoint: cp ? { id: cp.id, indicatorId: "chokepoint_interdiction", name: cp.name, searchTerm: cp.name, terms: cp.keywords.map((k) => k.toLowerCase()) } : null,
     spacePowers,

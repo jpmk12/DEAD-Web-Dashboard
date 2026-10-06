@@ -12,10 +12,11 @@ import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { getUserPrefs, saveUserPrefs } from "./userPrefs";
 import {
-  sanitizeMissionProfile, deriveTracking, derivedIds, isDerivedId, slugify, SITREP_MAX,
-  type MissionProfile, type DerivedTracking,
+  sanitizeMissionProfile, sanitizeMustTrack, deriveTracking, derivedIds, isDerivedId, slugify, sitrepBasesForStars, SITREP_MAX,
+  type MissionProfile, type DerivedTracking, type MustTrack,
 } from "./missionProfile";
-import type { UserPrefs } from "./types";
+import { resolveAirfield } from "./resolveAirfield";
+import type { UserPrefs, SitrepBase } from "./types";
 
 const CAPS = { countries: 40, bases: 30, metar: 12 };
 
@@ -35,6 +36,32 @@ export async function saveMissionProfile(profile: MissionProfile): Promise<void>
     "UPDATE user_prefs SET mission_profile = CAST(? AS JSON), last_updated = NOW() WHERE id = 1",
     [JSON.stringify({ ...profile, updatedAt: new Date().toISOString() })],
   );
+}
+
+/**
+ * Save a must-track change (the board's ★ taps and the editor) and keep the
+ * SITREP base set in step: hub first, ★ fields next, then the current set,
+ * capped at SITREP_MAX (lib/missionProfile.sitrepBasesForStars — pure). A ★
+ * ICAO that is in neither list is resolved here (curated sets → OurAirports);
+ * one that resolves nowhere is kept as a ★ (it still orders and pins) but
+ * gets no SITREP slot. Owner-gated at the route, like every profile write.
+ */
+export async function patchMustTrack(raw: unknown): Promise<{ mustTrack: MustTrack; sitrepBases: SitrepBase[] }> {
+  const mustTrack = sanitizeMustTrack(raw);
+  const [profile, prefs] = await Promise.all([getMissionProfile(), getUserPrefs()]);
+  const next: MissionProfile = { ...profile, mustTrack };
+  const derived = deriveTracking(next);
+  const known = new Set([...prefs.sitrepBases.map((b) => b.icao), ...derived.sitrepCandidates.map((b) => b.icao)]);
+  const resolved: Record<string, SitrepBase | null> = {};
+  for (const icao of mustTrack.icaos.filter((i) => !known.has(i))) {
+    resolved[icao] = await resolveAirfield(icao).catch(() => null);
+  }
+  const hubIcao = next.home?.icao ?? next.homeIcao;
+  const sitrepBases = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, mustTrack.icaos, hubIcao, resolved);
+  const changed = sitrepBases.length !== prefs.sitrepBases.length || sitrepBases.some((b, i) => b.icao !== prefs.sitrepBases[i]?.icao);
+  if (changed) await saveUserPrefs({ ...prefs, sitrepBases });
+  await saveMissionProfile(next);
+  return { mustTrack, sitrepBases };
 }
 
 export interface ApplyResult {

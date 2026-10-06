@@ -1202,7 +1202,7 @@ The standalone **Aircraft and Maritime OSINT panes were retired** — both are n
 layers on this map. Their `AircraftMap.tsx` / `MaritimeMap.tsx` components and the
 iframe-provider lists (adsb.fi / VesselFinder / etc.) were deleted. **Don't
 delete** `/api/osint/aircraft` (OpenSky) or `/api/osint/ships`: they still feed
-the OSINT feed-pane "AOR contacts" strip. OSINT panes are now (post-consolidation): **Watch / Regional / Feeds / Sources** — see the consolidation note below.
+the OSINT feed-pane "AOR contacts" strip. OSINT panes are now: **Commands / Feeds / Sources** — see "OSINT tab rebuilt as the command board" below.
 
 ### SITREP (OSINT "SITREP" sub-pane — per-base commander's report)
 The squadron commander's situation report for 1-4 configured bases (KWRI is
@@ -2745,8 +2745,102 @@ Regenerate after UI changes with `sh docs/mockups/render.sh` (needs Chromium;
 `CHROME=<path>` override). Keep shots in sync when a pictured surface changes
 materially. No Playwright/npm involved — plain headless-Chromium screenshots.
 
-### OSINT tab consolidation (9 chips → Watch / Regional / Feeds / Sources)
-`OSINTTab.tsx` pane model: `"watch" | "regional" | "feeds" | "sources"` plus a
+### OSINT tab rebuilt as the command board (2026-10-06, `docs/REVIEW-2026-10.md` §6, all four decisions as recommended)
+`OSINTTab.tsx` pane model is now `"commands" | "feeds" | "sources"`. **Watch
+and Regional retired INTO Commands** (`WatchPane.tsx`, `GroundTruthTab.tsx`
+and `ConvergenceCard.tsx` are deleted); every legacy `osint:set-pane` id
+(`watch`/`regional`/`crisis`/`sitrep`/`iw`/`ground`) lands on Commands and
+the follow-up `watch:focus` / `regional:select` event picks the level. The
+interactive prototype the design was approved from is
+`docs/mockups/osint-prototype.html`.
+- **One page, one hierarchy** (`components/osint/CommandBoard.tsx`,
+  hidden-mounted like the old Watch pane; arms on first activation): **Where
+  to look first** (the primer) → **My airfields** (hub · spokes · ★ fields,
+  five LEDs each, a SITREP one click from anywhere) → **Combatant commands**
+  (one row per AOR: I&W · posture · bases · demand 7 d · events · Δ since
+  look, with a WHY; ★ first then worst; quiet commands fold into one "N
+  other commands" line — present, never hidden) → **the picture** (the
+  Crisis map + its events list). A command row drills IN PLACE: its boards
+  (compact cards; the full `WarningBoard only=[id]` inline on tap) → its
+  countries (★ first, then worst; posture, chronicity, driver, pinned
+  field's LEDs, Δ, events) → a country opens its **situation room**
+  (`components/ground/CountryRoom.tsx` — the Regional dossier extracted into
+  a component that fetches `/api/ground-truth` + the AI SITREP on mount) and
+  its airfields → a ★/hub/spoke field opens the full `SitrepPanel single`
+  (no duplicate LED strip, no add-base control); a non-SITREP field says
+  "★ to get a SITREP" and the tap stars it. A breadcrumb replaces the
+  subtitle while drilled; "collapse all" closes every level.
+- **The rollup is PURE** (`lib/commandBoard.ts`, tested): `commandBoard(input)`
+  → `rows` (one `CommandRow` per AOR with `why`, `quiet`, `score`) +
+  `details` (boards / `CountryRow[]` / `FieldRow[]` / events / deltas per
+  AOR) + `myFields`. Disciplines: UNKNOWN counted and named, never folded
+  into green; a ★ country with no posture row is present and flagged
+  `unwatched` (★ ORDERS AND PINS, never adds tracking); `escalatedToday` =
+  composite changed AND got worse. **The primer is PURE** (`lib/primer.ts`,
+  tested): tiers 1–7 — posture escalated today to RED › board at ALERT › an
+  airfield worse than yesterday with a RED LED (or a ★/own field at amber) ›
+  board at WARNING and deteriorating › demand RISE against thin crews ›
+  convergence breadth ≥3 › I&W calls due — ★ breaks ties inside a tier; a
+  standing (chronic) red is NOT a tier; every item carries a `door`
+  (`→ CENTCOM › Jordan › OJAQ`) that `CommandBoard.go()` opens exactly; the
+  footer names quiet commands ("absence of signal, not evidence of calm")
+  and every source that is down. Cap `PRIMER_MAX` = 6.
+- **Server** `lib/commandsAssemble.ts` → `GET /api/commands?since=`: the
+  SHARED gather (posture via `forceProtectionCached`, SITREP summaries per
+  base with `sitrepStub` on failure, boards with `ProblemGeo.aor`, demand,
+  alerts given an AOR by their id, events = significant disasters +
+  departure advisories + top UCDP points, convergence via the new
+  `lib/convergenceAssemble.ts` (the route now calls it too), calls due,
+  crew mismatch) is cached 5 min; the PER-USER delta (`buildOeSeries` ×
+  `surface_state.osint`) is layered on per request. **Latency rule**: the
+  route answers 202 `pending` within 8 s on a cold assembly and the board
+  polls (≤12 × 8 s); the client passes back the first response's `sinceMs`
+  so the delta keeps its anchor after the tab bumps its own last-seen. A
+  thrown assembly returns a stub with `error` for 60 s. **`✦ Read (AI)`**
+  = `POST /api/commands/read`, on tap only (sonnet over the DETERMINISTIC
+  rows + primer, cached 15 min per fingerprint, `commands_read` in the
+  ledger).
+- **`ProblemGeo.aor` is DECLARED** (`CENTCOM_GEO` → CENTCOM; `problemFromSeed`
+  → the AOI's `aor`); `demandAssemble` and `demandVerifyAssemble` read it
+  instead of the bbox centre (O1). `WarningProblemSeed.ownHubs` (hub +
+  spokes from `deriveTracking`) leads a board's `hubs` inside the bbox, then
+  AMC hubs, then gateways (O6). `SitrepSummary` carries `country` + `aor`
+  and `worse` now compares all five LEDs (infra/spectrum null on older rows
+  = unobserved, never green) (O6).
+- **Must-tracks** (`MissionProfile.mustTrack = { aors[], countries[],
+  icaos[] }`, `sanitizeMustTrack` / `toggleMustTrack` / `isStarCountry`,
+  tested): the board's ★ taps and the Mission Profile editor's new
+  `MustTrackEditor` write the same field — `PATCH /api/mission-profile
+  { mustTrack }` (owner) → `patchMustTrack`, which also keeps the SITREP base
+  set in step via the PURE `sitrepBasesForStars` (hub first, ★ ICAOs in
+  declaration order, then the current set, cap **`SITREP_MAX` = 6**; an
+  unknown ★ ICAO is resolved through `resolveAirfield`, one that resolves
+  nowhere still stars but gets no slot). `/api/sitrep/bases` and the Apply
+  picks use the same constant. `deriveTracking` orders SITREP candidates
+  hub › ★ › spokes › AOI picks. `missionSummaryLine` appends the
+  must-tracks (the AI context sees them).
+- **The map follows the board** (`CrisisMap` props `boardAor`, `starAors`,
+  `myFields`, `sinceMs`): opening a command sets the AOR filter (map dots,
+  force rail, events list) until a chip overrides ("follow the board"
+  restores; a reload with nothing open keeps the remembered chip); every
+  ★ command always has a chip (O6); the list is **⚠ Significant events**
+  (it never was only disasters) with lenses **near my airfields** (own + ★
+  fields, ≤600 km) and **new since look** (events with a time after the
+  user's last look — undated rows never claim NEW), and a `new` marker per
+  row. `ReactivationCard` ("Back on the board") stays, under the primer;
+  convergence feeds the primer instead of a card.
+- Doors in (keep when refactoring): `watch:focus {kind:"sitrep"|"iw", id}`
+  and `regional:select <country>` are handled by `CommandBoard` (registered
+  regardless of `armed`; a request that arrives before the data lands is
+  parked and applied when it does). The palette's base/board/country entries
+  and Glance's tiles dispatch to Commands.
+No new npm dep (esbuild `0`).
+
+### OSINT tab consolidation (9 chips → Watch / Regional / Feeds / Sources) — SUPERSEDED 2026-10-06
+**Historical.** Watch and Regional retired into the command board above;
+the hidden-mount contract, the feed-at-mount rule and the legacy
+`osint:set-pane` ids described here still hold, now on `CommandBoard`.
+`OSINTTab.tsx` pane model WAS `"watch" | "regional" | "feeds" | "sources"` plus a
 `feedKind` subfilter (`all|social|telegram|news` — the old four feed "panes"
 were always ONE list with a client filter; they are chips INSIDE Feeds now).
 - **Watch** (`WatchPane.tsx`, default pane) = I&W strip (one card per warning

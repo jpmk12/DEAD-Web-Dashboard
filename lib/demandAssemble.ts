@@ -92,15 +92,14 @@ async function assemble(): Promise<DemandHorizonBody> {
       }
     }).catch(() => {}),
 
-    // I&W boards — AOR from the problem's bbox centre.
+    // I&W boards — the AOR is the board's DECLARED command (ProblemGeo.aor),
+    // not the bbox centre, so the horizon and the command board agree.
     activeWarningProblems().then(async (ps) => {
       sources.iw = true;
       for (const p of ps) {
         const a = await assessWarning(p.def.id).catch(() => null);
         if (!a) continue;
-        const { bbox } = p.geo;
-        const aor = aorFromCoords((bbox.latMin + bbox.latMax) / 2, (bbox.lonMin + bbox.lonMax) / 2);
-        input.boards.push({ label: a.label, aor, level: a.level, trajectory: a.trajectory, learning: a.learning });
+        input.boards.push({ label: a.label, aor: p.geo.aor, level: a.level, trajectory: a.trajectory, learning: a.learning });
       }
     }).catch(() => {}),
 

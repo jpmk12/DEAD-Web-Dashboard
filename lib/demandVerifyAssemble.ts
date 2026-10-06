@@ -9,7 +9,6 @@
 import { getDemandOutlookHistory, getMobilityHistory } from "./demandStore";
 import { getPostureHistory } from "./forcePostureHistory";
 import { activeWarningProblems } from "./warningProblems";
-import { aorFromCoords } from "./aor";
 import { SEVERITY_RANK } from "./severity";
 import { HORIZON_DAYS } from "./demandHorizon";
 import { dayDiff } from "./series";
@@ -45,10 +44,7 @@ async function compute(): Promise<DemandSkillBody> {
 
   // Board → AOR, then AOR lift per day = max across its boards.
   const aorOfProblem = new Map<string, string>();
-  for (const p of problems) {
-    const { bbox } = p.geo;
-    aorOfProblem.set(p.def.id, aorFromCoords((bbox.latMin + bbox.latMax) / 2, (bbox.lonMin + bbox.lonMax) / 2));
-  }
+  for (const p of problems) aorOfProblem.set(p.def.id, p.geo.aor);
   const liftByAorDay = new Map<string, Map<string, number>>();
   for (const m of mobility) {
     const aor = aorOfProblem.get(m.problemId);

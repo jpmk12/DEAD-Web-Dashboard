@@ -222,7 +222,22 @@ const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] =
   { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
 ];
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
-interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo" | "kinetic" | "strike"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string }
+interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo" | "kinetic" | "strike"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string; /** When the event happened / was published — null when the source carries no time. */ timeISO?: string | null }
+type EventLens = "all" | "near" | "new";
+/** "Near my airfields" lens radius. */
+const NEAR_MY_KM = 600;
+
+export interface CrisisMapProps {
+  /** The command the board has open; the map FOLLOWS it (REVIEW-2026-10 §6)
+   *  until an AOR chip overrides. null = no command open. */
+  boardAor?: Aor | null;
+  /** ★ commands — always get a chip, quiet or not. */
+  starAors?: Aor[];
+  /** The operator's own + ★ airfields, for the "near my airfields" lens. */
+  myFields?: { icao: string; label: string; lat: number; lon: number }[];
+  /** The user's last look at the tab (ms) — events after it are marked NEW. */
+  sinceMs?: number;
+}
 
 const EMPTY: WeatherThreats = {
   threats: [], tropical: [], disasters: [], hazards: [],
@@ -257,7 +272,7 @@ function Fitter({ points, fitKey }: { points: [number, number][]; fitKey: number
   return null;
 }
 
-export default function CrisisMap() {
+export default function CrisisMap({ boardAor = null, starAors = [], myFields = [], sinceMs = 0 }: CrisisMapProps = {}) {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
@@ -345,6 +360,25 @@ export default function CrisisMap() {
   const [flyTo, setFlyTo] = useState<{ lat: number; lon: number; zoom: number; key: number } | null>(null);
   const [fitKey, setFitKey] = useState(0);
   const [aorFilter, setAorFilter] = useState<Aor | "ALL">("ALL");
+  // The AOR filter FOLLOWS THE BOARD: opening a command on the command board
+  // narrows the map, the force rail and the events list to it; a chip click
+  // overrides until the board moves again ("follow" restores). Only a REAL
+  // board change acts — the hydrated filter is left alone when no command is
+  // open, so a remembered chip survives a reload.
+  const [followBoard, setFollowBoard] = useState(true);
+  const prevBoardAor = useRef<Aor | null | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevBoardAor.current;
+    prevBoardAor.current = boardAor;
+    if (prev === undefined) { if (boardAor && followBoard) setAorFilter(boardAor); return; }
+    if (!followBoard) return;
+    if (boardAor) setAorFilter(boardAor);
+    else if (prev) setAorFilter("ALL");
+  }, [boardAor, followBoard]);
+  const pickAor = (a: Aor | "ALL") => { setFollowBoard(false); setAorFilter(a); };
+  const resumeFollow = () => { setFollowBoard(true); setAorFilter(boardAor ?? "ALL"); };
+  // Events lens: everything / within reach of my airfields / new since my last look.
+  const [lens, setLens] = useState<EventLens>("all");
   const [watchGroupsOpen, setWatchGroupsOpen] = useState<Set<string>>(new Set()); // collapsed = present in set
   const [showAllDisasters, setShowAllDisasters] = useState(false);
   const [disType, setDisType] = useState<Set<DisasterEvent["type"]>>(new Set());
@@ -667,6 +701,7 @@ export default function CrisisMap() {
           aor: aorFromCoords(e.lat, e.lon),
           lat: e.lat, lon: e.lon,
           score: 130 + Math.min(e.fatalities, 50), // rank at/above NEO ordered-departure
+          timeISO: e.date ? `${e.date}T00:00:00Z` : null,
         });
       }
     }
@@ -682,19 +717,25 @@ export default function CrisisMap() {
           lat: c.lat, lon: c.lon,
           score: 95 + Math.min(c.count, 40), // rank alongside red disasters / NEO
           href: c.url,
+          timeISO: c.date ? `${c.date}T00:00:00Z` : null,
         });
       }
     }
     for (const d of disasters) {
       if (!isSignificant(d)) continue;
       const near = d.nearLocations.length > 0;
-      out.push({ id: `d-${d.id}`, kind: "disaster", title: d.title, sub: near ? `Near ${d.nearLocations.join(", ")}` : (d.country || d.type), tone: d.severity === "red" || (d.hadrScore ?? 0) >= 60 ? "red" : "amber", aor: d.aor === "UNKNOWN" ? null : d.aor, lat: d.lat as number, lon: d.lon as number, score: (d.hadrScore ?? 0) + (near ? 55 : 0), href: d.link });
+      out.push({ id: `d-${d.id}`, kind: "disaster", title: d.title, sub: near ? `Near ${d.nearLocations.join(", ")}` : (d.country || d.type), tone: d.severity === "red" || (d.hadrScore ?? 0) >= 60 ? "red" : "amber", aor: d.aor === "UNKNOWN" ? null : d.aor, lat: d.lat as number, lon: d.lon as number, score: (d.hadrScore ?? 0) + (near ? 55 : 0), href: d.link, timeISO: d.time || null });
     }
-    for (const z of hazShown) out.push({ id: `hz-${z.label}`, kind: "hazard", title: z.label, sub: z.flags.join(" · "), tone: z.severity === "severe" ? "red" : "amber", aor: aorFromCoords(z.lat, z.lon), lat: z.lat, lon: z.lon, score: z.severity === "severe" ? 75 : 45 });
-    for (const { a, pos } of neoPins) { const evac = a.orderedDeparture || a.authorizedDeparture; if (!evac) continue; out.push({ id: `neo-${a.country}`, kind: "neo", title: a.country, sub: a.orderedDeparture ? "Ordered departure" : "Authorized departure", tone: a.orderedDeparture ? "red" : "amber", aor: a.aor === "UNKNOWN" ? null : (a.aor as Aor), lat: pos[0], lon: pos[1], score: a.orderedDeparture ? 120 : 85, href: a.link }); }
-    for (const t of tropShown) out.push({ id: `t-${t.id}`, kind: "tropical", title: `${t.category} ${t.name}`, sub: `${t.intensityKt ?? "?"} kt · ${t.movement || "—"}`, tone: "sky", aor: aorFromCoords(t.lat as number, t.lon as number), lat: t.lat as number, lon: t.lon as number, score: 70 });
+    for (const z of hazShown) out.push({ id: `hz-${z.label}`, kind: "hazard", title: z.label, sub: z.flags.join(" · "), tone: z.severity === "severe" ? "red" : "amber", aor: aorFromCoords(z.lat, z.lon), lat: z.lat, lon: z.lon, score: z.severity === "severe" ? 75 : 45, timeISO: null });
+    for (const { a, pos } of neoPins) { const evac = a.orderedDeparture || a.authorizedDeparture; if (!evac) continue; out.push({ id: `neo-${a.country}`, kind: "neo", title: a.country, sub: a.orderedDeparture ? "Ordered departure" : "Authorized departure", tone: a.orderedDeparture ? "red" : "amber", aor: a.aor === "UNKNOWN" ? null : (a.aor as Aor), lat: pos[0], lon: pos[1], score: a.orderedDeparture ? 120 : 85, href: a.link, timeISO: a.pubDate || null }); }
+    for (const t of tropShown) out.push({ id: `t-${t.id}`, kind: "tropical", title: `${t.category} ${t.name}`, sub: `${t.intensityKt ?? "?"} kt · ${t.movement || "—"}`, tone: "sky", aor: aorFromCoords(t.lat as number, t.lon as number), lat: t.lat as number, lon: t.lon as number, score: 70, timeISO: t.lastUpdate || null });
     return out.sort((a, b) => b.score - a.score);
   }, [disasters, hazShown, neoPins, tropShown, kineticEvents, acledShown, on.conflict, on.acled]);
+
+  // NEW since your last look: only events that carry a time can claim it —
+  // an undated row is never marked new (a guess is not a marker).
+  const isNew = useCallback((it: Item) => !!sinceMs && !!it.timeISO && Date.parse(it.timeISO) > sinceMs, [sinceMs]);
+  const nearMine = useCallback((it: Item) => myFields.some((f) => km(f.lat, f.lon, it.lat, it.lon) <= NEAR_MY_KM), [myFields]);
 
   // Auto-fit once when crisis data first arrives.
   const crisisPoints = useMemo(() => items.map((i) => [i.lat, i.lon] as [number, number]), [items]);
@@ -733,11 +774,11 @@ export default function CrisisMap() {
   useEffect(() => { if (selected) document.getElementById(`row-${selected}`)?.scrollIntoView({ block: "nearest" }); }, [selected]);
 
   // The map used to compute its own AOR-level "convergence" here. It is gone:
-  // the cross-surface ConvergenceCard on the Watch pane groups by SUBJECT across
-  // feeds / I&W / disasters / posture / SITREP, which is strictly more useful
-  // than "some combatant command has two signal kinds" — and two surfaces
-  // computing different things under one word, a few hundred pixels apart,
-  // was a cohesion defect (docs/REVIEW.md §4.3).
+  // the cross-surface convergence join (lib/convergence) feeds the command
+  // board's primer, grouped by SUBJECT across feeds / I&W / disasters /
+  // posture / SITREP — strictly more useful than "some combatant command has
+  // two signal kinds", and two surfaces computing different things under one
+  // word, a few hundred pixels apart, was a cohesion defect (docs/REVIEW.md §4.3).
 
   // Precompute GPSJam hex boundaries once (cellToBoundary → [lat,lng] verts).
   const gpsPolys = useMemo(
@@ -758,9 +799,12 @@ export default function CrisisMap() {
   // AORs to offer as filter chips — drawn from ALL data (not the aor-filtered
   // sets) so the chip row stays stable when a command is selected, and includes
   // the watched Force posture commands.
+  // Every ★ command keeps a chip even when quiet (REVIEW-2026-10 §6 O6: a
+  // chip row that shows only commands with an event hides the one you
+  // declared you care about on exactly the day it is quiet).
   const aorsPresent = useMemo(
-    () => AORS.filter((a) => forces.some((f) => f.cocom === a) || allDisasters.some((d) => d.aor === a) || neoAll.some((x) => x.a.aor === a)),
-    [forces, allDisasters, neoAll],
+    () => AORS.filter((a) => starAors.includes(a) || forces.some((f) => f.cocom === a) || allDisasters.some((d) => d.aor === a) || neoAll.some((x) => x.a.aor === a)),
+    [forces, allDisasters, neoAll, starAors],
   );
   const toggle = (k: LayerKey) => setOn((p) => ({ ...p, [k]: !p[k] }));
   const showNodeLabels = on.labels && zoom >= 4;
@@ -800,8 +844,13 @@ export default function CrisisMap() {
   const severeWx = hazShown.filter((z) => z.severity === "severe").length;
   // The Watch box now carries the FULL crisis-event index (was top-5), so moving
   // Force Protection into the side panel loses nothing — every event is still
-  // enumerated here, scrollable, with map-selection sync.
-  const watchList = items;
+  // enumerated here, scrollable, with map-selection sync. The lens narrows it.
+  const watchList = useMemo(
+    () => (lens === "near" ? items.filter(nearMine) : lens === "new" ? items.filter(isNew) : items),
+    [items, lens, nearMine, isNew],
+  );
+  const nearCountLens = useMemo(() => (myFields.length ? items.filter(nearMine).length : 0), [items, nearMine, myFields.length]);
+  const newCountLens = useMemo(() => (sinceMs ? items.filter(isNew).length : 0), [items, isNew, sinceMs]);
   // Watch list grouped by AOR for the "All" view (items are already aor-filtered
   // when a command is selected, so grouping only matters at ALL). Group order
   // follows the top item's score (items are score-sorted); null AOR → "—".
@@ -993,11 +1042,16 @@ export default function CrisisMap() {
         </div>
         {/* AOR filter chips — one control for the whole tab: map dots, Mobility
             posture board, and the ⚠ Significant-disasters list all follow this. */}
-        <div className="flex items-center gap-1 flex-wrap" title="Filter the whole tab (map + Force posture + Significant-disasters list) to one combatant command">
+        <div className="flex items-center gap-1 flex-wrap" title="Filter the whole picture (map + Force posture + Significant-events list) to one combatant command — follows the command board until you pick a chip">
           <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600">AOR</span>
-          <button onClick={() => setAorFilter("ALL")} className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${aorFilter === "ALL" ? "border-sky-500/55 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>All</button>
+          {boardAor !== null && (
+            <button onClick={resumeFollow} title="Follow whatever the command board has open" className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${followBoard ? "border-emerald-500/55 bg-emerald-500/10 text-emerald-200" : "border-slate-700 text-slate-500 hover:text-slate-200"}`}>
+              {followBoard ? `follows the board — ${aorFilter === "ALL" ? "All" : aorFilter}` : "follow the board"}
+            </button>
+          )}
+          <button onClick={() => pickAor("ALL")} className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${aorFilter === "ALL" && !(followBoard && boardAor) ? "border-sky-500/55 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>All</button>
           {aorsPresent.map((a) => (
-            <button key={a} onClick={() => setAorFilter(a)} className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${aorFilter === a ? "border-sky-500/55 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{a}</button>
+            <button key={a} onClick={() => pickAor(a)} className={`text-[10px] font-mono rounded px-1.5 py-1 border transition-colors ${aorFilter === a && !(followBoard && boardAor) ? "border-sky-500/55 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{a}{starAors.includes(a) ? " ★" : ""}</button>
           ))}
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doSearch(); }} placeholder="ICAO / base…" title="Fly to an AMC base by ICAO or name (Enter)" className="w-24 bg-slate-800/80 border border-slate-700 rounded-md px-1.5 py-1 text-[10px] text-slate-300 placeholder-slate-600 outline-none focus:border-slate-500" />
@@ -1348,16 +1402,31 @@ export default function CrisisMap() {
       {/* Watch box — the key conditions/alerts + data provenance, below the map. */}
       <section className="bg-slate-900/40 border border-slate-800 rounded-xl">
         <div className="px-3 py-2 border-b border-slate-800 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">⚠ Significant disasters</span>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">⚠ Significant events</span>
           <span className="text-[10px] font-mono text-slate-400">
             {redCount > 0 && <><span className="text-red-400">{redCount} red</span> · </>}
             {nearCount} near-base · {neoDep} NEO · <span className={severeWx > 0 ? "text-red-300" : ""}>{severeWx} severe wx</span> · {tropShown.length} tropical
           </span>
+          {/* Lenses — "near my airfields" (own + ★ fields, ≤600 km) and "new
+              since your last look" (events with a time after it). */}
+          <span className="flex items-center gap-1 ml-1">
+            {(["all", "near", "new"] as EventLens[]).map((l) => {
+              const n = l === "near" ? nearCountLens : l === "new" ? newCountLens : items.length;
+              const disabled = (l === "near" && myFields.length === 0) || (l === "new" && !sinceMs);
+              return (
+                <button key={l} disabled={disabled} onClick={() => setLens(l)}
+                  title={l === "near" ? (myFields.length ? `Within ${NEAR_MY_KM} km of ${myFields.map((f) => f.icao).join("/")}` : "Declare a hub or ★ an airfield to use this lens") : l === "new" ? (sinceMs ? "Events dated after your last look at this tab" : "No recorded last look yet") : "Every significant event"}
+                  className={`text-[9px] font-mono rounded px-1.5 py-0.5 border transition-colors disabled:opacity-40 ${lens === l ? "border-amber-500/50 bg-amber-500/10 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+                  {l === "all" ? "All" : l === "near" ? "near my airfields" : "new since look"} <span className="opacity-60">{n}</span>
+                </button>
+              );
+            })}
+          </span>
           <span className="flex-1" />
-          <span className="text-[9px] text-slate-600 font-mono">{items.length} event{items.length === 1 ? "" : "s"} · {aorFilter === "ALL" ? "all AORs" : aorFilter}{fetchedAt ? ` · as of ${new Date(fetchedAt).toISOString().slice(11, 16)}Z` : loading ? " · loading…" : ""}</span>
+          <span className="text-[9px] text-slate-600 font-mono">{watchList.length} event{watchList.length === 1 ? "" : "s"} · {aorFilter === "ALL" ? "all AORs" : aorFilter}{followBoard && boardAor ? " · following the board" : ""}{fetchedAt ? ` · as of ${new Date(fetchedAt).toISOString().slice(11, 16)}Z` : loading ? " · loading…" : ""}</span>
         </div>
         <ul className="px-3 py-2 space-y-1 max-h-[42vh] overflow-y-auto">
-          {watchList.length === 0 && <li className="text-[11px] text-slate-600 font-mono">No crisis events{loading ? " (loading…)" : ""} — quiet across tracked AORs and the hub network.</li>}
+          {watchList.length === 0 && <li className="text-[11px] text-slate-600 font-mono">{lens === "near" ? `Nothing within ${NEAR_MY_KM} km of your airfields.` : lens === "new" ? "Nothing dated after your last look." : `No crisis events${loading ? " (loading…)" : ""} — quiet across tracked AORs and the hub network.`}</li>}
           {(() => {
             const row = (it: typeof items[number]) => {
               const reach = it.kind !== "hazard" && CRF.length ? (() => { const n = nearest(CRF, it.lat, it.lon); return n ? legText(n.node, n.distKm, AF.cruiseKt) : ""; })() : "";
@@ -1365,6 +1434,7 @@ export default function CrisisMap() {
                 <li key={it.id} id={`row-${it.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === it.id ? "bg-slate-800/70" : ""}`}>
                   <span className={toneText(it.tone)}>{it.kind === "tropical" ? "🌀" : it.kind === "neo" ? "🛫" : it.kind === "hazard" ? "◯" : it.kind === "strike" ? "◆" : it.kind === "kinetic" ? "✸" : "●"}</span>
                   <button onClick={() => pick(it.id, it.lat, it.lon, 5)} className="text-slate-200 hover:text-emerald-400 font-medium text-left">{it.title}</button>
+                  {isNew(it) && <span className="text-[8px] font-bold uppercase tracking-wider text-emerald-300 border border-emerald-500/40 rounded px-1 py-0.5" title="Dated after your last look at this tab">new</span>}
                   {it.sub && <span className="text-slate-500">{it.sub}</span>}
                   {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{it.aor}</span>}
                   {reach && <span className="text-[10px] text-emerald-500/80 font-mono">{reach}</span>}

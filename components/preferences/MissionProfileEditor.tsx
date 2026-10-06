@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  deriveTracking, suggestChokepoints, suggestAoiCountries, slugify, EMPTY_PROFILE, SITREP_MAX, DEFAULT_SPECTRUM,
+  deriveTracking, suggestChokepoints, suggestAoiCountries, slugify, EMPTY_PROFILE, SITREP_MAX, DEFAULT_SPECTRUM, EMPTY_MUST_TRACK,
+  toggleMustTrack, isStarCountry,
   type MissionProfile, type MissionAoi, type MissionSpoke,
 } from "@/lib/missionProfile";
 import { CHOKEPOINTS } from "@/lib/chokepoints";
@@ -85,6 +86,53 @@ function SpectrumEditor({ profile, canEdit, patch }: { profile: MissionProfile; 
   );
 }
 
+// Must-tracks (REVIEW-2026-10 §6, decision 4): ★ the commands, countries and
+// airfields that matter MOST. A ★ orders and pins — it never adds tracking.
+// The OSINT command board's ★ taps write the same field (PATCH); this editor
+// is the declaration view of it, saved with the rest of the profile.
+function MustTrackEditor({ profile, canEdit, patch }: { profile: MissionProfile; canEdit: boolean; patch: (p: Partial<MissionProfile>) => void }) {
+  const mt = profile.mustTrack ?? EMPTY_MUST_TRACK;
+  const [icao, setIcao] = useState("");
+  const set = (kind: "aor" | "country" | "icao", v: string) => patch({ mustTrack: toggleMustTrack(mt, kind, v) });
+  const countries = [...new Set(profile.aois.flatMap((a) => a.countries))];
+  const fields = [
+    ...(profile.home ? [profile.home.icao] : profile.homeIcao ? [profile.homeIcao] : []),
+    ...profile.spokes.map((s) => s.icao),
+  ];
+  const extraStars = mt.icaos.filter((i) => !fields.includes(i));
+  const chip = (on: boolean, label: string, onClick: () => void) => (
+    <button key={label} type="button" disabled={!canEdit} onClick={onClick}
+      className={`text-[10.5px] font-mono px-2 py-0.5 rounded-full border transition-colors disabled:opacity-50 ${on ? "border-amber-500/50 text-amber-300 bg-amber-500/10" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+      {on ? "★ " : "☆ "}{label}
+    </button>
+  );
+  return (
+    <div className="border border-slate-800 rounded-lg p-3 space-y-2.5 bg-slate-950/40">
+      <div>
+        <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">★ Must-tracks</label>
+        <p className="text-[10px] text-slate-600 mt-0.5">What matters most. A ★ orders and pins on the OSINT command board (★ rows first, never folded; the primer breaks ties toward ★; ★ airfields take the {SITREP_MAX} full-SITREP slots, hub first; ★ commands always have a map chip). It never adds tracking by itself.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5"><span className="text-[10.5px] text-slate-400 w-24">Commands</span>{AORS.map((a) => chip(mt.aors.includes(a), a, () => set("aor", a)))}</div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10.5px] text-slate-400 w-24">Countries</span>
+        {countries.length === 0 && mt.countries.length === 0 && <span className="text-[10px] text-slate-600">declare an AOI first, or ★ a country row on the board</span>}
+        {[...countries, ...mt.countries.filter((c) => !countries.some((x) => x.toLowerCase() === c.toLowerCase()))].map((c) => chip(isStarCountry(mt, c), c, () => set("country", c)))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10.5px] text-slate-400 w-24">Airfields</span>
+        {[...fields, ...extraStars].map((i) => chip(mt.icaos.includes(i), i, () => set("icao", i)))}
+        {canEdit && (
+          <span className="flex items-center gap-1">
+            <input value={icao} onChange={(e) => setIcao(e.target.value.toUpperCase().slice(0, 4))} onKeyDown={(e) => { if (e.key === "Enter" && /^[A-Z0-9]{4}$/.test(icao)) { e.preventDefault(); set("icao", icao); setIcao(""); } }} placeholder="ICAO" maxLength={4}
+              className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-[11px] font-mono text-slate-200 placeholder:text-slate-600 uppercase" />
+            <button type="button" disabled={!/^[A-Z0-9]{4}$/.test(icao)} onClick={() => { set("icao", icao); setIcao(""); }} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-600 text-slate-300 hover:border-amber-500/50 disabled:opacity-40">★ add</button>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MissionProfileEditor() {
   const [profile, setProfile] = useState<MissionProfile>(EMPTY_PROFILE);
   const [canEdit, setCanEdit] = useState(false);
@@ -146,7 +194,8 @@ export default function MissionProfileEditor() {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }),
       });
       const d = await res.json();
-      setMsg(res.ok ? { ok: true, text: "Declaration saved (nothing materialized yet — use Apply)." } : { ok: false, text: d.error || "Save failed." });
+      setMsg(res.ok ? { ok: true, text: "Declaration saved (nothing materialized yet — use Apply; ★ must-tracks take effect on the command board now)." } : { ok: false, text: d.error || "Save failed." });
+      if (res.ok) window.dispatchEvent(new Event("force-locations:changed"));
     } finally { setBusy(false); }
   };
 
@@ -214,6 +263,9 @@ export default function MissionProfileEditor() {
 
       {/* Spectrum dependencies — team config, never sent to a model */}
       <SpectrumEditor profile={profile} canEdit={canEdit} patch={patch} />
+
+      {/* Must-tracks — ★ commands / countries / airfields (the board's ★ taps write the same field) */}
+      <MustTrackEditor profile={profile} canEdit={canEdit} patch={patch} />
 
       {/* AOIs */}
       <div>

@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
-import GroundTruthTab from "@/components/ground/GroundTruthTab";
-import WatchPane from "@/components/osint/WatchPane";
+import CommandBoard from "@/components/osint/CommandBoard";
 import SourcesPane from "@/components/osint/SourcesPane";
 
 interface OsintItem {
@@ -28,11 +27,12 @@ interface FeedSummary {
   fetchedAt?: number;
 }
 
-// Four destinations (was nine chips): Watch is the command dashboard (I&W
-// strip + SITREP LEDs + Crisis map), Regional the per-country rooms, Feeds the
-// merged reporting list (All/Social/Telegram/News are a SUBFILTER, not panes),
-// Sources the ingestion control room.
-type Pane = "watch" | "regional" | "feeds" | "sources";
+// Three destinations (REVIEW-2026-10 §6): Commands is the landing — one page
+// by combatant command that drills to boards → countries → airfields and
+// carries the Crisis map (Watch and Regional retired into it); Feeds the
+// merged reporting list (All/Social/Telegram/News are a SUBFILTER, not
+// panes); Sources the ingestion control room.
+type Pane = "commands" | "feeds" | "sources";
 type FeedKind = "all" | "social" | "telegram" | "news";
 type Priority = "High" | "Medium" | "Low";
 
@@ -76,7 +76,7 @@ interface OSINTTabProps {
 export default function OSINTTab({ active = true, previousSeen = 0, onSignalCount, onTopSignals, onFeedLoaded }: OSINTTabProps) {
   const [items, setItems] = useState<OsintItem[]>([]);
   const [feeds, setFeeds] = useState<FeedSummary[]>([]);
-  const [pane, setPane] = useState<Pane>("watch");
+  const [pane, setPane] = useState<Pane>("commands");
   const [feedKind, setFeedKind] = useState<FeedKind>("all");
   const [loading, setLoading] = useState(true);
   // Capture-pipeline freshness for the Sources chip dot: null = no auto-capture
@@ -88,9 +88,10 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   useEffect(() => {
     const onSetPane = (e: Event) => {
       const p = (e as CustomEvent<string>).detail;
-      // Legacy pane ids (pre-consolidation dispatchers) map onto the new four.
-      if (p === "watch" || p === "crisis" || p === "sitrep" || p === "iw") setPane("watch");
-      else if (p === "regional" || p === "ground") setPane("regional");
+      // Legacy pane ids (every earlier dispatcher) land on Commands; the
+      // level inside it is chosen by the follow-up watch:focus /
+      // regional:select event the dispatcher already sends.
+      if (p === "commands" || p === "watch" || p === "regional" || p === "crisis" || p === "sitrep" || p === "iw" || p === "ground") setPane("commands");
       else if (p === "sources") setPane("sources");
       else if (p === "feeds" || p === "all") setPane("feeds");
       else if (p === "social" || p === "telegram" || p === "news") { setPane("feeds"); setFeedKind(p as FeedKind); }
@@ -98,11 +99,11 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
     window.addEventListener("osint:set-pane", onSetPane);
     return () => window.removeEventListener("osint:set-pane", onSetPane);
   }, []);
-  // The Watch pane (and its Leaflet map) stays hidden-mounted across pane
+  // The command board (and its Leaflet map) stays hidden-mounted across pane
   // switches; Leaflet measures a hidden container as 0×0, so nudge it with a
   // resize event when the pane is revealed.
   useEffect(() => {
-    if (pane !== "watch") return;
+    if (pane !== "commands") return;
     const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
     return () => clearTimeout(t);
   }, [pane]);
@@ -731,8 +732,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       {/* Pane selector */}
       <div className="flex flex-wrap gap-1.5">
         {([
-          { id: "watch",    label: "◉ Watch",   n: null       },
-          { id: "regional", label: "▤ Regional", n: null      },
+          { id: "commands", label: "◆ Commands", n: null      },
           { id: "feeds",    label: "≣ Feeds",   n: counts.all },
           { id: "sources",  label: "⇪ Sources", n: null       },
         ] as const).map((p) => (
@@ -793,16 +793,14 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
         </div>
       )}
 
-      {/* Watch — the command dashboard (I&W strip → SITREP LEDs → Crisis map).
+      {/* Commands — the command board (primer → my airfields → commands that
+          drill to boards / countries / airfields → the Crisis map).
           HIDDEN-MOUNTED after first activation so pane-hopping doesn't unmount
-          the map and re-fire its ~15 source fetches; WatchPane arms itself
+          the map and re-fire its ~15 source fetches; the board arms itself
           lazily so nothing loads before the user first opens it. */}
-      <div className={pane !== "watch" ? "hidden" : ""}>
-        <WatchPane active={active && pane === "watch"} />
+      <div className={pane !== "commands" ? "hidden" : ""}>
+        <CommandBoard active={active && pane === "commands"} />
       </div>
-
-      {/* Regional — per-country situation rooms for the declared AO */}
-      {pane === "regional" && <GroundTruthTab active={active} />}
 
       {/* Sources — the ingestion control room (X / analysis / events captures +
           live feed health). */}
@@ -907,7 +905,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               <span className="flex-1" />
               <button
                 type="button"
-                onClick={() => setPane("watch")}
+                onClick={() => setPane("commands")}
                 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-emerald-400 transition-colors"
               >
                 View map ↗

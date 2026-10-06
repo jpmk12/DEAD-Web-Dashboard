@@ -47,16 +47,20 @@ const QUADRANT_LABEL: Record<string, string> = {
   quiet: "Quiet — nothing implied, nothing moving",
 };
 
-export default function WarningBoard({ active, focusProblemId, onFocused }: {
+export default function WarningBoard({ active, focusProblemId, onFocused, only }: {
   active: boolean;
   /** A board to scroll to and flash once the list is loaded (Glance tiles, the
    *  palette). Cleared via `onFocused` so a later open does not re-scroll. */
   focusProblemId?: string | null;
   onFocused?: () => void;
+  /** Render only these problems (the command board opens ONE board inline
+   *  under its command row); the header and footer are dropped too. */
+  only?: string[];
 }) {
-  const [problems, setProblems] = useState<WarningAssessmentPlus[] | null>(null);
+  const [all, setProblems] = useState<WarningAssessmentPlus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const problems = all && only ? all.filter((p) => only.includes(p.problemId)) : all;
 
   useEffect(() => {
     if (!focusProblemId || !problems || !problems.some((p) => p.problemId === focusProblemId)) return;
@@ -70,7 +74,7 @@ export default function WarningBoard({ active, focusProblemId, onFocused }: {
   }, [focusProblemId, problems]);
 
   useEffect(() => {
-    if (!active || problems !== null) return;
+    if (!active || all !== null) return;
     fetch("/api/warning")
       .then((r) => r.json())
       .then((d) => {
@@ -78,22 +82,24 @@ export default function WarningBoard({ active, focusProblemId, onFocused }: {
         setProblems(Array.isArray(d.problems) ? d.problems : []);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
-  }, [active, problems]);
+  }, [active, all]);
 
   return (
     <div className="space-y-3">
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <h2 className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-slate-100">◎ Indications &amp; Warning</h2>
-        <span className="text-[11px] text-slate-500">anomaly &amp; trajectory — calm by default. Color is earned by crossing a threshold, never by standing level.</span>
-      </div>
+      {!only && (
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <h2 className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-slate-100">◎ Indications &amp; Warning</h2>
+          <span className="text-[11px] text-slate-500">anomaly &amp; trajectory — calm by default. Color is earned by crossing a threshold, never by standing level.</span>
+        </div>
+      )}
 
       {error && <div className="text-[11px] text-red-400 font-mono">Failed to load I&amp;W: {error}</div>}
       {problems === null && !error && <div className="text-xs text-slate-500 py-6">Assembling warning picture…</div>}
-      {problems && problems.length === 0 && <div className="text-xs text-slate-500 py-6">No warning problems configured.</div>}
+      {problems && problems.length === 0 && <div className="text-xs text-slate-500 py-6">{only ? "This board is not in the active set." : "No warning problems configured."}</div>}
 
       {problems?.map((p) => <ProblemCard key={p.problemId} p={p} flash={flash === p.problemId} />)}
 
-      {problems && problems.length > 0 && (
+      {!only && problems && problems.length > 0 && (
         <div className="text-[10px] text-slate-600 leading-relaxed border-t border-slate-800 pt-3">
           <span className="text-amber-400 font-semibold">Unofficial &amp; personal.</span> Not a USAF/DoD position, product, or endorsement.
           Fused from open sources; indicator taxonomy sourced from open doctrine (ISW · CSIS · RAND · Grabo).

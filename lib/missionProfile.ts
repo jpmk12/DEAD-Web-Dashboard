@@ -72,6 +72,23 @@ export interface SpectrumDependencies {
 
 export const DEFAULT_SPECTRUM: SpectrumDependencies = { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true };
 
+// Must-tracks — the operator's declaration of what matters MOST (REVIEW-2026-10
+// §6, decision 4). Three flat lists keyed the way each surface keys its rows:
+// combatant commands by AOR id, countries by display name (case-insensitive
+// match), airfields by ICAO. A ★ never ADDS tracking — a country that is not
+// in the posture watch stays unwatched and the board says so — it ORDERS and
+// PINS: ★ rows sort first and never fold, the primer breaks ties toward ★,
+// ★ airfields take the SITREP slots (hub always first), ★ commands always
+// have an AOR chip on the map. Team config, owner edits, like the rest of the
+// profile.
+export interface MustTrack {
+  aors: Aor[];
+  countries: string[];
+  icaos: string[];
+}
+
+export const EMPTY_MUST_TRACK: MustTrack = { aors: [], countries: [], icaos: [] };
+
 export interface MissionProfile {
   homeIcao: string;                 // "" = unset (the HUB)
   home?: MissionSpoke | null;       // resolved hub, when the editor resolved it
@@ -79,16 +96,60 @@ export interface MissionProfile {
   theaters: Aor[];                  // COCOMs the user owns
   aois: MissionAoi[];
   spectrum: SpectrumDependencies;   // the spectrum / space declaration
+  mustTrack: MustTrack;             // ★ commands / countries / airfields
   excludedIds: string[];            // derived ids the user removed — never re-materialize
   materializedIds: string[];        // ids written at last apply (drift → exclusions)
   updatedAt?: string;               // ISO, set server-side
 }
 
 export const EMPTY_PROFILE: MissionProfile = {
-  homeIcao: "", spokes: [], theaters: [], aois: [], spectrum: { ...DEFAULT_SPECTRUM }, excludedIds: [], materializedIds: [],
+  homeIcao: "", spokes: [], theaters: [], aois: [], spectrum: { ...DEFAULT_SPECTRUM }, mustTrack: { aors: [], countries: [], icaos: [] }, excludedIds: [], materializedIds: [],
 };
 
 const MAX_VENDORS = 24;
+const MAX_STAR_COUNTRIES = 40;
+const MAX_STAR_ICAOS = 24;
+
+export function sanitizeMustTrack(raw: unknown): MustTrack {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { aors: [], countries: [], icaos: [] };
+  const r = raw as Record<string, unknown>;
+  const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  const aors = [...new Set(strs(r.aors).map((a) => a.trim().toUpperCase()).filter((a): a is Aor => VALID_AORS.includes(a as Aor)))];
+  const seenC = new Set<string>();
+  const countries: string[] = [];
+  for (const c of strs(r.countries)) {
+    const t = c.trim().slice(0, 60);
+    const k = t.toLowerCase();
+    if (!t || seenC.has(k)) continue;
+    seenC.add(k); countries.push(t);
+    if (countries.length >= MAX_STAR_COUNTRIES) break;
+  }
+  const icaos = [...new Set(strs(r.icaos).map((i) => i.trim().toUpperCase().slice(0, 4)).filter((i) => /^[A-Z0-9]{4}$/.test(i)))].slice(0, MAX_STAR_ICAOS);
+  return { aors, countries, icaos };
+}
+
+/** Case-insensitive country membership — the one comparison every ★ surface uses. */
+export function isStarCountry(mt: MustTrack | undefined, country: string): boolean {
+  if (!mt || !country) return false;
+  const k = country.trim().toLowerCase();
+  return mt.countries.some((c) => c.toLowerCase() === k);
+}
+
+/** Toggle one entry; returns a NEW MustTrack (the editor and the board's ★ taps use this). */
+export function toggleMustTrack(mt: MustTrack, kind: "aor" | "country" | "icao", value: string): MustTrack {
+  if (kind === "aor") {
+    const v = value.toUpperCase() as Aor;
+    return { ...mt, aors: mt.aors.includes(v) ? mt.aors.filter((a) => a !== v) : [...mt.aors, v] };
+  }
+  if (kind === "icao") {
+    const v = value.toUpperCase();
+    return { ...mt, icaos: mt.icaos.includes(v) ? mt.icaos.filter((i) => i !== v) : [...mt.icaos, v] };
+  }
+  const k = value.trim().toLowerCase();
+  return isStarCountry(mt, value)
+    ? { ...mt, countries: mt.countries.filter((c) => c.toLowerCase() !== k) }
+    : { ...mt, countries: [...mt.countries, value.trim()] };
+}
 
 export function sanitizeSpectrum(raw: unknown): SpectrumDependencies {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SPECTRUM };
@@ -112,7 +173,10 @@ export interface DerivedTracking {
   sitrepCandidates: SitrepBase[];   // hub -> spokes -> theater picks
   watchlistSeeds: string[];         // exclusion pseudo-ids mp-t-<slug>
   // Consumed live by lib/warningProblems (one board per primary AOI with iw).
-  warningProblems: { id: string; name: string; aor: Aor; countries: string[]; chokepointId: string | null; spaceActivity: boolean }[];
+  // `ownHubs` = the declared hub + spokes, so a board's lift sensor reads the
+  // operator's OWN fields first (REVIEW-2026-10 §6 O6), not the first eight
+  // catalogue entries inside the bbox.
+  warningProblems: { id: string; name: string; aor: Aor; countries: string[]; chokepointId: string | null; spaceActivity: boolean; ownHubs: { lat: number; lon: number; icao: string }[] }[];
 }
 
 const VALID_AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM", "INDOPACOM"];
@@ -122,7 +186,9 @@ const BASES_PER_AOI = 6;
 const MAX_SPOKES = 8;
 const NEAR_BASE_KM = 1800;          // "supports this AOI" radius for theater hubs
 const NEAR_CHOKE_KM = 2500;         // chokepoint relevance radius
-export const SITREP_MAX = 4;
+// Full-SITREP slots. 4 → 6 with must-tracks (REVIEW-2026-10 §6): ★ fields
+// take the slots first, the hub always holds one.
+export const SITREP_MAX = 6;
 
 export const slugify = (s: string): string =>
   s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "aoi";
@@ -200,6 +266,7 @@ export function sanitizeMissionProfile(raw: unknown): MissionProfile {
     theaters: strArr(r.theaters, 6, 12).filter((t): t is Aor => VALID_AORS.includes(t as Aor)),
     aois,
     spectrum: sanitizeSpectrum(r.spectrum),
+    mustTrack: sanitizeMustTrack(r.mustTrack),
     excludedIds: strArr(r.excludedIds, 400, 60),
     materializedIds: strArr(r.materializedIds, 400, 60),
     ...(typeof r.updatedAt === "string" ? { updatedAt: r.updatedAt } : {}),
@@ -308,6 +375,7 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
         id: `mp-${aoi.id}`, name: aoi.name, aor: aoi.aor,
         countries: [...aoi.countries], chokepointId: aoi.chokepointIds[0] ?? null,
         spaceActivity: profile.spectrum?.spaceActivity !== false,
+        ownHubs: ownForce.map(({ sp }) => ({ lat: sp.lat, lon: sp.lon, icao: sp.icao })),
       });
     }
   }
@@ -319,20 +387,35 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
     .filter((b) => !!b.icao && !excluded.has(`mp-m-${b.icao}`))
     .map((b) => ({ icao: b.icao as string, label: b.label }));
 
-  // SITREP candidates: hub first, then spokes (crews live there — "can my
-  // spoke launch today" is the point), then per-primary-AOI theater hubs.
+  // SITREP candidates: hub first (always), then ★ airfields in declaration
+  // order, then spokes (crews live there — "can my spoke launch today" is the
+  // point), then per-primary-AOI theater hubs. A ★ field that is in no list
+  // yet still becomes a candidate when the catalogue knows it; one the
+  // catalogue does not know is resolved at ★ time by the server (see
+  // missionProfileApply.syncSitrepBasesToStars).
   const sitrepCandidates: SitrepBase[] = [];
   const sitSeen = new Set<string>();
+  const pushCand = (c: SitrepBase) => {
+    if (sitSeen.has(c.icao)) return;
+    sitSeen.add(c.icao);
+    sitrepCandidates.push(c);
+  };
+  if (hub) pushCand({ icao: hub.icao, label: hub.label, lat: hub.lat, lon: hub.lon, country: hub.country || "United States", place: hub.label });
+  for (const icao of profile.mustTrack?.icaos ?? []) {
+    const own = ownForce.find(({ sp }) => sp.icao === icao)?.sp;
+    const b = bases.find((x) => x.icao === icao);
+    const a = ALL_AIRFIELDS.find((x) => x.icao === icao);
+    if (own) pushCand({ icao, label: own.label, lat: own.lat, lon: own.lon, country: own.country || "United States", place: own.label });
+    else if (b) pushCand({ icao, label: b.label, lat: b.lat, lon: b.lon, country: b.country, place: b.label });
+    else if (a) pushCand({ icao, label: a.name, lat: a.lat, lon: a.lon, country: a.country ?? "", place: a.name });
+  }
   for (const { sp } of ownForce) {
-    if (sitSeen.has(sp.icao)) continue;
-    sitSeen.add(sp.icao);
-    sitrepCandidates.push({ icao: sp.icao, label: sp.label, lat: sp.lat, lon: sp.lon, country: sp.country || "United States", place: sp.label });
+    pushCand({ icao: sp.icao, label: sp.label, lat: sp.lat, lon: sp.lon, country: sp.country || "United States", place: sp.label });
   }
   for (const aoi of profile.aois.filter((a) => a.intensity === "primary")) {
     for (const b of bases.filter((x) => x.note === `${aoi.name} AOI`).slice(0, 2)) {
       if (!b.icao || sitSeen.has(b.icao) || sitrepCandidates.length >= SITREP_MAX + 6) continue;
-      sitSeen.add(b.icao);
-      sitrepCandidates.push({ icao: b.icao, label: b.label, lat: b.lat, lon: b.lon, country: b.country, place: b.label });
+      pushCand({ icao: b.icao, label: b.label, lat: b.lat, lon: b.lon, country: b.country, place: b.label });
     }
   }
 
@@ -374,7 +457,40 @@ export function missionSummaryLine(profile: MissionProfile): string {
       : "";
     parts.push(`AOI "${a.name}" (${a.aor}, ${a.intensity}: ${a.countries.slice(0, 8).join(", ")}${a.countries.length > 8 ? "…" : ""}${cp})`);
   }
+  const mt = profile.mustTrack;
+  if (mt && (mt.aors.length || mt.countries.length || mt.icaos.length)) {
+    parts.push(`must-tracks ${[...mt.aors, ...mt.countries.slice(0, 8), ...mt.icaos.slice(0, 8)].join(", ")}`);
+  }
   return parts.length ? `Declared AO — ${parts.join(" · ")}` : "";
+}
+
+/**
+ * The SITREP base set the ★ declaration implies, given what is configured
+ * today: hub first, then ★ ICAOs (declaration order), then the existing set
+ * in its current order, capped at SITREP_MAX. `resolved` supplies a base for
+ * any ★ ICAO neither list knows (the server resolves it; null = unknown
+ * field, skipped). Pure so the ordering rule is testable; the server only
+ * does the resolving and the save.
+ */
+export function sitrepBasesForStars(
+  current: SitrepBase[],
+  candidates: SitrepBase[],
+  mustTrackIcaos: string[],
+  hubIcao: string,
+  resolved: Record<string, SitrepBase | null> = {},
+): SitrepBase[] {
+  const out: SitrepBase[] = [];
+  const seen = new Set<string>();
+  const find = (icao: string): SitrepBase | null =>
+    current.find((b) => b.icao === icao) ?? candidates.find((b) => b.icao === icao) ?? resolved[icao] ?? null;
+  const push = (b: SitrepBase | null) => {
+    if (!b || seen.has(b.icao) || out.length >= SITREP_MAX) return;
+    seen.add(b.icao); out.push(b);
+  };
+  if (hubIcao) push(find(hubIcao));
+  for (const icao of mustTrackIcaos) push(find(icao));
+  for (const b of current) push(b);
+  return out;
 }
 
 // Countries the app proposes for an AOI in the given theater — the catalog's
