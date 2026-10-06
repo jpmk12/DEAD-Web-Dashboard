@@ -2402,6 +2402,70 @@ and No date closed by default). `TabShell` renders `CalendarTab` and keeps
 - Mockup: `docs/mockups/calendar-proposed.html` → `docs/calendar.png`. No
   new npm dep (esbuild `0`).
 
+### Email tab rebuilt (2026-10-06, `docs/REVIEW-2026-10.md` §4 E1–E7, all three decisions yes)
+The tab's job is the SIFT (action items → Low: verify and clear → Medium →
+High), so the list is **always grouped High → Medium → Low** (`EmailTab`),
+each group header carrying its own "✓ Mark N read"; the chips carry counts
+and a **⚑ Kept** filter; Low rows render COMPACT (`EmailCard compact` —
+checkbox · sender · subject · why · age · badge · ✓) and open to the full
+card on tap; the checkbox SELECTS and the row OPENS; the account dot shows
+only when a second account is connected. Keyboard triage: j/k · x · e ·
+h · 1/2/3 · Enter · Esc (gated on `body[data-tab="email"]`, ignored in
+inputs).
+- **Per-email override + Keep** (`email_prefs`, per user, 90-day rolling;
+  `lib/emailPrefs.ts` server-only; `POST /api/gmail/prefs`). The priority
+  badge is a menu: High / Medium / Low for THIS email (it moves now), clear
+  the override, or **Always High / Always Low from this sender** (the
+  existing `/api/user-prefs/append` door — `muteSenders` finally has a
+  caller). The route applies the override AFTER the cache lookup and the
+  VIP/mute rules: the user's own call wins over everything.
+  `EmailMessage` carries `priorityModel` (the model's call after VIP/mute —
+  what a correction is measured against), `prioritySet`, `keep`,
+  `whySource`, `why`.
+- **Keep holds at BOTH ends**: the client drops kept ids from group
+  buttons, select-all and the bulk bar (per-row ✓ is disabled on a kept
+  email), AND `/api/gmail/mark-read` refuses kept ids for that user
+  (`keptIds`) — the `/api/family/event` rule: a shortcut that bypasses the
+  UI must not clear a kept email. Keep is the app's flag, NOT a Gmail star
+  (decision 1). Kept rows sort first in their group.
+- **Why** (`whyLine`, pure): the triage's Haiku call returns ONE more field,
+  `why` (≤12 words naming the rule that fired), cached beside the
+  classification (`email_classification_cache.why`, additive). VIP / mute /
+  override name themselves ("Always High — VIP sender · …", "you set High
+  (model said Low) · …"); no hit reads "not triaged — AI off or the call
+  failed", never a silent Low.
+- **Learning** (`lib/emailLearning.ts`, PURE, tested; `GET /api/gmail/rules`
+  read-only): (a) `suggestSenderRules` — the same sender corrected the SAME
+  direction ≥ `RULE_MIN_CORRECTIONS` 3 times in 30 d → "Always High/Low?";
+  both-ways earns nothing; ≥3 distinct addresses on one non-free-mail
+  domain lift to a domain rule; anything covered by vip/mute or dismissed
+  (`rule:<kind>:<sender>` keys in `dismissedVipSuggestions`) is skipped —
+  every row states its evidence, dismissal is permanent. (b)
+  `correctionExamples` — the 15 most recent corrections ride into the
+  classifier as a SECOND system block, deliberately OUTSIDE `promptHash`
+  (decision 2): a correction shapes only emails not yet classified and never
+  re-classifies the cached inbox. (c) the **"How priority is decided"**
+  strip above the inbox: role, topic/VIP/muted counts, corrections in 30 d
+  (▲/▼), "what the model reads" fold (`RULES_TEXT`), "Rules ⚙" →
+  `prefs:open` "email"; the Suggested-VIPs rows (reply mining) live in the
+  same strip. NOT built: mark-read-without-opening as a weak demotion.
+- **Mark-read reports failures** (E5): `markAsRead` returns the ids Gmail
+  REFUSED; the route answers `{ok, done, kept, failed}` and refreshes the
+  secondary token (`getValidSecondaryToken` + cookie write-back — an expired
+  token used to pass `decryptToken` and then fail every modify while the
+  route said ok); the client removes only `done`, toasts `failed` ("left in
+  place") and the kept count. Other `markAsRead` callers (newsletters,
+  family, household) are fire-and-forget and unaffected.
+- **Action items** (E6): extraction cached PER MESSAGE
+  (`email_action_cache`, 14 d; an empty list is cached too) so one new
+  arrival sends only itself to Opus; rows are validated against the input
+  ids; the rate limit guards the MODEL call, not a replay. Ticked state and
+  "in Tasks / in Docs" persist cross-device in UI state
+  (`email.actionsDone` / `email.actionsAdded`, keyed by `actionKey(emailId,
+  action)` — a djb2 of the normalised text, stable across refreshes).
+- Mockup: `docs/mockups/email-proposed.html` → `docs/email.png`. No new
+  npm dep (esbuild `0`).
+
 ### Glance hero = live status row (`components/glance/StatusRow.tsx`)
 The Glance hero is a row of six live tiles — **Posture · Bases · I&W ·
 Demand · 7d · Alerts · Family** — each deep-linking to the surface that owns

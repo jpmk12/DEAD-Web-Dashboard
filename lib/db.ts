@@ -309,6 +309,36 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_email_cache_prompt_hash (prompt_hash)
   ) ENGINE=InnoDB`,
 
+  // Email tab (REVIEW-2026-10 §4): the user's own calls on individual
+  // emails — a per-message priority override and the Keep flag — plus the
+  // model's call at the time, so every override is also a CORRECTION the
+  // learning layer (lib/emailLearning.ts) can read. Per user: a crew
+  // member's keep never hides an email from the owner. 90-day rolling.
+  `CREATE TABLE IF NOT EXISTS email_prefs (
+    user_email     VARCHAR(255) NOT NULL,
+    account_email  VARCHAR(255) NOT NULL,
+    message_id     VARCHAR(255) NOT NULL,
+    priority_set   VARCHAR(8)   NULL,
+    priority_model VARCHAR(8)   NULL,
+    keep           TINYINT(1)   NOT NULL DEFAULT 0,
+    sender         VARCHAR(255) NOT NULL DEFAULT '',
+    subject        VARCHAR(255) NOT NULL DEFAULT '',
+    updated_at     BIGINT       NOT NULL,
+    PRIMARY KEY (user_email, account_email, message_id),
+    INDEX idx_email_prefs_user (user_email, updated_at)
+  ) ENGINE=InnoDB`,
+
+  // Action-item extraction cached PER MESSAGE (an email's action does not
+  // change), so a new arrival sends only itself to the model.
+  `CREATE TABLE IF NOT EXISTS email_action_cache (
+    message_id     VARCHAR(255) NOT NULL,
+    account_email  VARCHAR(255) NOT NULL,
+    actions        JSON         NULL,
+    cached_at      BIGINT       NOT NULL,
+    PRIMARY KEY (message_id, account_email),
+    INDEX idx_email_action_cached (cached_at)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS files (
     id            VARCHAR(36)  NOT NULL,
     filename      VARCHAR(255) NOT NULL,
@@ -674,6 +704,8 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "threads",         column: "amc",                   ddl: "ALTER TABLE threads ADD COLUMN amc TEXT NULL" },
   // Dates in your mail (2026-10-05): the triage's `dates` ride the same cache row.
   { table: "email_classification_cache", column: "dates",      ddl: "ALTER TABLE email_classification_cache ADD COLUMN dates JSON NULL" },
+  // The "why" line (2026-10-06): the triage's one-clause reason rides the same row.
+  { table: "email_classification_cache", column: "why",        ddl: "ALTER TABLE email_classification_cache ADD COLUMN why VARCHAR(255) NULL" },
   { table: "news_overview_cache", column: "ctx_hash",          ddl: "ALTER TABLE news_overview_cache ADD COLUMN ctx_hash VARCHAR(16) NOT NULL DEFAULT ''" },
   // Threads run on Opus over the whole article set — the priciest call in the
   // app. Hash of the article ids + user context; an unchanged set replays the

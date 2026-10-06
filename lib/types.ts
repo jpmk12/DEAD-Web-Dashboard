@@ -57,6 +57,16 @@ export interface EmailMessage {
   summary: string;
   /** Dates the email states (lib/mailDates; same triage call). Absent when none. */
   dates?: { when?: unknown; whenText?: unknown; what?: unknown }[];
+  /** One-line reason for the priority (lib/emailLearning whyLine). */
+  why?: string;
+  /** Which rule decided the priority. */
+  whySource?: "you" | "vip" | "mute" | "model" | "none";
+  /** The model's own call (after VIP/mute), before any per-email override. */
+  priorityModel?: EmailPriority;
+  /** The user's per-email override, when one is set. */
+  prioritySet?: EmailPriority | null;
+  /** Keep: no bulk action may mark this email read. */
+  keep?: boolean;
 }
 
 export interface NewsletterSummary {
@@ -445,6 +455,7 @@ export interface CachedEmailClassification {
   summary: string;
   promptHash: string;
   dates?: { when?: unknown; whenText?: unknown; what?: unknown }[];
+  why?: string;
 }
 
 export interface ActionItem {

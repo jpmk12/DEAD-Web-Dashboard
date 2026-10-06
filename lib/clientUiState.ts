@@ -10,6 +10,10 @@ export const UI_KEYS = {
   crisisBasemap: "crisisMap.basemap",
   newsletterQuietDismissed: "newsletter.quietDismissed",
   mailDatesDismissed: "calendar.mailDatesDismissed",
+  // Email action items: keys (lib/emailLearning actionKey) the user ticked, and
+  // the ones that went to Tasks / a Doc — remembered across devices (E6).
+  emailActionsDone: "email.actionsDone",
+  emailActionsAdded: "email.actionsAdded",
 } as const;
 
 export async function fetchUiState(): Promise<Record<string, unknown>> {

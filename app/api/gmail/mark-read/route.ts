@@ -2,9 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { markAsRead } from "@/lib/gmail";
-import { COOKIE_NAME, decryptToken } from "@/lib/secondaryAuth";
+import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
+import { normEmail } from "@/lib/allowlist";
+import { keptIds } from "@/lib/emailPrefs";
 
 export const dynamic = "force-dynamic";
+
+// Mark messages read (REVIEW-2026-10 E2/E5).
+//   POST { ids, account } → { ok, done: string[], kept: string[], failed: string[] }
+// - KEPT ids are refused HERE, not only in the client: a kept email must
+//   survive a shortcut that bypasses the UI (the same server-boundary rule
+//   as /api/family/event).
+// - The secondary token is REFRESHED (getValidSecondaryToken), not merely
+//   decrypted: an expired token used to pass the check and then fail every
+//   modify, while the route still said ok.
+// - `failed` carries what Gmail refused; the client puts those back.
 
 const VALID_ACCOUNTS = new Set(["primary", "secondary"]);
 const MAX_IDS = 100;
@@ -14,6 +26,7 @@ export async function POST(request: NextRequest) {
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userEmail = normEmail(session.user?.email);
 
   let body: unknown;
   try {
@@ -41,17 +54,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "account must be 'primary' or 'secondary'" }, { status: 400 });
   }
 
-  if (account === "primary") {
-    await markAsRead(session.accessToken as string, ids as string[]);
-  } else {
+  let token = session.accessToken as string;
+  let accountEmail = userEmail;
+  if (account === "secondary") {
     const cookieStore = await cookies();
     const raw = cookieStore.get(COOKIE_NAME)?.value;
-    const payload = raw ? await decryptToken(raw) : null;
-    if (!payload) {
+    const result = raw ? await getValidSecondaryToken(raw) : null;
+    if (!result) {
       return NextResponse.json({ error: "Secondary account not connected" }, { status: 401 });
     }
-    await markAsRead(payload.access_token, ids as string[]);
+    token = result.payload.access_token;
+    accountEmail = normEmail(result.payload.email);
+    if (result.refreshedJwe) {
+      cookieStore.set(COOKIE_NAME, result.refreshedJwe, {
+        httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 30, path: "/",
+      });
+    }
   }
 
-  return NextResponse.json({ ok: true });
+  const kept = await keptIds(userEmail, accountEmail, ids as string[]).catch(() => new Set<string>());
+  const toMark = (ids as string[]).filter((id) => !kept.has(id));
+  const failed = toMark.length ? await markAsRead(token, toMark) : [];
+  const failedSet = new Set(failed);
+  const done = toMark.filter((id) => !failedSet.has(id));
+
+  return NextResponse.json({ ok: failed.length === 0, done, kept: [...kept], failed });
 }

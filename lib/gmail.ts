@@ -416,10 +416,12 @@ export async function createDraftReply(
   return res.data.id ?? null;
 }
 
+/** Removes UNREAD from each id. Returns the ids Gmail REFUSED — the caller
+ *  must not report success for those (REVIEW-2026-10 E5). */
 export async function markAsRead(
   accessToken: string,
   ids: string[]
-): Promise<void> {
+): Promise<string[]> {
   const gmail = buildClient(accessToken);
   // allSettled so one failed modify doesn't abort the remaining ids
   const results = await Promise.allSettled(
@@ -431,8 +433,10 @@ export async function markAsRead(
       })
     )
   );
-  const failed = results.filter((r) => r.status === "rejected").length;
-  if (failed > 0) {
-    console.error(`markAsRead: ${failed}/${ids.length} messages failed`);
+  const failed = ids.filter((_, i) => results[i].status === "rejected");
+  if (failed.length > 0) {
+    const first = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+    console.error(`markAsRead: ${failed.length}/${ids.length} messages failed`, first?.reason instanceof Error ? first.reason.message : first?.reason);
   }
+  return failed;
 }
