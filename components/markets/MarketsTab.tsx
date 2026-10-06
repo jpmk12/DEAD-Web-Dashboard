@@ -64,6 +64,12 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
           page does not change what the model is given. */}
       <EconomicAccessPanel articles={articles} />
 
+      {/* Chokepoint interdiction directly under the read (REVIEW-2026-10 §10
+          E9, by request): a strait act is the one economic move that changes
+          a mobility route the same day, and it is the evidence the actor
+          board's shipping instrument is credited from. */}
+      <ChokepointBoard active />
+
       <EconomicWarfareBoard active refreshKey={refreshKey} />
 
       {/* Energy / fuel strip — Brent drives jet-fuel/sustainment cost */}
@@ -95,10 +101,6 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
         </div>
         <p className="text-[9px] text-slate-700 mt-2">Session change · {energy.some((q) => q.source === "stooq") ? "Stooq" : "Yahoo Finance"} · for context, not trading.</p>
       </div>
-
-      {/* Graded interdiction, above the AI read: the read should be explaining
-          evidence the user can already see, not introducing it. */}
-      <ChokepointBoard active />
 
       {/* U.S. regulatory actions — the sanctions / export-control / tariff
           record, classified and flagged against the watch. */}

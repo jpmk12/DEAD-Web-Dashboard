@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NewsItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { BriefIcon } from "@/lib/icons";
@@ -11,7 +11,11 @@ interface AccessBrief {
   actors: ActorCall[];
   fuelLogistics: string;
   watchItems: string[];
+  /** The deterministic board rendered as prose because the model returned nothing (§10 E8). */
+  fallback?: boolean;
 }
+
+const FALLBACK_RETRY_MS = 30_000;
 
 // v2: the shape changed with the economic-warfare reframe; an older cached
 // object must not render as an empty card.
@@ -34,6 +38,9 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
   const [error, setError] = useState<string | null>(null);
 
   const [pendingNote, setPendingNote] = useState<string | null>(null);
+  const retried = useRef(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (retryTimer.current) clearTimeout(retryTimer.current); }, []);
 
   // The server generates in the background and answers `pending` while the
   // model runs (a cold start used to outrun the gateway and come back as a
@@ -60,7 +67,15 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
           continue;
         }
         if (d.error) setError(d.disabled ? "Economic Warfare Read is off (Preferences → AI Controls)." : d.error);
-        else if (d.brief) { setBrief(d.brief); clientCache.set(CACHE_KEY, d.brief, CACHE_TTL.NEWS); }
+        else if (d.brief) {
+          setBrief(d.brief);
+          // A fallback is the board as prose, not the model's read: show it
+          // (never a blank card) but do not pin it in the client cache, and
+          // retry the model ONCE after a short wait.
+          if (d.brief.fallback) {
+            if (!retried.current) { retried.current = true; retryTimer.current = setTimeout(() => generate(true), FALLBACK_RETRY_MS); }
+          } else clientCache.set(CACHE_KEY, d.brief, CACHE_TTL.NEWS);
+        }
         return;
       }
       setError("The read is still generating after two minutes — try refresh.");
@@ -115,6 +130,11 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
 
       {brief && (
         <div className="space-y-3">
+          {brief.fallback && (
+            <p className="text-[10.5px] text-amber-200/90 border border-amber-500/30 bg-amber-500/[0.06] rounded-md px-2.5 py-1.5 leading-snug">
+              The model returned an empty read — this is the deterministic board rendered as prose, not an analyst&rsquo;s call.{retried.current ? " One automatic retry has been made; ↻ refresh tries again." : " Retrying once in 30 s."}
+            </p>
+          )}
           <p className="text-xs text-slate-300 leading-relaxed">{brief.read}</p>
           {brief.actors.length > 0 && (
             <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-lg">

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  readInstrument, readInstruments, resolveActors, attribute, targetOf, actorProblem,
-  instrumentState, counterPressureState, movesFor, rankMoves, evidenceByInstrument,
+  readInstrument, readInstruments, resolveActors, resolveActorRegister, validateActorName, attribute, targetOf, actorProblem,
+  instrumentState, counterPressureState, movesFor, movesForAll, pickAuthor, rankMoves, evidenceByInstrument,
   econProblemId, econProblemLabel, instrumentForRegulatoryClass, INSTRUMENTS, INSTRUMENT_META,
   COUNTER_PRESSURE_ID, MAX_ACTORS, type Actor, type CoercionMove,
 } from "../lib/economicWarfare";
@@ -60,10 +60,76 @@ describe("resolveActors", () => {
     expect(withYemen.some((a) => a.id === "houthis")).toBe(true);
     expect(withYemen.find((a) => a.id === "houthis")?.chokepointIds).toEqual(["babelmandeb"]);
   });
-  it("caps the register and never empties on garbage", () => {
-    const many = resolveActors(Array.from({ length: 20 }, (_, i) => `Country${i}`));
+  it("caps the register; blanks are nothing", () => {
+    const many = resolveActors(["Iran", "Russia", "China", "Egypt", "Jordan", "Qatar", "Kuwait", "Bahrain", "Poland", "Germany", "Japan"]);
     expect(many.length).toBe(MAX_ACTORS);
     expect(resolveActors(["", "  "])).toEqual([]);
+  });
+  it("a reversal never scores and never counts as agreement", () => {
+    const r = readInstrument("Traffic has resumed through the strait after Iran lifted the blockade");
+    expect(r?.modality).toBe("reversal");
+    expect(r?.weight).toBe(0);
+    const s = instrumentState([{ modality: "reversal", own: false, source: "reuters" }]);
+    expect(s.state).toBe("dormant");
+    expect(s.why).toMatch(/lifted/);
+    expect(instrumentState([{ modality: "threat", own: false, source: "reuters" }, { modality: "reversal", own: true, source: "x" }]).state).toBe("watching");
+  });
+});
+
+describe("validateActorName / resolveActorRegister — a name is an actor only when it can be placed (§10 E1)", () => {
+  it("places catalogue names, demonyms and compounds; names the fix for the rest", () => {
+    expect(validateActorName("Iran")).toEqual({ country: "Iran" });
+    expect(validateActorName("iranian")).toMatchObject({ country: "Iran", via: "iranian" });
+    expect(validateActorName("Chinese")).toMatchObject({ country: "China" });
+    expect(validateActorName("Islamic Republic of Iran")).toMatchObject({ country: "Iran" });
+    expect(validateActorName("Türkiye")).toEqual({ country: "Turkey" });
+    expect(validateActorName("Hormuz")).toMatchObject({ skip: "chokepoint", suggestion: "Strait of Hormuz" });
+    expect(validateActorName("Red Sea")).toMatchObject({ skip: "chokepoint" });
+    expect(validateActorName("Irann")).toMatchObject({ skip: "spelling", suggestion: "Iran" });
+    expect(validateActorName("Venezuala")).toMatchObject({ skip: "spelling", suggestion: "Venezuela" });
+    expect(validateActorName("Country0")).toMatchObject({ skip: "unknown" });
+  });
+  it("skips with the reason and fix, excludes and adds per the editor overlay, never a tile that cannot fill", () => {
+    const reg = resolveActorRegister([
+      { name: "Iran", reason: "AOI “Iran & Hormuz”" },
+      { name: "Hormuz", reason: "AOI “Iran & Hormuz”" },
+      { name: "Irann", reason: "watched country" },
+      { name: "Jordan", reason: "host of OJAQ" },
+    ], { exclude: ["jordan"], add: ["Venezuela"] });
+    expect(reg.actors.map((a) => a.id)).toEqual(["venezuela", "iran", "houthis"]);
+    expect(reg.actors[0].reason).toBe("added in the actor editor");
+    expect(reg.actors[1].reason).toBe("AOI “Iran & Hormuz”");
+    expect(reg.skipped.map((s) => `${s.name}:${s.fix}`)).toEqual(["Hormuz:chokepoint", "Irann:spelling", "Jordan:excluded"]);
+    expect(reg.skipped[1].suggestion).toBe("Iran");
+    expect(reg.skipped[2].reason).toBe("host of OJAQ");
+  });
+  it("a demonym says what it was read from, and dedupes with the plain name", () => {
+    const reg = resolveActorRegister([{ name: "Iranian", reason: "watched country" }, { name: "Iran", reason: "AOI" }]);
+    expect(reg.actors.filter((a) => a.id === "iran").length).toBe(1);
+    expect(reg.actors[0].reason).toMatch(/read as Iran from “Iranian”/);
+  });
+});
+
+describe("pickAuthor / movesForAll — one author per headline (§10 E2)", () => {
+  const [iranA, russiaA, chinaA] = resolveActors(["Iran", "Russia", "China"]).filter((a) => a.kind === "state");
+  it("credits the actor named nearest before the phrase; the rest are mentions", () => {
+    const text = "Iran and China sign a pact as Russia cut gas supplies to Moldova";
+    expect(pickAuthor(text, "cut gas supplies", [iranA, russiaA, chinaA])?.id).toBe("russia");
+    const moves = movesForAll([iranA, russiaA, chinaA], [{ title: text, link: "https://x/1", source: "reuters", pubDate: "2026-09-28T10:00:00Z", own: false }], TODAY);
+    const by = moves.filter((m) => m.direction === "by");
+    expect(by.length).toBe(1);
+    expect(by[0].actorId).toBe("russia");
+    expect(by[0].mentions).toEqual(["Iran", "China"]);
+  });
+  it("with nobody before the phrase, the nearest after; one candidate is the author", () => {
+    expect(pickAuthor("Sanctions package announced by Russia and Iran", "sanctions package", [iranA, russiaA])?.id).toBe("russia");
+    expect(pickAuthor("anything", "x", [chinaA])?.id).toBe("china");
+    expect(pickAuthor("anything", "x", [])).toBeNull();
+  });
+  it("an actor that is the OBJECT keeps its against row while another actor gets the by row", () => {
+    const moves = movesForAll([iranA, russiaA], [{ title: "Russia imposed sanctions on Iran's shipping firms", link: "https://x/2", source: "ap", pubDate: "2026-09-28T10:00:00Z", own: false }], TODAY);
+    expect(moves.map((m) => `${m.actorId}:${m.direction}`).sort()).toEqual(["iran:against", "russia:by"]);
+    expect(moves.find((m) => m.actorId === "russia")?.mentions).toBeUndefined();
   });
 });
 

@@ -71,7 +71,7 @@ export const CYBER_CLASSES: Record<CyberClass, CyberClassMeta> = {
 
 export const CYBER_CLASS_ORDER: CyberClass[] = ["disruptive", "espionage", "ransom", "ddos"];
 
-const MODALITY_FACTOR: Record<Modality, number> = { act: 1, threat: 0.45, analysis: 0.1 };
+const MODALITY_FACTOR: Record<Modality, number> = { act: 1, threat: 0.45, analysis: 0.1, reversal: 0 };
 
 export interface CyberRead {
   cls: CyberClass;
@@ -100,18 +100,36 @@ export function readCyber(text: string): CyberRead | null {
 // ───────────────────────────── state attribution ─────────────────────────────
 
 /** The state actors the open advisories name, by the ways they are written
- *  about. Order matters only for the label; every match is returned. */
-export const STATE_ACTOR_TERMS: { country: string; rx: RegExp }[] = [
-  { country: "China", rx: /\b(china|chinese|prc|people's republic of china|volt typhoon|salt typhoon|flax typhoon|apt ?41|apt ?40|apt ?31|apt ?27|apt ?10|mustang panda|apt ?1\b)/i },
-  { country: "Russia", rx: /\b(russia|russian|gru|svr|fsb|sandworm|apt ?28|apt ?29|fancy bear|cozy bear|nobelium|midnight blight|star blizzard|seashell blizzard)\b/i },
-  { country: "Iran", rx: /\b(iran|iranian|irgc|mois|cyberav3ngers|cyber av3ngers|apt ?33|apt ?34|apt ?35|charming kitten|muddywater|pioneer kitten|fox kitten|lemon sandstorm|mint sandstorm)\b/i },
-  { country: "North Korea", rx: /\b(north korea|north korean|dprk|lazarus|kimsuky|andariel|apt ?38|apt ?37|reconnaissance general bureau|bluenoroff|jade sleet|citrine sleet|diamond sleet)\b/i },
+ *  about: `group` = a named unit / APT / intrusion set (attribution on its
+ *  own); `state` = the country term, which counts only beside attribution
+ *  language (REVIEW-2026-10 §10 E4 — "Chinese-made routers" named China as
+ *  the author of a cyber act). Order matters only for the label. */
+export const STATE_ACTOR_TERMS: { country: string; group: RegExp; state: RegExp }[] = [
+  { country: "China", group: /\b(volt typhoon|salt typhoon|flax typhoon|apt ?41|apt ?40|apt ?31|apt ?27|apt ?10|mustang panda|apt ?1\b|mss\b|pla unit)/i, state: /\b(china|chinese|prc|people's republic of china|beijing)\b/i },
+  { country: "Russia", group: /\b(gru|svr|fsb|sandworm|apt ?28|apt ?29|fancy bear|cozy bear|nobelium|midnight blizzard|midnight blight|star blizzard|seashell blizzard|forest blizzard)\b/i, state: /\b(russia|russian|kremlin|moscow)\b/i },
+  { country: "Iran", group: /\b(irgc|mois|cyberav3ngers|cyber av3ngers|apt ?33|apt ?34|apt ?35|charming kitten|muddywater|pioneer kitten|fox kitten|lemon sandstorm|mint sandstorm|peach sandstorm)\b/i, state: /\b(iran|iranian|tehran)\b/i },
+  { country: "North Korea", group: /\b(dprk|lazarus|kimsuky|andariel|apt ?38|apt ?37|reconnaissance general bureau|bluenoroff|jade sleet|citrine sleet|diamond sleet)\b/i, state: /\b(north korea|north korean|pyongyang)\b/i },
 ];
 
-/** Which state actors a text names (an advisory title + summary). */
+// Attribution language — the words an advisory uses when it is SAYING who
+// did it, as opposed to naming a country for any other reason (a vendor's
+// nationality, a victim, a comparison).
+const ATTRIBUTION = "(?:state[- ]sponsored|state[- ]backed|state[- ]linked|state[- ]affiliated|state[- ]aligned|nation[- ]state|state actors?|cyber actors?|threat actors?|\\bactors?\\b|government[- ]backed|government[- ]linked|government[- ]sponsored|government hackers|intelligence|military|affiliated|aligned|sponsored|backed|linked|apt\\s?\\d)";
+const ATTR_RX = new RegExp(ATTRIBUTION, "i");
+
+/** Which state actors a text names AS THE ACTOR (an advisory title +
+ *  summary). A named group or APT is attribution by itself; a bare country
+ *  term counts only within ~40 characters of attribution language. */
 export function stateActorsIn(text: string): string[] {
   if (!text) return [];
-  return STATE_ACTOR_TERMS.filter((t) => t.rx.test(text)).map((t) => t.country);
+  const out: string[] = [];
+  for (const t of STATE_ACTOR_TERMS) {
+    if (t.group.test(text)) { out.push(t.country); continue; }
+    if (!t.state.test(text) || !ATTR_RX.test(text)) continue;
+    const near = new RegExp(`(?:${t.state.source}[\\s\\S]{0,40}?${ATTRIBUTION}|${ATTRIBUTION}[\\s\\S]{0,40}?${t.state.source})`, "i");
+    if (near.test(text)) out.push(t.country);
+  }
+  return out;
 }
 
 export interface AdvisoryLite { title: string; summary?: string; link?: string; pubDate?: string }

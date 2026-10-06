@@ -30,7 +30,15 @@
 // Throwing threats away would lose the earliest signal there is; scoring them
 // as acts would make the board cry wolf. They are worth different amounts.
 
-export type Modality = "act" | "threat" | "analysis";
+// `reversal` (REVIEW-2026-10 §10 E3): the measure being LIFTED — "the strait
+// has reopened", "gas flows resumed", "sanctions lifted". The old grammar
+// graded "Traffic has resumed after the blockade was lifted" as a closure
+// ACT because "blockade" is a closure phrase; the reader sees the board go
+// red on the day the strait reopens. A reversal earns NO weight and is
+// never counted as an act, threat or analysis piece — it is shown so the
+// row explains itself, and it is the only modality that can stand for
+// de-escalation.
+export type Modality = "act" | "threat" | "analysis" | "reversal";
 
 export type InterdictionClass =
   | "strike"      // vessel hit by missile/drone/explosive
@@ -60,7 +68,7 @@ const CLASS_WEIGHT: Record<InterdictionClass, number> = {
 
 /** Modality multipliers. An act is the event; a threat is the earliest signal;
  *  analysis is someone thinking out loud and earns almost nothing. */
-const MODALITY_FACTOR: Record<Modality, number> = { act: 1, threat: 0.45, analysis: 0.1 };
+const MODALITY_FACTOR: Record<Modality, number> = { act: 1, threat: 0.45, analysis: 0.1, reversal: 0 };
 
 // Phrases per class. Phrases, never single words — "attack" and "closed" appear
 // in every shipping newsletter ever written. Same rule as accountJeopardy.
@@ -122,6 +130,36 @@ const ANALYSIS_MARKERS = [
   "in the event", "were to", "hypothetical", "war game", "wargame",
 ];
 
+// The measure being undone. PHRASES, never single words ("open" is in every
+// headline); each one names the END of a coercive state, so a text that
+// carries one alongside a closure / seizure / supply-cut phrase is reporting
+// the lifting, not the imposition. Shared by every grammar that grades
+// modality (chokepoint, instrument, cyber) through `isReversal`.
+const REVERSAL_PHRASES = [
+  "has reopened", "have reopened", "reopened the strait", "reopen the strait", "reopening the strait", "reopening of the strait",
+  "strait reopened", "strait has reopened", "reopened to shipping", "reopen its airspace", "resume transits", "resume gas deliveries",
+  "resume gas supplies", "resume oil exports", "restore gas supplies", "lift the blockade", "lift the embargo", "lift the ban",
+  "reopened to traffic", "reopens the strait", "reopened its airspace", "airspace reopened", "airspace has reopened",
+  "traffic has resumed", "transits have resumed", "transits resumed", "shipping has resumed", "resumed transits",
+  "resumed sailings", "sailings resumed", "flows have resumed", "flows resumed", "gas flows resumed", "supplies resumed",
+  "deliveries resumed", "resumed deliveries", "resumed gas deliveries", "resumed oil exports", "exports resumed",
+  "lifted the blockade", "blockade lifted", "blockade was lifted", "ended the blockade", "lifted the ban", "ban lifted",
+  "ban was lifted", "lifted the embargo", "embargo lifted", "lifted the closure", "closure lifted", "lifted the restrictions",
+  "restrictions lifted", "restrictions were lifted", "eased the restrictions", "lifted sanctions", "sanctions lifted",
+  "sanctions were lifted", "sanctions relief", "released the tanker", "released the vessel", "released the ship",
+  "released the crew", "tanker was released", "vessel was released", "freed the tanker", "freed the vessel",
+  "mines were cleared", "mines cleared", "channel was cleared", "suspended the tariffs", "tariffs suspended",
+  "dropped the tariffs", "withdrew the tariffs", "tariffs were lifted", "removed from the entity list",
+  "delisted", "overflight restored", "overflight rights restored", "resumed overflights", "restored gas supplies",
+  "restored supplies", "back to normal", "returned to normal", "declared the strait open", "ceasefire holds",
+];
+
+/** Does the text report a coercive measure being LIFTED? */
+export function isReversal(text: string): boolean {
+  if (!text) return false;
+  return REVERSAL_PHRASES.some((p) => hasPhrase(text, p));
+}
+
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Word-bounded, case-insensitive phrase containment. */
@@ -138,6 +176,10 @@ export function hasPhrase(text: string, phrase: string): boolean {
  *  the strait, analysts say" is a declared intent being reported, not a
  *  hypothetical, and the declaration is the signal. */
 export function gradeModality(text: string): Modality {
+  // A lifting outranks everything: "Iran vows to reopen the strait" is a
+  // promise of de-escalation, and a reversal headline that a modal happens
+  // to govern must not be upgraded back into a threat.
+  if (isReversal(text)) return "reversal";
   if (THREAT_MARKERS.some((m) => hasPhrase(text, m))) return "threat";
   if (ANALYSIS_MARKERS.some((m) => hasPhrase(text, m))) return "analysis";
   return "act";
@@ -292,6 +334,7 @@ export function readActivity(
   for (const t of texts) {
     const read = readInterdiction(`${t.title} ${t.summary ?? ""}`);
     if (!read) continue;                       // a bare mention earns nothing
+    if (read.modality === "reversal") continue;  // the measure being lifted — not an act, not a threat, not analysis
     if (read.modality === "act") acts++;
     else if (read.modality === "threat") threats++;
     else analysis++;

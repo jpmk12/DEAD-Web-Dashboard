@@ -29,6 +29,14 @@ export interface TimelineDot {
   /** Relative size for the strip (0-100). */
   weight: number;
   link?: string;
+  /** act | threat for a move dot — the strip draws a threat hollow
+   *  (REVIEW-2026-10 §10 E5); absent on incident / market dots. */
+  modality?: "act" | "threat";
+  /** The headline and its source, for the tooltip. */
+  title?: string;
+  source?: string;
+  /** The coercion-board row this dot stands for (click → open it). */
+  moveId?: string;
 }
 
 export interface Sequence {
@@ -92,7 +100,8 @@ export function buildTimeline(input: {
   const dots: TimelineDot[] = [];
 
   for (const m of input.moves) {
-    if (m.modality === "analysis") continue;
+    // Commentary is not a move; a reversal is the measure being lifted.
+    if (m.modality === "analysis" || m.modality === "reversal") continue;
     const day = dayOf(m.pubDate);
     if (!day || !inWindow.has(day)) continue;
     const kind: DotKind = m.direction === "by"
@@ -104,6 +113,7 @@ export function buildTimeline(input: {
       actorId: m.actorId, actorLabel: m.actorLabel,
       weight: Math.max(10, Math.min(100, m.weight)),
       link: m.link,
+      modality: m.modality as "act" | "threat", title: m.title, source: m.source, moveId: m.id,
     });
   }
 

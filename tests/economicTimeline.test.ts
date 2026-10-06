@@ -27,10 +27,16 @@ describe("buildTimeline", () => {
         mv({ id: "d", direction: "against", source: "Federal Register", cls: "U.S. sanctions", pubDate: "2026-09-20" }),
         mv({ id: "e", direction: "against", source: "EU consolidated list", cls: "12 listings", pubDate: "2026-09-21" }),
         mv({ id: "f", pubDate: "2026-06-01" }), // outside window
+        mv({ id: "g", modality: "reversal", pubDate: "2026-09-26T10:00:00Z" }), // the measure lifted — never a move
       ],
     });
     expect(dots.map((d) => d.kind)).toEqual(["us", "foreign", "actor"]);
     expect(dots[0].day).toBe("2026-09-20");
+    // Each move dot carries what the strip needs to explain itself (§10 E5).
+    const act = dots.find((d) => d.kind === "actor")!;
+    expect(act.modality).toBe("act");
+    expect(act.moveId).toBe("a");
+    expect(act.title).toBe("t");
   });
   it("plots shipping incidents and Brent moves beyond the threshold", () => {
     const { dots } = buildTimeline({

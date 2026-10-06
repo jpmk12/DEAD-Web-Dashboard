@@ -80,6 +80,7 @@ const MODALITY_CHIP: Record<Modality, { text: string; cls: string }> = {
   act: { text: "reported act", cls: "text-red-200 border-red-500/55 bg-red-500/15" },
   threat: { text: "declared threat", cls: "text-amber-200 border-amber-500/50 bg-amber-500/10" },
   analysis: { text: "analysis only", cls: "text-slate-400 border-slate-600 bg-slate-700/25" },
+  reversal: { text: "reversal", cls: "text-emerald-200 border-emerald-500/40 bg-emerald-500/10" },
 };
 
 function scoreTone(n: number): string {

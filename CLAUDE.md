@@ -644,6 +644,99 @@ disagreed on the colour of `unknown`.
   every row; the viewer header has Download / Open (new tab) / Edit /
   Delete as buttons. No new npm dep (esbuild `0`).
 
+### Economy tab fixes (2026-10-06, `docs/REVIEW-2026-10.md` §10 E1–E9, all three decisions as recommended)
+Built from the operator's walkthrough ("not sure the items in the country
+boxes are working", "how were these chosen, can they be edited", "what is
+'actor move'", "chokepoints higher"). The load-bearing pieces:
+- **A name is an actor only when the app can PLACE it** (E1):
+  `validateActorName` in `lib/economicWarfare.ts` (PURE, tested) accepts a
+  curated actor, a catalogue name (`centroidCountryNames` +
+  `knownCountryNames` + the curated list), a curated adjective ("chinese")
+  or an adjective/compound form of a catalogue name ("Iranian", "Islamic
+  Republic of Iran" → Iran, said on the tile as "read as Iran from
+  “Iranian”"). Everything else is SKIPPED with a fix: `chokepoint` (the
+  name matches a `CHOKEPOINTS` entry — "Hormuz" typed as an AOI country;
+  tracked under Chokepoints already), `spelling` (edit distance 1 against
+  a short name, 2 against a long one → suggestion, and the editor offers
+  "＋ track as Iran"), `unknown`. A bare prefix is deliberately NOT a
+  demonym ("Irann" must surface as a typo, not read as Iran).
+  `resolveActorRegister(tracked: {name, reason}[], edits)` → `{actors,
+  skipped}`; `resolveActors(string[])` is the legacy wrapper. Each actor's
+  `reason` names WHERE it is tracked (`AOI “Iran & Hormuz”`, `watched
+  country`, `host of OJAQ`, `added in the actor editor`) — the tile shows
+  it. Before this a generic actor was built from ANY string and sat at
+  Calm forever with a regex that could never match.
+- **The register overlay** (E6): `MissionProfile.economy = { exclude[],
+  add[] }` (`sanitizeEconomyEdits`, additive, absent on old rows),
+  `PATCH /api/mission-profile { economy }` → `patchEconomy` (owner) +
+  `resetEconomicWarfareCache()`. Adds come FIRST in the register (explicit
+  intent beats the cap); an exclusion removes the tile only — the country
+  stays tracked everywhere else, and it is listed under the editor as
+  excluded with ↩ restore. `EconomicWarfareBody.skipped` + `.edits` feed
+  the **⚙ Actors** editor in `EconomicWarfareBoard` (actors with reason
+  and ✕, skipped names with fix/suggestion, excluded with restore, an add
+  box, "edit tracking →" `?prefs=mission`); `canEdit` comes from one
+  `/api/mission-profile` GET. The tile ✕ is the same PATCH.
+- **One author per headline** (E2): `compute()` in
+  `lib/economicWarfareAssess.ts` now gathers every actor's GDELT + own
+  texts into ONE deduped pool and grades it once with `movesForAll(actors,
+  pool)`: every actor the text makes the OBJECT of the measure gets its
+  `against` row; of the actors it merely names, `pickAuthor` credits the
+  one whose terms sit nearest BEFORE the instrument phrase (else nearest
+  after; tie → declaration order) and lists the rest as
+  `CoercionMove.mentions` ("also names Iran, China" on the row; the open
+  row says "named but not credited"). Before this each actor graded its
+  own copy of the same headline and one reopening lit four boards.
+  `movesFor(actor, texts)` = `movesForAll([actor], …)`, so the single-actor
+  semantics (and tests) are unchanged. `ActorBoard.mentions` = headlines
+  in the window that name the actor at all.
+- **`reversal` is a fourth `Modality`** (E3) in `lib/chokepointSignals.ts`,
+  shared by every grammar that grades mood: `REVERSAL_PHRASES` ("has
+  reopened", "traffic has resumed", "lifted the blockade", "tanker was
+  released", "sanctions lifted", "mines cleared" …) and `isReversal`;
+  `gradeModality` returns it FIRST (a modal must not turn "vows to reopen
+  the strait" back into a threat). `MODALITY_FACTOR.reversal = 0`
+  everywhere (chokepoint, instrument, cyber), `readActivity` counts it as
+  neither act nor threat nor analysis and never makes it the lead,
+  `instrumentState` ignores it for the ladder and for own-source
+  agreement but names it when it is all there is ("1 reversal reported —
+  the measure is being lifted"), `buildTimeline` never plots it,
+  `readOfficialNotice` returns null for one, `rankMoves` sorts it last,
+  both boards' `MODALITY_CHIP` render it emerald and the row dimmed. The
+  old "sanctions lift" class (weight 30 as an ACT) now reads as a
+  reversal, which is what it always was.
+- **CISA attribution is strict** (E4): `STATE_ACTOR_TERMS` entries split
+  into `group` (a named unit / APT / intrusion set — attribution by
+  itself) and `state` (the country term, which counts only within ~40
+  characters of attribution language: state-sponsored / -backed / -linked /
+  -affiliated, nation-state, state|cyber|threat actors, government …,
+  intelligence, military, APT n). "Chinese-made routers" names nobody;
+  "Chinese state-sponsored actors" names China. `advisoriesNaming` is
+  unchanged on top of it (I&W `cyber_pressure`, Regional, Economy all
+  read through it).
+- **Timeline** (E5): `TimelineDot` carries `modality` / `title` / `source`
+  / `moveId`; the strip builds lanes as U.S. · EU/UK · ONE LANE PER ACTOR
+  ("Iran — moves") · strait incident · Brent; a threat is drawn hollow and
+  dashed; hovering a dot fills a detail line under the strip (date ·
+  grade · label · headline · source · open), clicking pins it and opens
+  its coercion-board row (`#econ-move-<id>`, scrolled into view).
+- **Tiles say why** (E7): driver line = `Shipping active — act: “IRGC
+  seized a tanker…”` from `InstrumentSummary.lead` (the strongest own move
+  on the driving instrument); learning reads "day N of 14" from
+  `ActorBoard.baselineSamples` (the engine's default `minBaselineSamples`);
+  a tile with no own move says "named in N headlines, authored none" or
+  "no headline names X in the window" — absence of signal, not calm.
+- **The read never blanks** (E8): `/api/markets/brief` returns
+  `fallbackBrief(ew)` flagged `fallback: true` (the board rendered as
+  prose: worst actor, act/threat counts, per-actor board level + drivers +
+  latest move, falsifier/affects from the driving instrument, sequences as
+  watch items) instead of throwing "Empty read"; cached 10 min not 3 h;
+  `EconomicAccessPanel` shows an amber note, does not pin a fallback in the
+  client cache, and retries the model ONCE after 30 s (`?refresh=1`).
+- **Order on the tab** (E9): Read → **Chokepoints** → actor board → energy
+  → regulatory → news.
+No new npm dep (esbuild `0`).
+
 ### Weather tab cards (`LocationCard` + Open-Meteo enrichment)
 The per-location cards fuse two keyless sources: **NWS** (`/api/weather/forecast`,
 `/api/weather/alerts`) for the nicely-worded named periods + alerts (US-only), and

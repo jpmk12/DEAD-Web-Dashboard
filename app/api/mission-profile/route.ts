@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail, isOwner } from "@/lib/allowlist";
-import { getMissionProfile, saveMissionProfile, applyMissionProfile, patchMustTrack } from "@/lib/missionProfileApply";
+import { getMissionProfile, saveMissionProfile, applyMissionProfile, patchMustTrack, patchEconomy } from "@/lib/missionProfileApply";
+import { resetEconomicWarfareCache } from "@/lib/economicWarfareAssess";
 import { sanitizeMissionProfile, SITREP_MAX } from "@/lib/missionProfile";
 import { clearBriefingCache } from "@/lib/briefingCache";
 import { resetCommandsCache } from "@/lib/commandsAssemble";
@@ -21,6 +22,10 @@ export const dynamic = "force-dynamic";
 //                                   OSINT command board's ★ taps); keeps the
 //                                   SITREP base set in step (hub, ★, current,
 //                                   cap SITREP_MAX)
+//   PATCH { economy }             → owner-only: the Economy actor-register
+//                                   overlay (exclude / add) — resets the
+//                                   economic-warfare cache so the board
+//                                   re-resolves on its next fetch
 // The materialized fields are team config, so writes are owner-gated like the
 // user-prefs POST.
 
@@ -86,9 +91,14 @@ export async function PATCH(req: Request) {
   if (!isOwner(normEmail(session.user?.email))) {
     return NextResponse.json({ error: "Must-tracks are shared team config — owner only." }, { status: 403 });
   }
-  let body: { mustTrack?: unknown };
+  let body: { mustTrack?: unknown; economy?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   try {
+    if (body.economy !== undefined && body.mustTrack === undefined) {
+      const result = await patchEconomy(body.economy);
+      resetEconomicWarfareCache();
+      return NextResponse.json({ ok: true, ...result });
+    }
     const result = await patchMustTrack(body.mustTrack);
     resetCommandsCache();
     return NextResponse.json({ ok: true, ...result });

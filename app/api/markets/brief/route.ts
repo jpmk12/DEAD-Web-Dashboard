@@ -49,7 +49,48 @@ interface MacroBrief {
   actors: ActorCall[];
   fuelLogistics: string;
   watchItems: string[];
+  /** True when the model returned nothing usable and this is the
+   *  deterministic board rendered as prose (REVIEW-2026-10 §10 E8). */
+  fallback?: boolean;
 }
+
+type EwBody = Awaited<ReturnType<typeof getEconomicWarfare>>;
+
+// The model answered with no read and no actor calls. The old route threw
+// ("Empty read — please retry") and the panel showed that sentence all
+// day. Now the board the model was handed is rendered as the read itself,
+// flagged `fallback`, cached only briefly, and the panel retries once.
+function fallbackBrief(ew: EwBody | null, energyLine: string): MacroBrief {
+  if (!ew || ew.actors.length === 0) {
+    return {
+      read: "The model returned an empty read and the actor board is unavailable this pass — every actor is UNKNOWN, not calm.",
+      actors: [], fuelLogistics: energyLine ? `Prices this session: ${energyLine}.` : "", watchItems: [], fallback: true,
+    };
+  }
+  const name = (id: string) => INSTRUMENT_META[id as Instrument]?.label ?? "U.S. counter-pressure";
+  const actors: ActorCall[] = ew.actors.map((b) => {
+    const a = b.assessment;
+    const drivers = a.drivers.map((d) => `${name(d.id)} ${d.state}`).join(", ");
+    const top = ew.moves.find((m) => m.actorId === b.actor.id && m.direction === "by" && (m.modality === "act" || m.modality === "threat"));
+    const lead = a.drivers[0] ? INSTRUMENT_META[a.drivers[0].id as Instrument] : null;
+    return {
+      actor: b.actor.label, level: a.level, boardLevel: a.level,
+      call: `Board level ${a.level.toUpperCase()}${a.learning ? " (learning mode — baseline forming)" : ""}, anomaly ${a.anomaly >= 0 ? "+" : ""}${a.anomaly.toFixed(2)}, ${a.trajectory}${drivers ? `; drivers: ${drivers}` : "; no driver above dormant"}${top ? `; latest ${top.modality}: “${top.title.slice(0, 110)}”` : ""}.`,
+      falsifier: lead?.falsifier ?? "",
+      decisionLinkage: lead?.affects ? `Bears on ${lead.affects}.` : "",
+    };
+  });
+  const worst = ew.actors[0];
+  return {
+    read: `Deterministic read — the model returned nothing this pass. ${ew.actors.length} tracked actor${ew.actors.length === 1 ? "" : "s"}; worst is ${worst.actor.label} at ${worst.assessment.level.toUpperCase()}${worst.assessment.learning ? " (learning)" : ""}. ${ew.moves.filter((m) => m.modality === "act").length} reported acts and ${ew.moves.filter((m) => m.modality === "threat").length} declared threats on the coercion board in ${ew.windowDays} days.`,
+    actors,
+    fuelLogistics: energyLine ? `Prices this session: ${energyLine}.` : "",
+    watchItems: ew.timeline.sequences.slice(0, 3).map((s) => `${s.actorLabel}: ${s.firstLabel} → ${s.secondLabel} (${s.gapDays}d)`),
+    fallback: true,
+  };
+}
+
+const FALLBACK_TTL_MS = 10 * 60 * 1000;
 
 const LEVELS = new Set(["calm", "watch", "warning", "alert"]);
 
@@ -141,7 +182,7 @@ export async function POST(request: Request) {
   }
 
   const gen = generate(prefs, articles as NewsItem[], articleSummary, normEmail(session.user?.email))
-    .then((brief) => { cache.set(cacheKey, { data: brief, expires: Date.now() + TTL_MS }); lastFailure.delete(cacheKey); return brief; })
+    .then((brief) => { cache.set(cacheKey, { data: brief, expires: Date.now() + (brief.fallback ? FALLBACK_TTL_MS : TTL_MS) }); lastFailure.delete(cacheKey); return brief; })
     .catch((e) => { lastFailure.set(cacheKey, { at: Date.now(), message: e instanceof Error ? e.message : "Markets brief generation failed" }); throw e; })
     .finally(() => { inflight.delete(cacheKey); });
   gen.catch(() => {}); // the failure is recorded above; nobody may be awaiting it
@@ -244,7 +285,7 @@ async function generate(prefs: Awaited<ReturnType<typeof getUserPrefs>>, article
       watchItems: strArr(p.watchItems),
     };
     if (!brief.read.trim() && brief.actors.length === 0) {
-      throw new Error("Empty read — please retry");
+      return fallbackBrief(ew, energyLine);
     }
     return brief;
   }

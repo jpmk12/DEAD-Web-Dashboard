@@ -39,6 +39,26 @@ describe("gradeModality — the op-ed problem", () => {
   });
 });
 
+describe("reversal — the measure being lifted (REVIEW-2026-10 §10 E3)", () => {
+  it("grades a reopening as a reversal, not a closure act", () => {
+    expect(gradeModality("Traffic has resumed after Iran lifted the blockade")).toBe("reversal");
+    const r = readInterdiction("Strait of Hormuz has reopened to shipping after the blockade was lifted")!;
+    expect(r.cls).toBe("closure");
+    expect(r.modality).toBe("reversal");
+    expect(r.weight).toBe(0);
+    // A modal does not turn a reversal back into a threat.
+    expect(gradeModality("Tehran vows to reopen the strait within days")).toBe("reversal");
+  });
+  it("is not counted as an act, a threat or an analysis piece", () => {
+    const r = readActivity(BAB, [txt("Tanker was released and transits have resumed through Bab-el-Mandeb")], [], TODAY);
+    expect(r.acts).toBe(0);
+    expect(r.threats).toBe(0);
+    expect(r.analysis).toBe(0);
+    expect(r.lead).toBeNull();
+    expect(r.score).toBe(0);
+  });
+});
+
 describe("readInterdiction", () => {
   it("earns nothing from a bare mention of the place", () => {
     // This is the whole point: the old scorer counted this as activity.

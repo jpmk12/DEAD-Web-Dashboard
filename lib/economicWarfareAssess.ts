@@ -23,11 +23,13 @@
 
 import { deriveWarning, scoreIndicators, type WarningAssessment } from "./warning";
 import {
-  resolveActors, actorProblem, movesFor, rankMoves, evidenceByInstrument, instrumentState, targetOf, TEXT_WINDOW_DAYS, NOTICE_HOSTS,
+  resolveActorRegister, actorProblem, movesForAll, rankMoves, evidenceByInstrument, instrumentState, targetOf, TEXT_WINDOW_DAYS, NOTICE_HOSTS,
   counterPressureState, observation, instrumentForRegulatoryClass, econProblemId, ageDaysOf,
   INSTRUMENTS, INSTRUMENT_META, COUNTER_PRESSURE_ID, MAX_ACTORS,
-  type Actor, type CoercionMove, type ActorText, type Instrument, type GradedEvidence,
+  type Actor, type CoercionMove, type ActorText, type Instrument, type GradedEvidence, type TrackedName, type SkippedActor,
 } from "./economicWarfare";
+import type { Modality } from "./chokepointSignals";
+import { EMPTY_ECONOMY, type EconomyEdits } from "./missionProfile";
 import { chokepointState } from "./warningRules";
 import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory } from "./warningStore";
 import { getChokepointReads, type ChokepointRead } from "./chokepointReads";
@@ -58,11 +60,19 @@ export interface InstrumentSummary {
   why: string;
   /** Number of the actor's own moves on this instrument in the window. */
   moves: number;
+  /** The strongest of the actor's own moves on this instrument — the
+   *  headline the driver line quotes (REVIEW-2026-10 §10 E7). */
+  lead?: { title: string; modality: Modality; link?: string; source?: string };
 }
 
 export interface ActorBoard {
   actor: { id: string; label: string; kind: Actor["kind"]; aor: Actor["aor"]; reason: string; chokepointIds: string[] };
   assessment: WarningAssessment;
+  /** Daily samples behind the baseline — "day N of 14" while learning. */
+  baselineSamples: number;
+  /** Headlines in the window that NAME the actor (authored or not), so a
+   *  quiet tile can say "named in 12 headlines, authored none". */
+  mentions: number;
   instruments: InstrumentSummary[];
   counterPressure: { state: InstrumentSummary["state"]; why: string; count14d: number };
   /** Instrument-level corroboration, so the tile can say "AIS suppressed" or "Brent +4%". */
@@ -72,6 +82,10 @@ export interface ActorBoard {
 
 export interface EconomicWarfareBody {
   actors: ActorBoard[];
+  /** Tracked names that did NOT become actors, each with its fix (§10 E1). */
+  skipped: SkippedActor[];
+  /** The operator's register overlay, echoed so the editor renders from one fetch. */
+  edits: EconomyEdits;
   /** The coercion board — every actor's moves (by and against), ranked. */
   moves: (CoercionMove & { corroboration: string[]; affects: string })[];
   energy: { symbol: string; label: string; changePct: number | null; price: number | null }[];
@@ -140,7 +154,7 @@ let lastFailure: { at: number; message: string } | null = null;
 function emptyBody(note: string, pending: boolean): EconomicWarfareBody {
   const now = new Date().toISOString();
   return {
-    actors: [], moves: [], energy: [],
+    actors: [], skipped: [], edits: { ...EMPTY_ECONOMY }, moves: [], energy: [],
     timeline: { days: [], dots: [], sequences: [] }, leverage: {},
     foreign: { waves: [], live: { EU: false, UK: false }, failed: ["EU", "UK"] },
     generatedAt: now, windowDays: 14,
@@ -165,15 +179,19 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 }
 
 // The tracking picture, in priority order: Mission Profile AOI countries
-// (declaration order), then watched countries, then base host nations.
-async function trackedCountries(): Promise<string[]> {
-  const out: string[] = [];
+// (declaration order), then watched countries, then base host nations —
+// each with WHERE it is tracked, so a tile and a skipped row can say so.
+async function trackedCountries(): Promise<{ tracked: TrackedName[]; edits: EconomyEdits }> {
+  const out: TrackedName[] = [];
   const profile = await withTimeout(getMissionProfile(), 5000);
-  for (const aoi of profile?.aois ?? []) for (const c of aoi.countries) out.push(c);
+  for (const aoi of profile?.aois ?? []) for (const c of aoi.countries) out.push({ name: c, reason: `AOI “${aoi.name}”` });
   const prefs = await withTimeout(getUserPrefs(), 5000);
-  for (const c of prefs?.countriesOfInterest ?? []) out.push(c.country);
-  for (const l of prefs?.forceLocations ?? []) if (l.country) out.push(l.country);
-  return out.map((s) => (s || "").trim()).filter(Boolean);
+  for (const c of prefs?.countriesOfInterest ?? []) out.push({ name: c.country, reason: "watched country" });
+  for (const l of prefs?.forceLocations ?? []) if (l.country) out.push({ name: l.country, reason: `host of ${l.label || l.icao || "a tracked base"}` });
+  return {
+    tracked: out.map((t) => ({ ...t, name: (t.name || "").trim() })).filter((t) => t.name),
+    edits: profile?.economy ?? { ...EMPTY_ECONOMY },
+  };
 }
 
 // Instrument vocabulary for the GDELT query — broad on purpose; the grammar
@@ -194,8 +212,9 @@ async function compute(): Promise<EconomicWarfareBody> {
   const day = observedAt.slice(0, 10);
   const todayMs = Date.parse(`${day}T00:00:00Z`);
 
-  const tracked = await trackedCountries();
-  const actors = resolveActors(tracked).slice(0, MAX_ACTORS);
+  const { tracked, edits } = await trackedCountries();
+  const register = resolveActorRegister(tracked, edits);
+  const actors = register.actors.slice(0, MAX_ACTORS);
 
   const cpIds = [...new Set(actors.flatMap((a) => a.chokepointIds))];
   const [reg, energy, cps, foreign, cisa] = await Promise.all([
@@ -234,21 +253,44 @@ async function compute(): Promise<EconomicWarfareBody> {
   const incidents: ShippingIncident[] = [];
   const leverage: Record<string, LeverageEntry> = {};
 
-  // Actors are read sequentially: GDELT enforces 1 request / 5 s and each
-  // query is cached 60 min, so after the first pass this loop is free; on the
-  // first pass a burst would only earn 429s.
+  // Phase 1 — gather. Actors are read sequentially: GDELT enforces
+  // 1 request / 5 s and each query is cached 60 min, so after the first pass
+  // this loop is free; on the first pass a burst would only earn 429s.
+  const gathered = new Map<string, { news: NewsItem[] | null; own: { items: NewsItem[]; sources: Set<string> } }>();
+  const pool: ActorText[] = [];
+  const pooled = new Set<string>();
+  const addText = (n: NewsItem, own: boolean) => {
+    const key = (n.link || n.title).trim().toLowerCase();
+    if (!key || pooled.has(key)) return;
+    pooled.add(key);
+    pool.push({ title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate, own });
+  };
   for (const actor of actors) {
     const news = await withTimeout(gdeltSearch(actorQuery(actor), { cacheKey: `econ:${actor.id}`, timespan: "7d", maxrecords: 40, keep: 30, source: "wire", category: "econ" }), 8_000);
     if (news && news.length) gdeltLive = true;
     const ownItems = ownAll.items.filter((n) => actor.terms.test(`${n.title} ${n.summary ?? ""}`));
     const own = { items: ownItems, sources: new Set(ownItems.map(ownSourceOf)) };
     for (const s of own.sources) ownSources.add(s);
+    gathered.set(actor.id, { news, own });
+    for (const n of news ?? []) addText(n, false);
+    for (const n of ownItems) addText(n, true);
+  }
 
-    const texts: ActorText[] = [
-      ...(news ?? []).map((n) => ({ title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate, own: false })),
-      ...own.items.map((n) => ({ title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate, own: true })),
-    ];
-    const moves = movesFor(actor, texts, todayMs);
+  // Phase 2 — ONE pass over the pooled texts for the whole register, so a
+  // headline naming several tracked actors is credited to its one author
+  // and merely NAMES the rest (REVIEW-2026-10 §10 E2 — before this, each
+  // actor graded its own copy of the same headline and four boards lit).
+  const pooledMoves = movesForAll(actors, pool, todayMs);
+  const mentionsOf = (actor: Actor): number => pool.filter((t) => {
+    const age = ageDaysOf(t.pubDate, todayMs);
+    return (age == null || age <= TEXT_WINDOW_DAYS) && actor.terms.test(`${t.title} ${t.summary ?? ""}`);
+  }).length;
+
+  // Phase 3 — per actor: the official records, the strait credit, the
+  // ladder, the engine.
+  for (const actor of actors) {
+    const { news, own } = gathered.get(actor.id)!;
+    const moves = pooledMoves.filter((m) => m.actorId === actor.id);
 
     // The actor's OWN official record (browser-captured ministry notices —
     // MOFCOM for China): a published notice is a reported act BY the actor,
@@ -316,7 +358,12 @@ async function compute(): Promise<EconomicWarfareBody> {
       if (inst === "shipping" && shippingFloor && rankState(shippingFloor.state) > rankState(s.state)) s = shippingFloor;
       const prov = inst === "shipping" && cpReads.length ? `GDELT + own sources + chokepoint read (${cpReads.map((r) => r.name).join(", ")})` : "GDELT + own sources";
       observations.push(observation(inst, `econ:${inst}`, s, observedAt, prov, evidence[inst].length));
-      instruments.push({ instrument: inst, state: s.state, confidence: s.confidence, why: s.why, moves: moves.filter((m) => m.direction === "by" && m.instrument === inst).length });
+      const ownMoves = rankMoves(moves.filter((m) => m.direction === "by" && m.instrument === inst));
+      const lead = ownMoves[0];
+      instruments.push({
+        instrument: inst, state: s.state, confidence: s.confidence, why: s.why, moves: ownMoves.length,
+        ...(lead ? { lead: { title: lead.title, modality: lead.modality, link: lead.link, source: lead.source } } : {}),
+      });
     }
 
     const naming = actions.filter((a) => a.countries.some((c) => actor.countries.includes(c)));
@@ -367,7 +414,7 @@ async function compute(): Promise<EconomicWarfareBody> {
 
     boards.push({
       actor: { id: actor.id, label: actor.label, kind: actor.kind, aor: actor.aor, reason: actor.reason, chokepointIds: actor.chokepointIds },
-      assessment, instruments,
+      assessment, baselineSamples: samples, mentions: mentionsOf(actor), instruments,
       counterPressure: { state: cp.state, why: cp.why, count14d: naming.filter((a) => a.ageDays <= 14).length },
       corroboration,
       sensorHealth: [
@@ -408,6 +455,8 @@ async function compute(): Promise<EconomicWarfareBody> {
 
   return {
     actors: boards,
+    skipped: register.skipped,
+    edits,
     moves: rankedMoves.slice(0, 40),
     energy: (energy ?? []).map((q) => ({ symbol: q.symbol, label: q.label, changePct: q.changePct, price: q.price })),
     timeline,
@@ -417,8 +466,10 @@ async function compute(): Promise<EconomicWarfareBody> {
     windowDays: 14,
     sources: { gdelt: gdeltLive, ownSources: [...ownSources], federalRegister: !!reg?.live, foreign: !!(foreign && (foreign.live.EU || foreign.live.UK)), chokepoints: !!cps, energy: energyLines.length > 0 },
     note: actors.length === 0
-      ? "No tracked countries — declare AOIs or watched countries in Preferences → Mission Profile to populate the actor register."
-      : "Graded, not counted; attribution by/against is heuristic (the evidence is shown); a strait act is credited to its presumed coercer by geography; a fresh actor is held at Watch until its baseline forms.",
+      ? (register.skipped.length
+        ? `No actor could be placed: ${register.skipped.slice(0, 4).map((s) => `“${s.name}” (${s.fix === "excluded" ? "excluded" : s.suggestion ? `did you mean ${s.suggestion}?` : "not a country"})`).join(", ")}${register.skipped.length > 4 ? "…" : ""}. Fix the names in Preferences → Mission Profile or add an actor by country name.`
+        : "No tracked countries — declare AOIs or watched countries in Preferences → Mission Profile to populate the actor register.")
+      : "Graded, not counted; one author per headline (the others are listed as named); a strait act is credited to its presumed coercer by geography; a reversal (measure lifted) is shown, never scored; a fresh actor is held at Watch until its baseline forms.",
   };
 }
 

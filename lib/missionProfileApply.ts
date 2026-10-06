@@ -14,8 +14,8 @@ import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { getUserPrefs, saveUserPrefs } from "./userPrefs";
 import {
-  sanitizeMissionProfile, sanitizeMustTrack, deriveTracking, sitrepBasesForStars,
-  type MissionProfile, type DerivedTracking, type MustTrack,
+  sanitizeMissionProfile, sanitizeMustTrack, sanitizeEconomyEdits, deriveTracking, sitrepBasesForStars,
+  type MissionProfile, type DerivedTracking, type MustTrack, type EconomyEdits,
 } from "./missionProfile";
 import { planApply, type ApplyDiff } from "./missionApplyPlan";
 import { resolveAirfield } from "./resolveAirfield";
@@ -65,6 +65,15 @@ export async function patchMustTrack(raw: unknown): Promise<{ mustTrack: MustTra
   if (changed) await saveUserPrefs({ ...prefs, sitrepBases });
   await saveMissionProfile(next);
   return { mustTrack, sitrepBases };
+}
+
+/** Save the Economy actor-register overlay alone (the board's ✕ / editor
+ *  taps). Owner-gated at the route; the caller resets the economy cache. */
+export async function patchEconomy(raw: unknown): Promise<{ economy: EconomyEdits }> {
+  const economy = sanitizeEconomyEdits(raw);
+  const profile = await getMissionProfile();
+  await saveMissionProfile({ ...profile, economy });
+  return { economy };
 }
 
 export interface ApplyResult {

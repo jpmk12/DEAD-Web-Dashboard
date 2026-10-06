@@ -31,6 +31,13 @@ describe("cyber grammar — phrases, never words; modality graded", () => {
     expect(stateActorsIn("Advisory: IRGC-affiliated CyberAv3ngers target PLCs")).toEqual(["Iran"]);
     expect(stateActorsIn("Routine patch Tuesday guidance")).toEqual([]);
   });
+  it("a bare country term is attribution only beside attribution language (REVIEW-2026-10 §10 E4)", () => {
+    expect(stateActorsIn("Vulnerabilities in Chinese-made routers used across U.S. small offices")).toEqual([]);
+    expect(stateActorsIn("Advisory: Chinese state-sponsored actors exploit edge devices")).toEqual(["China"]);
+    expect(stateActorsIn("PRC state-sponsored cyber activity against critical infrastructure")).toEqual(["China"]);
+    expect(stateActorsIn("Russian military intelligence targets logistics providers")).toEqual(["Russia"]);
+    expect(stateActorsIn("Trade talks with Russia resume in Geneva")).toEqual([]);
+  });
   it("advisoriesNaming keeps only actors tied to the AOI, inside the window; undated kept", () => {
     const items = [
       { title: "Sandworm targets Ukrainian grid", pubDate: "2026-09-25T00:00:00Z" },

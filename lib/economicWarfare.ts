@@ -32,7 +32,8 @@ import {
 import { CYBER_CLASSES, CYBER_CLASS_ORDER } from "./cyberSignals";
 import type { IndicatorDef, IndicatorObservation, ObservedState, WarningProblemDef } from "./warning";
 import { aorFromCoords, aorFromName, type Aor } from "./aor";
-import { countryCentroid } from "./countryCentroids";
+import { countryCentroid, centroidCountryNames } from "./countryCentroids";
+import { knownCountryNames, normalizeCountryName } from "./countryNames";
 import { CHOKEPOINTS } from "./chokepoints";
 
 // ───────────────────────────── instruments ─────────────────────────────
@@ -127,7 +128,9 @@ export interface InstrumentRead {
   weight: number;
 }
 
-const MODALITY_FACTOR: Record<Modality, number> = { act: 1, threat: 0.45, analysis: 0.1 };
+// A reversal (the measure being lifted) earns nothing — it is shown on the
+// board so the row explains itself, never scored.
+const MODALITY_FACTOR: Record<Modality, number> = { act: 1, threat: 0.45, analysis: 0.1, reversal: 0 };
 
 // Phrases per class, per instrument. PHRASES, never single words — "sanctions"
 // alone appears in every wire story about any of these actors. Verb agreement
@@ -357,55 +360,194 @@ function aorForCountry(name: string): Aor {
 
 export const MAX_ACTORS = 8;
 
-/**
- * The actor register for a given tracking picture. State actors come from the
- * tracked countries (Mission Profile AOIs + watched countries + base host
- * nations, in that order — declaration order is priority order); curated
- * non-state actors join when one of their trigger countries is tracked.
- * Deduped, capped, never empty when anything is tracked. A country that
- * cannot be placed still gets a generic actor (name + adjective gate) so
- * nothing tracked goes unwatched.
- */
-export function resolveActors(tracked: string[]): Actor[] {
-  const seen = new Set<string>();
-  const out: Actor[] = [];
-  const trackedLower = new Set(tracked.map((t) => t.trim().toLowerCase()).filter(Boolean));
+/** A tracked name with WHY it is tracked — the tile says it, the editor
+ *  shows where to change it. */
+export interface TrackedName { name: string; reason: string }
 
-  for (const raw of tracked) {
-    const name = raw.trim();
-    if (!name) continue;
-    const cur = CURATED.find((c) => c.kind === "state" && c.countries.some((k) => k.toLowerCase() === name.toLowerCase()));
-    const id = cur ? cur.id : slug(name);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    if (cur) {
-      out.push({
-        id: cur.id, label: cur.label, kind: "state", aor: cur.aor, countries: cur.countries,
-        terms: termsRegex([...cur.countries.flatMap(nameTerms), ...cur.extraTerms]),
-        chokepointIds: cur.chokepointIds, reason: "tracked country",
-      });
-    } else {
-      out.push({
-        id, label: name, kind: "state", aor: aorForCountry(name), countries: [name],
-        terms: termsRegex(nameTerms(name)), chokepointIds: [], reason: "tracked country",
-      });
+/** The operator's edits to the register (Mission Profile `economy`):
+ *  `exclude` = tracked names that must not become actors; `add` = names
+ *  that are actors although nothing else tracks them. */
+export interface EconomyActorEdits { exclude: string[]; add: string[] }
+
+export type SkipFix = "excluded" | "chokepoint" | "spelling" | "unknown";
+
+export interface SkippedActor {
+  name: string;
+  /** Where the name came from ("AOI “Iran & Hormuz”", "watched country"…). */
+  reason: string;
+  fix: SkipFix;
+  /** The country or chokepoint the name probably meant. */
+  suggestion?: string;
+  /** One sentence for the editor row. */
+  note: string;
+}
+
+export interface ActorRegister { actors: Actor[]; skipped: SkippedActor[] }
+
+/** Levenshtein distance, small inputs only. */
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     }
-    if (out.length >= MAX_ACTORS) return out;
+    prev = cur;
+  }
+  return prev[n];
+}
+
+let countryPool: Map<string, string> | null = null;
+/** lower-case name → display name, for every country the app can place. */
+function knownCountries(): Map<string, string> {
+  if (countryPool) return countryPool;
+  const m = new Map<string, string>();
+  for (const n of centroidCountryNames()) m.set(n.toLowerCase(), normalizeCountryName(n));
+  for (const n of knownCountryNames()) m.set(n.toLowerCase(), n);
+  for (const c of CURATED) if (c.kind === "state") for (const k of c.countries) m.set(k.toLowerCase(), k);
+  countryPool = m;
+  return m;
+}
+
+/**
+ * Validate one tracked name (REVIEW-2026-10 §10 E1). Before this, any
+ * string in a tracking list became an actor with a name+adjective regex —
+ * "Hormuz" (a chokepoint typed into an AOI's country list) and "Irann"
+ * each got a tile that could never read anything and sat at Calm forever,
+ * which the operator read as "the country box is broken". Now a name is an
+ * actor only when the app can PLACE it as a country: a curated actor, a
+ * catalogue name, or a demonym / compound that contains one ("Iranian",
+ * "Islamic Republic of Iran" → Iran, said on the tile). Anything else is
+ * SKIPPED with the fix named: a chokepoint (tracked under Chokepoints
+ * already), a near-miss spelling with the suggestion, or unknown.
+ */
+export function validateActorName(raw: string): { country: string; via?: string } | { skip: Exclude<SkipFix, "excluded">; suggestion?: string; note: string } {
+  const name = raw.trim();
+  const q = name.toLowerCase();
+  const pool = knownCountries();
+  const norm = normalizeCountryName(name);
+  if (pool.has(norm.toLowerCase())) return { country: pool.get(norm.toLowerCase())! };
+  if (pool.has(q)) return { country: pool.get(q)! };
+  // A chokepoint typed as a country: it is tracked already — under Chokepoints.
+  const cp = CHOKEPOINTS.find((c) => {
+    const cn = c.name.toLowerCase();
+    return cn === q || cn.includes(q) || q.includes(cn) || c.keywords.some((k) => k === q) || c.id === q;
+  });
+  if (cp) return { skip: "chokepoint", suggestion: cp.name, note: `${cp.name} is a chokepoint, not a country — it is already read on the chokepoint strip and credited to its presumed coercer.` };
+  // The curated actors' own adjective forms ("chinese", "turkish", "saudi").
+  const curAdj = CURATED.find((c) => c.kind === "state" && c.extraTerms.includes(q));
+  if (curAdj) return { country: curAdj.countries[0], via: name };
+  // Demonym or compound: the longest catalogue name the input contains as a
+  // whole word ("iranian" → "iran" by prefix; "islamic republic of iran" →
+  // "iran"). Prefix wins for the adjective forms.
+  let best: { country: string; len: number } | null = null;
+  for (const [k, display] of pool) {
+    if (k.length < 4) continue;
+    // Adjective forms only — a bare prefix would read "Irann" as Iran and
+    // hide a typo the operator should fix.
+    const rest = q.startsWith(k) ? q.slice(k.length) : null;
+    const adjective = rest != null && (["ian", "ean", "ese", "ish", "i", "an", "s"].includes(rest) || (rest === "n" && /a$/.test(k)));
+    const hit = adjective || new RegExp(`(?<![\\p{L}])${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}])`, "iu").test(q);
+    if (hit && (!best || k.length > best.len)) best = { country: display, len: k.length };
+  }
+  if (best) return { country: best.country, via: name };
+  // A near-miss spelling: one edit against a short name, two against a
+  // long one ("irann" → Iran, "venezuala" → Venezuela).
+  let near: { country: string; d: number } | null = null;
+  for (const [k, display] of pool) {
+    if (k.length < 4 || Math.abs(k.length - q.length) > 2) continue;
+    const d = editDistance(q, k);
+    if (d <= (k.length >= 6 ? 2 : 1) && (!near || d < near.d)) near = { country: display, d };
+  }
+  if (near) return { skip: "spelling", suggestion: near.country, note: `“${name}” is not a country the app can place — did you mean ${near.country}?` };
+  return { skip: "unknown", note: `“${name}” is not a country the app can place, so it cannot be an actor. Fix the name where it is tracked, or add the actor by its country name.` };
+}
+
+function curatedState(country: string): CuratedActor | undefined {
+  return CURATED.find((c) => c.kind === "state" && c.countries.some((k) => k.toLowerCase() === country.toLowerCase()));
+}
+
+function stateActor(country: string, reason: string): Actor {
+  const cur = curatedState(country);
+  if (cur) {
+    return {
+      id: cur.id, label: cur.label, kind: "state", aor: cur.aor, countries: cur.countries,
+      terms: termsRegex([...cur.countries.flatMap(nameTerms), ...cur.extraTerms]),
+      chokepointIds: cur.chokepointIds, reason,
+    };
+  }
+  return {
+    id: slug(country), label: country, kind: "state", aor: aorForCountry(country), countries: [country],
+    terms: termsRegex(nameTerms(country)), chokepointIds: [], reason,
+  };
+}
+
+/**
+ * The actor register for a given tracking picture. State actors come from
+ * the tracked names (the editor's own additions first, then Mission Profile
+ * AOIs, watched countries and base host nations — declaration order is
+ * priority order), each VALIDATED by `validateActorName`; curated non-state
+ * actors join when one of their trigger countries is tracked. Deduped,
+ * capped at MAX_ACTORS. Every name that did not become an actor is returned
+ * in `skipped` with its reason and fix, so the board can say why a box is
+ * missing instead of showing a box that can never fill.
+ */
+export function resolveActorRegister(tracked: TrackedName[], edits: Partial<EconomyActorEdits> = {}): ActorRegister {
+  const exclude = new Set((edits.exclude ?? []).map((s) => normalizeCountryName(s).toLowerCase()).filter(Boolean));
+  const names: TrackedName[] = [
+    ...(edits.add ?? []).map((name) => ({ name, reason: "added in the actor editor" })),
+    ...tracked,
+  ];
+  const seen = new Set<string>();
+  const seenName = new Set<string>();
+  const actors: Actor[] = [];
+  const skipped: SkippedActor[] = [];
+  const trackedCountries = new Set<string>();
+
+  for (const t of names) {
+    const name = (t.name || "").trim();
+    if (!name) continue;
+    const nk = name.toLowerCase();
+    if (seenName.has(nk)) continue;
+    seenName.add(nk);
+    const v = validateActorName(name);
+    if ("skip" in v) {
+      skipped.push({ name, reason: t.reason, fix: v.skip, ...(v.suggestion ? { suggestion: v.suggestion } : {}), note: v.note });
+      continue;
+    }
+    trackedCountries.add(v.country.toLowerCase());
+    if (exclude.has(v.country.toLowerCase()) || exclude.has(nk)) {
+      skipped.push({ name: v.country, reason: t.reason, fix: "excluded", note: "excluded in the actor editor — restore it there." });
+      continue;
+    }
+    const actor = stateActor(v.country, v.via ? `${t.reason} (read as ${v.country} from “${v.via}”)` : t.reason);
+    if (seen.has(actor.id)) continue;
+    seen.add(actor.id);
+    if (actors.length < MAX_ACTORS) actors.push(actor);
   }
 
   for (const cur of CURATED) {
     if (cur.kind !== "nonstate" || seen.has(cur.id)) continue;
-    const trigger = (cur.triggerCountries ?? []).find((t) => trackedLower.has(t.toLowerCase()));
+    if (exclude.has(cur.label.toLowerCase()) || exclude.has(cur.id)) continue;
+    const trigger = (cur.triggerCountries ?? []).find((c) => trackedCountries.has(c.toLowerCase()));
     if (!trigger) continue;
     seen.add(cur.id);
-    out.push({
+    if (actors.length >= MAX_ACTORS) break;
+    actors.push({
       id: cur.id, label: cur.label, kind: "nonstate", aor: cur.aor, countries: cur.countries,
       terms: termsRegex([...cur.extraTerms]),
       chokepointIds: cur.chokepointIds, reason: `non-state actor in a tracked theatre (${trigger})`,
     });
-    if (out.length >= MAX_ACTORS) break;
   }
-  return out;
+  return { actors, skipped };
+}
+
+/** The register for a plain list of tracked country names (the legacy
+ *  signature; every name reads as "tracked country"). */
+export function resolveActors(tracked: string[]): Actor[] {
+  return resolveActorRegister(tracked.map((name) => ({ name, reason: "tracked country" }))).actors;
 }
 
 // ───────────────────────────── attribution ─────────────────────────────
@@ -538,7 +680,10 @@ export function instrumentState(evidence: GradedEvidence[]): { state: ObservedSt
   const wireActs = wire.filter((e) => e.modality === "act");
   const wireThreats = wire.filter((e) => e.modality === "threat");
   const wireAnalysis = wire.filter((e) => e.modality === "analysis");
-  const ownAgrees = own.some((e) => e.modality !== "analysis");
+  // A reversal is the measure being LIFTED: it never raises a state, and it
+  // never counts as agreement — but it is named when it is all there is.
+  const reversals = evidence.filter((e) => e.modality === "reversal");
+  const ownAgrees = own.some((e) => e.modality === "act" || e.modality === "threat");
   const n = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`;
 
   if (wireActs.length >= 1) {
@@ -554,6 +699,7 @@ export function instrumentState(evidence: GradedEvidence[]): { state: ObservedSt
   }
   if (own.length >= 1 && ownAgrees) return { state: "watching", confidence: 0.45, why: "own sources only" };
   if (wireAnalysis.length >= 2) return { state: "watching", confidence: 0.3, why: `${n(wireAnalysis.length, "analysis piece")}, no reported act or threat` };
+  if (reversals.length >= 1) return { state: "dormant", confidence: 0, why: `${n(reversals.length, "reversal")} reported — the measure is being lifted, not imposed` };
   return { state: "dormant", confidence: 0, why: "nothing instrument-shaped reported" };
 }
 
@@ -596,9 +742,12 @@ export interface CoercionMove {
   ageDays: number | null;
   own: boolean;
   phrase: string;
+  /** Other tracked actors the headline names without being its author
+   *  (REVIEW-2026-10 §10 E2) — shown on the row, never credited. */
+  mentions?: string[];
 }
 
-const MODALITY_RANK: Record<Modality, number> = { act: 2, threat: 1, analysis: 0 };
+const MODALITY_RANK: Record<Modality, number> = { act: 2, threat: 1, analysis: 0, reversal: -1 };
 
 /** Rank moves for the board: acts before threats before analysis; within a
  *  modality by weight, then freshest. Undated rows sort after dated ones of
@@ -631,11 +780,51 @@ export interface ActorText {
   own: boolean;
 }
 
-/** Grade an actor's texts into moves (by AND against). A text with no
- *  instrument phrase produces nothing; one with several yields one move per
- *  instrument, so a headline about "sanctions in retaliation for the tanker
- *  seizure" lands on both rows it belongs to. Dedupes by link, then title. */
-export function movesFor(actor: Actor, texts: ActorText[], todayMs: number): CoercionMove[] {
+/**
+ * One author per headline (REVIEW-2026-10 §10 E2). When several tracked
+ * actors are named in a text and none is the object of the measure, the
+ * AUTHOR is the actor named nearest BEFORE the instrument phrase ("Iran and
+ * Russia deepen ties as Russia cut gas supplies to Moldova" → Russia); with
+ * nobody before it, the nearest after; a tie keeps declaration order. Before
+ * this every actor mentioned got the same move credited, so a headline
+ * naming four tracked states lit four boards.
+ */
+export function pickAuthor(text: string, phrase: string, candidates: Actor[]): Actor | null {
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+  const hay = text.toLowerCase();
+  const at = phrase ? hay.indexOf(phrase.toLowerCase()) : -1;
+  if (at < 0) return candidates[0];
+  let bestBefore: { actor: Actor; d: number } | null = null;
+  let bestAfter: { actor: Actor; d: number } | null = null;
+  for (const a of candidates) {
+    const rx = new RegExp(a.terms.source, "giu");
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(hay))) {
+      if (m.index < at) {
+        const d = at - m.index;
+        if (!bestBefore || d < bestBefore.d) bestBefore = { actor: a, d };
+      } else {
+        const d = m.index - at;
+        if (!bestAfter || d < bestAfter.d) bestAfter = { actor: a, d };
+      }
+      if (m[0].length === 0) rx.lastIndex++;
+    }
+  }
+  return bestBefore?.actor ?? bestAfter?.actor ?? candidates[0];
+}
+
+/**
+ * Grade a pool of texts into moves (by AND against) for a whole register. A
+ * text with no instrument phrase produces nothing; one with several yields
+ * one move per instrument, so a headline about "sanctions in retaliation
+ * for the tanker seizure" lands on both rows it belongs to. Dedupes by
+ * link, then title. Direction is per actor: every actor the text makes the
+ * OBJECT of the measure gets an `against` row; of the actors it merely
+ * names, exactly ONE (`pickAuthor`) gets the `by` row, with the others
+ * listed as `mentions`.
+ */
+export function movesForAll(actors: Actor[], texts: ActorText[], todayMs: number): CoercionMove[] {
   const out: CoercionMove[] = [];
   const seen = new Set<string>();
   for (const t of texts) {
@@ -644,24 +833,37 @@ export function movesFor(actor: Actor, texts: ActorText[], todayMs: number): Coe
     if (!key || seen.has(key)) continue;
     const ageDays = ageDaysOf(t.pubDate, todayMs);
     if (ageDays != null && ageDays > TEXT_WINDOW_DAYS) continue;
-    const dir = attribute(text, actor);
-    if (!dir) continue;
+    const dirs = actors.map((a) => ({ a, dir: attribute(text, a) })).filter((x): x is { a: Actor; dir: Direction } => x.dir != null);
+    if (dirs.length === 0) continue;
     const reads = readInstruments(text);
     if (reads.length === 0) continue;
     seen.add(key);
-    for (const r of reads) {
-      out.push({
-        id: `${actor.id}:${r.instrument}:${key.slice(0, 80)}`,
-        actorId: actor.id, actorLabel: actor.label,
-        direction: dir,
-        target: dir === "by" ? targetOf(text, r.instrument, actor) : actor.label,
-        instrument: r.instrument, cls: r.cls, modality: r.modality, weight: r.weight,
-        title: t.title, link: t.link, source: t.source, pubDate: t.pubDate,
-        ageDays, own: t.own, phrase: r.phrase,
-      });
-    }
+    const byCandidates = dirs.filter((x) => x.dir === "by").map((x) => x.a);
+    const author = pickAuthor(text, reads[0].phrase, byCandidates);
+    const mentions = byCandidates.filter((a) => a !== author).map((a) => a.label);
+    const push = (actor: Actor, dir: Direction) => {
+      for (const r of reads) {
+        out.push({
+          id: `${actor.id}:${r.instrument}:${key.slice(0, 80)}`,
+          actorId: actor.id, actorLabel: actor.label,
+          direction: dir,
+          target: dir === "by" ? targetOf(text, r.instrument, actor) : actor.label,
+          instrument: r.instrument, cls: r.cls, modality: r.modality, weight: r.weight,
+          title: t.title, link: t.link, source: t.source, pubDate: t.pubDate,
+          ageDays, own: t.own, phrase: r.phrase,
+          ...(dir === "by" && mentions.length ? { mentions } : {}),
+        });
+      }
+    };
+    if (author) push(author, "by");
+    for (const x of dirs) if (x.dir === "against") push(x.a, "against");
   }
   return out;
+}
+
+/** One actor's moves from its own texts — `movesForAll` for a register of one. */
+export function movesFor(actor: Actor, texts: ActorText[], todayMs: number): CoercionMove[] {
+  return movesForAll([actor], texts, todayMs);
 }
 
 /** Evidence per instrument from the actor's OWN moves (direction "by"). */
@@ -722,7 +924,9 @@ export function readOfficialNotice(text: string): NoticeRead | null {
   // English mirror: the ordinary grammar, but modality is the notice's own
   // (a published English notice is still an act even if its title says "may").
   const en = readInstruments(text)[0];
-  if (!en) return null;
+  // A notice that LIFTS a measure is not a coercive act (and a reversal's
+  // factor is 0 — nothing to scale back up from).
+  if (!en || en.modality === "reversal") return null;
   const weight = Math.round((en.weight / MODALITY_FACTOR[en.modality]) * MODALITY_FACTOR[modality]);
   return { instrument: en.instrument, cls: en.cls, modality, weight, phrase: en.phrase };
 }

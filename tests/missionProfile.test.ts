@@ -1,9 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
-  sanitizeMissionProfile, deriveTracking, suggestChokepoints, suggestAoiCountries,
+  sanitizeMissionProfile, sanitizeEconomyEdits, deriveTracking, suggestChokepoints, suggestAoiCountries,
   missionSummaryLine, derivedIds, isDerivedId, slugify, EMPTY_PROFILE, SITREP_MAX,
   type MissionProfile,
 } from "@/lib/missionProfile";
+
+describe("sanitizeEconomyEdits — the Economy actor-register overlay", () => {
+  it("keeps deduped trimmed names, drops junk, absent stays absent on the profile", () => {
+    expect(sanitizeEconomyEdits(null)).toEqual({ exclude: [], add: [] });
+    expect(sanitizeEconomyEdits({ exclude: [" Jordan ", "jordan", 3, ""], add: ["Venezuela"] })).toEqual({ exclude: ["Jordan"], add: ["Venezuela"] });
+    expect(sanitizeMissionProfile({ homeIcao: "KWRI" }).economy).toBeUndefined();
+    expect(sanitizeMissionProfile({ homeIcao: "KWRI", economy: { add: ["Iran"] } }).economy).toEqual({ exclude: [], add: ["Iran"] });
+  });
+});
 
 const IRAN_HORMUZ: MissionProfile = {
   homeIcao: "KWRI",

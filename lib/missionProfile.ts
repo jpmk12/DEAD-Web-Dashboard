@@ -89,6 +89,36 @@ export interface MustTrack {
 
 export const EMPTY_MUST_TRACK: MustTrack = { aors: [], countries: [], icaos: [] };
 
+// The Economy tab's actor register edits (REVIEW-2026-10 §10 E6). The
+// register is DERIVED from the tracking picture (AOI countries, watched
+// countries, base hosts); this is the operator's overlay on it: `exclude` =
+// tracked countries that must not get an actor tile, `add` = actors tracked
+// nowhere else. Country display names, case-insensitive. Team config.
+export interface EconomyEdits { exclude: string[]; add: string[] }
+
+export const EMPTY_ECONOMY: EconomyEdits = { exclude: [], add: [] };
+
+const MAX_ECONOMY_NAMES = 24;
+
+export function sanitizeEconomyEdits(raw: unknown): EconomyEdits {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { exclude: [], add: [] };
+  const r = raw as Record<string, unknown>;
+  const names = (v: unknown): string[] => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const x of Array.isArray(v) ? v : []) {
+      if (typeof x !== "string") continue;
+      const t = x.trim().slice(0, 60);
+      const k = t.toLowerCase();
+      if (!t || seen.has(k)) continue;
+      seen.add(k); out.push(t);
+      if (out.length >= MAX_ECONOMY_NAMES) break;
+    }
+    return out;
+  };
+  return { exclude: names(r.exclude), add: names(r.add) };
+}
+
 export interface MissionProfile {
   homeIcao: string;                 // "" = unset (the HUB)
   home?: MissionSpoke | null;       // resolved hub, when the editor resolved it
@@ -97,6 +127,7 @@ export interface MissionProfile {
   aois: MissionAoi[];
   spectrum: SpectrumDependencies;   // the spectrum / space declaration
   mustTrack: MustTrack;             // ★ commands / countries / airfields
+  economy?: EconomyEdits;           // Economy actor-register overlay (exclude / add)
   excludedIds: string[];            // derived ids the user removed — never re-materialize
   materializedIds: string[];        // ids written at last apply (drift → exclusions)
   updatedAt?: string;               // ISO, set server-side
@@ -267,6 +298,7 @@ export function sanitizeMissionProfile(raw: unknown): MissionProfile {
     aois,
     spectrum: sanitizeSpectrum(r.spectrum),
     mustTrack: sanitizeMustTrack(r.mustTrack),
+    ...(r.economy ? { economy: sanitizeEconomyEdits(r.economy) } : {}),
     excludedIds: strArr(r.excludedIds, 400, 60),
     materializedIds: strArr(r.materializedIds, 400, 60),
     ...(typeof r.updatedAt === "string" ? { updatedAt: r.updatedAt } : {}),
