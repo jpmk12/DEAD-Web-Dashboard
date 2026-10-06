@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>email (proposed)</title><link rel="stylesheet" href="shot.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:22px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .n{margin:2px 0 0}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  .act{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:3px 7px;color:#94a3b8;flex-shrink:0;white-space:nowrap}
+  .act.pri{border-color:rgba(52,211,153,.5);color:var(--acc)}
+  .act.sky{border-color:rgba(56,189,248,.5);color:#7dd3fc}
+  .act.vio{border-color:rgba(139,92,246,.5);color:#c4b5fd}
+  .act.ghost{border-color:transparent;color:var(--mut)}
+  .tag{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:2px 6px;white-space:nowrap}
+  .tag.red{color:#fca5a5;background:rgba(239,68,68,.15)}.tag.amber{color:#fcd34d;background:rgba(245,158,11,.15)}.tag.violet{color:#c4b5fd;background:rgba(139,92,246,.15)}.tag.sky{color:#7dd3fc;background:rgba(56,189,248,.15)}.tag.mut{color:#94a3b8;background:rgba(100,116,139,.15)}
+  /* action items */
+  .ai{border:1px solid rgba(245,158,11,.35);border-radius:12px;background:rgba(245,158,11,.04);margin-bottom:14px;overflow:hidden}
+  .ai .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(245,158,11,.2)}
+  .ai .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#fcd34d}
+  .ai .hd .s{font-size:10px;color:var(--mut);margin-left:auto;font-family:ui-monospace,Menlo,monospace}
+  .air{display:flex;align-items:flex-start;gap:10px;padding:8px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:12.5px}
+  .air:first-of-type{border-top:0}
+  .cb{width:14px;height:14px;border-radius:4px;border:1px solid #475569;flex-shrink:0;margin-top:3px}
+  .cb.on{background:var(--acc2);border-color:var(--acc2)}
+  .air .t{flex:1;min-width:0;color:#e2e8f0}
+  .air .t small{display:block;font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;margin-top:2px}
+  .air .t small b{color:#fcd34d;font-weight:700}
+  .air.done .t{color:var(--mut);text-decoration:line-through}
+  .air .acts{display:flex;gap:5px;flex-shrink:0}
+  /* rules strip */
+  .rules{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);margin-bottom:14px;overflow:hidden}
+  .rules .hd{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35);flex-wrap:wrap}
+  .rules .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8}
+  .rules .hd .s{font-size:11px;color:var(--txt2)}
+  .rules .hd .s b{color:#e2e8f0;font-weight:700}
+  .rules .hd .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .sug{display:flex;align-items:center;gap:10px;padding:7px 14px;font-size:12px;color:#cbd5e1;border-top:1px solid rgba(30,41,59,.6)}
+  .sug .ev{font-size:10.5px;color:var(--mut);margin-left:4px}
+  .sug .acts{margin-left:auto;display:flex;gap:5px}
+  /* inbox */
+  .ih{display:flex;align-items:center;gap:10px;margin:4px 0 8px}
+  .ih .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--acc)}
+  .ih .s{font-size:11px;color:var(--mut)}
+  .ih .r{margin-left:auto;font-size:11px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;display:flex;gap:10px;align-items:center}
+  .ih .r b{color:#cbd5e1;font-weight:600}
+  .chips{display:flex;gap:6px;margin-bottom:12px;align-items:center}
+  .chips .chip{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  .chip .c{font-family:ui-monospace,Menlo,monospace;font-weight:400;color:var(--mut)}
+  .chip.red{border-color:rgba(248,113,113,.5);color:#fca5a5}.chip.amber{border-color:rgba(251,191,36,.5);color:#fcd34d}.chip.mut{color:#94a3b8}.chip.vio{border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  .chips .kb{margin-left:auto;font-size:10px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace}
+  .chips .kb kbd{border:1px solid var(--bd2);border-radius:3px;padding:0 4px;color:#94a3b8;font-size:9.5px}
+  /* groups */
+  .grp{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);overflow:hidden;margin-bottom:12px}
+  .gh{display:flex;align-items:center;gap:10px;padding:7px 14px;background:rgba(2,6,23,.45);border-bottom:1px solid var(--bd)}
+  .gh .k{font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+  .gh .k.red{color:#fca5a5}.gh .k.amber{color:#fcd34d}.gh .k.mut{color:#94a3b8}
+  .gh .c{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .gh .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .gh .note{font-size:10px;color:var(--mut)}
+  /* full card */
+  .card{display:grid;grid-template-columns:14px 1fr;gap:10px;padding:10px 14px;border-top:1px solid rgba(30,41,59,.6);position:relative}
+  .card:first-of-type{border-top:0}
+  .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+  .card.red::before{background:#ef4444}.card.amber::before{background:#f59e0b}.card.mut::before{background:#475569}
+  .card.kept{background:rgba(139,92,246,.04)}
+  .row1{display:flex;align-items:center;gap:8px;min-width:0}
+  .row1 .fr{font-size:13px;font-weight:700;color:#e2e8f0}
+  .row1 .acct{width:8px;height:8px;border-radius:50%;background:#a78bfa;display:inline-block;flex-shrink:0}
+  .row1 .age{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;margin-left:auto;white-space:nowrap}
+  .pb{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid;border-radius:4px;padding:2px 6px;position:relative;cursor:pointer}
+  .pb.red{color:#fca5a5;border-color:rgba(248,113,113,.5)}.pb.amber{color:#fcd34d;border-color:rgba(251,191,36,.5)}.pb.mut{color:#94a3b8;border-color:var(--bd2)}
+  .pb .car{font-size:8px;opacity:.7}
+  .pb.you::after{content:"you";font-size:7.5px;color:#c4b5fd;margin-left:2px;letter-spacing:.06em}
+  .subj{font-size:13px;color:#e2e8f0;margin-top:3px}
+  .why{font-size:10.5px;color:var(--mut);margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .why .w{color:#94a3b8}
+  .why .w::before{content:"why · ";color:var(--mut2);letter-spacing:.08em;text-transform:uppercase;font-size:9px}
+  .sum{font-size:12px;color:#cbd5e1;margin-top:4px;line-height:1.45}
+  .cacts{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
+  .keep{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#c4b5fd;background:rgba(139,92,246,.15);border-radius:4px;padding:2px 6px}
+  /* priority menu */
+  .menu{position:absolute;top:22px;right:0;left:auto;z-index:5;white-space:nowrap;text-align:left;font-weight:400;letter-spacing:0;text-transform:none;background:#0b1220;border:1px solid var(--bd2);border-radius:8px;box-shadow:0 12px 30px rgba(0,0,0,.6);min-width:300px;padding:5px;font-size:11.5px;color:#cbd5e1}
+  .menu .mi{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:5px}
+  .menu .mi.on{background:rgba(52,211,153,.08);color:var(--acc)}
+  .menu .mi .led{width:8px;height:8px;border-radius:50%}
+  .menu .sep{height:1px;background:var(--bd);margin:4px 2px}
+  .menu .mh{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2);padding:3px 8px}
+  .menu .mi small{margin-left:auto;color:var(--mut);font-size:10px;padding-left:16px}
+  /* compact rows */
+  .crow{display:grid;grid-template-columns:14px 150px 1fr auto auto;gap:10px;align-items:center;padding:6px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:12px;position:relative}
+  .crow::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#334155}
+  .crow .fr{color:#cbd5e1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}
+  .crow .fr .acct{width:7px;height:7px;border-radius:50%;background:#a78bfa;flex-shrink:0}
+  .crow .sj{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e2e8f0}
+  .crow .sj em{font-style:normal;color:var(--mut);font-size:10.5px;margin-left:8px}
+  .crow .age{font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+  .crow .ra{display:flex;gap:4px}
+  .crow.open{background:rgba(30,41,59,.25)}
+  .cx{grid-column:2 / -1;padding:2px 0 4px}
+</style></head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab">News</span><span class="tab">Calendar</span><span class="tab active">Email <span class="badge">2</span></span><span class="tab">Family</span><span class="tab">OSINT</span><span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+
+  <!-- action items -->
+  <div class="ai">
+    <div class="hd"><span class="k">⚡ Action items</span><span class="s">3 open · 1 done · remembered across devices <span class="n">1</span></span></div>
+    <div class="air"><span class="cb"></span><span class="t">Verify the new sign-in on a Windows device and secure your Google account if the activity was unauthorized.<small>Google · Security alert</small></span><span class="acts"><span class="act">▤ Doc</span><span class="act pri">＋ Task</span></span></div>
+    <div class="air done"><span class="cb on"></span><span class="t">Regenerate your GitHub fine-grained personal access token before it expires.<small>GitHub · token is about to expire · <b>due 2026-10-01</b> · added to Tasks</small></span><span class="acts"><span class="act ghost">in Tasks ✓</span></span></div>
+    <div class="air"><span class="cb"></span><span class="t">Confirm the DV airlift request before the ATO cut on Thursday.<small>Col Mattis · RE: DV airlift request — Thursday · <b>due 2026-10-09</b></small></span><span class="acts"><span class="act">▤ Doc</span><span class="act pri">＋ Task</span></span></div>
+  </div>
+
+  <!-- how priority is decided -->
+  <div class="rules">
+    <div class="hd">
+      <span class="k">How priority is decided</span>
+      <span class="s">role <b>C-17 squadron ops officer</b> · <b>4</b> priority topics · <b>3</b> VIP senders · <b>2</b> muted · you corrected <b>14</b> in 30 d (11 ▲ from Low) <span class="n">2</span></span>
+      <span class="r"><span class="act">Rules ⚙</span><span class="act ghost">what the model reads ▾</span></span>
+    </div>
+    <div class="sug"><span class="tag violet">suggested rule</span><span>You promoted <b>3</b> emails from <span class="mono">afcyp@us.af.mil</span> in 30 d — make the sender <b>Always High</b>?<span class="ev">the model called them Low each time</span></span><span class="acts"><span class="act pri">Yes, always High</span><span class="act">Not this sender</span></span></div>
+    <div class="sug"><span class="tag violet">suggested rule</span><span>You demoted <b>4</b> emails from <span class="mono">@news.google.com</span> — make the domain <b>Always Low</b>?<span class="ev">4 of 4 marked read without opening</span></span><span class="acts"><span class="act pri">Yes, always Low</span><span class="act">Not this sender</span></span></div>
+  </div>
+
+  <!-- inbox -->
+  <div class="ih"><span class="k">✉ Inbox</span><span class="s">13 unread · 1 kept</span><span class="r"><b>jpmk12@gmail.com</b> + <span style="color:#c4b5fd">j.poole@…mil</span> · 1m ago · ↻ Refresh</span></div>
+  <div class="chips">
+    <span class="chip on">All <span class="c">13</span></span><span class="chip red">High <span class="c">2</span></span><span class="chip amber">Medium <span class="c">1</span></span><span class="chip mut">Low <span class="c">10</span></span><span class="chip vio">⚑ Kept <span class="c">1</span></span><span class="n" style="margin-left:2px">3</span>
+    <span class="kb"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>x</kbd> select · <kbd>e</kbd> read · <kbd>h</kbd> keep · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> priority</span>
+  </div>
+
+  <!-- HIGH -->
+  <div class="grp">
+    <div class="gh"><span class="k red">High</span><span class="c">2 · 1 kept</span><span class="r"><span class="note">kept never auto-reads</span><span class="act">✓ Mark 1 read</span><span class="n">4</span></span></div>
+    <div class="card red kept">
+      <span class="cb"></span>
+      <div>
+        <div class="row1"><span class="fr">Col Mattis</span><span class="pb red">High <span class="car">▾</span></span><span class="keep">⚑ kept</span><span class="age">5 h ago</span></div>
+        <div class="subj">RE: DV airlift request — Thursday</div>
+        <div class="why"><span class="w">addressed to you · decision requested · priority topic “CENTCOM airlift”</span><span class="n">5</span></div>
+        <div class="sum">Asks you to confirm the DV airlift request before the ATO cut Thursday; the PAX list changed and the ALCC needs a reply from the squadron.</div>
+        <div class="cacts"><span class="act pri">✓ Read</span><span class="act vio">⚑ Kept</span><span class="act">✎ Draft</span><span class="act">＋ Task</span><span class="act">📅 Event</span><span class="act">♥ Family</span><span class="act">▤ Doc</span></div>
+      </div>
+    </div>
+    <div class="card red">
+      <span class="cb"></span>
+      <div>
+        <div class="row1"><span class="fr">Google</span><span class="pb red">High <span class="car">▾</span></span><span class="age">4 min ago</span></div>
+        <div class="subj">Security alert</div>
+        <div class="why"><span class="w">security notice · requires verification · automated but consequential</span></div>
+        <div class="sum">New sign-in to your account from a Windows device. Verify this login activity and secure the account if it was unauthorized.</div>
+        <div class="cacts"><span class="act pri">✓ Read</span><span class="act">⚑ Keep</span><span class="act">✎ Draft</span><span class="act">＋ Task</span><span class="act">📅 Event</span><span class="act">♥ Family</span><span class="act">▤ Doc</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MEDIUM -->
+  <div class="grp">
+    <div class="gh"><span class="k amber">Medium</span><span class="c">1</span><span class="r"><span class="act">✓ Mark 1 read</span></span></div>
+    <div class="card amber">
+      <span class="cb"></span>
+      <div>
+        <div class="row1"><span class="fr">GitHub</span><span class="pb amber">Medium <span class="car">▾</span></span><span class="age">5 d ago</span></div>
+        <div class="subj">[GitHub] Your fine-grained personal access token has expired</div>
+        <div class="why"><span class="w">automated · informational · may need action if the token is still used</span></div>
+        <div class="cacts"><span class="act pri">✓ Read</span><span class="act">⚑ Keep</span><span class="act">＋ Task</span><span class="act">▤ Doc</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOW -->
+  <div class="grp">
+    <div class="gh"><span class="k mut">Low</span><span class="c">10 · compact — tap a row to open</span><span class="r"><span class="note">verify, then clear</span><span class="act pri">✓ Mark all 10 read</span><span class="n">6</span></span></div>
+    <div class="crow open">
+      <span class="cb"></span>
+      <span class="fr">AFCYP</span>
+      <span class="sj">Re: Pass Day Closure 9 Oct 2026 <em>why · mass mailing to parents</em></span>
+      <span class="age">2 d ago</span>
+      <span class="ra"><span class="pb mut" style="z-index:6">Low <span class="car">▾</span>
+        <span class="menu">
+          <div class="mh">Set priority for this email</div>
+          <div class="mi"><span class="led" style="background:#ef4444"></span>High <small>1</small></div>
+          <div class="mi"><span class="led" style="background:#f59e0b"></span>Medium <small>2</small></div>
+          <div class="mi on"><span class="led" style="background:#64748b"></span>Low <small>model’s call</small></div>
+          <div class="sep"></div>
+          <div class="mh">From this sender, every time</div>
+          <div class="mi">Always High — <span class="mono">afcyp@us.af.mil</span></div>
+          <div class="mi">Always Low — <span class="mono">afcyp@us.af.mil</span></div>
+          <div class="sep"></div>
+          <div class="mi" style="color:var(--mut);font-size:10.5px">Corrections teach the next triage; this one moves now.</div>
+        </span>
+      </span><span class="act pri">✓</span><span class="n">7</span></span>
+      <div class="cx">
+        <div class="sum">Pass Day on 9 Oct: the CDC is closed; parents are asked to arrange care. Reply if you need the hourly-care waitlist.</div>
+        <div class="cacts"><span class="act pri">✓ Read</span><span class="act">⚑ Keep</span><span class="act">✎ Draft</span><span class="act">＋ Task</span><span class="act">📅 Event</span><span class="act">♥ Family</span><span class="act">▤ Doc</span><span class="act ghost">open in Gmail ↗</span></div>
+      </div>
+    </div>
+    <div class="crow"><span class="cb"></span><span class="fr">Google</span><span class="sj">Welcome to Google on your Windows <em>why · promotional · no action</em></span><span class="age">3 min ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr"><span class="acct"></span>AF Portal</span><span class="sj">Your weekly myPers digest <em>why · automated digest · muted domain</em></span><span class="age">6 h ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr">Anthropic</span><span class="sj">Monthly Claude API spend report <em>why · automated report · no action</em></span><span class="age">1 d ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr">LinkedIn</span><span class="sj">You appeared in 9 searches this week <em>why · marketing</em></span><span class="age">1 d ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr">Oakwood Elementary</span><span class="sj">Spirit week schedule <em>why · newsletter · filed Family/School</em></span><span class="age">2 d ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr">Delta</span><span class="sj">Your SkyMiles statement <em>why · automated statement</em></span><span class="age">3 d ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr">GitHub</span><span class="sj">[GitHub] A third-party OAuth application has been added <em>why · automated notification</em></span><span class="age">4 d ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr">Medium Daily</span><span class="sj">Top stories for you <em>why · mass mailing</em></span><span class="age">4 d ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+    <div class="crow"><span class="cb"></span><span class="fr">USAA</span><span class="sj">Your statement is ready <em>why · automated statement · tracked biller</em></span><span class="age">5 d ago</span><span class="ra"><span class="pb mut">Low <span class="car">▾</span></span><span class="act pri">✓</span></span></div>
+  </div>
+
+  <div class="notes">
+    <h3>Proposed changes — callouts</h3>
+    <ol>
+      <li><span class="n">1</span>Action items remember what you checked and what went to Tasks, across devices; extraction is cached per email so a new arrival does not re-run the whole panel.</li>
+      <li><span class="n">2</span>How priority is decided: role, topics, VIP and muted counts, and your corrections in the last 30 days — with suggested sender rules earned by repeated corrections (yes / never).</li>
+      <li><span class="n">3</span>Counts on the chips, a Kept chip, and keyboard triage for the sift.</li>
+      <li><span class="n">4</span>The list is always grouped High → Medium → Low; each group header carries its own “Mark N read” — kept emails are never counted and never cleared.</li>
+      <li><span class="n">5</span>A one-line “why” under every subject, from the same triage call (no second call); VIP and muted rules name themselves.</li>
+      <li><span class="n">6</span>Low rows are compact — sender, subject, why, age — because the Low pass is a scan; tap a row to open it to the full card.</li>
+      <li><span class="n">7</span>The priority badge is a menu: promote or demote this email now, or make the sender Always High / Always Low in one tap; every change is recorded as a correction. A ✓ on every row marks it read on its own.</li>
+    </ol>
+  </div>
+</main>
+</body></html>
