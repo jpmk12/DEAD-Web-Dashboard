@@ -1,4 +1,5 @@
 import { EmailMessage, EmailPriority } from "@/lib/types";
+import { openAppend } from "@/lib/appendClient";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import { FAMILY_LABELS } from "@/lib/familyLabels";
@@ -337,7 +338,7 @@ export default function EmailCard(props: EmailCardProps) {
   if (compact && !expanded) {
     return (
       <div
-        className={`relative grid grid-cols-[16px_minmax(0,150px)_1fr_auto] items-center gap-3 pl-4 pr-3 py-1.5 border-t border-slate-800/70 cursor-pointer transition-colors ${
+        className={`relative has-[[role=menu]]:z-30 grid grid-cols-[16px_minmax(0,150px)_1fr_auto] items-center gap-3 pl-4 pr-3 py-1.5 border-t border-slate-800/70 cursor-pointer transition-colors ${
           selected ? "bg-emerald-500/5" : "hover:bg-slate-800/40"
         } ${isStale ? "opacity-60 hover:opacity-100" : ""} ${focused ? "ring-1 ring-inset ring-sky-500/60" : ""} ${kept ? "bg-violet-500/[0.04]" : ""}`}
         onClick={() => onExpand?.(email.id)}
@@ -366,7 +367,7 @@ export default function EmailCard(props: EmailCardProps) {
   // ---- FULL ------------------------------------------------------------------
   return (
     <div
-      className={`relative flex gap-3 pl-4 pr-4 py-3 transition-colors ${compact ? "border-t border-slate-800/70" : "border-t border-slate-800/70 first:border-t-0"} ${
+      className={`relative has-[[role=menu]]:z-30 flex gap-3 pl-4 pr-4 py-3 transition-colors ${compact ? "border-t border-slate-800/70" : "border-t border-slate-800/70 first:border-t-0"} ${
         selected ? "bg-emerald-500/5" : kept ? "bg-violet-500/[0.04]" : ""
       } ${isStale ? "opacity-60 hover:opacity-100" : ""} ${focused ? "ring-1 ring-inset ring-sky-500/60" : ""} ${fileMenu ? "z-20" : ""}`}
       data-email-id={email.id}
@@ -461,6 +462,7 @@ export default function EmailCard(props: EmailCardProps) {
           <button type="button" onClick={saveToDocs} disabled={saveState === "saving" || saveState === "saved"} title={saveState === "saved" ? "Saved to Docs" : saveState === "error" ? "Save failed — click to retry" : "Save excerpt to Docs"} className={`${ACT_IDLE} ${saveState === "saved" ? "!text-emerald-400 !border-emerald-500/40" : saveState === "error" ? "!text-red-400 !border-red-500/40" : ""}`}>
             {saveState === "saved" ? "✓ Doc" : saveState === "error" ? "! Doc" : "▤ Doc"}
           </button>
+          <button type="button" onClick={(e) => { stop(e); openAppend({ text: email.summary || email.bodyPreview || email.snippet || email.subject, source: `Email · ${email.from}`, sourceTitle: email.subject, link: { type: "email", id: email.id, title: email.subject } }); }} title="Append to a running log" className={ACT_IDLE}>⧉ Log</button>
           <a href={gmailLink(email)} target="_blank" rel="noopener noreferrer" onClick={stop} className={`${ACT} border-transparent text-slate-500 hover:text-slate-300`}>open in Gmail ↗</a>
         </div>
 

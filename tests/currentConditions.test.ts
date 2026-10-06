@@ -47,3 +47,22 @@ describe("parseCurrent", () => {
     expect(parseCurrent({ foo: 1 })).toBeNull();
   });
 });
+
+describe("parseCurrent daily outlook", () => {
+  it("returns one DailyOutlook per daily.time entry (today first), capped at 7", () => {
+    const c = parseCurrent({
+      daily: {
+        time: ["2026-10-06", "2026-10-07", "2026-10-08"],
+        temperature_2m_max: [76.4, 79.1, 81.0], temperature_2m_min: [66.2, 63.0, 64.4],
+        precipitation_probability_max: [30, 0, null], weather_code: [3, 0, 1],
+      },
+    })!;
+    expect(c.daily).toHaveLength(3);
+    expect(c.daily[0]).toEqual({ date: "2026-10-06", highF: 76, lowF: 66, precipPct: 30, weatherCode: 3 });
+    expect(c.daily[2].precipPct).toBeNull();
+    expect(c.highF).toBe(76);
+  });
+  it("is empty when Open-Meteo sent no daily block", () => {
+    expect(parseCurrent({ current: { temperature_2m: 70 } })!.daily).toEqual([]);
+  });
+});

@@ -11,6 +11,7 @@ import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import StatusRow from "@/components/glance/StatusRow";
 import WorldClocks from "@/components/glance/WorldClocks";
+import WhereYouAre from "@/components/glance/WhereYouAre";
 import { useEffectiveZone, type EffectiveZone } from "@/lib/zoneClient";
 import { ymdInZone, addDays, zoneDayStartMs, zoneDayEndMs, timeInZone, zoneLabel } from "@/lib/effectiveZone";
 import { useSession } from "next-auth/react";
@@ -60,6 +61,7 @@ interface GlanceSitrep {
 interface Briefing {
   headline: string;
   generatedAtMs?: number;
+  weather?: string[];  // travel-aware day forecast lines (home · TDY · destinations)
   schedule: string[];
   keyDevelopments: string[];
   topStories: string[];
@@ -999,6 +1001,10 @@ export default function GlanceTab({
       {/* ── World clocks: home station, the capitals that set the tempo, Zulu ── */}
       <WorldClocks />
 
+      {/* ── Weather where you are — beside the clocks that already know where
+          that is (REVIEW-2026-10 W1). Deterministic, one cached route. ── */}
+      <WhereYouAre onOpen={() => onNavigate("weather")} />
+
       {/* ── Morning brief — right under the clocks: the first sentence of
           the day sits with the first look at the day. OPEN by default it is
           a real overview: the full headline, the key developments and the
@@ -1057,8 +1063,24 @@ export default function GlanceTab({
             </button>
           </span>
         </div>
-        {briefOpen && briefing && ((briefing.keyDevelopments?.length ?? 0) > 0 || (briefing.suggestedFocus?.length ?? 0) > 0) && (
+        {briefOpen && briefing && ((briefing.keyDevelopments?.length ?? 0) > 0 || (briefing.suggestedFocus?.length ?? 0) > 0 || (briefing.weather?.length ?? 0) > 0) && (
           <div className="px-4 pb-3.5 pt-2.5 border-t border-emerald-500/15 grid gap-x-6 gap-y-3 md:grid-cols-2">
+            {/* The brief's travel-aware weather lines (home · TDY · today's
+                destinations) — already in the cached brief, rendered only in
+                the modal before (REVIEW-2026-10 W1). Zero cost. */}
+            {(briefing.weather?.length ?? 0) > 0 && (
+              <div className="min-w-0 md:col-span-2">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-sky-400/80 mb-1.5">Weather &amp; travel</p>
+                <ul className="space-y-1 sm:columns-2 sm:gap-6">
+                  {briefing.weather!.slice(0, 4).map((w, i) => (
+                    <li key={i} className="flex gap-2 text-[13px] text-slate-300 leading-snug break-inside-avoid">
+                      <span className="text-sky-500 mt-0.5 flex-shrink-0">☼</span>
+                      <span className="min-w-0">{w}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {(briefing.keyDevelopments?.length ?? 0) > 0 && (
               <div className="min-w-0">
                 <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-500/80 mb-1.5">Key developments</p>

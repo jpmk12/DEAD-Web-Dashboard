@@ -370,6 +370,8 @@ export interface StationWx {
   metar: MetarObs | null;
   taf: TafReport | null;
   error?: string;            // set when the station couldn't be fetched/decoded
+  /** Favoured runway end's wind components (only with ?xwind=1; null = no runway data). */
+  xwind?: { ident: string; headingDegT: number; headKt: number; crossKt: number; gustCrossKt: number | null; flag: "g" | "a" | "r" } | null;
 }
 
 // A severe-weather alert aggregated across the user's tracked locations.

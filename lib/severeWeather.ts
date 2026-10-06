@@ -246,7 +246,7 @@ export function assessHazards(hourly: OmHourly, nowMs: number): HazardAssessment
 
 const OM_UA = "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)";
 
-async function fetchLocationHazards(locations: NamedPoint[]): Promise<LocationHazard[]> {
+export async function fetchLocationHazards(locations: NamedPoint[]): Promise<LocationHazard[]> {
   if (locations.length === 0) return [];
   const now = Date.now();
   const results = await Promise.all(

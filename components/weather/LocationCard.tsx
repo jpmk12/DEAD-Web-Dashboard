@@ -14,6 +14,10 @@ interface LocationCardProps {
   active: boolean;
   onSelect: () => void;
   tag?: "home" | "tdy";
+  /** Remove this place (civil points only — home and TDY have their own doors). */
+  onRemove?: () => void;
+  /** Which feeds answered for this point (the sources strip). */
+  onLoaded?: (r: { nws: boolean; openMeteo: boolean }) => void;
 }
 
 const SEVERITY_COLOUR: Record<WeatherAlert["severity"], string> = {
@@ -84,7 +88,7 @@ function Tip({ label, children }: { label: string; children: React.ReactNode }) 
 // mini-icons), a 7-day trend, and an expandable alert. NWS drives the named
 // periods/condition text; Open-Meteo (global) supplies the enrichment + a
 // current-conditions fallback so the card isn't blank OCONUS.
-export default function LocationCard({ location, active, onSelect, tag }: LocationCardProps) {
+export default function LocationCard({ location, active, onSelect, tag, onRemove, onLoaded }: LocationCardProps) {
   const [periods, setPeriods] = useState<ForecastPeriod[]>([]);
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [current, setCurrent] = useState<CurrentConditions | null>(null);
@@ -108,12 +112,14 @@ export default function LocationCard({ location, active, onSelect, tag }: Locati
         setPeriods(ps);
         setAlerts(a.alerts ?? []);
         setCurrent(cur);
+        onLoaded?.({ nws: ps.length > 0, openMeteo: !!cur });
         // Unavailable only if BOTH sources are empty (NWS US-only; Open-Meteo global).
         if (ps.length === 0 && !cur) setUnavailable(true);
       })
-      .catch(() => setUnavailable(true))
+      .catch(() => { setUnavailable(true); onLoaded?.({ nws: false, openMeteo: false }); })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.lat, location.lon]);
 
   const now = periods[0];
@@ -162,6 +168,10 @@ export default function LocationCard({ location, active, onSelect, tag }: Locati
             {location.lat.toFixed(2)}, {location.lon.toFixed(2)}
           </p>
         </div>
+        {onRemove && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); onRemove(); }} title="Remove this place" aria-label={`Remove ${location.label}`}
+            className="flex-shrink-0 text-slate-600 hover:text-red-400 text-xs leading-none px-1 -mr-1">✕</button>
+        )}
         {topAlert && (
           <button
             type="button"
@@ -264,9 +274,37 @@ export default function LocationCard({ location, active, onSelect, tag }: Locati
             );
           })()}
 
-          {!hasNws && current && (
-            <p className="text-[8px] text-slate-600 mt-1.5 font-mono">Current conditions · Open-Meteo</p>
-          )}
+          {/* OCONUS (no NWS periods): the week ahead from Open-Meteo daily —
+              the card for where you ARE used to be the thinnest on the page
+              (REVIEW-2026-10 W4). */}
+          {!hasNws && current && current.daily.length > 1 && (() => {
+            const days = current.daily.slice(0, 7);
+            const highs = days.map((d) => d.highF).filter((v): v is number => v != null);
+            const maxP = Math.max(0, ...days.map((d) => d.precipPct ?? 0));
+            const dow = (ymd: string) => { const d = new Date(`${ymd}T12:00:00`); return Number.isNaN(d.getTime()) ? ymd.slice(5) : d.toLocaleDateString([], { weekday: "short" }); };
+            return (
+              <div className="mt-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-[8px] uppercase tracking-widest text-slate-600">7-day</span>
+                  {highs.length > 0 && <span className="text-[9px] font-mono text-slate-500">{Math.min(...highs)}°–{Math.max(...highs)}°{maxP > 0 ? ` · ${maxP}% precip` : ""}</span>}
+                </div>
+                <div className="grid grid-cols-7 gap-0.5">
+                  {days.map((d, i) => (
+                    <div key={d.date} className="text-center">
+                      <p className="text-[8px] text-slate-600 truncate">{i === 0 ? "Today" : dow(d.date)}</p>
+                      <div className="flex justify-center my-0.5">{d.weatherCode != null ? <WeatherIcon id={wmoIconId(d.weatherCode, true)} isDay size={14} strokeWidth={2} title={WEATHER_ICON_LABEL[wmoIconId(d.weatherCode, true)]} /> : <span className="text-slate-700">·</span>}</div>
+                      <p className="text-[10px] font-bold text-slate-300">{d.highF ?? "—"}</p>
+                      <p className="text-[8px] text-slate-500">{d.lowF ?? ""}</p>
+                      {d.precipPct != null && d.precipPct > 0 && <p className="text-[8px] font-mono text-sky-400">{d.precipPct}%</p>}
+                    </div>
+                  ))}
+                </div>
+                {highs.length >= 4 && <Sparkline values={highs} width={170} height={22} />}
+              </div>
+            );
+          })()}
+
+          <p className="text-[8px] text-slate-600 mt-1.5 font-mono">{hasNws ? `NWS periods${current ? " · Open-Meteo now" : ""}` : "Open-Meteo · no NWS coverage here"}</p>
         </>
       )}
     </div>

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getWeatherThreats, type NamedPoint } from "@/lib/severeWeather";
 import type { WeatherThreats } from "@/lib/types";
+import { getTrackingRegistry } from "@/lib/trackingOps";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,22 @@ export async function GET() {
   for (const t of prefs?.trackedLocations ?? []) {
     locations.push({ label: t.label, lat: t.lat, lon: t.lon });
   }
+  // The airfields the operator tracks (posture bases, SITREP bases, hub and
+  // spokes) join the scan — REVIEW-2026-10 W6: the 30-h hazard scan and the
+  // "near …" tags used to see only home and the civil places, so no base
+  // ever got a hazard row on this tab. Labelled by ICAO so a row keys
+  // straight to the airfield card.
+  try {
+    const reg = await getTrackingRegistry();
+    const seen = new Set(locations.map((l) => `${l.lat.toFixed(2)},${l.lon.toFixed(2)}`));
+    for (const a of reg.airfields) {
+      if (!a.icao || (!a.lat && !a.lon)) continue;
+      const k = `${a.lat.toFixed(2)},${a.lon.toFixed(2)}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      locations.push({ label: a.icao, lat: a.lat, lon: a.lon });
+    }
+  } catch { /* registry unavailable → scan the civil points only */ }
 
   try {
     const data = await getWeatherThreats(locations);

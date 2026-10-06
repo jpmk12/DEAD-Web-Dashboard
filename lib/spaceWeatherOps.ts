@@ -183,3 +183,32 @@ export function severeScales(scales: NoaaScales): { scale: "R" | "S" | "G"; leve
   for (const k of ["R", "S", "G"] as const) { const v = scales.now[k]; if (v != null && v >= 3) out.push({ scale: k, level: v }); }
   return out;
 }
+
+/**
+ * The one sentence a crew can use (REVIEW-2026-10 W9): what space weather
+ * does to HF, GPS approaches and SATCOM today, and whether the 3-day
+ * outlook is quiet. At a scale of 3+ it names what breaks; a dead feed is
+ * UNKNOWN, never quiet. PURE.
+ */
+export function spaceWxSentence(scales: NoaaScales, impacts: SpaceWxImpact[]): { lead: string; detail: string; tone: Led } {
+  if (!scales.live) {
+    return { lead: "Space weather UNKNOWN.", detail: "NOAA SWPC is unreachable — HF, GPS and SATCOM impact not known, not quiet.", tone: "u" };
+  }
+  const n = scales.now;
+  const sev = ([["R", n.R], ["G", n.G], ["S", n.S]] as const).filter(([, v]) => (v ?? 0) >= 3).map(([k, v]) => `${k}${v}`);
+  const maxOut = Math.max(0, ...scales.outlook.flatMap((d) => [d.R ?? 0, d.G ?? 0, d.S ?? 0]));
+  const worstOutDay = scales.outlook.find((d) => Math.max(d.R ?? 0, d.G ?? 0, d.S ?? 0) === maxOut);
+  const outlook = maxOut <= 1
+    ? `3-day outlook quiet${scales.outlook.length ? "" : " (no outlook issued)"}.`
+    : `3-day outlook: ${worstOutDay ? [["R", worstOutDay.R], ["G", worstOutDay.G], ["S", worstOutDay.S]].filter(([, v]) => (v as number ?? 0) >= 2).map(([k, v]) => `${k}${v}`).join("/") : ""} possible${worstOutDay ? ` on ${worstOutDay.date.slice(5)}` : ""}.`;
+  const red = impacts.filter((i) => i.led === "r");
+  const amber = impacts.filter((i) => i.led === "a");
+  if (sev.length) {
+    const what = (red.length ? red : amber).map((i) => `${i.label}: ${i.now}`).join("; ");
+    return { lead: `${sev.join(" · ")} in effect.`, detail: `${what || "ops impact — see the rows"}. ${outlook}`, tone: "r" };
+  }
+  if (amber.length) {
+    return { lead: "Minor space weather.", detail: `${amber.map((i) => `${i.label}: ${i.now}`).join("; ")}. ${outlook}`, tone: "a" };
+  }
+  return { lead: "No impact today.", detail: `HF, GPS approaches and SATCOM normal; ${outlook.charAt(0).toLowerCase()}${outlook.slice(1)}`, tone: "g" };
+}

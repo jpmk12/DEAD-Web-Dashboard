@@ -85,8 +85,11 @@ close/reopen.
 - **Docs** — a markdown wiki grown into a synthesis workbench: typed wiki-links,
   aliases, backlinks with snippets, unlinked-mention detection, collections /
   doc types / properties, a local knowledge graph, lexicon, thread timelines,
-  compose-to-deliverable, split-at-headings, templates, version history, and a
-  file repo. Quick capture (⌘K) routes thoughts here (`doc` kind + a findable
+  compose-to-deliverable, split-at-headings, templates, version history,
+  **running logs** (📓 — append a dated entry from anywhere: select text and
+  tap ⧉, a Thesis, the assistant, ⌘K, or "add to my China log: …" in
+  Capture), and a file repo with bulk upload, multi-select, zip download and
+  an inline PDF preview. Quick capture (⌘K) routes thoughts here (`doc` kind + a findable
   "Capture Inbox"), with high-confidence tasks auto-committed behind an Undo.
 - **OSINT** — three panes: **◆ Commands · ≣ Feeds · ⇪ Sources**.
   **Commands** is one page in drill order: **Where to look first** (a ranked,
@@ -108,9 +111,13 @@ close/reopen.
   the ingestion control room — browser-captured X posts / analysis articles /
   LiveUAMap events (captured in *your* logged-in browser, never server-side),
   plus the live RSS/Telegram feed editor with AO-aware suggestions.
-- **Weather** — multi-location NWS + Open-Meteo forecast cards for your civil
-  places, severe-weather threat board, NOAA space weather, and METAR/TAF for
-  every airfield the profile tracks.
+- **Weather** — where you are first (also a strip under the Glance clocks),
+  NWS + Open-Meteo forecast cards for your civil places (7-day worldwide),
+  then your airfields by combatant command with decoded METAR, a 24-h TAF
+  category bar, model hazards and crosswind, threats & disasters by command,
+  a Windy map that follows the selected place or airfield, and space weather
+  in one crew sentence. Places and airfields are added or removed on the page
+  through the one Track command; a sources strip names every feed.
 - **Economy** — mobility economics: energy/fuel prices, an AI *Economic Access
   Read*, and a strategic-chokepoint watch.
 

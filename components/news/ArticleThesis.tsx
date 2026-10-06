@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { openAppend, lastAppendTarget } from "@/lib/appendClient";
 import { NewsItem } from "@/lib/types";
 
 type ArticleLike = Pick<NewsItem, "title" | "source" | "summary" | "link">;
@@ -76,6 +77,16 @@ export default function ArticleThesis({ article, className = "" }: { article: Ar
           </span>
         </div>
         <p className="text-[12px] leading-snug text-slate-200">{state.thesis}</p>
+        {/* The thesis is the thought worth keeping — append it to a running
+            log without leaving the page (REVIEW-2026-10 §9 D4). */}
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {(() => { const last = lastAppendTarget(); return last ? (
+            <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAppend({ text: state.thesis, source: `News · ${article.source}`, sourceTitle: article.title, sourceUrl: article.link, targetId: last.id, link: "id" in article && typeof (article as { id?: unknown }).id === "string" ? { type: "article", id: (article as { id: string }).id, title: article.title } : undefined }); }}
+              className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 truncate max-w-[260px]" title={`Append to ${last.title}`}>⧉ Append to {last.title}</button>
+          ) : null; })()}
+          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAppend({ text: state.thesis, source: `News · ${article.source}`, sourceTitle: article.title, sourceUrl: article.link, link: "id" in article && typeof (article as { id?: unknown }).id === "string" ? { type: "article", id: (article as { id: string }).id, title: article.title } : undefined }); }}
+            className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500" title="Append this thesis to a running log">⧉ Append to…</button>
+        </div>
       </div>
     );
   }

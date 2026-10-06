@@ -955,3 +955,26 @@ export async function snapshotBeforeUpdate(id: string): Promise<void> {
   const existing = await getDocument(id);
   if (existing) await maybeSnapshotVersion(existing);
 }
+
+// ─── Running logs (REVIEW-2026-10 §9 D4) ─────────────────────────────────────
+
+export interface LogSummary extends DocumentSummary { content: string }
+
+/** Every active `log` doc WITH content (the landing parses the latest entry). */
+export async function listLogs(limit = 24): Promise<LogSummary[]> {
+  const pool = await getDb();
+  const [rows] = await pool.query<DocRow[]>(
+    `SELECT id, title, content, tags, aliases, collection, doc_type, props, pinned, archived, created_at, updated_at,
+            CHAR_LENGTH(content) AS char_count
+     FROM documents WHERE archived = 0 AND doc_type = 'log'
+     ORDER BY pinned DESC, updated_at DESC LIMIT ?`,
+    [limit]
+  );
+  return rows.map((r) => ({ ...summary(r), content: r.content ?? "" }));
+}
+
+/** Append text to a doc (snapshot first, so the append is undoable). */
+export async function appendToDocument(id: string, nextContent: string): Promise<DocumentFull | null> {
+  await snapshotBeforeUpdate(id);
+  return updateDocument(id, { content: nextContent });
+}

@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { StationWx } from "@/lib/types";
 import { decodeMetar, decodeTaf } from "@/lib/metar";
 import { fetchWithTimeout } from "@/lib/fetchTimeout";
+import { airfieldRunways } from "@/lib/ourAirports";
+import { runwayWinds } from "@/lib/sitrepSignals";
 
 export const dynamic = "force-dynamic";
 
@@ -30,13 +32,17 @@ export async function GET(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const idsRaw = new URL(request.url).searchParams.get("ids") ?? "";
+  const url = new URL(request.url);
+  const idsRaw = url.searchParams.get("ids") ?? "";
+  // ?xwind=1 → attach the best runway end's crosswind (OurAirports runways ×
+  // the decoded wind — the SITREP's own rule, lib/sitrepSignals.runwayWinds).
+  const wantXwind = url.searchParams.get("xwind") === "1";
   const ids = Array.from(
     new Set(idsRaw.split(",").map((s) => s.trim().toUpperCase()).filter(isValidIcao))
   ).slice(0, 12);
   if (ids.length === 0) return NextResponse.json({ stations: {} });
 
-  const cacheKey = ids.slice().sort().join(",");
+  const cacheKey = ids.slice().sort().join(",") + (wantXwind ? "|x" : "");
   const hit = cache.get(cacheKey);
   if (hit && hit.expires > Date.now()) {
     return NextResponse.json({ stations: hit.data, ok: true });
@@ -73,6 +79,17 @@ export async function GET(request: Request) {
       metar: m ? decodeMetar(m) : null,
       taf: t ? decodeTaf(t) : null,
     };
+  }
+
+  if (wantXwind) {
+    await Promise.all(ids.map(async (icao) => {
+      const m = stations[icao]?.metar;
+      if (!m || m.windSpeedKt == null) return;
+      const rws = await airfieldRunways(icao).catch(() => []);
+      const winds = runwayWinds(rws, m.windDir, m.windVariable, m.windSpeedKt, m.windGustKt);
+      // The favoured end (most headwind) is what a crew would use.
+      stations[icao].xwind = winds[0] ?? null;
+    }));
   }
 
   if (metars.length > 0 || tafs.length > 0) cache.set(cacheKey, { data: stations, expires: Date.now() + TTL_MS });

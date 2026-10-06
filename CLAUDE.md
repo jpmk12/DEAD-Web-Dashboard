@@ -546,6 +546,104 @@ disagreed on the colour of `unknown`.
   different level names. Forcing them into one enum would be the opposite
   mistake.
 
+### Weather tab rebuilt (2026-10-06, `docs/REVIEW-2026-10.md` §8 W1–W9, all four decisions as recommended)
+- **Weather where you are, on Glance** (`components/glance/WhereYouAre.tsx`
+  under the clocks ← `/api/weather/here`): the effective location by the
+  clocks' own rule (active TDY › home; `getActiveTrip` on the device day),
+  conditions now + today (Open-Meteo), the NEAREST tracked airfield within
+  300 km (registry airfields) with its flight category, the TAF turn
+  (`getTafOutlook`) and the 30-h model hazard (`fetchLocationHazards`,
+  now exported), and home in one muted phrase when away. Cached 10 min
+  per user; a dead feed leaves a null and `live` says which — never
+  implied clear. The brief's `weather` lines (already in the cached
+  brief) now render on the OPEN Glance card too (`Briefing.weather`).
+- **Tab order**: header (counts + ＋ Place / ＋ Airfield / manage / Refresh)
+  → **sources strip** (`WeatherSources.tsx` — one chip per keyless feed,
+  what it supplies, ok / down / none-here from THIS render; feeds are not
+  user-removable, the strip says so) → **Places** (TDY · home · civil
+  points; ✕ on civil cards → `postTrack({kind:"place", remove})`; ＋ →
+  `openTrackPicker({kind:"place"})`) → **My airfields by combatant
+  command** (`AirfieldsByCommand.tsx`: registry airfields from
+  `/api/track`, hub › ★ › spokes › rest, LED + "worst: ICAO — why" per
+  COCOM header, quiet commands one line, `hide green`) → **Threats &
+  disasters by command** (`ThreatBoard.tsx` rewritten: alerts / tropical
+  / hazards / disasters as rows under one COCOM header each, worst first,
+  `near …` + source per row; alerts resolve their location LABELS to AORs
+  through the tab's `points`) → the map, which **follows the selected
+  place OR airfield** → space weather.
+- **Airfield cards**: decoded METAR, the **24-h TAF category bar**
+  (`tafTimeline` — the SITREP's own), worst category ahead with its
+  window, the 30-h hazard (threats route now scans the REGISTRY AIRFIELDS
+  too, labelled by ICAO — W6: only home + civil places were scanned),
+  **crosswind** for the favoured runway end (`/api/weather/metar?xwind=1`
+  → `airfieldRunways` × `runwayWinds`, `StationWx.xwind`), a SITREP door
+  (`watch:focus {kind:"sitrep"}`), "map", ✕ → the Track picker. UNKNOWN
+  says why in words ("the field may not report at this hour. UNKNOWN is
+  not VFR").
+- **Cards**: Open-Meteo now returns `daily[7]` (`CurrentConditions.daily`,
+  `DailyOutlook`, `forecast_days=7`); a card with no NWS periods renders
+  the week from it (W4: the TDY card was the thinnest on the page) and
+  every card names its source line.
+- **Space weather is one sentence** (`spaceWxSentence` in
+  `lib/spaceWeatherOps.ts`, pure, tested): "No impact today. HF, GPS
+  approaches and SATCOM normal; 3-day outlook quiet." / "R3 in effect.
+  HF radio: …" / UNKNOWN when SWPC is unreachable — with the four impact
+  LEDs; the Kp / G / R / S tiles, the impact rows, the outlook and the
+  caveat fold under "Kp · G/R/S · history".
+- Also fixed on the way: **Email tab popovers were clipped** (bug report
+  2026-10-06) — the priority-group `<section>` was `overflow-hidden`; it is
+  now `relative` with rounded header/last-row and `has-[[role=menu]]:z-30`
+  (the card too), so the priority and Family menus render over the next
+  group. No new npm dep (esbuild `0`).
+
+### Docs: running logs and the Append-to command (2026-10-06, `docs/REVIEW-2026-10.md` §9 D1–D6, all four decisions as recommended)
+- **A log is a doc of type `log` (📓)** whose body is dated entries —
+  `### YYYY-MM-DD — from <source>` + text + a refs line (`_title_ ·
+  [source](url) · thread [[label]]`). `lib/docAppend.ts` (PURE, tested):
+  `entryMarkdown` / `appendEntry` (append at the END, never rewrite; a
+  non-http url is dropped) / `parseEntries` / `latestEntry` (newest DATE,
+  not last line) / `entryExcerpt`. The day is the CLIENT's calendar day
+  (`todayYmd`) — never guessed server-side.
+- **Routes**: `POST /api/documents/:id/append` (snapshot first via
+  `appendToDocument`, so an entry is undoable from History; the source
+  recorded with `recordExternalLink` so the log shows in the article's /
+  email's backlinks); `GET /api/documents/logs` (`listLogs` — type `log`
+  with content, reduced to latest-entry excerpt + count); `POST
+  /api/documents` is now **idempotent by external link** (D5): a second
+  Save-to-Docs of the same article/email returns `{ doc, existing: true }`
+  unless `force: true`.
+- **The picker** `components/AppendPicker.tsx` (mounted in `TabShell`,
+  opens on `docs:append` — `lib/appendClient.ts` `openAppend(payload)`):
+  your logs first (most recently appended first — `localStorage
+  docs.appendRecents`; titles, aliases, tags searched), other docs, then
+  "New log “query”"; the entry is shown as it will land and can be edited;
+  one POST; "Open the log". `lastAppendTarget()` powers the one-tap
+  "⧉ Append to <last log>" beside a Thesis.
+- **Doors**: `components/SelectionChip.tsx` — select ≥12 chars of text
+  anywhere outside inputs / the editor / dialogs and a floating "⧉ Append
+  to…" chip appears (source = the active tab, url = the nearest link);
+  ArticleThesis (append the thesis), NewsCard ⧉, OSINT cluster ⧉, EmailCard
+  "⧉ Log", the assistant's replies ("⧉ Append to…" under each), ⌘K "Append
+  to a log" (seeds the current selection), and Quick capture's new
+  **`append` kind** ("add to my China log: …" → the model names `target`;
+  `executePlan` matches a log by title/alias (logs first, then any doc),
+  else creates one, and appends with source "capture").
+- **Landing** `components/documents/LogsLanding.tsx` replaces "No document
+  selected": the logs with their newest entry (open · ⧉ append · ⇩ export),
+  ＋ New log (`createLog`); the sidebar has a "📓 Logs" smart view. A
+  `docs:changed` window event refreshes the list after an append.
+- **Files** (D1–D3): the PDF preview was blocked by OUR OWN CSP —
+  `frame-src` had no `'self'` and `frame-ancestors 'none'` applied to the
+  inline file response; both are `'self'` now (`next.config.ts`).
+  `FilesPanel` rewritten: the WHOLE pane is the drop zone (folders via
+  `webkitGetAsEntry`, a `folder` picker), a per-file upload queue with
+  retry (serial — the quota is rechecked between files), checkboxes + a
+  bulk bar (tag / untag / attach to the open doc or by id / **⇩ .zip** /
+  delete) over `POST /api/files/bulk` and `GET /api/files/zip?ids=`
+  (JSZip, already a dependency — STORE, duplicate names suffixed), a ⇩ on
+  every row; the viewer header has Download / Open (new tab) / Edit /
+  Delete as buttons. No new npm dep (esbuild `0`).
+
 ### Weather tab cards (`LocationCard` + Open-Meteo enrichment)
 The per-location cards fuse two keyless sources: **NWS** (`/api/weather/forecast`,
 `/api/weather/alerts`) for the nicely-worded named periods + alerts (US-only), and

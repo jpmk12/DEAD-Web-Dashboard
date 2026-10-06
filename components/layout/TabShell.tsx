@@ -19,6 +19,8 @@ import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
 import TrackPicker from "@/components/TrackPicker";
+import AppendPicker from "@/components/AppendPicker";
+import SelectionChip from "@/components/SelectionChip";
 import FloatingAssistant from "@/components/chat/FloatingAssistant";
 import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
@@ -480,6 +482,10 @@ export default function TabShell() {
       {/* The one Track dialog — opens on `track:open` from ⌘K, Preferences,
           map popups, board rows, situation rooms and Glance rows. */}
       <TrackPicker />
+      {/* The one Append-to dialog + the selection chip that opens it
+          (REVIEW-2026-10 §9). */}
+      <AppendPicker />
+      <SelectionChip />
 
       {/* Global AI assistant — reachable from every tab. */}
       <FloatingAssistant

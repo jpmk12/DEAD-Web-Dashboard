@@ -4,7 +4,7 @@
 // endpoint; Open-Meteo fills those in and — because it's worldwide — lets the
 // cards show *something* OCONUS where NWS returns nothing.
 //
-// One call per location (current + today's daily). Pure parser (parseCurrent) is
+// One call per location (current + 7-day daily). Pure parser (parseCurrent) is
 // unit-tested; the fetch is best-effort and fail-safe (null → the card just omits
 // the enrichment, never shows a fake value).
 
@@ -24,6 +24,17 @@ export interface CurrentConditions {
   precipChancePct: number | null;
   sunrise: string | null;       // local ISO ("2026-06-17T05:42")
   sunset: string | null;
+  /** The 7-day outlook (today first) — global, so OCONUS cards get a week
+   *  ahead where NWS has no periods. Empty when Open-Meteo sent no daily. */
+  daily: DailyOutlook[];
+}
+
+export interface DailyOutlook {
+  date: string;                 // YYYY-MM-DD (local)
+  highF: number | null;
+  lowF: number | null;
+  precipPct: number | null;
+  weatherCode: number | null;
 }
 
 const round = (v: unknown): number | null => {
@@ -38,6 +49,15 @@ export function parseCurrent(json: unknown): CurrentConditions | null {
   if (!cur && !daily) return null;
   const d0 = (k: string): unknown => (daily?.[k] as unknown[] | undefined)?.[0];
   const dayFlag = cur?.is_day;
+  const times = Array.isArray(daily?.time) ? (daily!.time as unknown[]) : [];
+  const col = (k: string): unknown[] => (Array.isArray(daily?.[k]) ? (daily![k] as unknown[]) : []);
+  const outlook: DailyOutlook[] = times.slice(0, 7).map((t, i) => ({
+    date: String(t).slice(0, 10),
+    highF: round(col("temperature_2m_max")[i]),
+    lowF: round(col("temperature_2m_min")[i]),
+    precipPct: col("precipitation_probability_max")[i] != null ? round(col("precipitation_probability_max")[i]) : null,
+    weatherCode: col("weather_code")[i] != null ? round(col("weather_code")[i]) : null,
+  }));
   return {
     tempF: round(cur?.temperature_2m),
     feelsLikeF: round(cur?.apparent_temperature),
@@ -52,6 +72,7 @@ export function parseCurrent(json: unknown): CurrentConditions | null {
     precipChancePct: d0("precipitation_probability_max") != null ? round(d0("precipitation_probability_max")) : null,
     sunrise: typeof d0("sunrise") === "string" ? (d0("sunrise") as string) : null,
     sunset: typeof d0("sunset") === "string" ? (d0("sunset") as string) : null,
+    daily: outlook,
   };
 }
 
@@ -61,7 +82,7 @@ export async function getCurrentConditions(lat: number, lon: number): Promise<Cu
       `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
       `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
       `&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code` +
-      `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=1`;
+      `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
     const res = await fetchWithTimeout(url, { headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" } }, 8_000);
     if (!res.ok) return null;
     return parseCurrent(await res.json());

@@ -180,3 +180,53 @@ export async function getQuotaUsage(): Promise<QuotaUsage> {
     count: Number(rows[0]?.cnt ?? 0),
   };
 }
+
+// ─── Bulk (the Files pane's multi-select bar, REVIEW-2026-10 D3) ────────────
+
+const MAX_BULK = 500;
+const idList = (ids: string[]) => [...new Set(ids.filter((x) => typeof x === "string" && x.length > 0))].slice(0, MAX_BULK);
+
+export async function bulkFileTag(ids: string[], tag: string, add: boolean): Promise<{ affected: number }> {
+  const list = idList(ids);
+  const t = tag.trim().slice(0, 64);
+  if (!list.length || !t) return { affected: 0 };
+  const pool = await getDb();
+  const [rows] = await pool.query<FileRow[]>("SELECT id, filename, mime_type, size_bytes, description, tags, doc_id, uploaded_at FROM files WHERE id IN (?)", [list]);
+  let affected = 0;
+  for (const r of rows) {
+    const have = asTags(r.tags);
+    const next = add ? (have.includes(t) ? null : [...have, t].slice(0, 20)) : (have.includes(t) ? have.filter((x) => x !== t) : null);
+    if (!next) continue;
+    await pool.execute("UPDATE files SET tags = CAST(? AS JSON) WHERE id = ?", [JSON.stringify(next), r.id]);
+    affected++;
+  }
+  return { affected };
+}
+
+export async function bulkFileAttach(ids: string[], docId: string | null): Promise<{ affected: number }> {
+  const list = idList(ids);
+  if (!list.length) return { affected: 0 };
+  const pool = await getDb();
+  const [res] = await pool.query<ResultSetHeader>("UPDATE files SET doc_id = ? WHERE id IN (?)", [docId, list]);
+  return { affected: res.affectedRows };
+}
+
+export async function bulkFileDelete(ids: string[]): Promise<{ affected: number }> {
+  const list = idList(ids);
+  if (!list.length) return { affected: 0 };
+  const pool = await getDb();
+  const [res] = await pool.query<ResultSetHeader>("DELETE FROM files WHERE id IN (?)", [list]);
+  return { affected: res.affectedRows };
+}
+
+/** Bytes for a zip download — bounded by the aggregate quota, so at most ~250 MB. */
+export async function getFilesWithData(ids: string[]): Promise<FileFull[]> {
+  const list = idList(ids);
+  if (!list.length) return [];
+  const pool = await getDb();
+  const [rows] = await pool.query<FileRowWithData[]>(
+    "SELECT id, filename, mime_type, size_bytes, description, tags, doc_id, uploaded_at, data FROM files WHERE id IN (?) ORDER BY uploaded_at DESC",
+    [list]
+  );
+  return rows.map((r) => ({ ...summaryRow(r), data: r.data }));
+}

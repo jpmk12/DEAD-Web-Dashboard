@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 interface QuickCaptureModalProps {
   open: boolean;
   onClose: () => void;
-  onCaptured?: (kind: "task" | "event" | "note" | "doc" | "trip") => void;
+  onCaptured?: (kind: "task" | "event" | "note" | "doc" | "trip" | "append") => void;
 }
 
 type Result =
@@ -13,6 +13,7 @@ type Result =
   | { kind: "event"; summary: string; start: string; end: string }
   | { kind: "note"; content: string }
   | { kind: "doc"; title: string; id: string }
+  | { kind: "append"; title: string; id: string }
   | { kind: "trip"; label: string; startDate: string; endDate: string };
 
 // What the server returns from the classify (preview) call. Mirrors the
@@ -22,6 +23,7 @@ type Plan =
   | { kind: "event"; summary: string; start: string; end: string; description?: string; location?: string }
   | { kind: "note"; content: string }
   | { kind: "doc"; title: string; content: string }
+  | { kind: "append"; target: string; content: string }
   | { kind: "trip"; location: string; startDate: string; endDate: string; label?: string };
 
 function summarisePlan(p: Plan): string {
@@ -49,6 +51,7 @@ function summarisePlan(p: Plan): string {
   }
   if (p.kind === "trip") return `${p.label || p.location} — ${p.startDate} → ${p.endDate}`;
   if (p.kind === "doc") return `${p.title}`;
+  if (p.kind === "append") return `Append to “${p.target}”: ${p.content}`;
   return p.content;
 }
 
@@ -57,6 +60,7 @@ const KIND_LABEL: Record<Result["kind"], string> = {
   event: "Calendar event",
   note: "Memory note",
   doc: "Document",
+  append: "Append to log",
   trip: "TDY / travel location",
 };
 
@@ -65,6 +69,7 @@ const KIND_COLOR: Record<Result["kind"], string> = {
   event: "text-sky-400 border-sky-500/40 bg-sky-500/10",
   note: "text-amber-400 border-amber-500/40 bg-amber-500/10",
   doc: "text-violet-400 border-violet-500/40 bg-violet-500/10",
+  append: "text-amber-200 border-amber-500/40 bg-amber-500/10",
   trip: "text-sky-400 border-sky-500/40 bg-sky-500/10",
 };
 
@@ -88,6 +93,7 @@ function summarise(r: Result): string {
   }
   if (r.kind === "trip") return `${r.label} — ${r.startDate} → ${r.endDate}`;
   if (r.kind === "doc") return `${r.title} — saved to Docs`;
+  if (r.kind === "append") return `appended to ${r.title}`;
   return r.content;
 }
 

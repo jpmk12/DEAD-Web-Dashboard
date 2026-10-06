@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { SpaceWeather } from "@/lib/types";
-import type { SpaceWxImpact, NoaaScales } from "@/lib/spaceWeatherOps";
+import { spaceWxSentence, type SpaceWxImpact, type NoaaScales } from "@/lib/spaceWeatherOps";
 
 // NOAA scale colour mapping (G/R/S 0..5). G0/R0/S0 = green; rises through
 // yellow/orange/red to deep red.
@@ -36,17 +36,19 @@ interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { sca
  * 3-day outlook, read against the Mission Profile's polar declaration.
  * Environment, never warning: the rows earn an LED, never an I&W level.
  */
-export default function SpaceWeatherCard() {
+export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean) => void } = {}) {
   const [data, setData] = useState<SpaceWeather | null>(null);
   const [ops, setOps] = useState<SpaceOps | null>(null);
   const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState(false);
 
   useEffect(() => {
     fetch("/api/weather/space")
       .then((r) => r.json())
-      .then((d) => { setData(d.space ?? null); setOps(d.ops ?? null); })
-      .catch(() => {})
+      .then((d) => { setData(d.space ?? null); setOps(d.ops ?? null); onLoaded?.(!!(d.ops?.scales?.live)); })
+      .catch(() => onLoaded?.(false))
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {
@@ -65,8 +67,8 @@ export default function SpaceWeatherCard() {
   if (!data && !ops) {
     return (
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Space weather → ops</h3>
-        <p className="text-[11px] text-slate-500 mt-1">NOAA SWPC unreachable — HF / GPS / SATCOM impact UNKNOWN, not quiet.</p>
+        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Space weather</h3>
+        <p className="text-[11px] text-slate-500 mt-1"><b className="text-slate-300">Space weather UNKNOWN.</b> NOAA SWPC unreachable — HF / GPS / SATCOM impact not known, not quiet.</p>
       </div>
     );
   }
@@ -84,25 +86,39 @@ export default function SpaceWeatherCard() {
     : "";
 
   const severe = ops?.severe ?? [];
+  // REVIEW-2026-10 W9: ONE sentence a crew can use leads; the scales and
+  // the history fold under it.
+  const sentence = ops ? spaceWxSentence(ops.scales, ops.impacts) : null;
+  const toneCls = sentence?.tone === "r" ? "border-red-500/40" : sentence?.tone === "a" ? "border-amber-500/40" : "border-slate-800";
 
   return (
-    <div className={`bg-slate-900/60 border rounded-xl p-4 ${severe.length ? "border-red-500/40" : "border-slate-800"}`}>
-      <div className="flex items-center gap-2 mb-3">
+    <div className={`bg-slate-900/60 border rounded-xl p-4 ${toneCls}`}>
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="w-5 h-5 rounded bg-violet-500/15 border border-violet-500/30 flex items-center justify-center">
           <span className="text-violet-400 text-[10px]">☀</span>
         </div>
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-          Space weather → ops
-        </h3>
-        {severe.length > 0 && (
-          <span className="text-[9px] font-bold uppercase tracking-wider text-red-300 border border-red-500/40 bg-red-500/10 rounded px-1.5 py-0.5">
-            {severe.map((s) => `${s.scale}${s.level}`).join(" · ")} in effect
+        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Space weather</h3>
+        {sentence && (
+          <span className="text-[12.5px] text-slate-200 min-w-0">
+            <b className={sentence.tone === "r" ? "text-red-300" : sentence.tone === "a" ? "text-amber-300" : sentence.tone === "u" ? "text-slate-300" : "text-emerald-300"}>{sentence.lead}</b> {sentence.detail}
           </span>
         )}
-        <span className="ml-auto text-[9px] text-slate-700 font-mono">NOAA SWPC</span>
+        <span className="ml-auto flex items-center gap-2">
+          <span className="text-[9px] text-slate-700 font-mono">NOAA SWPC</span>
+          <button type="button" onClick={() => setDetail((v) => !v)} className="text-[9px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-300">Kp · G/R/S · history {detail ? "▴" : "▾"}</button>
+        </span>
       </div>
+      {ops && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+          {ops.impacts.map((imp) => (
+            <span key={imp.key} className="inline-flex items-center gap-1.5 text-[10.5px] text-slate-400" title={`${imp.now} · outlook: ${imp.outlook}`}>
+              <span className={`w-2 h-2 rounded-full ${LED_DOT[imp.led] ?? LED_DOT.u}`} />{imp.label}{imp.relevance === "not declared" ? <span className="text-slate-600"> — polar routes not declared</span> : null}
+            </span>
+          ))}
+        </div>
+      )}
 
-      {data && (
+      {detail && data && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {/* Kp index + sparkline */}
           <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/60 sm:col-span-2">
@@ -144,7 +160,7 @@ export default function SpaceWeatherCard() {
       )}
 
       {/* The reframe: what it means for the crew, with the outlook. */}
-      {ops && (
+      {detail && ops && (
         <div className="mt-3 border-t border-slate-800/70 pt-2.5 space-y-1.5">
           {ops.impacts.map((imp) => (
             <div key={imp.key} className="flex items-start gap-2.5">
@@ -170,10 +186,10 @@ export default function SpaceWeatherCard() {
         </div>
       )}
 
-      <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">
+      {detail && <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">
         Environment, not warning: these rows colour the SITREP Spectrum card and the C2/Comms LIMFAC and page you at R3/G3/S3+; they never raise an I&amp;W level, and a G3+ storm is attributed before any GPS-jamming read.
         {ops?.polar === false && " Polar / HF routes: not declared (Mission Profile)."}
-      </p>
+      </p>}
     </div>
   );
 }

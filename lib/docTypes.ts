@@ -12,6 +12,8 @@ export const DOC_TYPES = [
   { key: "case",      label: "Case",      icon: "▣",  color: "text-amber-300",   hex: "#fcd34d" },
   { key: "term",      label: "Term",      icon: "≔",  color: "text-emerald-300", hex: "#6ee7b7" },
   { key: "synthesis", label: "Synthesis", icon: "⧉",  color: "text-fuchsia-300", hex: "#f0abfc" },
+  // A running log: dated entries appended from anywhere (lib/docAppend.ts).
+  { key: "log",       label: "Log",       icon: "📓", color: "text-amber-200",   hex: "#fde68a" },
 ] as const;
 
 export type DocType = (typeof DOC_TYPES)[number]["key"];

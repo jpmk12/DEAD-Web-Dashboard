@@ -146,9 +146,11 @@ export default function FileViewer({ fileId, onChanged, onDeleted }: FileViewerP
             </>
           ) : (
             <>
-              <button onClick={() => setEditing(true)} title="Edit filename / description / tags" className="text-slate-500 hover:text-slate-300">Edit</button>
-              <a href={`/api/files/${file.id}`} download className="text-slate-500 hover:text-emerald-400" title="Download">⬇</a>
-              <button onClick={onDelete} title="Delete" className="text-slate-500 hover:text-red-400">🗑</button>
+              {/* Download is a BUTTON, not a glyph (REVIEW-2026-10 D2). */}
+              <a href={`/api/files/${file.id}`} download className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-md" title="Download">⇩ Download</a>
+              <a href={`/api/files/${file.id}/inline`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-slate-500 px-2 py-1 rounded-md" title="Open in a new tab (inline)">↗ Open</a>
+              <button onClick={() => setEditing(true)} title="Edit filename / description / tags" className="text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-slate-500 px-2 py-1 rounded-md">Edit</button>
+              <button onClick={onDelete} title="Delete" className="text-[10px] font-bold uppercase tracking-wider border border-red-500/40 text-red-300 hover:bg-red-500/10 px-2 py-1 rounded-md">Delete</button>
             </>
           )}
         </div>

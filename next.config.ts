@@ -40,7 +40,11 @@ const nextConfig: NextConfig = {
               // NOTE: TradingView widgets iframe from tradingview-widget.com,
               // a different registrable domain that *.tradingview.com does NOT
               // match — it must be listed explicitly or the widgets are blocked.
-              "frame-src https://platform.twitter.com https://syndication.twitter.com https://twitter.com https://x.com https://embed.windy.com https://*.tradingview.com https://www.tradingview.com https://*.tradingview-widget.com https://globe.adsb.fi https://globe.airplanes.live https://globe.adsb.lol https://globe.adsbexchange.com https://www.vesselfinder.com https://www.marinetraffic.com https://map.openseamap.org",
+              // 'self' first: the Docs tab frames /api/files/:id/inline for the
+              // PDF preview — without it (and with frame-ancestors 'none' on
+              // the file response itself) our own CSP refused our own PDFs
+              // (REVIEW-2026-10 D1).
+              "frame-src 'self' https://platform.twitter.com https://syndication.twitter.com https://twitter.com https://x.com https://embed.windy.com https://*.tradingview.com https://www.tradingview.com https://*.tradingview-widget.com https://globe.adsb.fi https://globe.airplanes.live https://globe.adsb.lol https://globe.adsbexchange.com https://www.vesselfinder.com https://www.marinetraffic.com https://map.openseamap.org",
               // TradingView injects styles + Twitter
               "style-src 'self' 'unsafe-inline' https://platform.twitter.com https://abs.twimg.com https://x.com https://*.tradingview.com",
               "img-src 'self' data: https:",
@@ -49,8 +53,10 @@ const nextConfig: NextConfig = {
               "font-src 'self' https://fonts.gstatic.com https://*.tradingview.com",
               // TradingView uses blob: web workers internally
               "worker-src 'self' blob:",
-              "child-src blob: https://*.tradingview.com https://*.tradingview-widget.com",
-              "frame-ancestors 'none'",
+              "child-src 'self' blob: https://*.tradingview.com https://*.tradingview-widget.com",
+              // 'self', not 'none': the inline file route is framed by the Docs
+              // tab; no other origin may frame the app.
+              "frame-ancestors 'self'",
             ].join("; "),
           },
           { key: "X-Content-Type-Options",     value: "nosniff" },

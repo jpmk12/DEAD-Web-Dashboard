@@ -670,9 +670,14 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
               const keptN = g.items.filter((e) => e.keep).length;
               const clearable = g.items.filter((e) => !e.keep);
               const compact = g.priority === "Low";
+              // NOT overflow-hidden: the priority / family menus inside a card
+              // are absolute popovers and were clipped by this box (bug report
+              // 2026-10-06). The corners are rounded on the header and the last
+              // row instead; a section holding an open menu is lifted above its
+              // siblings so the popover is never under the next group's rows.
               return (
-                <section key={g.priority} className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-                  <header className="flex items-center gap-2.5 px-4 py-2 bg-slate-950/50 border-b border-slate-800">
+                <section key={g.priority} className="relative rounded-xl border border-slate-800 bg-slate-900/60 has-[[role=menu]]:z-30 [&>div>*:last-child]:rounded-b-xl">
+                  <header className="flex items-center gap-2.5 px-4 py-2 bg-slate-950/50 border-b border-slate-800 rounded-t-xl">
                     <span className={`text-[10.5px] font-bold uppercase tracking-widest ${style.label}`}>{g.priority}</span>
                     <span className="text-[10px] text-slate-500 font-mono">{g.items.length}{keptN ? ` · ${keptN} kept` : ""}{compact ? " · compact — tap a row to open" : ""}</span>
                     <span className="ml-auto flex items-center gap-2">

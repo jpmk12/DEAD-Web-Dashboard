@@ -4,6 +4,7 @@ import {
   listDocuments,
   createDocument,
   recordExternalLink,
+  getBacklinks,
   type LinkTargetType,
 } from "@/lib/documents";
 import { isDocType } from "@/lib/docTypes";
@@ -53,6 +54,17 @@ export async function POST(request: Request) {
   const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props)
     ? Object.fromEntries(Object.entries(raw.props as Record<string, unknown>).filter(([, v]) => typeof v === "string").map(([k, v]) => [k, v as string]))
     : {};
+
+  // Idempotent save (REVIEW-2026-10 D5): a second "Save to Docs" of the same
+  // article / email returns the doc that already links it instead of a
+  // duplicate. `force: true` creates anyway.
+  if (raw.link && typeof raw.link === "object" && (body as { force?: unknown }).force !== true) {
+    const t = raw.link.type, id = raw.link.id;
+    if (typeof t === "string" && VALID_LINK_TYPES.has(t as LinkTargetType) && t !== "doc" && typeof id === "string" && id) {
+      const have = await getBacklinks(t as LinkTargetType, id).catch(() => []);
+      if (have.length) return NextResponse.json({ doc: have[0], existing: true });
+    }
+  }
 
   const doc = await createDocument({ title, content, tags, aliases, collection, docType, props });
 

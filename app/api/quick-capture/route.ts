@@ -9,7 +9,8 @@ import { getMemory, saveMemory } from "@/lib/userMemory";
 import { normEmail } from "@/lib/allowlist";
 import { geocodePlace } from "@/lib/geocode";
 import { createTrip } from "@/lib/trips";
-import { createDocument, listDocuments, getDocument, updateDocument } from "@/lib/documents";
+import { createDocument, listDocuments, getDocument, updateDocument, appendToDocument } from "@/lib/documents";
+import { appendEntry } from "@/lib/docAppend";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
@@ -23,6 +24,7 @@ type Captured =
   | { kind: "event"; summary: string; start: string; end: string; description?: string; location?: string }
   | { kind: "note"; content: string }
   | { kind: "doc"; title: string; content: string }
+  | { kind: "append"; target: string; content: string }
   | { kind: "trip"; location: string; startDate: string; endDate: string; label?: string };
 
 function buildSystem(today: string, tz: string): string {
@@ -32,7 +34,8 @@ Categorise the input as exactly one of:
   - "task"  — a thing the user needs to DO (todo, reminder, follow-up). Use this for "remind me to…", "I need to…", "follow up with…".
   - "event" — something happening at a specific time on a specific day (meeting, call, flight, deadline-as-calendar-block). Use this when the input names a concrete time/date or clearly belongs on a calendar.
   - "trip"  — the user telling you WHERE THEY ARE or WILL BE for a span of days (travel / TDY). Use this for "I'm in <place> this week", "TDY to <place> Mon–Thu", "flying to <place> until the 16th", "I'll be in <place> next week". The key signal is a PLACE + a multi-day or open-ended stay about the user's own location.
-  - "doc"   — a THOUGHT, idea, observation, or draft the user wants written down to read later. Use this for "jot down…", "note down this idea…", "write up…", or any substantive thought that is about the WORLD/work rather than a fact about the user.
+  - "append" — the user wants a thought ADDED TO AN EXISTING LOG OR DOC they name: "add to my China log…", "append to Hormuz notes…", "log this under economic warfare…", "/log china: …". The key signal is a NAMED target plus content. "target" is the subject name as the user said it (short, e.g. "China"); "content" is the thought, cleaned up.
+  - "doc"   — a THOUGHT, idea, observation, or draft the user wants written down to read later as a NEW document (no existing log named). Use this for "jot down…", "note down this idea…", "write up…", or any substantive thought that is about the WORLD/work rather than a fact about the user.
   - "note"  — durable context to remember about the user themselves (a person, a project, a preference, a fact). Use this for "save that…", "remember that…", or when there's no actionable verb and it's a fact about the user.
 
 Return ONLY a JSON object — no markdown fence, no preamble. Every shape also carries "confidence": a number 0-1 for how unambiguous BOTH the category and the extracted fields are (a plain "remind me to call maintenance tomorrow" is ~0.95; anything you had to guess about is ≤0.7).
@@ -42,6 +45,7 @@ Shapes:
   event → {"kind":"event","summary":"…","start":"YYYY-MM-DDTHH:mm:ss","end":"YYYY-MM-DDTHH:mm:ss","description":"…" (optional),"location":"…" (optional)}
   trip  → {"kind":"trip","location":"City, State/Country (geocodable)","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","label":"short display name (optional)"}
   doc   → {"kind":"doc","title":"short doc title (3-8 words)","content":"the thought, cleaned up, in markdown"}
+  append → {"kind":"append","target":"the log / doc the user named","content":"the thought, cleaned up, in markdown"}
   note  → {"kind":"note","content":"a single concise sentence to append to long-term memory"}
 
 Rules:
@@ -207,6 +211,9 @@ function normalisePlan(raw: unknown): Captured | null {
   if (r.kind === "doc" && typeof r.title === "string" && r.title.trim() && typeof r.content === "string" && r.content.trim()) {
     return { kind: "doc", title: r.title.slice(0, 120), content: r.content.slice(0, 10_000) };
   }
+  if (r.kind === "append" && typeof r.target === "string" && r.target.trim() && typeof r.content === "string" && r.content.trim()) {
+    return { kind: "append", target: r.target.trim().slice(0, 80), content: r.content.slice(0, 10_000) };
+  }
   if (r.kind === "note" && typeof r.content === "string" && r.content.trim()) {
     return { kind: "note", content: r.content.slice(0, 2000) };
   }
@@ -272,6 +279,25 @@ async function executePlan(plan: Captured, accessToken: string, userEmail: strin
         endDate: plan.endDate,
       });
       return NextResponse.json({ kind: "trip", label: trip.label, startDate: trip.startDate, endDate: trip.endDate });
+    }
+
+    if (plan.kind === "append") {
+      // Append to the named log (title or alias, logs preferred); a log that
+      // does not exist yet is created with this as its first entry.
+      const key = plan.target.toLowerCase();
+      const all = await listDocuments({ limit: 1000 });
+      const match = (d: { title: string; aliases: string[] }) => d.title.toLowerCase() === key || d.aliases.some((a) => a.toLowerCase() === key) || d.title.toLowerCase().includes(key);
+      const target = all.filter((d) => d.docType === "log").find(match) ?? all.find(match);
+      const dateStr = format(new Date(), "yyyy-MM-dd");
+      let id: string, title: string;
+      if (target) { id = target.id; title = target.title; }
+      else {
+        const created = await createDocument({ title: plan.target, content: `# ${plan.target}\n`, docType: "log", tags: ["log"] });
+        id = created.id; title = created.title;
+      }
+      const full = await getDocument(id);
+      await appendToDocument(id, appendEntry(full?.content ?? "", { date: dateStr, text: plan.content.trim(), source: "capture" }));
+      return NextResponse.json({ kind: "append", title, id });
     }
 
     if (plan.kind === "doc") {

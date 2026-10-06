@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { openAppend } from "@/lib/appendClient";
 import { CalendarEvent, ChatMessage as ChatMessageType, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 import ChatMessage from "./ChatMessage";
 import { AssistantIcon } from "@/lib/icons";
@@ -621,6 +622,11 @@ export default function ChatPanel({
           return (
             <div key={i}>
               <ChatMessage message={displayContent} />
+              {msg.role === "assistant" && displayContent.content && !(streaming && i === messages.length - 1) && (
+                <div className="-mt-1 mb-2 pl-1">
+                  <button type="button" onClick={() => openAppend({ text: displayContent.content, source: "assistant" })} className="text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-300" title="Append this answer to a running log">⧉ Append to…</button>
+                </div>
+              )}
               {actions.map((action, j) => {
                 const dismiss = () => updateAction(i, j, { status: "dismissed" });
                 switch (action.type) {

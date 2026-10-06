@@ -5,6 +5,8 @@ import { NewsItem } from "@/lib/types";
 import { safeHttpHref } from "@/lib/url";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import ArticleThesis from "./ArticleThesis";
+import { openAppend } from "@/lib/appendClient";
+import { toast } from "@/lib/feedback";
 
 interface NewsCardProps {
   item: NewsItem;
@@ -144,6 +146,8 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
                   }),
                 });
                 if (!res.ok) throw new Error();
+                const d = await res.json().catch(() => ({}));
+                if (d?.existing) toast.info("Already saved to Docs", "opening the existing doc instead of a duplicate — use Append to add to a log");
                 setNotingState("saved");
                 setTimeout(() => setNotingState("idle"), 1800);
               } catch {
@@ -167,6 +171,13 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
             }`}
           >
             {notingState === "saved" ? "✓" : notingState === "error" ? "!" : "▤"}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); openAppend({ text: item.summary ? `${item.title}\n\n${item.summary}` : item.title, source: `News · ${item.source}`, sourceTitle: item.title, sourceUrl: item.link, thread: threadLabel ?? undefined, link: { type: "article", id: item.id, title: item.title } }); }}
+            title="Append to a running log"
+            className="w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center rounded-md transition-all text-sm text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
+          >
+            ⧉
           </button>
           <button
             onClick={toggleSave}

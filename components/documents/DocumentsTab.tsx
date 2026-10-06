@@ -7,6 +7,7 @@ import FilesPanel from "./FilesPanel";
 import FileViewer from "./FileViewer";
 import ComposeModal from "./ComposeModal";
 import LexiconPanel from "./LexiconPanel";
+import LogsLanding from "./LogsLanding";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 const LAST_SELECTED_KEY = "docs-last-selected";
@@ -82,8 +83,10 @@ export default function DocumentsTab() {
       switchPane("docs");
       select(id);
     };
+    const onChanged = () => setListRefreshKey((k) => k + 1);
     window.addEventListener("docs:open", onOpen);
-    return () => window.removeEventListener("docs:open", onOpen);
+    window.addEventListener("docs:changed", onChanged);
+    return () => { window.removeEventListener("docs:open", onOpen); window.removeEventListener("docs:changed", onChanged); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -107,6 +110,18 @@ export default function DocumentsTab() {
         select(data.doc.id);
         setListRefreshKey((k) => k + 1);
       }
+    } catch { /* ignore */ }
+  };
+
+  // A new running log (doc type `log`): titled by the user, first entry
+  // appended from anywhere afterwards.
+  const createLog = async () => {
+    const title = window.prompt("Name the log (the subject you keep coming back to — e.g. \"China references\"):")?.trim();
+    if (!title) return;
+    try {
+      const res = await fetch("/api/documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content: `# ${title}\n`, docType: "log", tags: ["log"] }) });
+      const data = await res.json();
+      if (data.doc?.id) { select(data.doc.id); setListRefreshKey((k) => k + 1); window.dispatchEvent(new CustomEvent("docs:changed")); }
     } catch { /* ignore */ }
   };
 
@@ -229,17 +244,7 @@ export default function DocumentsTab() {
                 />
               </div>
             ) : (
-              <div className="hidden lg:flex flex-1 flex-col items-center justify-center text-center px-8">
-                <p className="text-2xl mb-2">📝</p>
-                <p className="text-sm font-bold text-slate-300 mb-1">No document selected</p>
-                <p className="text-xs text-slate-500 max-w-sm">
-                  Pick a document from the sidebar or click <span className="text-emerald-400">+ New document</span> to start a fresh note.
-                </p>
-                <p className="text-[10px] text-slate-700 font-mono mt-4 max-w-md">
-                  Tip: write <code className="text-emerald-400">[[Other Doc]]</code> in any note to link to another doc.
-                  Backlinks show automatically on the linked doc&apos;s footer.
-                </p>
-              </div>
+              <LogsLanding onOpen={select} onNew={createLog} />
             )}
           </>
         ) : (

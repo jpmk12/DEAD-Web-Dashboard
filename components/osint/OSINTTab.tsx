@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { openAppend } from "@/lib/appendClient";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
@@ -623,6 +624,14 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             }`}
           >
             {s === "saved" ? "✓" : s === "error" ? "!" : "▤"}
+          </button>
+          <button
+            type="button"
+            onClick={(ev) => { ev.stopPropagation(); openAppend({ text: primary.summary ? `${primary.title}\n\n${primary.summary}` : primary.title, source: `OSINT · ${primary.feedLabel}`, sourceTitle: primary.title, sourceUrl: primary.link || undefined, link: { type: "article", id: primary.id, title: primary.title } }); }}
+            title="Append to a running log"
+            className="w-5 h-5 flex items-center justify-center rounded transition-all text-[11px] flex-shrink-0 text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10"
+          >
+            ⧉
           </button>
           {dismissed[e.key] ? (
             <button
