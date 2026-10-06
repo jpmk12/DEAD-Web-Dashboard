@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>economy (proposed)</title><link rel="stylesheet" href="shot.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;vertical-align:middle;margin-left:6px;box-shadow:0 0 0 2px #020617;flex-shrink:0}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:22px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .notes li .n{margin:2px 0 0}
+  .sec{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.55);overflow:hidden;margin-bottom:14px}
+  .sec .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35);flex-wrap:wrap}
+  .sec .hd .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#fdba74}
+  .sec .hd .k.g{color:var(--acc)}
+  .sec .hd .s{font-size:10px;color:var(--mut)}
+  .sec .hd .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .act{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:3px 8px;color:#94a3b8;white-space:nowrap}
+  .act.pri{border-color:rgba(52,211,153,.5);color:var(--acc)}
+  .read{padding:12px 14px;font-size:12.5px;color:#cbd5e1;line-height:1.55}
+  .read .fallback{border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.05);border-radius:8px;padding:8px 10px;font-size:11.5px;color:#fde68a;margin-top:8px}
+  /* chokepoints */
+  .cps{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;padding:10px 14px}
+  .cp{border:1px solid var(--bd);border-radius:8px;padding:7px 8px;background:rgba(2,6,23,.45)}
+  .cp.hot{border-color:rgba(239,68,68,.5)}
+  .cp .sc{font-size:17px;font-weight:800;font-family:ui-monospace,Menlo,monospace;color:#f1f5f9}
+  .cp .sc.z{color:var(--mut2)}
+  .cp .nm{font-size:10px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cp .cls{font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border-radius:3px;padding:1px 4px;display:inline-block;margin-top:3px}
+  .cls.r{color:#fca5a5;background:rgba(239,68,68,.15)}.cls.a{color:#fcd34d;background:rgba(245,158,11,.14)}.cls.q{color:var(--mut);background:rgba(100,116,139,.15)}
+  .cp .ais{font-size:8px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;margin-top:2px}
+  /* actors */
+  .warn{margin:10px 14px 0;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.05);border-radius:8px;padding:7px 10px;font-size:11px;color:#fde68a;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .warn .act{border-color:rgba(251,191,36,.5);color:#fde68a}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 14px}
+  .tile{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:rgba(2,6,23,.45);position:relative}
+  .tile.w{border-color:rgba(245,158,11,.4)}
+  .tile .top{display:flex;align-items:flex-start;gap:8px}
+  .tile .top b{font-size:13px;color:#f1f5f9}
+  .tile .top .why{display:block;font-size:9px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .tile .top .pill{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:1px 6px;color:#94a3b8}
+  .pill.watch{color:#fcd34d;border-color:rgba(245,158,11,.5)}
+  .tile .x{position:absolute;right:8px;bottom:8px;font-size:10px;color:var(--mut2)}
+  .tile .an{display:flex;align-items:baseline;gap:6px;margin-top:6px}
+  .tile .an .v{font-size:19px;font-weight:800;font-family:ui-monospace,Menlo,monospace;color:#f1f5f9}
+  .tile .an .l{font-size:9px;color:var(--mut2);letter-spacing:.1em;text-transform:uppercase}
+  .tile .an .t{margin-left:auto;font-size:10px;font-family:ui-monospace,Menlo,monospace;color:#fdba74}
+  .tile .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .chip2{font-size:8.5px;font-family:ui-monospace,Menlo,monospace;border:1px solid var(--bd);border-radius:4px;padding:1px 5px;color:var(--mut2)}
+  .chip2.on{color:#fcd34d;border-color:rgba(245,158,11,.5)}
+  .chip2.act{color:#fca5a5;border-color:rgba(239,68,68,.5)}
+  .tile .drv{font-size:10px;color:#cbd5e1;margin-top:6px}
+  .tile .drv em{font-style:normal;color:var(--mut)}
+  .tile .learn{font-size:9px;color:var(--mut2);margin-top:3px}
+  .addtile{border:1px dashed var(--bd2);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;min-height:110px}
+  /* editor popover */
+  .pop{margin:0 14px 12px;border:1px solid var(--bd2);border-radius:10px;background:#0f172a;padding:10px 12px}
+  .pop .mh{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;margin-bottom:6px}
+  .pop .grp{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:6px}
+  .pop .gl{font-size:9.5px;color:var(--mut);width:96px}
+  .sc2{font-size:10px;border:1px solid var(--bd2);border-radius:999px;padding:2px 8px;color:#94a3b8}
+  .sc2.on{border-color:rgba(253,186,116,.6);color:#fdba74;background:rgba(253,186,116,.08)}
+  .sc2.off{text-decoration:line-through;opacity:.6}
+  .pop .mf{font-size:9.5px;color:var(--mut)}
+  /* timeline */
+  .tl{padding:8px 14px 4px}
+  .lane{display:grid;grid-template-columns:150px 1fr;align-items:center;height:18px}
+  .lane .lb{font-size:8.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;text-align:right;padding-right:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lane .ln{position:relative;height:1px;background:#1e293b}
+  .dot{position:absolute;top:-4px;width:9px;height:9px;border-radius:50%;border:1px solid #0f172a}
+  .dot.us{background:#38bdf8}.dot.eu{background:#818cf8}.dot.ir{background:#fb923c}.dot.cn{background:#f472b6}.dot.sa{background:#a3e635}.dot.sh{background:#f87171}.dot.mk{background:#facc15}
+  .tlx{display:grid;grid-template-columns:150px 1fr;font-size:8px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;margin-top:2px}
+  .tlx .ax{display:flex;justify-content:space-between}
+  .tip{margin:6px 14px 0;font-size:10.5px;color:#cbd5e1;border:1px solid var(--bd);border-radius:6px;padding:5px 9px;display:inline-block}
+  .seq{padding:6px 14px 10px;font-size:10.5px;color:#cbd5e1}
+  .seq .tg{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid rgba(253,186,116,.5);border-radius:3px;padding:0 4px;color:#fdba74;margin-right:6px}
+  /* coercion board */
+  .crow{display:grid;grid-template-columns:150px 120px 110px 1fr 120px;gap:10px;align-items:center;padding:7px 14px;border-top:1px solid rgba(30,41,59,.6);font-size:11.5px}
+  .crow .at{color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .crow .at i{font-style:normal;color:var(--mut)}
+  .crow .in{color:#cbd5e1;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .grade{font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border-radius:3px;padding:1px 5px;display:inline-block}
+  .grade.act{color:#fecaca;background:rgba(239,68,68,.18)}.grade.an{color:#94a3b8;background:rgba(100,116,139,.2)}.grade.rev{color:#6ee7b7;background:rgba(52,211,153,.14)}.grade.th{color:#fcd34d;background:rgba(245,158,11,.14)}
+  .crow .ev{color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .crow .ev em{font-style:normal;color:var(--mut);font-size:10px;margin-left:6px}
+  .crow .src{font-size:9px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+  .crow.dim{opacity:.55}
+  .chead{display:grid;grid-template-columns:150px 120px 110px 1fr 120px;gap:10px;padding:5px 14px;font-size:8.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab">News <span class="badge">9+</span></span><span class="tab">Calendar</span><span class="tab">Email <span class="badge">6</span></span><span class="tab">Family</span><span class="tab">OSINT</span><span class="tab">Weather</span><span class="tab">Docs</span><span class="tab active">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+
+  <!-- Read -->
+  <div class="sec">
+    <div class="hd"><span class="k g">✦ Economic Warfare Read</span><span class="s">model over the deterministic board</span><span class="n">1</span><span class="r"><span class="act">↻ refresh</span></span></div>
+    <div class="read">
+      <b style="color:#f1f5f9">Iran is the only actor using an instrument this fortnight</b> — a declared threat at Hormuz (no act), with U.S. counter-pressure fresh (7 Federal Register actions in 45 d). China&rsquo;s board is flat: the one &ldquo;act&rdquo; was a CISA product advisory, not a state move. No shipping act is reported at any strait; Bab-el-Mandeb reads 85 on events alone.
+      <div class="fallback">When the model returns nothing usable, this panel now shows the board&rsquo;s own summary line (levels, drivers, counter-pressure) instead of &ldquo;Empty read — please retry&rdquo;, and retries once automatically after the board lands.</div>
+    </div>
+  </div>
+
+  <!-- Chokepoints, moved up -->
+  <div class="sec">
+    <div class="hd"><span class="k">⚓ Chokepoint interdiction</span><span class="s">graded, not counted · AIS transit vs each strait&rsquo;s own normal · moved above the actor board</span><span class="n">2</span><span class="r"><span class="s">2 of 8 showing activity</span></span></div>
+    <div class="cps">
+      <div class="cp hot"><div class="sc">85</div><div class="nm">Bab-el-Mandeb</div><span class="cls r">events · 6 in 45 d</span><div class="ais">AIS normal · 4.1/h</div></div>
+      <div class="cp hot"><div class="sc">82</div><div class="nm">Russian overflight</div><span class="cls a">declared threat</span><div class="ais">—</div></div>
+      <div class="cp"><div class="sc z">0</div><div class="nm">Strait of Hormuz</div><span class="cls q">reversal · reopened</span><div class="ais">AIS elevated · 9.8/h</div></div>
+      <div class="cp"><div class="sc z">0</div><div class="nm">Suez Canal</div><span class="cls q">quiet</span><div class="ais">AIS learning</div></div>
+      <div class="cp"><div class="sc z">0</div><div class="nm">Turkish Straits</div><span class="cls q">quiet</span><div class="ais">AIS normal</div></div>
+      <div class="cp"><div class="sc z">0</div><div class="nm">Strait of Malacca</div><span class="cls q">quiet</span><div class="ais">AIS normal</div></div>
+      <div class="cp"><div class="sc z">0</div><div class="nm">Taiwan Strait</div><span class="cls q">quiet</span><div class="ais">AIS normal</div></div>
+      <div class="cp"><div class="sc z">0</div><div class="nm">Panama Canal</div><span class="cls q">quiet</span><div class="ais">AIS normal</div></div>
+    </div>
+  </div>
+
+  <!-- Actors -->
+  <div class="sec">
+    <div class="hd"><span class="k">Actors</span><span class="s">6 tracked · worst Watch · each tile says WHY it is on the board</span><span class="n">3</span><span class="r"><span class="act">⚙ edit actors</span><span class="act pri">＋ actor</span></span></div>
+    <div class="warn">⚠ Not countries — skipped, not scored: <b>Hormuz</b> (a chokepoint — tracked under Chokepoints), <b>Tawain</b> (did you mean Taiwan?), <b>Israeli</b> (did you mean Israel?). <span class="act">fix in the Mission Profile</span><span class="act">use Taiwan</span><span class="act">use Israel</span><span class="n">4</span></div>
+    <div class="pop">
+      <div class="mh">Edit actors — who is scored, and why<span class="n">5</span></div>
+      <div class="grp"><span class="gl">From AOIs</span><span class="sc2 on">Iran · Iran &amp; Hormuz AOI</span><span class="sc2 on">Saudi Arabia · Iran &amp; Hormuz AOI</span><span class="sc2 on">China · Taiwan AOI</span><span class="sc2 on">Taiwan · Taiwan AOI</span></div>
+      <div class="grp"><span class="gl">Watched countries</span><span class="sc2 on">Israel</span><span class="sc2 on">Yemen</span><span class="sc2 off">Japan · excluded</span></div>
+      <div class="grp"><span class="gl">Non-state (auto)</span><span class="sc2 on">Houthis · Yemen tracked</span></div>
+      <div class="grp"><span class="gl">Added here</span><span class="sc2 on">Russia</span><span class="sc2">＋ add a country or curated actor</span></div>
+      <div class="mf">The register is DERIVED from what you track (AOIs → watched countries → base hosts, 8 max). Exclusions and additions are team config (Mission Profile → economy); an excluded actor stays tracked everywhere else.</div>
+    </div>
+    <div class="tiles">
+      <div class="tile w"><div class="top"><div><b>Iran</b><span class="why">CENTCOM · state · Iran &amp; Hormuz AOI</span></div><span class="pill watch">Watch</span></div>
+        <div class="an"><span class="v">+0.15</span><span class="l">anomaly</span><span class="t">↗ deteriorating</span></div>
+        <div class="chips"><span class="chip2 on">⚓ shipping · threat</span><span class="chip2">⛽ energy</span><span class="chip2">⊘ sanctions</span><span class="chip2">⇄ trade</span><span class="chip2">¤ finance</span><span class="chip2">✈ overflight</span><span class="chip2">⌁ cyber</span><span class="chip2 act">⇐ U.S. · 7 in 45 d</span></div>
+        <div class="drv">Shipping <em>watching</em> — declared threat at Hormuz (no act); U.S. pressure <em>active</em>.<span class="n" style="width:15px;height:15px;font-size:9px">6</span></div><div class="learn">baseline forming (day 9 of 14) — held at Watch</div><span class="x">✕</span></div>
+      <div class="tile"><div class="top"><div><b>China</b><span class="why">INDOPACOM · state · Taiwan AOI</span></div><span class="pill">Calm</span></div>
+        <div class="an"><span class="v" style="color:var(--mut)">+0.02</span><span class="l">anomaly</span><span class="t" style="color:var(--mut)">→ stable</span></div>
+        <div class="chips"><span class="chip2">⚓ shipping</span><span class="chip2">⛽ energy</span><span class="chip2">⊘ sanctions</span><span class="chip2">⇄ trade</span><span class="chip2">¤ finance</span><span class="chip2">✈ overflight</span><span class="chip2">⌁ cyber</span><span class="chip2">⇐ U.S. · 1 in 45 d</span></div>
+        <div class="drv">nothing instrument-shaped in 14 d <em>· the CISA product advisory is no longer credited as a state act</em></div><div class="learn">baseline forming (day 9 of 14)</div><span class="x">✕</span></div>
+      <div class="tile"><div class="top"><div><b>Saudi Arabia</b><span class="why">CENTCOM · state · Iran &amp; Hormuz AOI</span></div><span class="pill">Calm</span></div>
+        <div class="an"><span class="v" style="color:var(--mut)">+0.00</span><span class="l">anomaly</span><span class="t" style="color:var(--mut)">→ stable</span></div>
+        <div class="chips"><span class="chip2">⚓ shipping</span><span class="chip2">⛽ energy</span><span class="chip2">⊘ sanctions</span><span class="chip2">⇄ trade</span><span class="chip2">¤ finance</span><span class="chip2">✈ overflight</span><span class="chip2">⌁ cyber</span><span class="chip2">⇐ U.S.</span></div>
+        <div class="drv">nothing instrument-shaped in 14 d <em>· mentioned in 3 headlines, authored none</em></div><div class="learn">baseline forming (day 9 of 14)</div><span class="x">✕</span></div>
+      <div class="addtile">＋ actor — a country, or a curated non-state actor</div>
+    </div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="sec">
+    <div class="hd"><span class="k">Moves &amp; counter-moves · 30d</span><span class="s">one lane per actor — colour is the actor, shape is the kind</span><span class="n">7</span></div>
+    <div class="tl">
+      <div class="lane"><span class="lb">U.S. pressure</span><span class="ln"><span class="dot us" style="left:58%"></span><span class="dot us" style="left:82%"></span></span></div>
+      <div class="lane"><span class="lb">EU / UK pressure</span><span class="ln"></span></div>
+      <div class="lane"><span class="lb">Iran — moves</span><span class="ln"><span class="dot ir" style="left:86%" title="10-01 · Iran: closure (declared threat) · Tehran warns it will close the strait if…"></span></span></div>
+      <div class="lane"><span class="lb">China — moves</span><span class="ln"></span></div>
+      <div class="lane"><span class="lb">Saudi Arabia — moves</span><span class="ln"></span></div>
+      <div class="lane"><span class="lb">shipping incident</span><span class="ln"></span></div>
+      <div class="lane"><span class="lb">Brent ≥3% day</span><span class="ln"><span class="dot mk" style="left:12%"></span><span class="dot mk" style="left:16%"></span><span class="dot mk" style="left:54%"></span><span class="dot mk" style="left:60%"></span><span class="dot mk" style="left:64%"></span></span></div>
+      <div class="tlx"><span></span><span class="ax"><span>09-08</span><span>09-15</span><span>09-22</span><span>09-29</span><span>10-05</span></span></div>
+    </div>
+    <span class="tip">10-01 · <b>Iran</b> · closure · <b>declared threat</b> · &ldquo;Tehran warns it will close the strait if tankers are seized&rdquo; · Reuters · open ↗<span class="n" style="width:15px;height:15px;font-size:9px">8</span></span>
+    <div class="seq"><span class="tg">retaliation?</span><b>Iran</b>: U.S. designation (09-24) → declared threat at Hormuz (10-01, 7 d later) — a threat, not a move; shown dotted.</div>
+  </div>
+
+  <!-- Coercion board -->
+  <div class="sec">
+    <div class="hd"><span class="k">Coercion board</span><span class="s">one row per headline, credited to its AUTHOR — a mention is not authorship</span><span class="n">9</span></div>
+    <div class="chead"><span>actor → target</span><span>instrument</span><span>grade</span><span>evidence</span><span>age · source</span></div>
+    <div class="crow"><span class="at">Iran → commercial shipping</span><span class="in">⚓ closure</span><span class="grade th">declared threat</span><span class="ev">Tehran warns it will close the strait if tankers are seized<em>also mentions: Saudi Arabia, China — not credited</em></span><span class="src">5d · Reuters</span></div>
+    <div class="crow dim"><span class="at">— → commercial shipping</span><span class="in">⚓ closure</span><span class="grade rev">reversal</span><span class="ev">Oil Is Again Flowing Out of Hormuz<em>&ldquo;again flowing&rdquo; — a reopening, graded as the END of a closure, credited to nobody</em><span class="n" style="width:15px;height:15px;font-size:9px">10</span></span><span class="src">today · Foreign Policy</span></div>
+    <div class="crow"><span class="at">U.S. → Iran</span><span class="in">⊘ sanctions · EO</span><span class="grade act">reported act</span><span class="ev">Iranian Transactions and Sanctions Regulations</span><span class="src">5d · Federal Register</span></div>
+    <div class="crow"><span class="at">U.S. → Iran</span><span class="in">⊘ general licence</span><span class="grade act">reported act</span><span class="ev">Publication of Iran-Related Web General Licenses X and X1</span><span class="src">5d · Federal Register</span></div>
+    <div class="crow dim"><span class="at">China → United States</span><span class="in">⌁ product advisory</span><span class="grade an">not a state act</span><span class="ev">Meari IoT Cloud Platform OpenAPI Service<em>a CISA advisory about a Chinese-made product — no state actor named; shown for the record, scores nothing</em><span class="n" style="width:15px;height:15px;font-size:9px">11</span></span><span class="src">4d · CISA advisory</span></div>
+    <div class="crow dim"><span class="at">—</span><span class="in">⊘ designation</span><span class="grade an">analysis only</span><span class="ev">Under pressure: Trump&rsquo;s deportation campaign<em>no tracked actor is the author — dropped from every tile</em></span><span class="src">6d · politico</span></div>
+  </div>
+
+  <div class="notes">
+    <h3>Callouts — what changes and why</h3>
+    <ol>
+      <li><span class="n">1</span>The read never shows &ldquo;Empty read — please retry&rdquo;: an empty model reply falls back to the board&rsquo;s own deterministic summary and retries once when the board lands.</li>
+      <li><span class="n">2</span><b>Chokepoint interdiction moves up</b>, directly under the read: the strait grades are the evidence most of the actor board rests on. A reopening reads <i>reversal</i>, never a closure act.</li>
+      <li><span class="n">3</span>Every tile says <b>why it is on the board</b> (the AOI or watch that put it there) and can be excluded with ✕.</li>
+      <li><span class="n">4</span>Names that are not countries are <b>skipped and named</b> — Hormuz is a chokepoint, &ldquo;Tawain&rdquo; and &ldquo;Israeli&rdquo; are misspellings — with one-tap fixes, instead of becoming &ldquo;UNKNOWN · state&rdquo; actors that score nonsense.</li>
+      <li><span class="n">5</span>An <b>actor editor</b>: the derived register, exclusions, and additions (a country or a curated non-state actor), stored in the Mission Profile as team config.</li>
+      <li><span class="n">6</span>The driver line says which instrument moved and in which modality, with the learning-mode day count — eight tiles no longer read the same sentence.</li>
+      <li><span class="n">7</span>The timeline gets <b>one lane per actor</b> (&ldquo;Iran — moves&rdquo;), so a dot says who moved; pressure lanes are labelled pressure.</li>
+      <li><span class="n">8</span>Hover or tap a dot: date, actor, instrument, grade, headline, source, link. Threats are dotted, acts solid.</li>
+      <li><span class="n">9</span>The coercion board credits a headline to its <b>author</b>, once; the other actors it mentions are listed on the row, not given rows of their own.</li>
+      <li><span class="n">10</span>A <b>reversal grammar</b> (&ldquo;again flowing&rdquo;, &ldquo;reopened&rdquo;, &ldquo;resumed transits&rdquo;, &ldquo;lifted the blockade&rdquo;) demotes a closure phrase to the end of an act.</li>
+      <li><span class="n">11</span>A CISA advisory counts as a state act only when it <b>names a state actor or APT</b>; a product advisory about a Chinese vendor is shown and scores nothing.</li>
+    </ol>
+  </div>
+</main>
+<div class="mockcap">mockup · economy (proposed) · 2026-10-06</div>
+</body></html>
