@@ -133,6 +133,38 @@ function MustTrackEditor({ profile, canEdit, patch }: { profile: MissionProfile;
   );
 }
 
+interface ApplyPlanView {
+  diff: { countriesAdd: string[]; countriesDrop: string[]; basesAdd: string[]; basesDrop: string[]; metarAdd: string[]; metarDrop: string[]; watchlistAdd: string[]; sitrep: { from: string[]; to: string[] }; drifted: string[]; empty: boolean };
+  counts: { countries: number; bases: number; metarStations: number; sitrepBases: number; watchlistAdded: number };
+}
+
+// The dry-run diff — what Confirm will write, list by list. Drops are shown
+// as loudly as adds: an AOI removed takes its AUTO rows with it.
+function ApplyDiffView({ plan }: { plan: ApplyPlanView }) {
+  const { diff, counts } = plan;
+  const line = (label: string, add: string[], drop: string[]) => (add.length || drop.length) ? (
+    <p className="text-[11px]"><span className="text-slate-400">{label}:</span>{" "}
+      {add.length > 0 && <span className="text-emerald-300">+ {add.join(", ")}</span>}
+      {add.length > 0 && drop.length > 0 && <span className="text-slate-600"> · </span>}
+      {drop.length > 0 && <span className="text-red-300">− {drop.join(", ")}</span>}
+    </p>
+  ) : null;
+  const sitrepChanged = diff.sitrep.from.join(",") !== diff.sitrep.to.join(",");
+  return (
+    <div className="border border-emerald-500/30 rounded-lg p-3 bg-emerald-500/[0.04] space-y-1">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">What Confirm writes</p>
+      {diff.empty && <p className="text-[11px] text-slate-400">Every list already matches the declaration — nothing to write.</p>}
+      {line("Countries", diff.countriesAdd, diff.countriesDrop)}
+      {line("Posture airfields", diff.basesAdd, diff.basesDrop)}
+      {line("METAR / TAF", diff.metarAdd, diff.metarDrop)}
+      {line("Watch terms", diff.watchlistAdd, [])}
+      {sitrepChanged && <p className="text-[11px]"><span className="text-slate-400">SITREP slots:</span> <span className="text-slate-500">{diff.sitrep.from.join(", ") || "none"}</span> <span className="text-slate-600">→</span> <span className="text-emerald-300">{diff.sitrep.to.join(", ") || "none"}</span></p>}
+      {diff.drifted.length > 0 && <p className="text-[10px] text-amber-300">Deleted since the last apply, now excluded: {diff.drifted.join(", ")}</p>}
+      <p className="text-[10px] text-slate-500">After: {counts.countries} countries · {counts.bases} bases · {counts.metarStations} METAR · {counts.sitrepBases} SITREP. Manual rows are never touched.</p>
+    </div>
+  );
+}
+
 export default function MissionProfileEditor() {
   const [profile, setProfile] = useState<MissionProfile>(EMPTY_PROFILE);
   const [canEdit, setCanEdit] = useState(false);
@@ -145,6 +177,13 @@ export default function MissionProfileEditor() {
   const [currentSitrep, setCurrentSitrep] = useState<{ icao: string; label: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Autosave state: the declaration saves itself ~1.2 s after the last edit
+  // (owner only, never before the first load). "Apply" is the deliberate
+  // step that materializes; saving the declaration is not.
+  const [dirty, setDirty] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [plan, setPlan] = useState<ApplyPlanView | null>(null);
 
   useEffect(() => {
     fetch("/api/mission-profile")
@@ -170,7 +209,23 @@ export default function MissionProfileEditor() {
   // No auto-defaulting of picks beyond the live set: an Apply must never
   // change the SITREP bases unless the user deliberately changed the picks.
 
-  const patch = (p: Partial<MissionProfile>) => { setProfile((prev) => ({ ...prev, ...p })); setMsg(null); };
+  const patch = (p: Partial<MissionProfile>) => { setProfile((prev) => ({ ...prev, ...p })); setMsg(null); setPlan(null); setDirty(true); };
+
+  useEffect(() => {
+    if (!dirty || !canEdit || !loaded) return;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/mission-profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { setSaveErr(d.error || "Save failed"); return; }
+        setSaveErr(null); setDirty(false);
+        setSavedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+        // ★ must-tracks and hub/spokes read live on the command board.
+        window.dispatchEvent(new Event("force-locations:changed"));
+      } catch { setSaveErr("Save failed — network"); }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [dirty, profile, canEdit, loaded]);
   const patchAoi = (id: string, p: Partial<MissionAoi>) =>
     patch({ aois: profile.aois.map((a) => (a.id === id ? { ...a, ...p } : a)) });
 
@@ -187,15 +242,19 @@ export default function MissionProfileEditor() {
     patch({ excludedIds: has ? profile.excludedIds.filter((x) => x !== id) : [...profile.excludedIds, id] });
   };
 
-  const save = async () => {
+  // Apply = two steps: a dry run that shows exactly what each list gains and
+  // loses (lib/missionApplyPlan — the same plan the real apply saves), then
+  // the confirm. Nothing is written until the second click.
+  const previewApply = async () => {
     setBusy(true); setMsg(null);
     try {
       const res = await fetch("/api/mission-profile", {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile, sitrepPicks, dryRun: true }),
       });
       const d = await res.json();
-      setMsg(res.ok ? { ok: true, text: "Declaration saved (nothing materialized yet — use Apply; ★ must-tracks take effect on the command board now)." } : { ok: false, text: d.error || "Save failed." });
-      if (res.ok) window.dispatchEvent(new Event("force-locations:changed"));
+      if (!res.ok) { setMsg({ ok: false, text: d.error || "Could not plan the apply." }); return; }
+      setPlan({ diff: d.diff, counts: d.counts });
     } finally { setBusy(false); }
   };
 
@@ -208,7 +267,8 @@ export default function MissionProfileEditor() {
       });
       const d = await res.json();
       if (!res.ok) { setMsg({ ok: false, text: d.error || "Apply failed." }); return; }
-      if (d.profile) setProfile(d.profile);
+      if (d.profile) { setProfile(d.profile); setDirty(false); }
+      setPlan(null);
       const c = d.counts;
       setMsg({ ok: true, text: `Applied — ${c.countries} countries · ${c.bases} bases · ${c.sitrepBases} SITREP · ${c.metarStations} METAR · +${c.watchlistAdded} watch terms.` });
       fetch("/api/sitrep/bases").then((r) => r.json())
@@ -220,6 +280,7 @@ export default function MissionProfileEditor() {
       // Same refresh signals a Preferences save fires, so live surfaces reload.
       window.dispatchEvent(new Event("dashboard-cache-cleared"));
       window.dispatchEvent(new Event("force-locations:changed"));
+      window.dispatchEvent(new Event("tracking:changed"));
     } finally { setBusy(false); }
   };
 
@@ -295,18 +356,20 @@ export default function MissionProfileEditor() {
         </button>
         {canEdit && (
           <>
-            <button type="button" onClick={save} disabled={busy}
-              className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-40">
-              Save declaration
+            <button type="button" onClick={plan ? apply : previewApply} disabled={busy || (profile.aois.length === 0 && profile.spokes.length === 0 && !profile.homeIcao)}
+              className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded disabled:opacity-40 ${plan ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400" : "border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/10"}`}>
+              {busy ? "…" : plan ? (plan.diff.empty ? "Nothing to apply" : "Confirm — write these changes") : "Apply — preview changes"}
             </button>
-            <button type="button" onClick={apply} disabled={busy || (profile.aois.length === 0 && profile.spokes.length === 0 && !profile.homeIcao)}
-              className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-40">
-              {busy ? "…" : "Apply — materialize tracking"}
-            </button>
+            {plan && <button type="button" onClick={() => setPlan(null)} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1.5 text-slate-400 hover:text-slate-200">cancel</button>}
+            <span className="text-[10px] text-slate-500 ml-auto">
+              {saveErr ? <span className="text-red-400">{saveErr}</span> : dirty ? "saving…" : savedAt ? `declaration saved · ${savedAt}` : "autosaves as you edit"}
+            </span>
           </>
         )}
       </div>
       {msg && <p className={`text-[11px] ${msg.ok ? "text-emerald-400" : "text-red-400"}`}>{msg.text}</p>}
+
+      {plan && <ApplyDiffView plan={plan} />}
 
       {showPreview && preview && (
         <div className="border border-slate-800 rounded-lg p-3 space-y-3 bg-slate-950/50">

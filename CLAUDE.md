@@ -2745,6 +2745,72 @@ Regenerate after UI changes with `sh docs/mockups/render.sh` (needs Chromium;
 `CHROME=<path>` override). Keep shots in sync when a pictured surface changes
 materially. No Playwright/npm involved — plain headless-Chromium screenshots.
 
+### Tracking: one Track command (2026-10-06, `docs/REVIEW-2026-10.md` §7 — "the settings are clunky")
+What the app tracks still lives in the same four lists (`forceLocations`,
+`countriesOfInterest`, `metarStations`, `sitrepBases`, plus `mustTrack` and
+`trackedLocations` for civil places) — no storage migration — but there is
+now ONE view of them and ONE command that changes them, and the three
+drawer editors that each held a stale copy of one list are gone.
+- **Pure** (`lib/trackingRegistry.ts`, tested in `tests/trackingRegistry.test.ts`):
+  `buildRegistry(prefs, profile)` folds the lists into one `AirfieldRecord`
+  per ICAO (roles posture / metar / sitrep / star, own-force `hub|spoke`,
+  `auto` = an `mp-` id) and one `CountryRecord` per country (posture / ★,
+  the declaring AOI), labels the exclusions (`describeExclusions`), and
+  writes the `summary` line. `planTrack(prefs, profile, req)` computes the
+  next state of EVERY list for one request — a manual row gets a `tr-` id;
+  removing an AUTO row records its `mp-` exclusion so Apply will not bring
+  it back; tracking an excluded thing lifts the exclusion; ★ on an airfield
+  re-runs `sitrepBasesForStars` (hub first) and NAMES what it displaced; a
+  full list is a `warning` with the thing not added, never a silent drop of
+  something else; `undo` is the exact inverse request. `planRestore` lifts
+  one exclusion and puts the row back now. Country strings are normalised
+  at every boundary by **`lib/countryNames.ts`** (`normalizeCountryName`:
+  ISO2 → name, feed aliases → one spelling; `sameCountry`) — before this a
+  base whose country was "JO" never joined its "Jordan" posture row.
+- **Apply is pure too** (`lib/missionApplyPlan.ts` `planApply`): the same
+  drift → exclusions, manual-wins merge and caps as before, returned as
+  `next` lists + a `diff` (adds / drops per list, SITREP from → to,
+  `drifted`, `empty`). **`materializedIds` is now exactly the derived ids
+  WRITTEN** — the old apply recorded everything the derivation produced,
+  so a derived base a manual row already held was "missing" at the next
+  apply and silently excluded forever (test: "a manual row holding the key
+  is not recorded as materialized"). `applyMissionProfile(raw, picks,
+  { dryRun })` returns the diff without writing; the editor's Apply is now
+  **preview → confirm**, and the declaration **autosaves** (debounced PUT,
+  owner, after load — "Save declaration" is gone).
+- **Server** `lib/trackingOps.ts` → **`/api/track`**: GET = registry +
+  `canEdit`; GET `?q=` = candidates (exact ICAO through `resolveAirfield`,
+  the curated catalogue by name/ICAO/country, what is already tracked, the
+  country name pool; places are geocoded by the CLIENT via
+  `/api/osint/geocode`); POST `{op:"track", kind, …, roles}` /
+  `{op:"restore", id}`, owner-gated. An airfield request may carry ONLY an
+  ICAO — `buildTrackRequest` resolves coordinates from the registry or the
+  shared resolver, so every button sends the same one-liner. A successful
+  write drops the commands / force-protection / SITREP / brief caches.
+- **UI**: `components/TrackPicker.tsx` (mounted in `TabShell`, opens on
+  `track:open` with a `TrackPrefill` — `lib/trackClient.ts`
+  `openTrackPicker`): search → candidate → role checkboxes (defaults for a
+  new field: posture + METAR; SITREP and ★ are deliberate) → one POST →
+  result lines + **Undo**. `components/preferences/TrackingPanel.tsx`
+  ("What you track", Preferences → Mission, above the profile editor): the
+  summary strip, ＋ Track…, airfields with per-role chips + hub/spoke/AUTO
+  badges + ✕, countries with posture/★ + ✕, civil places, and an
+  **Excluded from Apply** fold with Restore. Track buttons: every Crisis-map
+  node/posture/NEO popup, the situation-room "not in the posture watch"
+  line, the command board's `unwatched · track` and no-field rows and empty
+  states, the Force posture board's empty states, Glance reach rows naming
+  an unwatched country, and ⌘K "Track a country or airfield".
+- **Routes fixed on the way**: `/api/user-prefs` POST now PRESERVES
+  `forceLocations` / `countriesOfInterest` / `metarStations` /
+  `trackedLocations` when absent (the drawer no longer sends the first
+  three) and the drawer re-reads the row on EVERY open (it loaded once per
+  session and saved its stale copy over edits made elsewhere);
+  `/api/sitrep/bases` POST is owner-gated (it wrote the shared row for any
+  crew member); `CrisisMap` read `localLat`/`trackedLocations` off the
+  `{ prefs }` envelope, so the Tracked layer and the home marker were
+  always empty. `resolveAirfield` and the prefs sanitisers normalise the
+  country. No new npm dep (esbuild `0`).
+
 ### OSINT tab rebuilt as the command board (2026-10-06, `docs/REVIEW-2026-10.md` §6, all four decisions as recommended)
 `OSINTTab.tsx` pane model is now `"commands" | "feeds" | "sources"`. **Watch
 and Regional retired INTO Commands** (`WatchPane.tsx`, `GroundTruthTab.tsx`

@@ -8,6 +8,7 @@ import { classifyAor } from "@/lib/aor";
 import { isOwner } from "@/lib/currentUser";
 import { normEmail } from "@/lib/allowlist";
 import { sanitizeOsintFeeds } from "@/lib/osintFeeds";
+import { normalizeCountryName } from "@/lib/countryNames";
 
 const VALID_THEMES = new Set<AppTheme>(APP_THEMES);
 const NL_BADGE_COLORS = new Set(["blue", "emerald", "violet", "amber", "sky", "rose", "teal", "orange"]);
@@ -42,7 +43,9 @@ function sanitizeForceLocations(v: unknown): ForceLocation[] {
     const label = String(r.label ?? "").trim().slice(0, 60);
     if (!label) return [];
     const id = String(r.id ?? "").slice(0, 60) || `${lat.toFixed(2)},${lon.toFixed(2)}`;
-    const country = String(r.country ?? "").trim().slice(0, 60);
+    // ONE display name per country (ISO2 / alias / free text → the same
+    // string) so a base joins its posture row and the ★ list by country.
+    const country = normalizeCountryName(String(r.country ?? "").trim().slice(0, 60));
     const icaoRaw = String(r.icao ?? "").trim().toUpperCase();
     const icao = /^[A-Z0-9]{4}$/.test(icaoRaw) ? icaoRaw : undefined;
     const note = String(r.note ?? "").trim().slice(0, 80) || undefined;
@@ -62,7 +65,7 @@ function sanitizeCountriesOfInterest(v: unknown): CountryWatch[] {
   return v.flatMap((x): CountryWatch[] => {
     if (!x || typeof x !== "object") return [];
     const r = x as Record<string, unknown>;
-    const country = String(r.country ?? "").trim().slice(0, 60);
+    const country = normalizeCountryName(String(r.country ?? "").trim().slice(0, 60));
     if (!country) return [];
     const id = String(r.id ?? "").slice(0, 60) || country.toLowerCase().replace(/\s+/g, "-");
     const note = String(r.note ?? "").trim().slice(0, 80) || undefined;
@@ -153,6 +156,8 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
   const raw = body as Partial<UserPrefs>;
+  // One read of the stored row for every "absent = preserve" field.
+  const stored = await getUserPrefs().catch(() => null);
   const VALID_FEED_KEYS = new Set(["colorado", "dc", "hampton_roads", "san_antonio", "hawaii", "japan", "germany", "illinois", "oklahoma", "new_jersey"]);
   const rawLat = Number(raw.localLat);
   const rawLon = Number(raw.localLon);
@@ -176,19 +181,21 @@ export async function POST(request: Request) {
     dismissedWatchSuggestions: (Array.isArray(raw.dismissedWatchSuggestions) ? raw.dismissedWatchSuggestions : [])
       .slice(0, 500).map((t) => String(t).trim().slice(0, 254))
       .filter((t) => t.length > 0),
-    trackedLocations: sanitizeTrackedLocations(raw.trackedLocations),
-    forceLocations: sanitizeForceLocations(raw.forceLocations),
-    countriesOfInterest: sanitizeCountriesOfInterest(raw.countriesOfInterest),
+    // The tracking lists (force posture, countries, METAR, civil places) are
+    // edited through /api/track and the Mission Profile, not the drawer —
+    // absent = PRESERVE stored, same contract as sitrepBases / osintFeeds, so
+    // a drawer save can never revert a Track made elsewhere.
+    trackedLocations: Array.isArray(raw.trackedLocations) ? sanitizeTrackedLocations(raw.trackedLocations) : stored?.trackedLocations ?? [],
+    forceLocations: Array.isArray(raw.forceLocations) ? sanitizeForceLocations(raw.forceLocations) : stored?.forceLocations ?? [],
+    countriesOfInterest: Array.isArray(raw.countriesOfInterest) ? sanitizeCountriesOfInterest(raw.countriesOfInterest) : stored?.countriesOfInterest ?? [],
     marketsWatchlist: sanitizeMarketsWatchlist(raw.marketsWatchlist),
     // Absent = preserve stored (same contract as sitrepBases): the Sources
     // pane edits this field through its own targeted endpoint, so a drawer
     // save with a stale in-memory copy must not silently revert those edits.
     // The drawer only includes osintFeeds when its editor was actually used.
-    osintFeeds: Array.isArray(raw.osintFeeds)
-      ? sanitizeOsintFeeds(raw.osintFeeds)
-      : (await getUserPrefs().catch(() => null))?.osintFeeds ?? [],
+    osintFeeds: Array.isArray(raw.osintFeeds) ? sanitizeOsintFeeds(raw.osintFeeds) : stored?.osintFeeds ?? [],
     newsletterSources: sanitizeNewsletterSources(raw.newsletterSources),
-    metarStations: sanitizeMetarStations(raw.metarStations),
+    metarStations: Array.isArray(raw.metarStations) ? sanitizeMetarStations(raw.metarStations) : stored?.metarStations ?? [],
     // Bounded list of source names. Cap at 100 to prevent unbounded growth
     // if the catalog ever balloons. Names trimmed and bounded to 80 chars.
     disabledNewsSources: (Array.isArray(raw.disabledNewsSources) ? raw.disabledNewsSources : [])
@@ -209,9 +216,7 @@ export async function POST(request: Request) {
     // SITREP bases are managed by /api/sitrep/bases, not the Preferences form.
     // A prefs Save that doesn't carry them must PRESERVE the stored value —
     // otherwise every Preferences save would wipe the SITREP config.
-    sitrepBases: Array.isArray(raw.sitrepBases)
-      ? sanitizeSitrepBases(raw.sitrepBases)
-      : (await getUserPrefs().catch(() => null))?.sitrepBases ?? [],
+    sitrepBases: Array.isArray(raw.sitrepBases) ? sanitizeSitrepBases(raw.sitrepBases) : stored?.sitrepBases ?? [],
   };
 
   // Multi-user phase 2 split: the OWNER writes the shared row (team config +

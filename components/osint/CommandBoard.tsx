@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { openTrackPicker } from "@/lib/trackClient";
 import dynamic from "next/dynamic";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WarningBoard from "@/components/osint/WarningBoard";
@@ -375,7 +376,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
 
         {!data && !error && <p className="px-3.5 py-4 text-[11px] text-slate-500">Assembling the command picture…</p>}
         {data && shownRows.length === 0 && quietRows.length === rows.length && (
-          <p className="px-3.5 py-4 text-[11.5px] text-slate-400">Nothing is watched yet. Declare a hub, spokes and an AOI in <b>Preferences → Mission Profile</b> (or add countries/airfields under Force posture) and the commands fill in. {quietRows.length} commands are quiet — absence of signal, not evidence of calm.</p>
+          <p className="px-3.5 py-4 text-[11.5px] text-slate-400">Nothing is watched yet. Declare a hub, spokes and an AOI in <b>Preferences → Mission Profile</b>, or <button type="button" onClick={() => openTrackPicker()} className="text-emerald-400 hover:underline">track a country or airfield</button>, and the commands fill in. {quietRows.length} commands are quiet — absence of signal, not evidence of calm.</p>
         )}
         {data && shownRows.map((r) => (
           <CommandRowView key={r.aor} row={r} data={data} open={open} setOpen={setOpen} go={go} star={star} mtBusy={mtBusy} flash={flash} active={active} countryForce={countryForce} />
@@ -505,7 +506,7 @@ function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, 
           {/* Countries */}
           <div>
             <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pt-1 pb-1">Countries · {detail.countries.length} <span className="normal-case tracking-normal font-normal text-slate-600">— ★ first, then worst</span></p>
-            {detail.countries.length === 0 && <p className="text-[11px] text-slate-500">Nothing watched in {AOR_LABELS[r.aor]}. Add a country or an airfield under Force posture, or ★ one from the Must-tracks panel.</p>}
+            {detail.countries.length === 0 && <p className="text-[11px] text-slate-500">Nothing watched in {AOR_LABELS[r.aor]}. <button type="button" onClick={() => openTrackPicker()} className="text-emerald-400 hover:underline">Track a country or an airfield</button>, or ★ one from the Must-tracks panel.</p>}
             {detail.countries.map((c: CountryRow) => (
               <CountryRowView key={c.country} c={c} open={open} setOpen={setOpen} star={star} mtBusy={mtBusy} flash={flash} active={active} force={countryForce(c)} go={go} />
             ))}
@@ -537,7 +538,7 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
           <span className="text-[13px] font-semibold text-slate-100">{c.country}</span>
           {c.escalated && <span className="ml-1.5 text-[8px] font-bold uppercase tracking-wider text-red-300 border border-red-500/40 rounded px-1">↑ escalated</span>}
           {c.chronicity && c.chronicity !== "new" && c.chronicity !== "unknown" && <span className="ml-1.5 text-[8px] font-mono text-slate-500">{c.chronicity}</span>}
-          {c.unwatched && <span className="ml-1.5 text-[8px] font-mono text-amber-300/80">unwatched</span>}
+          {c.unwatched && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); openTrackPicker({ kind: "country", country: c.country }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openTrackPicker({ kind: "country", country: c.country }); } }} title="Not in the posture watch — click to track it" className="ml-1.5 text-[8px] font-mono text-amber-300/80 hover:text-emerald-300 underline decoration-dotted">unwatched · track</span>}
         </span>
         <span className="hidden lg:block text-[10.5px] text-slate-400 truncate">{c.topDriver || "—"}</span>
         <span className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-slate-400 min-w-0">
@@ -554,7 +555,7 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
 
           <div>
             <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pb-1">Airfields · {c.fields.length}</p>
-            {c.fields.length === 0 && <p className="text-[11px] text-slate-500">No airfield watched in {c.country}. Pin one under Force posture, or ★ one by ICAO from the Must-tracks panel.</p>}
+            {c.fields.length === 0 && <p className="text-[11px] text-slate-500">No airfield watched in {c.country}. <button type="button" onClick={() => openTrackPicker({ kind: "airfield", query: c.country })} className="text-emerald-400 hover:underline">Track one</button> — search by ICAO, name or country.</p>}
             {c.fields.map((f: FieldRow) => {
               const fKey = `cb-field-${f.icao}`;
               const fOpen = open.icao === f.icao;
@@ -573,6 +574,7 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
                       {f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <Dot sev={f.posture?.composite ?? null} />}
                       {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>↑</span>}
                       {!f.hasSitrep && <span className="text-[9px] text-slate-500 whitespace-nowrap">★ to get a SITREP</span>}
+                      {!f.posture && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); openTrackPicker({ kind: "airfield", icao: f.icao }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openTrackPicker({ kind: "airfield", icao: f.icao }); } }} className="text-[9px] text-amber-300/80 hover:text-emerald-300 underline decoration-dotted whitespace-nowrap">track</span>}
                     </span>
                     <span className="text-slate-600 text-[10px] justify-self-end">{f.hasSitrep ? (fOpen ? "▾" : "▸") : ""}</span>
                   </button>

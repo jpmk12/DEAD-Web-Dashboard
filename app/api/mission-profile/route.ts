@@ -5,6 +5,8 @@ import { getMissionProfile, saveMissionProfile, applyMissionProfile, patchMustTr
 import { sanitizeMissionProfile, SITREP_MAX } from "@/lib/missionProfile";
 import { clearBriefingCache } from "@/lib/briefingCache";
 import { resetCommandsCache } from "@/lib/commandsAssemble";
+import { resetForceProtectionCache } from "@/lib/forceProtectionCached";
+import { resetSitrepCache } from "@/lib/sitrep";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,7 @@ export const dynamic = "force-dynamic";
 //   PUT  { profile }              → owner-only: save the declaration
 //   POST { profile, sitrepPicks } → owner-only: save + derive + MATERIALIZE
 //                                   into the existing user_prefs tracking lists
+//        { …, dryRun: true }       → the same plan's diff, nothing written
 //   PATCH { mustTrack }           → owner-only: the ★ must-tracks alone (the
 //                                   OSINT command board's ★ taps); keeps the
 //                                   SITREP base set in step (hub, ★, current,
@@ -55,16 +58,21 @@ export async function POST(req: Request) {
   if (!isOwner(normEmail(session.user?.email))) {
     return NextResponse.json({ error: "The Mission Profile is shared team config — owner only." }, { status: 403 });
   }
-  let body: { profile?: unknown; sitrepPicks?: unknown };
+  let body: { profile?: unknown; sitrepPicks?: unknown; dryRun?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const picks = Array.isArray(body.sitrepPicks)
     ? body.sitrepPicks.filter((p): p is string => typeof p === "string").slice(0, SITREP_MAX)
     : [];
+  const dryRun = body.dryRun === true;
   try {
-    const result = await applyMissionProfile(body.profile, picks);
-    // Materializing changes team tracking config → every user's brief is stale.
-    clearBriefingCache().catch((err) => console.error("Briefing cache invalidation failed:", err));
-    resetCommandsCache();
+    const result = await applyMissionProfile(body.profile, picks, { dryRun });
+    if (!dryRun) {
+      // Materializing changes team tracking config → every user's brief is stale.
+      clearBriefingCache().catch((err) => console.error("Briefing cache invalidation failed:", err));
+      resetCommandsCache();
+      resetForceProtectionCache();
+      resetSitrepCache();
+    }
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("mission-profile apply failed:", err);

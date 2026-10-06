@@ -22,6 +22,7 @@ import type { ForceAssessment } from "@/lib/forceProtection";
 import type { WeatherThreats, DisasterEvent, TravelAdvisory, FlightCategory } from "@/lib/types";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import { clientCache } from "@/lib/clientCache";
+import { openTrackPicker, type TrackPrefill } from "@/lib/trackClient";
 
 // Crisis / situation map + synced list — the spatial twin of the Global Reach
 // Watch. What's happening (disasters, hub weather, tropical, NEO) over the AMC
@@ -468,7 +469,10 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
       .finally(() => setLoading(false));
     fetch("/api/user-prefs", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((p: { localLat?: number; localLon?: number; localCity?: string; trackedLocations?: { label: string; lat: number; lon: number }[] } | null) => {
+      // The route answers { prefs } — reading the fields off the envelope
+      // left the Tracked layer and the home marker empty for every user.
+      .then((d: { prefs?: { localLat?: number; localLon?: number; localCity?: string; trackedLocations?: { label: string; lat: number; lon: number }[] } } | null) => {
+        const p = d?.prefs;
         if (!p) return;
         const t: Tracked[] = [];
         if (typeof p.localLat === "number" && typeof p.localLon === "number") t.push({ label: p.localCity || "Home", lat: p.localLat, lon: p.localLon, home: true });
@@ -887,6 +891,12 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
     const bits = [w.visMi != null ? `vis ${w.visMi}mi` : "", w.ceilingFt != null ? `ceil ${w.ceilingFt}ft` : "", w.gustKt != null ? `G${w.gustKt}kt` : ""].filter(Boolean).join(" · ");
     return <div style={{ color: CAT_COLOR[w.flightCategory] }}>Wx: {w.flightCategory}{bits ? ` · ${bits}` : ""}</div>;
   };
+  // One Track button for every node/posture popup — opens the shared picker
+  // (TabShell mounts it) with the field or country already resolved.
+  const trackBtn = (prefill: TrackPrefill | null, label = "Track…") =>
+    prefill ? (
+      <button type="button" onClick={() => openTrackPicker(prefill)} className="mt-1 text-[9px] font-bold uppercase tracking-wider text-emerald-700 border border-emerald-600/40 rounded px-1.5 py-px hover:bg-emerald-500/10">{label}</button>
+    ) : null;
   // Lift line for a node popup — today's mobility aircraft within 600 km vs
   // the field's own recorded normal; absent when the field has no series.
   const liftLine = (icao: string) => {
@@ -1256,13 +1266,13 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
             {on.enroute && ENROUTE.map((h) => (
               <Marker key={`er-${h.icao}`} position={[h.lat, h.lon]} icon={enrouteIcon}>
                 {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{h.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}<div className="text-slate-500">En route / mobility hub</div></div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}<div className="text-slate-500">En route / mobility hub</div>{trackBtn({ kind: "airfield", icao: h.icao })}</div></Popup>
               </Marker>
             ))}
             {on.crf && CRF.map((h) => (
               <Marker key={`crf-${h.icao}`} position={[h.lat, h.lon]} icon={crfIcon}>
                 {on.labels && <Tooltip permanent direction="right" offset={[7, 0]} className="cm-label cm-crf">{h.crf} · {h.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}{trackBtn({ kind: "airfield", icao: h.icao })}</div></Popup>
               </Marker>
             ))}
             {on.airfields && GATEWAYS.map((g) => {
@@ -1270,7 +1280,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
               return (
               <Marker key={`af-${g.icao}`} position={[g.lat, g.lon]} icon={airfieldIcon}>
                 {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{g.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div>{cap ? <div className={cap.cls === "C-17" ? "text-emerald-700" : cap.cls === "C-130" ? "text-amber-700" : "text-slate-500"}>Longest rwy {cap.lengthFt.toLocaleString()}ft{cap.surface ? ` · ${cap.surface}` : ""}{cap.lighted ? " · lit" : ""} — {cap.cls}{cap.cls !== "light" ? " capable" : ""}</div> : <div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div>}{wxLine(g.icao)}{liftLine(g.icao)}<div className="text-slate-500">Candidate open/reopen field for HADR / evac{cap ? " · rwy advisory (OurAirports)" : ""}</div></div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div>{cap ? <div className={cap.cls === "C-17" ? "text-emerald-700" : cap.cls === "C-130" ? "text-amber-700" : "text-slate-500"}>Longest rwy {cap.lengthFt.toLocaleString()}ft{cap.surface ? ` · ${cap.surface}` : ""}{cap.lighted ? " · lit" : ""} — {cap.cls}{cap.cls !== "light" ? " capable" : ""}</div> : <div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div>}{wxLine(g.icao)}{liftLine(g.icao)}<div className="text-slate-500">Candidate open/reopen field for HADR / evac{cap ? " · rwy advisory (OurAirports)" : ""}</div>{trackBtn({ kind: "airfield", icao: g.icao })}</div></Popup>
               </Marker>
             );})}
             {on.tracked && tracked.map((t, i) => (
@@ -1289,7 +1299,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
               return (
                 <CircleMarker key={`force-${f.id}`} center={[f.lat, f.lon]} radius={sel ? 13 : 10} pathOptions={{ color: sel ? "#fff" : color, fillColor: color, fillOpacity: 0.3, weight: 3 }} eventHandlers={{ click: () => pick(`force-${f.id}`, f.lat, f.lon) }}>
                   {on.labels && <Tooltip permanent direction="top" offset={[0, -8]} className="cm-label cm-crisis">{f.kind === "country" ? "🌐" : "🛡"} {f.label}</Tooltip>}
-                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div>{f.note && <div className="text-emerald-700 text-[10px]">{f.note}</div>}<div className="text-slate-700 mt-0.5">{f.topDriver}</div>{on.milair && milNearForce[f.id] > 0 && <div className="text-[10px] text-yellow-700 font-bold mt-0.5">✈ {milNearForce[f.id]} mil aircraft within {WATCH_NEAR_KM} km</div>}</div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div>{f.note && <div className="text-emerald-700 text-[10px]">{f.note}</div>}<div className="text-slate-700 mt-0.5">{f.topDriver}</div>{on.milair && milNearForce[f.id] > 0 && <div className="text-[10px] text-yellow-700 font-bold mt-0.5">✈ {milNearForce[f.id]} mil aircraft within {WATCH_NEAR_KM} km</div>}{trackBtn(f.kind === "country" ? { kind: "country", country: f.country || f.label } : f.icao ? { kind: "airfield", icao: f.icao } : null, "Tracking…")}</div></Popup>
                 </CircleMarker>
               );
             })}
@@ -1321,7 +1331,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
             {on.neo && neoPins.map(({ a, pos }) => { const evac = a.orderedDeparture || a.authorizedDeparture; return (
               <Marker key={`neo-${a.country}`} position={pos} icon={evac ? neoDepartIcon : neoLevel4Icon} eventHandlers={{ click: () => pick(`neo-${a.country}`, pos[0], pos[1]) }}>
                 {on.labels && evac && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{a.country}{a.aor !== "UNKNOWN" ? ` · ${a.aor}` : ""} · {a.orderedDeparture ? "ORDERED DEP" : "AUTH DEP"}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{a.country}</div><div className={evac ? "text-red-700" : "text-amber-700"}>{a.orderedDeparture ? "Ordered departure — evacuation" : a.authorizedDeparture ? "Authorized departure" : "Level 4 — Do Not Travel"}{a.level ? ` · Level ${a.level}` : ""}</div>{a.aor !== "UNKNOWN" && <div className="text-slate-500">{a.aor}</div>}{a.link && <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">State advisory ↗</a>}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{a.country}</div><div className={evac ? "text-red-700" : "text-amber-700"}>{a.orderedDeparture ? "Ordered departure — evacuation" : a.authorizedDeparture ? "Authorized departure" : "Level 4 — Do Not Travel"}{a.level ? ` · Level ${a.level}` : ""}</div>{a.aor !== "UNKNOWN" && <div className="text-slate-500">{a.aor}</div>}{a.link && <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">State advisory ↗</a>}{trackBtn({ kind: "country", country: a.country })}</div></Popup>
               </Marker>
             ); })}
             {on.hazards && hazShown.map((z) => (

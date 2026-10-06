@@ -2,17 +2,17 @@
 
 import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { UserPrefs, AppTheme, TrackedLocation, ForceLocation, CountryWatch, TickerEntry, OsintFeed, NewsletterSourceRule, MetarStation, AiFeature, AiUsageSummary, AiUsageDay } from "@/lib/types";
+import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature, AiUsageSummary, AiUsageDay } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { secondaryStartAnchorProps } from "@/lib/secondaryStartLink";
-import { classifyAor, AOR_LABELS, type Aor } from "@/lib/aor";
-import { GATEWAYS } from "@/lib/airfields";
 import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, allKnownNewsSources, type NewsSource } from "@/lib/newsSources";
 import { AMC_HUBS, type AmcHub } from "@/lib/amcHubs";
 import { clientCache } from "@/lib/clientCache";
 import { applyTheme } from "@/components/ThemeApplicator";
 import MissionProfileEditor from "@/components/preferences/MissionProfileEditor";
+import TrackingPanel from "@/components/preferences/TrackingPanel";
+import { postTrack } from "@/lib/trackClient";
 import PushSetupCard from "@/components/preferences/PushSetupCard";
 import CrewStateEditor from "@/components/preferences/CrewStateEditor";
 
@@ -110,7 +110,7 @@ function parseCoordInput(raw: string): number | null {
 
 interface GeoResult { lat: number; lon: number; displayName: string; country?: string }
 
-function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; onAddMetar?: (s: MetarStation) => void; }) {
+function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; onAddMetar?: (s: { icao: string; label: string }) => void; }) {
   const [label, setLabel] = useState("");
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
@@ -322,300 +322,6 @@ function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: Tracke
   );
 }
 
-// ─── Force locations editor (Crisis tab → Force Protection Watch) ────────────
-// Bases/locations where the user's forces & aircraft operate. Standing or
-// transient (a presence window that auto-expires off the board). COCOM is
-// derived from coords/name (shown as a badge), re-derived authoritatively on
-// save server-side. International C-17/C-130 gateways are one-tap quick-adds.
-
-const COCOM_BADGE: Record<string, string> = {
-  NORTHCOM: "text-sky-300 border-sky-500/40 bg-sky-500/10",
-  SOUTHCOM: "text-teal-300 border-teal-500/40 bg-teal-500/10",
-  EUCOM: "text-blue-300 border-blue-500/40 bg-blue-500/10",
-  CENTCOM: "text-amber-300 border-amber-500/40 bg-amber-500/10",
-  AFRICOM: "text-orange-300 border-orange-500/40 bg-orange-500/10",
-  INDOPACOM: "text-violet-300 border-violet-500/40 bg-violet-500/10",
-  UNKNOWN: "text-slate-400 border-slate-600 bg-slate-700/30",
-};
-
-// Countries of interest — the primary Force Protection unit. Name a country;
-// the app aggregates its whole-country threat picture (conflict, advisories,
-// civil/cultural, health, INFORM risk, disasters). COCOM auto-derived.
-function CountriesOfInterestEditor({ value, onChange }: { value: CountryWatch[]; onChange: (v: CountryWatch[]) => void; }) {
-  const [country, setCountry] = useState("");
-  const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const MAX = 40;
-
-  const add = () => {
-    const c = country.trim().slice(0, 60);
-    if (!c) { setError("Enter a country name."); return; }
-    if (value.length >= MAX) { setError(`Maximum of ${MAX} countries reached.`); return; }
-    if (value.some((x) => x.country.toLowerCase() === c.toLowerCase())) { setError(`${c} is already watched.`); return; }
-    const id = `${c.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
-    onChange([...value, { id, country: c, cocom: classifyAor({ name: c }), ...(note.trim() ? { note: note.trim().slice(0, 80) } : {}) }]);
-    setCountry(""); setNote(""); setError(null);
-  };
-
-  return (
-    <div className="mb-5">
-      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Force posture — Countries
-      </label>
-      <p className="text-[10px] text-slate-600 mb-3">
-        Countries for broader exposure. The Crisis tab&apos;s <span className="text-slate-500">Force posture</span> (Countries view) fuses
-        conflict/strikes, State advisory level, civil unrest &amp; cultural calendar, WHO health, INFORM risk, and disasters
-        for each into a single posture. The <span className="text-slate-500">Regional</span> tab shows the per-country detail —
-        incidents, local news, advisories, holidays &amp; anniversaries. COCOM is auto-tagged. Up to {MAX}.
-      </p>
-
-      {value.length > 0 && (
-        <ul className="mb-2 space-y-1.5">
-          {value.map((c) => (
-            <li key={c.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-              <span className="text-sm">🌐</span>
-              <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{c.country}{c.note ? <span className="text-slate-600"> · {c.note}</span> : null}</span>
-              {c.id.startsWith("mp-") && (
-                <span title="Derived from your Mission Profile — removing it records a permanent exclusion" className="text-[8px] font-mono font-bold text-emerald-400/80 bg-emerald-500/10 rounded px-1 flex-shrink-0">AUTO</span>
-              )}
-              <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border flex-shrink-0 ${COCOM_BADGE[c.cocom] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[c.cocom as Aor] ?? c.cocom}</span>
-              <button onClick={() => onChange(value.filter((x) => x.id !== c.id))} className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1 flex-shrink-0" title="Remove">×</button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="flex gap-1.5">
-        <input
-          value={country}
-          onChange={(e) => { setCountry(e.target.value); setError(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="Country (e.g. Qatar)"
-          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="Note (optional)"
-          className="w-32 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
-        <button onClick={add} className="flex-shrink-0 text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-4 py-1.5 rounded-md transition-all uppercase tracking-wider">Add</button>
-      </div>
-      {country.trim() && (
-        <p className="text-[10px] text-slate-600 mt-1">COCOM: <span className="text-slate-400">{AOR_LABELS[classifyAor({ name: country.trim() }) as Aor]}</span></p>
-      )}
-      {error && <p className="mt-1.5 text-[10px] text-red-400">{error}</p>}
-    </div>
-  );
-}
-
-function ForceLocationsEditor({ value, onChange }: { value: ForceLocation[]; onChange: (v: ForceLocation[]) => void; }) {
-  const [geoQuery, setGeoQuery] = useState("");
-  const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
-  const [geoBusy, setGeoBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Draft being assembled (label + country + coords from a search/manual entry),
-  // then enriched with optional ICAO / note / presence window before Add.
-  const [draft, setDraft] = useState<{ label: string; country: string; lat: number; lon: number } | null>(null);
-  const [icao, setIcao] = useState("");
-  const [note, setNote] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [gwOpen, setGwOpen] = useState(false);
-
-  const MAX = 30;
-  const onMap = (lat: number, lon: number) => value.some((v) => Math.abs(v.lat - lat) < 0.05 && Math.abs(v.lon - lon) < 0.05);
-  const cocomOf = (lat: number, lon: number, country: string) => classifyAor({ lat, lon, name: country });
-
-  const push = (loc: Omit<ForceLocation, "id" | "cocom">) => {
-    if (value.length >= MAX) { setError(`Maximum of ${MAX} force locations reached.`); return false; }
-    const id = `${loc.lat.toFixed(2)},${loc.lon.toFixed(2)}-${Date.now()}`;
-    onChange([...value, { ...loc, id, cocom: cocomOf(loc.lat, loc.lon, loc.country) }]);
-    setError(null);
-    return true;
-  };
-
-  const searchPlace = async () => {
-    const q = geoQuery.trim();
-    if (q.length < 2) return;
-    setGeoBusy(true); setError(null); setGeoResults([]);
-    try {
-      const res = await fetch(`/api/osint/geocode?q=${encodeURIComponent(q)}`);
-      const data = await res.json().catch(() => ({}));
-      const results: GeoResult[] = Array.isArray(data?.results) ? data.results : [];
-      setGeoResults(results);
-      if (results.length === 0) setError("No match found. Try a base name, city, or country.");
-    } catch {
-      setError("Place lookup failed — check your connection.");
-    } finally {
-      setGeoBusy(false);
-    }
-  };
-
-  // Clicking a result stages a draft so optional ICAO / note / dates can be set.
-  const startDraft = (r: GeoResult) => {
-    const segs = r.displayName.split(",").map((s) => s.trim()).filter(Boolean);
-    setDraft({
-      label: segs.slice(0, 2).join(", ").slice(0, 60) || "Location",
-      // Prefer the structured English country from the geocoder; fall back to the
-      // last display-name segment for older/edge responses.
-      country: (r.country || segs[segs.length - 1] || "").slice(0, 60),
-      lat: r.lat, lon: r.lon,
-    });
-    setIcao(""); setNote(""); setStart(""); setEnd("");
-    setGeoResults([]); setGeoQuery(""); setError(null);
-  };
-
-  const addDraft = () => {
-    if (!draft) return;
-    if (start && end && end < start) { setError("End date is before the start date."); return; }
-    const ok = push({
-      label: draft.label.trim().slice(0, 60) || "Location",
-      country: draft.country.trim().slice(0, 60),
-      lat: draft.lat, lon: draft.lon,
-      ...(/^[A-Za-z0-9]{4}$/.test(icao.trim()) ? { icao: icao.trim().toUpperCase() } : {}),
-      ...(note.trim() ? { note: note.trim().slice(0, 80) } : {}),
-      ...(start ? { start } : {}),
-      ...(end ? { end } : {}),
-    });
-    if (ok) setDraft(null);
-  };
-
-  return (
-    <div className="mb-5">
-      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Force posture — Bases &amp; Airfields
-      </label>
-      <p className="text-[10px] text-slate-600 mb-3">
-        Where your jets &amp; crews are. This is the default <span className="text-slate-500">Force posture</span> view (Bases).
-        Add an <span className="text-slate-500">ICAO</span> for <span className="text-slate-500">airfield-precise</span> signals —
-        aviation weather + TAF, GPS interference, and NOTAMs (runway/approach closures, RAIM outages) — on top of conflict and
-        posture. Set a date window for a transient deployment (drops off the board once it ends). Up to {MAX}.
-      </p>
-
-      {value.length > 0 && (
-        <ul className="mb-2 space-y-1.5">
-          {value.map((loc) => (
-            <li key={loc.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-200 truncate">{loc.label}</span>
-                  {loc.id.startsWith("mp-") && (
-                    <span title="Derived from your Mission Profile — removing it records a permanent exclusion" className="text-[8px] font-mono font-bold text-emerald-400/80 bg-emerald-500/10 rounded px-1 flex-shrink-0">AUTO</span>
-                  )}
-                  {loc.icao && <span className="text-[9px] font-mono text-slate-400 bg-slate-900/60 px-1 rounded">{loc.icao}</span>}
-                  <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border ${COCOM_BADGE[loc.cocom] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[loc.cocom as Aor] ?? loc.cocom}</span>
-                </div>
-                <div className="text-[9px] text-slate-500 truncate">
-                  {loc.country || "—"} · {loc.lat.toFixed(2)}, {loc.lon.toFixed(2)}
-                  {(loc.start || loc.end) && <span className="text-amber-400/80"> · {loc.start || "…"}→{loc.end || "…"}</span>}
-                  {loc.note && <span className="text-slate-600"> · {loc.note}</span>}
-                </div>
-              </div>
-              <button
-                onClick={() => onChange(value.filter((x) => x.id !== loc.id))}
-                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1 flex-shrink-0"
-                title="Remove"
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* International C-17/C-130 gateway quick-add (ICAO + country prefilled). */}
-      <button
-        onClick={() => setGwOpen((v) => !v)}
-        className="w-full flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-300 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-500 rounded-md px-2.5 py-1.5 transition-all mb-2"
-      >
-        <span>✈ Add a gateway</span>
-        <span className="text-slate-500">{gwOpen ? "▴" : "▾"}</span>
-      </button>
-      {gwOpen && (
-        <div className="mb-3 border border-slate-800 rounded-md p-2.5 bg-slate-900/40 max-h-56 overflow-y-auto flex flex-wrap gap-1">
-          {GATEWAYS.map((g) => {
-            const on = onMap(g.lat, g.lon);
-            return (
-              <button
-                key={g.icao}
-                onClick={() => { if (!on) push({ label: g.name.split(",")[0], country: g.country ?? "", lat: g.lat, lon: g.lon, icao: g.icao }); }}
-                title={on ? `${g.name} — already added` : `Add ${g.name} (${g.icao})`}
-                className={`text-[10px] px-2 py-1 rounded border font-mono transition-all ${on ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400" : "border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-400 hover:bg-emerald-500/10"}`}
-              >
-                {on ? "✓ " : "+ "}{g.icao}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Search by base name, city, or country → stages a draft. */}
-      <div className="flex gap-1.5">
-        <input
-          value={geoQuery}
-          onChange={(e) => { setGeoQuery(e.target.value); setError(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchPlace(); } }}
-          placeholder="Search a base, city, or country…"
-          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
-        <button
-          onClick={searchPlace}
-          disabled={geoBusy || geoQuery.trim().length < 2}
-          className="text-[11px] font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40"
-        >
-          {geoBusy ? "…" : "Find"}
-        </button>
-      </div>
-
-      {geoResults.length > 0 && (
-        <ul className="mt-1.5 space-y-1">
-          {geoResults.map((r, i) => (
-            <li key={i}>
-              <button
-                onClick={() => startDraft(r)}
-                className="w-full text-left flex items-center gap-2 bg-slate-800/40 hover:bg-emerald-500/10 border border-slate-700/60 hover:border-emerald-500/40 rounded-md px-2.5 py-1.5 transition-colors group"
-              >
-                <span className="text-emerald-400 font-bold text-sm leading-none flex-shrink-0">+</span>
-                <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{r.displayName}</span>
-                <span className="text-[10px] text-slate-500 group-hover:text-emerald-400/80 font-mono flex-shrink-0">{r.lat.toFixed(2)}, {r.lon.toFixed(2)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Draft details: enrich the staged location before adding. */}
-      {draft && (
-        <div className="mt-2 border border-emerald-500/30 rounded-md p-2.5 bg-emerald-500/5 space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <input value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} placeholder="Label" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-slate-500" />
-            <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-1 rounded border flex-shrink-0 ${COCOM_BADGE[cocomOf(draft.lat, draft.lon, draft.country)] ?? COCOM_BADGE.UNKNOWN}`}>{AOR_LABELS[cocomOf(draft.lat, draft.lon, draft.country) as Aor]}</span>
-          </div>
-          <div className="flex gap-1.5">
-            <input value={draft.country} onChange={(e) => setDraft({ ...draft, country: e.target.value })} placeholder="Country" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-slate-500" />
-            <input value={icao} onChange={(e) => setIcao(e.target.value.toUpperCase())} maxLength={4} placeholder="ICAO" title="4-letter ICAO → per-base aviation weather" className="w-20 bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 outline-none focus:border-slate-500" />
-          </div>
-          <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={80} placeholder="Note (optional, e.g. '3 tails')" className="w-full bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-slate-500" />
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px] uppercase tracking-wider text-slate-500 flex-shrink-0">Window</span>
-            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} title="Presence start (optional)" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-200 outline-none focus:border-slate-500" />
-            <span className="text-slate-600 text-[10px]">→</span>
-            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} title="Presence end (optional, transient)" className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-200 outline-none focus:border-slate-500" />
-          </div>
-          <div className="flex items-center gap-2 pt-0.5">
-            <button onClick={addDraft} className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-4 py-1.5 rounded-md transition-all uppercase tracking-wider">Add location</button>
-            <button onClick={() => setDraft(null)} className="text-[11px] text-slate-500 hover:text-slate-300">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {error && <p className="mt-1.5 text-[10px] text-red-400">{error}</p>}
-    </div>
-  );
-}
-
 // ─── Markets watchlist editor (Markets tab) ──────────────────────────────────
 
 function NewsletterSourcesEditor({ value, onChange }: { value: NewsletterSourceRule[]; onChange: (v: NewsletterSourceRule[]) => void; }) {
@@ -698,69 +404,6 @@ function NewsletterSourcesEditor({ value, onChange }: { value: NewsletterSourceR
         <button
           onClick={add}
           disabled={!label.trim() || !val.trim() || value.length >= 12}
-          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
-        >
-          Add
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function MetarStationsEditor({ value, onChange }: { value: MetarStation[]; onChange: (v: MetarStation[]) => void; }) {
-  const [icao, setIcao] = useState("");
-  const [label, setLabel] = useState("");
-  const add = () => {
-    const code = icao.trim().toUpperCase();
-    const lab = label.trim().slice(0, 60) || code;
-    if (!/^[A-Z0-9]{4}$/.test(code) || value.length >= 12) return;
-    if (value.some((s) => s.icao === code)) return;
-    onChange([...value, { icao: code, label: lab }]);
-    setIcao(""); setLabel("");
-  };
-
-  return (
-    <div className="mb-5">
-      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        METAR / TAF Stations
-      </label>
-      <p className="text-[10px] text-slate-600 mb-3">
-        Airfields shown with decoded aviation weather on the Weather tab. Use 4-letter ICAO codes
-        (e.g.&nbsp;<code className="text-emerald-400">KCOS</code>, <code className="text-emerald-400">RODN</code>). Up to 12.
-      </p>
-
-      {value.length > 0 && (
-        <ul className="mb-2 space-y-1.5 max-h-56 overflow-y-auto">
-          {value.map((s) => (
-            <li key={s.icao} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-              <span className="text-[10px] font-mono font-bold text-sky-400 flex-shrink-0 w-12">{s.icao}</span>
-              <span className="text-xs text-slate-300 flex-1 min-w-0 truncate">{s.label}</span>
-              <button
-                onClick={() => onChange(value.filter((x) => x.icao !== s.icao))}
-                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="flex gap-1.5">
-        <input
-          value={icao} onChange={(e) => setIcao(e.target.value.toUpperCase().slice(0, 4))}
-          placeholder="ICAO"
-          className="w-20 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
-        />
-        <input
-          value={label} onChange={(e) => setLabel(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") add(); }}
-          placeholder="Display name (e.g. Ramstein AB)"
-          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
-        <button
-          onClick={add}
-          disabled={!/^[A-Z0-9]{4}$/.test(icao.trim().toUpperCase()) || value.length >= 12}
           className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
         >
           Add
@@ -2644,8 +2287,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [vipSenders, setVipSenders] = useState<string[]>([]);
   const [muteSenders, setMuteSenders] = useState<string[]>([]);
   const [trackedLocations, setTrackedLocations] = useState<TrackedLocation[]>([]);
-  const [forceLocations, setForceLocations] = useState<ForceLocation[]>([]);
-  const [countriesOfInterest, setCountriesOfInterest] = useState<CountryWatch[]>([]);
   const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
   const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
   // Only send osintFeeds on save when the drawer's editor actually changed it —
@@ -2653,7 +2294,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   // whole-row save with a stale copy used to revert those edits.
   const [osintFeedsDirty, setOsintFeedsDirty] = useState(false);
   const [newsletterSources, setNewsletterSources] = useState<NewsletterSourceRule[]>([]);
-  const [metarStations, setMetarStations] = useState<MetarStation[]>([]);
   const [disabledNewsSources, setDisabledNewsSources] = useState<string[]>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiFeatureToggles, setAiFeatureToggles] = useState<Partial<Record<AiFeature, boolean>>>({});
@@ -2773,8 +2413,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
     if (key === "sources") {
       const parts: (string | ReactElement)[] = [];
       if (trackedLocations.length) parts.push(`${trackedLocations.length} loc`);
-      if (countriesOfInterest.length) parts.push(`${countriesOfInterest.length} countr${countriesOfInterest.length === 1 ? "y" : "ies"}`);
-      if (forceLocations.length) parts.push(`${forceLocations.length} base${forceLocations.length === 1 ? "" : "s"}`);
       if (marketsWatchlist.length) parts.push(`${marketsWatchlist.length} tickers`);
       // News-source count: total enabled, with a muted "(N off)" only when
       // any are disabled — keeps the header quiet for the default state.
@@ -2825,8 +2463,11 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
     return "";
   };
 
+  // Re-read the stored row on EVERY open — the drawer used to load once per
+  // session and then save its stale copy of every list over edits made
+  // elsewhere (a Track from the map, a SITREP add, an Apply).
   useEffect(() => {
-    if (!open || loaded) return;
+    if (!open) return;
     fetch("/api/user-prefs")
       .then((r) => r.json())
       .then(({ prefs }: { prefs: UserPrefs }) => {
@@ -2837,13 +2478,10 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setVipSenders(prefs.vipSenders ?? []);
         setMuteSenders(prefs.muteSenders ?? []);
         setTrackedLocations(prefs.trackedLocations ?? []);
-        setForceLocations(prefs.forceLocations ?? []);
-        setCountriesOfInterest(prefs.countriesOfInterest ?? []);
         setMarketsWatchlist(prefs.marketsWatchlist ?? []);
         setOsintFeeds(prefs.osintFeeds ?? []);
         setOsintFeedsDirty(false);
         setNewsletterSources(prefs.newsletterSources ?? []);
-        setMetarStations(prefs.metarStations ?? []);
         setDisabledNewsSources(prefs.disabledNewsSources ?? []);
         setAiEnabled(prefs.aiEnabled !== false);
         setAiFeatureToggles(prefs.aiFeatureToggles ?? {});
@@ -2857,7 +2495,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setLoaded(true);
       })
       .catch(() => {});
-  }, [open, loaded]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -2926,7 +2564,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         body: JSON.stringify({
           role, priorityTopics, deprioritizeTopics, watchlist,
           vipSenders, muteSenders,
-          trackedLocations, forceLocations, countriesOfInterest, marketsWatchlist, newsletterSources, metarStations,
+          // Force posture / countries / METAR are edited through /api/track
+          // (Preferences → Mission → What you track); absent here = preserved.
+          trackedLocations, marketsWatchlist, newsletterSources,
           ...(osintFeedsDirty ? { osintFeeds } : {}),
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
@@ -3066,6 +2706,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             </button>
             {openGroups.mission && (
               <div className="px-4 py-4 border-t border-slate-800">
+                <TrackingPanel />
                 <MissionProfileEditor />
                 <CrewStateEditor />
               </div>
@@ -3386,14 +3027,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                 <TrackedLocationsEditor
                   value={trackedLocations}
                   onChange={setTrackedLocations}
-                  onAddMetar={(s) =>
-                    setMetarStations((prev) =>
-                      prev.length >= 12 || prev.some((x) => x.icao === s.icao) ? prev : [...prev, s]
-                    )
-                  }
+                  onAddMetar={(s) => void postTrack({ kind: "airfield", icao: s.icao, label: s.label, roles: { metar: true } })}
                 />
-                <ForceLocationsEditor value={forceLocations} onChange={setForceLocations} />
-                <CountriesOfInterestEditor value={countriesOfInterest} onChange={setCountriesOfInterest} />
+                <p className="text-[10px] text-slate-600 -mt-2">Force posture bases, countries and METAR stations moved to <button type="button" onClick={() => selectGroup("mission")} className="text-emerald-400 hover:underline">Mission → What you track</button> — one list, every role, and a ＋ Track… button that works from any map popup or board row.</p>
                 <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
                 <NewsSourcesEditor
                   value={disabledNewsSources}
@@ -3401,7 +3037,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                   currentLocalKey={localFeedKey}
                 />
                 <NewsletterSourcesEditor value={newsletterSources} onChange={setNewsletterSources} />
-                <MetarStationsEditor value={metarStations} onChange={setMetarStations} />
                 <OsintFeedsEditor value={osintFeeds} onChange={(v) => { setOsintFeeds(v); setOsintFeedsDirty(true); }} />
                 <AcledCredentialsEditor />
               </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { openTrackPicker } from "@/lib/trackClient";
 // Type-only import: keeps the server-side scoring module (which pulls disasters/
 // acled/etc.) OUT of this client bundle. Runtime data comes from the API.
 import type { ForceAssessment, Severity, ForceCategory } from "@/lib/forceProtection";
@@ -240,9 +241,9 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
       {empty && (
         <p className="px-3 py-4 text-[11px] text-slate-500">
           {view === "base" ? (
-            <>No bases or airfields watched yet. Add them under <span className="text-slate-400">Force posture</span> (Preferences → Content sources, or the Crisis map) to monitor aviation weather, GPS, NOTAMs, conflict, and posture where your jets &amp; crews are.</>
+            <>No bases or airfields watched yet. <button type="button" onClick={() => openTrackPicker({ kind: "airfield" })} className="text-emerald-400 hover:underline">Track an airfield</button> (any map popup has the same button, and Preferences → Mission → What you track lists them) to monitor aviation weather, GPS, NOTAMs, conflict, and posture where your jets &amp; crews are.</>
           ) : (
-            <>No countries watched yet. Add <span className="text-slate-400">Countries</span> under Force posture (Preferences → Content sources) for broader exposure — conflict, civil/diplomatic posture, health, and risk. Per-country detail lives in the <span className="text-slate-400">Regional</span> tab.</>
+            <>No countries watched yet. <button type="button" onClick={() => openTrackPicker({ kind: "country" })} className="text-emerald-400 hover:underline">Track a country</button> for broader exposure — conflict, civil/diplomatic posture, health, and risk. Per-country detail opens from the command board.</>
           )}
         </p>
       )}

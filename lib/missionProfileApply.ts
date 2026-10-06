@@ -1,20 +1,23 @@
 // Mission Profile persistence + the materializer — SERVER-ONLY (imports the
 // DB). The pure model/derivation lives in lib/missionProfile.ts.
 //
-// applyMissionProfile() is the one write path: it re-derives, detects
-// exclusion drift (previously-materialized ids the user has since deleted in
-// any editor stay deleted), merges AUTO items under the user's MANUAL items
-// (manual always wins on natural key: country name / ICAO), enforces the
-// existing per-list caps, and saves through saveUserPrefs so every downstream
-// consumer keeps reading the fields it already reads.
+// applyMissionProfile() is the materialize path: the PURE plan
+// (lib/missionApplyPlan.ts) re-derives, detects exclusion drift
+// (previously-materialized ids the user has since deleted in any editor stay
+// deleted), merges AUTO items under the user's MANUAL items (manual always
+// wins on natural key: country name / ICAO), enforces the existing per-list
+// caps; this file saves through saveUserPrefs so every downstream consumer
+// keeps reading the fields it already reads. Single-item changes go through
+// lib/trackingOps.ts (the /api/track door), which uses the same lists.
 
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { getUserPrefs, saveUserPrefs } from "./userPrefs";
 import {
-  sanitizeMissionProfile, sanitizeMustTrack, deriveTracking, derivedIds, isDerivedId, slugify, sitrepBasesForStars, SITREP_MAX,
+  sanitizeMissionProfile, sanitizeMustTrack, deriveTracking, sitrepBasesForStars,
   type MissionProfile, type DerivedTracking, type MustTrack,
 } from "./missionProfile";
+import { planApply, type ApplyDiff } from "./missionApplyPlan";
 import { resolveAirfield } from "./resolveAirfield";
 import type { UserPrefs, SitrepBase } from "./types";
 
@@ -67,104 +70,31 @@ export async function patchMustTrack(raw: unknown): Promise<{ mustTrack: MustTra
 export interface ApplyResult {
   profile: MissionProfile;
   derived: DerivedTracking;
+  diff: ApplyDiff;
   counts: { countries: number; bases: number; metarStations: number; sitrepBases: number; watchlistAdded: number };
+  dryRun: boolean;
 }
 
-// sitrepPicks: the ICAOs the user confirmed for full SITREP treatment (≤4).
+// sitrepPicks: the ICAOs the user confirmed for full SITREP treatment (≤SITREP_MAX).
 // Empty array = leave the current SITREP bases untouched.
-export async function applyMissionProfile(rawProfile: unknown, sitrepPicks: string[]): Promise<ApplyResult> {
+// The computation is PURE (lib/missionApplyPlan.planApply — drift
+// exclusions, manual-wins merge, caps, and materializedIds = exactly the
+// derived ids written); this function loads, plans and saves. `dryRun`
+// returns the plan's diff without writing anything — the editor's
+// confirmation screen.
+export async function applyMissionProfile(rawProfile: unknown, sitrepPicks: string[], opts: { dryRun?: boolean } = {}): Promise<ApplyResult> {
   const profile = sanitizeMissionProfile(rawProfile);
   const prefs = await getUserPrefs(); // owner/shared row — apply is owner-gated at the route
+  const plan = planApply({
+    forceLocations: prefs.forceLocations, countriesOfInterest: prefs.countriesOfInterest, metarStations: prefs.metarStations,
+    sitrepBases: prefs.sitrepBases, trackedLocations: prefs.trackedLocations, watchlist: prefs.watchlist,
+  }, profile, sitrepPicks);
 
-  // Exclusion drift: anything we materialized last time that is now missing
-  // from its list was deleted by the user somewhere — keep it excluded. METAR
-  // stations and watchlist terms drift via their pseudo-ids (mp-m-* / mp-t-*).
-  // Legacy mp-w-* weather-point ids are ignored: bases are no longer
-  // materialized into trackedLocations at all (one channel per concept).
-  const present = new Set<string>([
-    ...prefs.countriesOfInterest.map((c) => c.id),
-    ...prefs.forceLocations.map((b) => b.id),
-    ...prefs.metarStations.map((m) => `mp-m-${m.icao.toUpperCase()}`),
-    ...prefs.watchlist.map((t) => `mp-t-${slugify(t)}`),
-  ]);
-  const drifted = profile.materializedIds.filter(
-    (id) => isDerivedId(id) && !id.startsWith("mp-w-") && !present.has(id));
-  profile.excludedIds = [...new Set([...profile.excludedIds, ...drifted])];
-
-  const derived = deriveTracking(profile);
-
-  // Merge: manual rows first (never touched), then AUTO rows that don't
-  // collide with a manual row's natural key. Old mp-* rows are replaced
-  // wholesale by the fresh derivation.
-  const manualCountries = prefs.countriesOfInterest.filter((c) => !isDerivedId(c.id));
-  const haveCountry = new Set(manualCountries.map((c) => c.country.trim().toLowerCase()));
-  const countries = [
-    ...manualCountries,
-    ...derived.countries.filter((c) => !haveCountry.has(c.country.trim().toLowerCase())),
-  ].slice(0, CAPS.countries);
-
-  const manualBases = prefs.forceLocations.filter((b) => !isDerivedId(b.id));
-  const haveIcao = new Set(manualBases.map((b) => (b.icao ?? "").toUpperCase()).filter(Boolean));
-  const bases = [
-    ...manualBases,
-    ...derived.bases.filter((b) => !haveIcao.has((b.icao ?? "").toUpperCase())),
-  ].slice(0, CAPS.bases);
-
-  // Tracked locations are CIVIL places — the profile no longer writes them.
-  // Purge any mp-w-* rows a previous apply materialized (legacy cleanup) so
-  // the map stops double-marking airfields and the Weather tab stops showing
-  // blank OCONUS forecast cards.
-  const weather = prefs.trackedLocations.filter((w) => !isDerivedId(w.id));
-
-  // METAR stations have no id — merge by ICAO, existing first. Exclusions
-  // (recorded above via mp-m-* drift) are already honored by deriveTracking.
-  const haveMetar = new Set(prefs.metarStations.map((m) => m.icao.toUpperCase()));
-  const metar = [
-    ...prefs.metarStations,
-    ...derived.metarStations.filter((m) => !haveMetar.has(m.icao.toUpperCase())),
-  ].slice(0, CAPS.metar);
-
-  // Watchlist: append missing seeds (personal-ish field but lives on the
-  // shared row for the owner; seeds are additive and short).
-  const haveTerm = new Set(prefs.watchlist.map((t) => t.toLowerCase()));
-  const newTerms = derived.watchlistSeeds.filter((t) => !haveTerm.has(t.toLowerCase()));
-  const watchlist = [...prefs.watchlist, ...newTerms];
-
-  // SITREP bases: only when the user confirmed picks on the review screen.
-  let sitrepBases = prefs.sitrepBases;
-  if (sitrepPicks.length > 0) {
-    const byIcao = new Map(derived.sitrepCandidates.map((s) => [s.icao, s]));
-    const picked = sitrepPicks
-      .map((i) => i.toUpperCase())
-      .map((i) => byIcao.get(i) ?? prefs.sitrepBases.find((s) => s.icao === i))
-      .filter((s): s is NonNullable<typeof s> => s != null)
-      .slice(0, SITREP_MAX);
-    if (picked.length > 0) sitrepBases = picked;
+  if (!opts.dryRun) {
+    const next: Omit<UserPrefs, "lastUpdated"> = { ...prefs, ...plan.next };
+    await saveUserPrefs(next);
+    await saveMissionProfile(plan.profile);
   }
 
-  const next: Omit<UserPrefs, "lastUpdated"> = {
-    ...prefs,
-    countriesOfInterest: countries,
-    forceLocations: bases,
-    trackedLocations: weather,
-    metarStations: metar,
-    watchlist,
-    sitrepBases,
-  };
-  await saveUserPrefs(next);
-
-  profile.materializedIds = derivedIds(derived);
-  await saveMissionProfile(profile);
-
-  return {
-    profile,
-    derived,
-    counts: {
-      countries: countries.length,
-      bases: bases.length,
-      metarStations: metar.length,
-      sitrepBases: sitrepBases.length,
-      watchlistAdded: newTerms.length,
-    },
-  };
+  return { profile: plan.profile, derived: plan.derived, diff: plan.diff, counts: plan.counts, dryRun: !!opts.dryRun };
 }

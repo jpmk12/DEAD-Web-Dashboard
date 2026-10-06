@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { openTrackPicker } from "@/lib/trackClient";
 import { toast } from "@/lib/feedback";
 import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import { renderOeBriefViewerHtml } from "@/lib/oeBriefViewer";
@@ -620,7 +621,7 @@ export default function GlanceTab({
   //    impede airlift) + the AOR disaster watch (could pull HADR/NEO airlift),
   //    ranked into one "look here first" list. Proximity to a base outranks
   //    raw severity, then severity. ──
-  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string; cat: ReachCat; glabel: string }[] = [];
+  const reach: { id: string; tone: "red" | "amber"; icon: string; title: string; sub: string; tag: string; score: number; href?: string; cat: ReachCat; glabel: string; country?: string }[] = [];
   for (const d of threats?.disasters ?? []) {
     const near = d.nearLocations.length > 0;
     const hadr = d.hadrScore ?? (d.severity === "red" ? 60 : d.severity === "orange" ? 35 : 12);
@@ -637,6 +638,7 @@ export default function GlanceTab({
       tag: d.aor !== "UNKNOWN" ? d.aor : "DISASTER",
       score: hadr + (near ? 55 : 0),
       cat: "disaster", glabel: "disaster",
+      ...(d.country ? { country: d.country } : {}),
     });
   }
   for (const h of threats?.hazards ?? []) {
@@ -675,6 +677,7 @@ export default function GlanceTab({
       tag: a.aor !== "UNKNOWN" ? a.aor : "NEO",
       score: a.orderedDeparture ? 120 : a.authorizedDeparture ? 85 : 50,
       href: a.link,
+      country: a.country,
       cat: "neo", glabel: a.orderedDeparture ? "ordered departure" : a.authorizedDeparture ? "authorized departure" : "Level-4 update",
     });
   }
@@ -754,9 +757,20 @@ export default function GlanceTab({
         <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5 flex-shrink-0 mt-0.5">{r.tag}</span>
       </>
     );
-    return r.href
+    const row = r.href
       ? <a href={r.href} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
       : <button onClick={() => onNavigate("weather")} className={`${cls} w-full`}>{inner}</button>;
+    // A row that names a country NOT in the posture watch gets a Track chip
+    // beside it (a sibling, never nested — the row is itself a link/button).
+    const named = r.country;
+    const unwatched = !!named && !forceWatch.some((f) => f.country.toLowerCase() === named.toLowerCase() || f.label.toLowerCase() === named.toLowerCase());
+    return unwatched ? (
+      <div className="flex items-stretch gap-1">
+        <div className="min-w-0 flex-1">{row}</div>
+        <button onClick={() => openTrackPicker({ kind: "country", country: named })} title={`${named} is not in the posture watch — track it`}
+          className="self-center flex-shrink-0 text-[8px] font-bold uppercase tracking-wider text-emerald-300/80 hover:text-emerald-200 border border-emerald-500/30 hover:border-emerald-500/60 rounded px-1 py-0.5">track</button>
+      </div>
+    ) : row;
   };
 
   // ── Derived: today's schedule ──

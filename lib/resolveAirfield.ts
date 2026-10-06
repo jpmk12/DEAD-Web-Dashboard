@@ -7,6 +7,7 @@
 import { ALL_AIRFIELDS } from "./airfields";
 import { AMC_HUBS } from "./amcHubs";
 import { airportByIdent } from "./ourAirports";
+import { normalizeCountryName } from "./countryNames";
 
 export interface ResolvedAirfield {
   icao: string;
@@ -30,13 +31,13 @@ export async function resolveAirfield(icaoRaw: string): Promise<ResolvedAirfield
   }
   const gw = ALL_AIRFIELDS.find((a) => a.icao === icao);
   if (gw) {
-    return { icao, label: gw.name, lat: gw.lat, lon: gw.lon, country: gw.country ?? "", place: gw.name };
+    return { icao, label: gw.name, lat: gw.lat, lon: gw.lon, country: normalizeCountryName(gw.country), place: gw.name };
   }
   const oa = await airportByIdent(icao).catch(() => null);
   if (oa) {
-    // OurAirports carries an ISO2 country code; "US" is the one worth
-    // expanding (State-advisory matching), the rest pass through as-is.
-    const country = oa.country === "US" ? "United States" : oa.country;
+    // OurAirports carries an ISO2 country code — ONE display name
+    // (lib/countryNames), so a base joins its posture row by country.
+    const country = normalizeCountryName(oa.country);
     return { icao, label: oa.name.slice(0, 80), lat: oa.lat, lon: oa.lon, country, place: oa.name.slice(0, 120) };
   }
   return null;

@@ -18,6 +18,7 @@ import FamilyTab from "@/components/family/FamilyTab";
 import PreferencesDrawer from "@/components/PreferencesDrawer";
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
+import TrackPicker from "@/components/TrackPicker";
 import FloatingAssistant from "@/components/chat/FloatingAssistant";
 import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
@@ -475,6 +476,10 @@ export default function TabShell() {
           if (kind === "task") setTasksRefreshKey((k) => k + 1);
         }}
       />
+
+      {/* The one Track dialog — opens on `track:open` from ⌘K, Preferences,
+          map popups, board rows, situation rooms and Glance rows. */}
+      <TrackPicker />
 
       {/* Global AI assistant — reachable from every tab. */}
       <FloatingAssistant

@@ -4,6 +4,9 @@ import { getUserPrefs, saveUserPrefs } from "@/lib/userPrefs";
 import { resolveAirfield } from "@/lib/resolveAirfield";
 import type { SitrepBase } from "@/lib/types";
 import { SITREP_MAX } from "@/lib/missionProfile";
+import { normEmail, isOwner } from "@/lib/allowlist";
+import { resetSitrepCache } from "@/lib/sitrep";
+import { resetCommandsCache } from "@/lib/commandsAssemble";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +34,11 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // The SITREP set is shared team config (one row for the crew) — the same
+  // gate as user-prefs and the Mission Profile. Crew get the GET.
+  if (!isOwner(normEmail(session.user?.email))) {
+    return NextResponse.json({ error: "SITREP bases are shared team config — owner only." }, { status: 403 });
+  }
 
   let body: { op?: unknown; icao?: unknown; artcc?: unknown };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -61,5 +69,7 @@ export async function POST(request: Request) {
   }
 
   await saveUserPrefs({ ...prefs, sitrepBases: bases });
+  resetSitrepCache();
+  resetCommandsCache();
   return NextResponse.json({ bases });
 }

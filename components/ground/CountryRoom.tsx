@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { openTrackPicker } from "@/lib/trackClient";
 import dynamic from "next/dynamic";
 import type { ForceAssessment, CategoryAssessment } from "@/lib/forceProtection";
 import type { CountryDossier } from "@/lib/groundTruth";
@@ -125,7 +126,9 @@ export default function CountryRoom({ country, sel, base, active = true }: {
             )}
           </>
         ) : (
-          <span className="text-[10px] text-amber-300/90">not in the posture watch — posture UNKNOWN, not clear · add it under Force posture</span>
+          <span className="text-[10px] text-amber-300/90 flex items-center gap-1.5 flex-wrap">not in the posture watch — posture UNKNOWN, not clear
+            <button type="button" onClick={() => openTrackPicker({ kind: "country", country })} className="text-[9px] font-bold uppercase tracking-wider text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded px-1.5 py-px">Track {country}</button>
+          </span>
         )}
         {baseForSel && <span className="text-[10px] font-mono text-slate-500 ml-auto">pinned base: {baseForSel.label}{baseForSel.icao ? ` (${baseForSel.icao})` : ""}</span>}
       </div>
