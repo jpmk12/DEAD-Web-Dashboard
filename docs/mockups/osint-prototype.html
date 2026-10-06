@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Interactive prototype of the OSINT command-board redesign (docs/REVIEW-2026-10.md §6). Standalone: no build, no network. -->
+<title>OSINT Command Board</title>
+<style>
+  /* Layout: one scrolling column — primer, pinned airfields, the command board that drills in place, then the picture (map + events). Dark-first, the dashboard's own slate/emerald tokens. */
+  :root{
+    --bg:#020617; --panel:#0f172a; --panel2:#111c34; --bd:#1e293b; --bd2:#334155;
+    --txt:#e2e8f0; --txt2:#cbd5e1; --mut:#64748b; --mut2:#475569;
+    --acc:#34d399; --acc2:#10b981; --red:#f87171; --amber:#fbbf24; --sky:#38bdf8; --violet:#a78bfa;
+    --font-ui:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    --font-data:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  @media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){ --bg:#f3f5f9; --panel:#ffffff; --panel2:#eef2f7; --bd:#d6dde8; --bd2:#b8c2d1; --txt:#0f172a; --txt2:#334155; --mut:#64748b; --mut2:#8694a8; --acc:#059669; --acc2:#10b981; --red:#dc2626; --amber:#b45309; --sky:#0284c7; --violet:#7c3aed; color-scheme:light } }
+  :root[data-theme="light"]{ --bg:#f3f5f9; --panel:#ffffff; --panel2:#eef2f7; --bd:#d6dde8; --bd2:#b8c2d1; --txt:#0f172a; --txt2:#334155; --mut:#64748b; --mut2:#8694a8; --acc:#059669; --acc2:#10b981; --red:#dc2626; --amber:#b45309; --sky:#0284c7; --violet:#7c3aed; color-scheme:light }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding-block:14px 40px;padding-inline:16px}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--sky);outline-offset:2px;border-radius:6px}
+  .mono{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+  .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+  .act{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;padding:4px 8px;color:var(--mut);white-space:nowrap;transition:border-color .15s,color .15s}
+  .act:hover{color:var(--txt);border-color:var(--mut)}
+  .act.accent{border-color:color-mix(in srgb,var(--acc) 50%,transparent);color:var(--acc)}
+  .act.on{border-color:color-mix(in srgb,var(--acc) 60%,transparent);color:var(--acc);background:color-mix(in srgb,var(--acc) 10%,transparent)}
+  .act.ghost{border-color:transparent}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;border:1px solid var(--bd2);border-radius:999px;padding:3px 10px;color:var(--mut);white-space:nowrap}
+  .chip.on{border-color:color-mix(in srgb,var(--acc) 55%,transparent);color:var(--acc);background:color-mix(in srgb,var(--acc) 8%,transparent)}
+  .chip .c{font-family:var(--font-data);font-weight:400;color:var(--mut)}
+  .tag{font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:1px 5px;white-space:nowrap}
+  .tag.new{color:var(--acc);background:color-mix(in srgb,var(--acc) 15%,transparent)}
+  .tag.worse{color:var(--red);background:color-mix(in srgb,var(--red) 15%,transparent)}
+  .tag.better{color:var(--acc);background:color-mix(in srgb,var(--acc) 15%,transparent)}
+  .led{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+  .led.g{background:#22c55e}.led.a{background:#f59e0b}.led.r{background:#ef4444}.led.u{background:var(--mut2)}
+  .leds{display:inline-flex;gap:3px;align-items:center}
+  .red{color:var(--red)}.amber{color:var(--amber)}.grn{color:var(--acc)}
+  .star{font-size:13px;color:var(--mut2);width:18px;height:18px;line-height:18px;text-align:center;border-radius:4px;flex-shrink:0}
+  .star:hover{color:var(--amber);background:color-mix(in srgb,var(--amber) 12%,transparent)}
+  .star.on{color:var(--amber)}
+  .card{border:1px solid var(--bd);border-radius:12px;background:color-mix(in srgb,var(--panel) 70%,transparent);margin-bottom:14px}
+  .hd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:color-mix(in srgb,var(--panel2) 60%,transparent);border-radius:12px 12px 0 0;flex-wrap:wrap}
+  .hd .s{font-size:10.5px;color:var(--mut)}
+  .hd .r{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  /* top bar */
+  .oh{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .oh .title{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--acc)}
+  .oh .crumb{font-size:11px;color:var(--mut);font-family:var(--font-data)}
+  .oh .crumb b{color:var(--txt)}
+  .oh .panes{display:flex;gap:6px;align-items:center}
+  .oh .upd{margin-left:auto;font-size:10px;color:var(--mut);font-family:var(--font-data)}
+  .oh .upd i{font-style:normal;color:var(--acc)}
+  .proto{border:1px dashed color-mix(in srgb,var(--sky) 50%,transparent);border-radius:10px;padding:8px 14px;margin-bottom:14px;font-size:11.5px;color:var(--txt2);background:color-mix(in srgb,var(--sky) 5%,transparent)}
+  .proto b{color:var(--txt)}
+  /* primer */
+  .primer{border-color:color-mix(in srgb,var(--acc) 35%,transparent)}
+  .primer .hd .k{color:var(--acc)}
+  .prow{display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:start;padding:8px 14px;border-top:1px solid var(--bd);font-size:12.5px;color:var(--txt2);line-height:1.45}
+  .prow:first-of-type{border-top:0}
+  .pri{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;font-family:var(--font-data);border:1px solid var(--bd2);color:var(--mut)}
+  .pri.r{color:var(--red);border-color:color-mix(in srgb,var(--red) 50%,transparent);background:color-mix(in srgb,var(--red) 12%,transparent)}
+  .pri.a{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 50%,transparent);background:color-mix(in srgb,var(--amber) 12%,transparent)}
+  .prow .t b{color:var(--txt)}
+  .prow .t em{display:block;font-style:normal;font-size:10px;color:var(--mut);margin-top:2px}
+  .door{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sky);border:1px solid color-mix(in srgb,var(--sky) 40%,transparent);border-radius:5px;padding:4px 8px;white-space:nowrap;align-self:center}
+  .door:hover{background:color-mix(in srgb,var(--sky) 10%,transparent)}
+  .primer .ft{padding:7px 14px;border-top:1px solid var(--bd);font-size:10px;color:var(--mut)}
+  .folded{padding:8px 14px;font-size:11px;color:var(--mut);display:flex;gap:10px;align-items:center}
+  .folded b{color:var(--txt2)}
+  /* airfields strip */
+  .tiles{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap}
+  .tile{border:1px solid var(--bd);border-radius:10px;padding:8px 11px;background:color-mix(in srgb,var(--bg) 60%,transparent);min-width:200px;flex:1;text-align:left;transition:border-color .15s}
+  .tile:hover{border-color:var(--mut)}
+  .tile.hot{border-color:color-mix(in srgb,var(--red) 50%,transparent)}
+  .tile .top{display:flex;align-items:center;gap:7px}
+  .tile b{font-size:13px;color:var(--txt)}
+  .role{font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);border:1px solid var(--bd2);border-radius:3px;padding:0 4px}
+  .tile .leds{margin-left:auto}
+  .tile .drv{display:block;font-size:10.5px;color:var(--txt2);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile .meta{display:block;font-size:9.5px;color:var(--mut);margin-top:2px;font-family:var(--font-data)}
+  .worse{color:var(--red);font-size:11px;font-weight:800}
+  /* board */
+  .mt{padding:10px 14px;border-bottom:1px solid var(--bd);background:color-mix(in srgb,var(--amber) 4%,transparent);font-size:11px}
+  .mt .mh{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-bottom:8px}
+  .mt .grp{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+  .mt .gl{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);width:64px}
+  .sc{font-size:10.5px;border:1px solid var(--bd2);border-radius:999px;padding:2px 9px;color:var(--mut)}
+  .sc.on{border-color:color-mix(in srgb,var(--amber) 50%,transparent);color:var(--amber);background:color-mix(in srgb,var(--amber) 8%,transparent)}
+  .mt .mf{font-size:10px;color:var(--mut);border-top:1px solid var(--bd);padding-top:7px;margin-top:4px}
+  .chead{display:grid;grid-template-columns:22px 1.6fr 1fr 1.1fr .9fr .9fr .9fr .9fr 20px;gap:10px;padding:6px 14px;font-size:8.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2);border-bottom:1px solid var(--bd)}
+  .crow{display:grid;grid-template-columns:22px 1.6fr 1fr 1.1fr .9fr .9fr .9fr .9fr 20px;gap:10px;align-items:center;padding:8px 14px;border-top:1px solid var(--bd);width:100%;text-align:left;transition:background .15s}
+  .crow:hover{background:color-mix(in srgb,var(--panel2) 50%,transparent)}
+  .crow.must{background:color-mix(in srgb,var(--amber) 3%,transparent)}
+  .crow.open{background:color-mix(in srgb,var(--panel2) 70%,transparent)}
+  .crow .cn b{font-size:13.5px;color:var(--txt);display:block}
+  .crow .why{display:block;font-size:10.5px;color:var(--mut);margin-top:1px}
+  .cell{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .sub{font-size:9.5px;color:var(--mut);font-family:var(--font-data);white-space:nowrap}
+  .sub.muted{color:var(--mut2);font-style:italic;font-family:var(--font-ui)}
+  .lv{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;border:1px solid;border-radius:5px;padding:2px 8px;width:max-content}
+  .lv.calm{color:var(--mut);border-color:var(--bd2)}.lv.watch{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 50%,transparent)}.lv.warning{color:#fb923c;border-color:rgba(251,146,60,.5)}.lv.alert{color:var(--red);border-color:color-mix(in srgb,var(--red) 60%,transparent);background:color-mix(in srgb,var(--red) 10%,transparent)}
+  .dm{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+  .dm.rise{color:var(--amber)}.dm.hold{color:var(--mut)}.dm.fall{color:var(--acc)}
+  .car{color:var(--mut);font-size:12px;text-align:center}
+  .fold{display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid var(--bd);font-size:11px;color:var(--mut);width:100%;text-align:left}
+  .fold b{color:var(--txt2)}
+  .fold:hover{color:var(--txt2)}
+  /* drill */
+  .drill{border-top:1px solid var(--bd);background:color-mix(in srgb,var(--bg) 35%,transparent);padding:4px 14px 10px 46px}
+  .sh{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin:8px 0 6px;display:flex;align-items:center;gap:8px}
+  .sh .hint{margin-left:auto;font-weight:400;letter-spacing:0;text-transform:none;font-size:10px}
+  .iw{border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);border-radius:10px;background:color-mix(in srgb,var(--bg) 50%,transparent);padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:8px 16px;align-items:start;margin-bottom:8px}
+  .iw .t b{font-size:13px;color:var(--txt)}
+  .iw .sc2{display:block;font-size:10.5px;color:var(--mut);margin-top:2px}
+  .iw .anom{text-align:right}.iw .nn{font-size:20px;font-weight:800;color:var(--amber);font-family:var(--font-data)}.iw .l{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);display:block}
+  .iw .drv{grid-column:1/-1;font-size:11px;color:var(--txt2);display:flex;flex-direction:column;gap:3px}
+  .st{font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:1px 6px;margin-right:6px}
+  .st.active{color:var(--amber);background:color-mix(in srgb,var(--amber) 12%,transparent)}.st.confirmed{color:var(--red);background:color-mix(in srgb,var(--red) 12%,transparent)}.st.watching{color:var(--sky);background:color-mix(in srgb,var(--sky) 12%,transparent)}
+  .iw .ft{grid-column:1/-1;font-size:9.5px;color:var(--mut);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .ctry{display:grid;grid-template-columns:22px 12px 1.4fr 1fr 1fr .8fr .8fr 20px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--bd);font-size:12px;width:100%;text-align:left}
+  .ctry:hover{background:color-mix(in srgb,var(--panel2) 40%,transparent)}
+  .ctry.open{background:color-mix(in srgb,var(--panel2) 70%,transparent)}
+  .ctry b{color:var(--txt);font-size:12.5px}
+  .ctry .sub{white-space:normal;font-family:var(--font-ui);font-size:10.5px}
+  .sev{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+  .cm{font-size:8.5px;color:var(--mut);border:1px solid var(--bd2);border-radius:3px;padding:0 4px;width:max-content;margin-top:2px}
+  .room{margin:8px 0 10px 34px;border:1px solid var(--bd);border-radius:12px;background:color-mix(in srgb,var(--bg) 45%,transparent)}
+  .banner{margin:10px 14px 0;padding:8px 12px;border:1px solid color-mix(in srgb,var(--red) 45%,transparent);background:color-mix(in srgb,var(--red) 7%,transparent);border-radius:8px;font-size:11.5px;color:var(--txt2)}
+  .banner b{color:var(--txt)}
+  .dcols{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:10px 14px}
+  @media (max-width:760px){.dcols{grid-template-columns:1fr}}
+  .dc{border:1px solid var(--bd);border-radius:10px;padding:8px 11px;background:color-mix(in srgb,var(--panel) 50%,transparent);min-width:0}
+  .dc .k2{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-bottom:5px;display:flex;align-items:center;gap:8px}
+  .dc .k2 .s{margin-left:auto;font-size:9px;color:var(--mut2);text-transform:none;letter-spacing:0;font-weight:400}
+  .dc p,.dc li{font-size:11.5px;color:var(--txt2);line-height:1.5;margin:0}
+  .dc ul{margin:0;padding-left:14px}
+  .dc p b,.dc li b{color:var(--txt)}
+  .mini{height:110px;border-radius:8px;background:radial-gradient(ellipse at 40% 50%,#15213a,#0b1220);border:1px solid var(--bd);position:relative;margin-bottom:6px;overflow:hidden}
+  .afrow{display:grid;grid-template-columns:22px 1fr auto auto 20px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--bd);font-size:12px;width:100%;text-align:left}
+  .afrow:hover{background:color-mix(in srgb,var(--panel2) 40%,transparent)}
+  .afrow b{color:var(--txt)}
+  .afrow .sub{white-space:nowrap;font-family:var(--font-ui);font-size:10.5px}
+  .sitrep{margin:8px 0 6px 34px;border:1px solid color-mix(in srgb,var(--amber) 35%,transparent);border-radius:12px;background:color-mix(in srgb,var(--bg) 50%,transparent)}
+  .sitrep .hd{background:color-mix(in srgb,var(--amber) 5%,transparent)}
+  .sitrep .hd .k{color:var(--amber)}
+  .mc{padding:10px 14px;border-bottom:1px solid var(--bd)}
+  .mc .state{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+  .mc .big{font-size:15px;font-weight:800;color:var(--amber)}
+  .ccir{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--red);border:1px solid color-mix(in srgb,var(--red) 50%,transparent);border-radius:4px;padding:1px 6px}
+  .mc .bluf{font-size:12px;color:var(--txt2);line-height:1.55;max-width:88ch}
+  .caps{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+  .cap{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:5px;padding:2px 7px;border:1px solid}
+  .cap.f{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 40%,transparent)}.cap.p{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 50%,transparent)}.cap.n{color:var(--red);border-color:color-mix(in srgb,var(--red) 50%,transparent)}.cap.u{color:var(--mut);border-color:var(--bd2)}
+  .ledrow{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap}
+  .ledbox{flex:1;min-width:150px;border:1px solid var(--bd);border-radius:8px;padding:6px 9px;background:color-mix(in srgb,var(--panel) 50%,transparent);display:flex;align-items:flex-start;gap:8px;font-size:11px;color:var(--txt2)}
+  .ledbox .led{margin-top:4px}
+  .ledbox b{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt);display:block}
+  .ledbox span{font-size:9.5px;color:var(--mut);display:block;line-height:1.35}
+  .sitrep .more{padding:8px 14px;border-top:1px solid var(--bd);font-size:10px;color:var(--mut);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .sitrep .more .act.wrapbtn{white-space:normal;text-align:left;line-height:1.4;min-width:0}
+  .detail{padding:0 14px 10px;font-size:11px;color:var(--txt2);display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:760px){.detail{grid-template-columns:1fr}}
+  /* picture */
+  .ptop{display:flex;align-items:center;gap:8px;margin:4px 0 8px;flex-wrap:wrap}
+  .ptop .tb{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .map{position:relative;height:420px;border:1px solid var(--bd);border-radius:12px;background:radial-gradient(ellipse at 50% 40%,#131c33 0%,#0b1220 60%,#070d1b 100%);overflow:hidden;transition:height .2s}
+  .map.full{height:620px}
+  .map .label{position:absolute;font-size:11px;letter-spacing:.2em;color:#334155;font-weight:700;pointer-events:none}
+  .mk{position:absolute;width:12px;height:12px;border-radius:50%;transform:translate(-50%,-50%);transition:opacity .2s}
+  .mk.red{background:#ef4444;box-shadow:0 0 0 4px rgba(239,68,68,.25)}.mk.amber{background:#f59e0b;box-shadow:0 0 0 4px rgba(245,158,11,.25)}
+  .mk.node{background:transparent;color:#7dd3fc;font-size:12px;width:auto;height:auto;border:2px solid #22c55e;border-radius:50%;padding:2px 3px}
+  .mk.hex{width:18px;height:18px;background:rgba(167,139,250,.4);clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);border-radius:0}
+  .mk.neo{background:#fb7185;border-radius:3px}
+  .mk.conf{width:8px;height:8px;background:#f43f5e}
+  .mk.dim{opacity:.18}
+  .map .tip{position:absolute;font-size:10px;font-family:var(--font-data);color:#e2e8f0;background:rgba(2,6,23,.9);border:1px solid #334155;border-radius:4px;padding:2px 6px;pointer-events:none}
+  .map .zoom{position:absolute;left:12px;top:12px;background:#fff;color:#111;font-weight:800;border-radius:6px;padding:4px 8px;font-size:14px;line-height:1.3;text-align:center}
+  .map .fly{position:absolute;left:12px;bottom:12px;font-size:10px;font-family:var(--font-data);color:#94a3b8;background:rgba(2,6,23,.85);border:1px solid #334155;border-radius:4px;padding:3px 7px}
+  .rail{position:absolute;right:0;top:0;bottom:0;width:300px;background:rgba(2,6,23,.92);border-left:1px solid #1e293b;padding:10px 12px;overflow:auto;color:#e2e8f0}
+  @media (max-width:760px){.rail{position:static;width:100%;border-left:0;border-top:1px solid #1e293b}.map{height:auto}.map .scene{height:260px;position:relative}}
+  .map .scene{position:absolute;inset:0;right:300px}
+  @media (max-width:760px){.map .scene{position:relative;right:0}}
+  .rhd{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+  .rhd b{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#cbd5e1}
+  .rhd .s{font-size:10px;color:#64748b;width:100%}
+  .rg{display:flex;align-items:center;gap:6px;font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#7dd3fc;padding:5px 0;border-top:1px solid #1e293b}
+  .rg span{margin-left:auto;color:#64748b}
+  .rr{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 0;border-top:1px solid rgba(30,41,59,.5);font-size:11px;width:100%;text-align:left;color:#e2e8f0}
+  .rr b{font-weight:700}
+  .rr .d{width:100%;font-size:10px;color:#fcd34d;padding-left:13px}
+  .events{margin-top:10px}
+  .eg{display:flex;align-items:center;gap:8px;padding:6px 14px;border-top:1px solid var(--bd);font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--sky);background:color-mix(in srgb,var(--bg) 40%,transparent)}
+  .eg span{margin-left:auto;color:var(--mut)}
+  .er{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:6px 14px;border-top:1px solid var(--bd);font-size:12px}
+  .er .gl{color:#f43f5e;text-align:center}
+  .er .t{color:var(--txt);min-width:0}
+  .er .t em{font-style:normal;color:var(--mut);font-size:10.5px;margin-left:8px}
+  .er .reach{font-family:var(--font-data);font-size:10px;color:var(--acc);white-space:nowrap}
+  .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--panel);border:1px solid var(--bd2);color:var(--txt);font-size:12px;padding:8px 14px;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .legend{padding:10px 14px;font-size:11px;color:var(--txt2);display:grid;grid-template-columns:1fr 1fr;gap:6px 18px}
+  @media (max-width:760px){.legend{grid-template-columns:1fr}.chead{display:none}.crow{grid-template-columns:22px 1fr 20px}.crow .cell{display:none}.ctry{grid-template-columns:22px 12px 1fr 20px}.ctry .sub,.ctry .sev{display:none}.afrow{grid-template-columns:22px 1fr 20px}.afrow .sub,.afrow .leds{display:none}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="oh">
+    <span class="title">◎ OSINT</span>
+    <span class="crumb" id="crumb">22 feeds · 164 items · live aircraft &amp; maritime</span>
+    <span class="panes"><button class="chip on">◆ Commands</button><button class="chip" data-inert>≣ Feeds <span class="c">164</span></button><button class="chip" data-inert>⇪ Sources</button></span>
+    <span class="upd" id="upd">updated 2 min ago · <i>3 changes since you last looked</i></span>
+  </div>
+
+  <div class="proto"><b>Interactive prototype with sample data.</b> Click a command, a country or an airfield to drill in place; click again to collapse. Tap ★ anywhere to make something a must-track and watch the board, the primer and the airfield strip re-sort. Primer doors open their exact level. The map follows whatever is open; the AOR chips override it. Feeds and Sources are inert here. Stars are remembered in this browser only.</div>
+
+  <!-- primer -->
+  <section class="card primer" id="primer">
+    <div class="hd"><span class="k">⌖ Where to look first</span><span class="s">ranked from the posture, boards, bases, demand and your last look · nothing paid</span><span class="r"><button class="act" id="aiRead">✦ Read (AI) ▾</button><button class="act ghost" id="primerFold">fold ▴</button></span></div>
+    <div id="primerBody"></div>
+    <div class="ft">2 I&amp;W calls are due for scoring · nothing changed in AFRICOM or SOUTHCOM (absence of signal, not evidence of calm) · one source down: DAIP NOTAMs</div>
+  </section>
+
+  <!-- my airfields -->
+  <section class="card" id="mine">
+    <div class="hd"><span class="k">✈ My airfields</span><span class="s">hub · spokes · ★ must-track fields — a SITREP one click from anywhere</span><span class="r"><button class="act ghost" id="mineFold">fold ▴</button></span></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <!-- command board -->
+  <section class="card" id="board">
+    <div class="hd"><span class="k">◆ Combatant commands</span><span class="s" id="boardSub">★ must-tracks first, then worst · click a command to drill in</span><span class="r"><button class="act" id="mtBtn">★ must-tracks ▾</button><button class="act ghost" id="collapseAll">collapse all</button></span></div>
+    <div class="mt" id="mt" hidden></div>
+    <div class="chead"><span></span><span>command</span><span>I&amp;W</span><span>posture</span><span>bases</span><span>demand · 7d</span><span>events · 24h</span><span>Δ since look</span><span></span></div>
+    <div id="rows"></div>
+  </section>
+
+  <!-- picture -->
+  <div class="ptop">
+    <span class="k">Picture</span>
+    <span class="tb"><button class="act">View ▾</button><button class="act">⚙ Layers (11)</button><button class="act">Legend ▾</button><span class="k" style="font-size:9px">AOR</span><span id="aorChips"></span><button class="act">Fit</button><button class="act">↻</button><button class="act" id="fullBtn">Full</button><button class="act accent">Demand read</button></span>
+  </div>
+  <div class="map" id="map">
+    <div class="scene" id="scene"></div>
+    <div class="rail" id="rail"></div>
+  </div>
+  <section class="card events" id="events">
+    <div class="hd"><span class="k">⚠ Significant events</span><span class="s" id="evSub">kinetic · NEO · severe wx · tropical · red disasters — grouped by command, follows the board</span><span class="r"><button class="chip on" id="lensAll">All</button><button class="chip" id="lensNear">near my airfields</button><button class="chip" id="lensNew">new since look <b id="newCount">3</b></button></span></div>
+    <div id="evRows"></div>
+    <button class="fold"><span>▸</span><b>All disasters (10)</b><span>the full GDACS / USGS / ReliefWeb feed, type + AOR filters</span></button>
+  </section>
+
+  <section class="card" style="border-style:dashed">
+    <div class="hd"><span class="k">What is live in this prototype</span></div>
+    <div class="legend">
+      <div><b>Drill in place</b> — command → boards + countries → situation room + airfields → SITREP. Second click collapses. Other rows stay.</div>
+      <div><b>★ must-tracks</b> — on any row and in the panel. Re-sorts the board (★ first, then worst), the primer tie-break, the airfield strip, the AOR chips, and which airfields get a full SITREP (6 slots).</div>
+      <div><b>Primer doors</b> — open exactly that command / country / airfield and scroll to it.</div>
+      <div><b>Map follows the board</b> — markers outside the open command dim, the force rail narrows, the events list narrows, the chip reads “following the board”. Any AOR chip overrides until you drill again.</div>
+      <div><b>Lenses</b> — “near my airfields” (events within reach of a ★ field) and “new since look”.</div>
+      <div><b>Sample data</b> — the numbers, drivers and prose are illustrative. Feeds, Sources, View, Layers, Legend, Demand read and the AI read are inert.</div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const h = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // ---------- sample data ----------
+  const LV = { calm: 0, watch: 1, warning: 2, alert: 3 };
+  const SEV = { g: 0, u: 1, a: 2, r: 3 };
+  const DATA = {
+    commands: [
+      { id: "CENTCOM", name: "USCENTCOM", iw: { level: "watch", anomaly: "+0.31", traj: "↗", boards: 1 }, demand: { dir: "rise", score: "+12", conf: "med" }, events: { kin: 4, neo: 1, newN: 1 }, delta: { worse: 1, better: 0 },
+        why: "Jordan RED (escalated) · Iran board WATCH ↗ · OJAQ ops amber",
+        boards: [{ name: "CENTCOM · Iran", level: "watch", anomaly: "+0.31", traj: "deteriorating ↗", scen: "In-AOI conflict-event intensity (strikes, battles, remote violence) above its own baseline; NEO posture steady; Hormuz read: declared threat, 2 sources.", drivers: [["active", "conflict_intensity — 41 events / 90 d vs 26 baseline · UCDP + ACLED"], ["watching", "hormuz_interdiction — threat declared (IRGC statement), own X capture agrees · AIS transit normal"], ["watching", "pnt_denial — 3 GPSJam cells over the Gulf, no storm (G1) · DAIP RAIM NOTAM OTBH"]], link: "alert posture for the Gulf hubs · 1 call due for scoring" }],
+        countries: [
+          { id: "Jordan", sev: "r", esc: true, chron: "recurring (3 onsets / 14 obs)", was: "amber", driver: "Conflict — Israel vs Hamas ~207 km (3 fatalities) · ordered departure 4 d", field: "OJAQ ↑ · threat", delta: "worse",
+            room: { banner: "Active conflict reporting · RED — “Israeli strike near the Jordan Valley crossing” (GDELT, 3 h ago) · 6 corroborating items · escalation phrase present",
+              incidents: ["2026-10-05 · Jordan Valley · battle, 3 fatalities (ACLED)", "2026-10-03 · Irbid · remote violence (UCDP)", "2026-09-30 · Amman · protest, no fatalities"],
+              news: ["Jordan tightens the Valley crossing after the strike · Jordan Times · 3 h", "Embassy notice: ordered departure of non-emergency staff · State · 4 d", "RJAF exercise with CENTCOM assets at Muwaffaq Salti · your X capture · 1 d"],
+              civil: "<b>Level 3</b> — Reconsider travel · worst area Level 4 (border zones) · indicators T · C · <b>ordered departure in effect</b> · next holiday: Prophet’s Birthday, Oct 14 (reduced ramp)",
+              health: "No WHO outbreak news · UHC 70 · measles MCV2 88 % · <b>GPS:</b> 1 GPSJam cell within 500 km · IODA normal · CISA: none naming Jordan" },
+            airfields: [
+              { icao: "OJAQ", name: "King Hussein International", sub: "Jordan Valley Highway · C-17 capable (12,000 ft asph)", leds: "aargg", worse: "ops", driver: "Threat — conflict 207 km, 3 fatalities · MVFR → IFR fcst", role: "AOI",
+                sitrep: { state: "PMC — partially mission capable", ccir: ["CCIR · threat", "single-runway risk"], bluf: "Field is open with one usable runway; forecast IFR by 14Z with the ILS 24 NOTAMed U/S removes the precision approach in the window. Threat elevated: kinetic activity 207 km west, ordered departure in effect. Fuel and ARFF reported normal; MOG not declared.", caps: [["f", "launch / recovery"], ["p", "all-weather / night"], ["f", "throughput"], ["f", "fuel"], ["u", "ARFF — unknown"], ["f", "C2 / comms"], ["p", "force protection"]], leds: [["a", "Wx", "MVFR → IFR fcst 14Z · xwind 18 kt"], ["a", "Ops", "ILS 24 U/S · RWY 06/24 open"], ["r", "Threat", "conflict 207 km · ordered departure"], ["g", "Infra", "IODA normal · power no news"], ["g", "Spectrum", "G1 · 1 GPSJam cell · no KEV"]], hist: "● ● ● ● ○ ● ●" } },
+              { icao: "OJMS", name: "Muwaffaq Salti Air Base", sub: "Azraq", leds: "a", driver: "Conflict — ~156 km (3 fatalities) · amber", role: "AOI" },
+            ] },
+          { id: "Israel", sev: "r", chron: "chronic (11 / 14 obs)", driver: "NOTAM — RWY 12/30 CLSD starts 6 d · conflict 40 km", field: "LLBG · ops", delta: "",
+            room: { banner: "Active conflict reporting · RED — strikes within 40 km of LLBG (GDELT, 1 h ago) · 12 corroborating items", incidents: ["2026-10-06 · Gaza envelope · shelling (ACLED)", "2026-10-05 · Haifa · remote violence (UCDP)"], news: ["Ben Gurion schedules runway 12/30 works from Oct 12 · Times of Israel · 5 h", "Travel advisory updated · State · 2 d"], civil: "<b>Level 3</b> — Reconsider travel · worst area Level 4 (Gaza, northern border) · indicators T · C · U", health: "No WHO outbreak news · <b>GPS:</b> 4 GPSJam cells (chronic) · CISA: 1 advisory naming an Israeli vendor" },
+            airfields: [{ icao: "LLBG", name: "Ben Gurion Airport", sub: "Yahadut Canada · C-17 capable", leds: "gaggg", worse: "", driver: "Airspace / NOTAM — RWY 12/30 CLSD, starts in 6 d", role: "AOI", sitrep: { state: "FMC (watch) — closure in 6 d", ccir: ["single-runway CCIR from Oct 12"], bluf: "All runways open today; NOTAM closes 12/30 from Oct 12 for 3 weeks. Threat axis amber on GDELT reporting 40 km east; no NEO posture change. Fuel, ARFF and MOG reported normal.", caps: [["f", "launch / recovery"], ["f", "all-weather / night"], ["p", "throughput (from Oct 12)"], ["f", "fuel"], ["f", "ARFF"], ["f", "C2 / comms"], ["p", "force protection"]], leds: [["g", "Wx", "VFR · 8 kt"], ["a", "Ops", "RWY 12/30 CLSD from Oct 12"], ["g", "Threat", "no new event within 25 km"], ["g", "Infra", "IODA normal"], ["g", "Spectrum", "4 cells chronic · no KEV"]], hist: "● ● ● ● ● ● ●" } }] },
+          { id: "Saudi Arabia", sev: "a", chron: "chronic", driver: "Civil — State Level 3, reconsider travel", field: "OEPS", delta: "", room: { banner: "", incidents: ["2026-09-28 · Jizan · drone intercept (ACLED)"], news: ["Hajj logistics notice · Arab News · 1 d"], civil: "<b>Level 3</b> — Reconsider travel · indicators T · M", health: "No outbreak news · UHC 74" }, airfields: [{ icao: "OEPS", name: "Prince Sultan Air Base", sub: "Al Kharj", leds: "a", driver: "Civil — State Level 3", role: "AOI" }] },
+          { id: "Kuwait", sev: "a", chron: "chronic", driver: "Civil — State Level 3", field: "OKAS", delta: "", room: { banner: "", incidents: [], news: ["Port congestion at Shuwaikh · KUNA · 2 d"], civil: "<b>Level 3</b> — Reconsider travel", health: "No outbreak news" }, airfields: [{ icao: "OKAS", name: "Ali Al Salem Air Base", sub: "Al Jahra", leds: "a", driver: "Civil — State Level 3", role: "AOI" }] },
+          { id: "Iraq", sev: "g", chron: "", driver: "no elevated axis · ORER all green", field: "ORER · ok", delta: "better", room: { banner: "", incidents: ["2026-10-01 · Kirkuk · IED, no fatalities (ACLED)"], news: ["Erbil airport resumes night ops · Rudaw · 3 d"], civil: "<b>Level 4</b> — Do not travel (standing) · ordered departure not in effect", health: "No outbreak news" }, airfields: [{ icao: "ORER", name: "Erbil International", sub: "spoke", leds: "ggggg", driver: "all green · VFR · no NOTAMs", role: "spoke", sitrep: { state: "FMC — fully mission capable", ccir: [], bluf: "All axes green. VFR through the forecast period, no NOTAMs on the field, no kinetic event within 100 km in 14 days, host-nation infrastructure normal.", caps: [["f", "launch / recovery"], ["f", "all-weather / night"], ["f", "throughput"], ["f", "fuel"], ["f", "ARFF"], ["f", "C2 / comms"], ["f", "force protection"]], leds: [["g", "Wx", "VFR · calm"], ["g", "Ops", "no NOTAMs"], ["g", "Threat", "none within 100 km"], ["g", "Infra", "IODA normal"], ["g", "Spectrum", "G1 · no cells"]], hist: "● ● ● ● ● ● ●" } }] },
+        ],
+        chokepoint: "Hormuz — chokepoint read · declared threat · 2 sources · AIS transit normal (learning, 3 of 5 days)" },
+      { id: "EUCOM", name: "USEUCOM", iw: { level: "warning", anomaly: "+0.52", traj: "↗", boards: 1 }, demand: { dir: "rise", score: "+31", conf: "2 src" }, events: { kin: 2, neo: 1, newN: 1 }, delta: { worse: 0, better: 1 },
+        why: "Ukraine board WARNING ↗ · Belarus ordered departure · demand rising vs thin crews",
+        boards: [{ name: "EUCOM · Ukraine", level: "warning", anomaly: "+0.52", traj: "deteriorating ↗", scen: "State Department ordered/authorized-departure notices or a NEW Level-4 in the AOI; conflict intensity above baseline; airspace closures spreading south.", drivers: [["confirmed", "neo_departure_posture — Belarus ordered departure, 4 d (NEW) · State RSS"], ["active", "conflict_intensity — 118 events / 90 d vs 84 baseline"], ["watching", "airspace_gps_disruption — 2 FIR NOTAMs (UKBV, UMMV)"]], link: "channel-mission routing via EDDF/ETAD · 1 call due" }],
+        countries: [
+          { id: "Ukraine", sev: "a", chron: "chronic", driver: "Conflict — Russia vs Ukraine · 118 events / 90 d", field: "—", delta: "", room: { banner: "Active conflict reporting · RED — strikes on Odesa port (GDELT, 2 h ago) · 20+ items", incidents: ["2026-10-06 · Odesa · shelling (ACLED)", "2026-10-05 · Kharkiv · remote violence (UCDP)"], news: ["Grain corridor paused after the strike · Reuters · 2 h"], civil: "<b>Level 4</b> — Do not travel (standing)", health: "No outbreak news · <b>GPS:</b> 9 GPSJam cells" }, airfields: [] },
+          { id: "Germany", sev: "a", chron: "", driver: "Aviation Wx — IFR vis 21Z at ETAD", field: "ETAD · wx", delta: "better", room: { banner: "", incidents: [], news: ["Ramstein hosts the airlift coordination cell · Stars and Stripes · 1 d"], civil: "<b>Level 1</b>", health: "No outbreak news" }, airfields: [{ icao: "ETAD", name: "Ramstein Air Base", sub: "spoke · C-17 capable", leds: "gaggu", driver: "Aviation Wx — IFR vis 21Z", role: "spoke", sitrep: { state: "FMC (watch) — weather", ccir: [], bluf: "Field FMC; TAF drops to IFR at 21Z for 6 h with the ILS 08 available. No NOTAM of consequence; threat quiet; spectrum sensor unreachable this pass (UNKNOWN, not clear).", caps: [["f", "launch / recovery"], ["p", "all-weather / night"], ["f", "throughput"], ["f", "fuel"], ["f", "ARFF"], ["f", "C2 / comms"], ["f", "force protection"]], leds: [["a", "Wx", "IFR vis 21Z · 6 h"], ["g", "Ops", "no NOTAMs"], ["g", "Threat", "quiet"], ["g", "Infra", "normal"], ["u", "Spectrum", "sensor unreachable"]], hist: "● ● ● ○ ● ● ●" } }] },
+          { id: "Belarus", sev: "a", chron: "", driver: "NEO — ordered departure 4 d (new)", field: "—", delta: "worse", room: { banner: "", incidents: [], news: ["Embassy orders departure of non-emergency staff · State · 4 d"], civil: "<b>Level 4</b> · <b>ordered departure in effect</b>", health: "No outbreak news" }, airfields: [] },
+        ] },
+      { id: "INDOPACOM", name: "USINDOPACOM", iw: { level: "alert", anomaly: "+0.60", traj: "↗", boards: 1 }, demand: { dir: "rise", score: "+27", conf: "1 src" }, events: { kin: 1, neo: 0, newN: 0 }, delta: { worse: 1, better: 0 },
+        why: "Taiwan board ALERT ↗ — the only alert; no posture watch declared here",
+        boards: [{ name: "INDOPACOM · Taiwan", level: "alert", anomaly: "+0.60", traj: "deteriorating ↗", scen: "In-AOI conflict-event intensity above baseline with PNT denial over the strait and a launch-cadence step-up.", drivers: [["confirmed", "conflict_intensity — 14 events / 90 d vs 3 baseline · UCDP"], ["active", "pnt_denial — 7 GPSJam cells over the strait · no storm"], ["active", "space_activity — launch cadence 2.1× own normal (LL2)"]], link: "no decision linkage declared — add one on the full board" }],
+        countries: [{ id: "Taiwan", sev: "u", chron: "", driver: "no posture watch — board only", field: "—", delta: "worse", room: { banner: "", incidents: ["2026-10-04 · strait median line · incursion (UCDP)"], news: ["PLA drills announced for the weekend · Focus Taiwan · 6 h"], civil: "<b>Level 1</b>", health: "No outbreak news · <b>GPS:</b> 7 cells" }, airfields: [] }] },
+      { id: "NORTHCOM", name: "USNORTHCOM", iw: null, demand: { dir: "hold", score: "+4", conf: "low" }, events: { kin: 0, neo: 0, newN: 0 }, delta: { worse: 0, better: 0 },
+        why: "own force · KWRI RWY 06/24 closure starts in 6 d",
+        boards: [], countries: [{ id: "United States", sev: "a", chron: "", driver: "Airspace / NOTAM — KWRI RWY 06/24 CLSD", field: "KWRI · ops", delta: "", room: { banner: "", incidents: [], news: ["JB MDL runway resurfacing begins next week · base release · 2 d"], civil: "home station", health: "—" }, airfields: [{ icao: "KWRI", name: "McGuire Air Force Base", sub: "hub · Joint Base MDL", leds: "gaggg", worse: "", driver: "Airspace / NOTAM — RWY 06/24 CLSD · starts in 6 d", role: "hub", sitrep: { state: "FMC (watch) — closure in 6 d", ccir: ["single-runway CCIR from Oct 12"], bluf: "Both runways open today; NOTAM closes 06/24 from Oct 12 for resurfacing, leaving 18/36 with the ILS 18. Weather VFR; threat quiet; infrastructure normal.", caps: [["f", "launch / recovery"], ["f", "all-weather / night"], ["p", "throughput (from Oct 12)"], ["f", "fuel"], ["f", "ARFF"], ["f", "C2 / comms"], ["f", "force protection"]], leds: [["g", "Wx", "VFR"], ["a", "Ops", "RWY 06/24 CLSD from Oct 12"], ["g", "Threat", "quiet"], ["g", "Infra", "FAA NAS: no programs"], ["g", "Spectrum", "G1"]], hist: "● ● ● ● ● ● ●" } }] }] },
+      { id: "AFRICOM", name: "USAFRICOM", iw: null, demand: { dir: "hold", score: "+9", conf: "low" }, events: { kin: 3, neo: 0, newN: 0 }, delta: { worse: 0, better: 0 }, why: "3 kinetic events (Mali, Nigeria) · no watch declared · demand HOLD", boards: [], countries: [], quiet: true },
+      { id: "SOUTHCOM", name: "USSOUTHCOM", iw: { level: "calm", anomaly: "+0.10", traj: "→", boards: 1, learning: true }, demand: { dir: "hold", score: "+2", conf: "low" }, events: { kin: 0, neo: 0, newN: 0 }, delta: { worse: 0, better: 0 }, why: "board CALM — learning mode, baseline forming", boards: [{ name: "SOUTHCOM · Southcom", level: "calm", anomaly: "+0.10", traj: "stable →", scen: "Templated board, learning mode (6 of 14 samples).", drivers: [["watching", "conflict_intensity — 2 events / 90 d"]], link: "none declared" }], countries: [], quiet: true },
+    ],
+    events: [
+      { cmd: "CENTCOM", gl: "✸", t: "Government of Israel vs Hamas", sub: "Jordan Valley · 2026-10-05 · 3 fatalities", reach: "→ OJAQ · 207 km · ~0.5 hr", isNew: true, near: "OJAQ" },
+      { cmd: "CENTCOM", gl: "🛂", t: "Jordan — ordered departure", sub: "State Dept · in effect 4 d", reach: "→ OJAQ · on station", isNew: false, near: "OJAQ" },
+      { cmd: "CENTCOM", gl: "✸", t: "Government of Yemen vs Presidential Leadership Council", sub: "Southwestern Yemen · 2026-09-10", reach: "→ Ramstein AB · 2,782 nm · ~6.3 hr", isNew: false },
+      { cmd: "CENTCOM", gl: "✸", t: "Strikes near LLBG", sub: "Israel · 2026-10-06 · 40 km", reach: "→ LLBG · 40 km", isNew: true, near: "LLBG" },
+      { cmd: "EUCOM", gl: "✸", t: "Russia vs Ukraine", sub: "Odesa · 2026-10-06", reach: "→ Ramstein AB · 953 nm · ~2.2 hr", isNew: false, near: "ETAD" },
+      { cmd: "EUCOM", gl: "🛂", t: "Belarus — ordered departure", sub: "State Dept · 4 d", reach: "→ Ramstein AB · 796 nm · ~1.8 hr", isNew: true, near: "ETAD" },
+      { cmd: "INDOPACOM", gl: "✸", t: "Strait median-line incursion", sub: "Taiwan · 2026-10-04", reach: "→ nearest CRF · 1,900 nm", isNew: false },
+      { cmd: "AFRICOM", gl: "✸", t: "Government of Mali vs JNIM", sub: "San military base · 2026-10-02", reach: "→ Ramstein AB · 2,260 nm · ~5.1 hr", isNew: false },
+      { cmd: "AFRICOM", gl: "✸", t: "XXX475 vs XXX475", sub: "Mariga lga · 2026-10-02", reach: "→ Ramstein AB · 2,327 nm · ~5.3 hr", isNew: false },
+    ],
+    markers: [
+      { cmd: "CENTCOM", cls: "red", x: 52, y: 44 }, { cmd: "CENTCOM", cls: "conf", x: 54, y: 42 }, { cmd: "CENTCOM", cls: "conf", x: 50, y: 47 }, { cmd: "CENTCOM", cls: "node", x: 55, y: 48, t: "✈" }, { cmd: "CENTCOM", cls: "node", x: 66, y: 58, t: "✈" }, { cmd: "CENTCOM", cls: "hex", x: 78, y: 40 }, { cmd: "CENTCOM", cls: "hex", x: 81, y: 44 },
+      { cmd: "EUCOM", cls: "amber", x: 30, y: 18 }, { cmd: "EUCOM", cls: "neo", x: 34, y: 14 }, { cmd: "EUCOM", cls: "node", x: 24, y: 22, t: "✈" },
+      { cmd: "AFRICOM", cls: "conf", x: 20, y: 70 }, { cmd: "AFRICOM", cls: "conf", x: 26, y: 74 },
+      { cmd: "INDOPACOM", cls: "red", x: 92, y: 60 }, { cmd: "INDOPACOM", cls: "hex", x: 94, y: 56 },
+      { cmd: "NORTHCOM", cls: "node", x: 6, y: 30, t: "✈" },
+    ],
+    labels: [["TURKEY", 36, 30], ["EGYPT", 44, 62], ["IRAN", 76, 36], ["SAUDI ARABIA", 60, 70], ["UKRAINE", 36, 14], ["MALI", 16, 66]],
+  };
+
+  // ---------- state ----------
+  const DEFAULT_STARS = { cmds: ["CENTCOM", "EUCOM"], countries: ["Jordan", "Israel", "Ukraine"], icaos: ["KWRI", "OJAQ", "LLBG"] };
+  let stars = structuredClone(DEFAULT_STARS);
+  try { const s = localStorage.getItem("osint-proto.stars"); if (s) stars = JSON.parse(s); } catch {}
+  const saveStars = () => { try { localStorage.setItem("osint-proto.stars", JSON.stringify(stars)); } catch {} };
+  const starred = (kind, id) => stars[kind].includes(id);
+  const toggleStar = (kind, id) => { const a = stars[kind]; const i = a.indexOf(id); if (i >= 0) a.splice(i, 1); else a.push(id); saveStars(); };
+
+  const open = { cmd: null, country: null, icao: null, others: false, mt: false, primer: true, mine: true };
+  let aorOverride = null;   // null = follow the board
+  let lens = "all";
+  const SITREP_SLOTS = 6;
+  const HUB = "KWRI", SPOKES = ["ETAD", "ORER"];
+
+  // ---------- helpers ----------
+  const byId = (id) => DATA.commands.find((c) => c.id === id);
+  const allFields = () => DATA.commands.flatMap((c) => c.countries.flatMap((k) => k.airfields.map((a) => ({ ...a, cmd: c.id, country: k.id }))));
+  const fieldHasSitrep = (icao) => {
+    const f = allFields().find((x) => x.icao === icao);
+    if (!f || !f.sitrep) return false;
+    // ★ fields first, then the hub, then spokes, up to the slot cap.
+    const order = [...stars.icaos.filter((i) => allFields().some((x) => x.icao === i)), HUB, ...SPOKES].filter((v, i, a) => a.indexOf(v) === i);
+    return order.slice(0, SITREP_SLOTS).includes(icao);
+  };
+  const worstSev = (c) => c.countries.reduce((m, k) => Math.max(m, SEV[k.sev] ?? 0), 0);
+  const cmdScore = (c) => (starred("cmds", c.id) ? 100 : 0) + (c.iw ? LV[c.iw.level] * 10 : 0) + worstSev(c) * 4 + (c.delta.worse ? 3 : 0) + (c.demand.dir === "rise" ? 2 : 0);
+  const sortedCmds = () => [...DATA.commands].sort((a, b) => cmdScore(b) - cmdScore(a));
+  const isQuiet = (c) => c.quiet && !starred("cmds", c.id);
+  const sortedCountries = (c) => [...c.countries].sort((a, b) => (starred("countries", b.id) ? 100 : 0) + (SEV[b.sev] ?? 0) - ((starred("countries", a.id) ? 100 : 0) + (SEV[a.sev] ?? 0)));
+  const ledsHtml = (s) => `<span class="leds">${[...s].map((x) => `<i class="led ${x}"></i>`).join("")}</span>`;
+  const sevName = { r: "RED", a: "AMBER", g: "GREEN", u: "UNKNOWN" };
+  const sevCls = { r: "red", a: "amber", g: "grn", u: "" };
+  const starBtn = (kind, id, extra = "") => `<button class="star ${starred(kind, id) ? "on" : ""}" data-star="${kind}:${h(id)}" title="${starred(kind, id) ? "Must-track — click to remove" : "Make a must-track"}" ${extra}>${starred(kind, id) ? "★" : "☆"}</button>`;
+
+  let toastT;
+  const toast = (msg) => { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200); };
+
+  // ---------- primer ----------
+  function primerItems() {
+    const items = [];
+    const cen = byId("CENTCOM"), ind = byId("INDOPACOM"), euc = byId("EUCOM");
+    items.push({ tier: 3, star: starred("cmds", "INDOPACOM"), pri: "r", html: `<b>INDOPACOM · Taiwan</b> board is at <b class="red">ALERT</b> (+0.60, deteriorating) — the only alert in the picture; conflict-event intensity and PNT denial are the drivers.`, em: starred("cmds", "INDOPACOM") ? "★ must-track" : "not a must-track — consider ★", door: "→ INDOPACOM › Taiwan board", go: { cmd: "INDOPACOM" } });
+    items.push({ tier: 3.5, star: starred("countries", "Jordan"), pri: "r", html: `<b>CENTCOM › Jordan</b> posture went <b class="red">RED</b> since your last look (was amber): conflict within 207 km of OJAQ, 3 fatalities; <b>OJAQ</b> SITREP ops LED amber — MVFR → IFR forecast by 14Z.`, em: starred("countries", "Jordan") ? "★ must-track" : "not a must-track", door: "→ CENTCOM › Jordan › OJAQ", go: { cmd: "CENTCOM", country: "Jordan", icao: "OJAQ" } });
+    items.push({ tier: 2, star: starred("icaos", "KWRI"), pri: "a", html: `<b>KWRI</b> (your hub) RWY 06/24 closed — NOTAM, starts in 6 d; single-runway CCIR on the SITREP.`, em: "★ hub", door: "→ My airfields › KWRI", go: { cmd: "NORTHCOM", country: "United States", icao: "KWRI" } });
+    items.push({ tier: 2, star: starred("cmds", "EUCOM"), pri: "a", html: `<b>EUCOM</b> demand likely to <b class="amber">RISE</b> over 7 d (2 sources: Ukraine board deteriorating, Belarus ordered departure 4 d old) against <b>thin</b> crews.`, em: starred("cmds", "EUCOM") ? "★ must-track" : "not a must-track", door: "→ EUCOM", go: { cmd: "EUCOM" } });
+    items.push({ tier: 1, star: starred("cmds", "CENTCOM"), pri: "m", html: `<b>Forming:</b> “Hormuz” converges across I&amp;W, the chokepoint read and your X captures (breadth 3); a saved item on Bab-el-Mandeb reactivated (dormant 41 d).`, em: "", door: "→ CENTCOM › Hormuz", go: { cmd: "CENTCOM" } });
+    void cen; void ind; void euc;
+    return items.sort((a, b) => (b.tier + (b.star ? 0.25 : 0)) - (a.tier + (a.star ? 0.25 : 0)));
+  }
+  function renderPrimer() {
+    const body = $("#primerBody");
+    if (!open.primer) { body.innerHTML = ""; $("#primer").querySelector(".ft").hidden = true; $("#primerFold").textContent = "show ▾"; return; }
+    $("#primer").querySelector(".ft").hidden = false; $("#primerFold").textContent = "fold ▴";
+    body.innerHTML = primerItems().map((it, i) => `<div class="prow"><span class="pri ${it.pri}">${i + 1}</span><span class="t">${it.html}${it.em ? `<em>${it.em}</em>` : ""}</span><button class="door" data-go='${JSON.stringify(it.go)}'>${it.door}</button></div>`).join("");
+  }
+
+  // ---------- my airfields ----------
+  function renderTiles() {
+    const el = $("#tiles");
+    if (!open.mine) { el.innerHTML = `<div class="folded" style="padding:0"><b>folded while drilled in</b> · KWRI ★ · ETAD · OJAQ ★ ↑ · ORER · LLBG ★</div>`; $("#mineFold").textContent = "show ▾"; return; }
+    $("#mineFold").textContent = "fold ▴";
+    const fields = allFields();
+    const order = [HUB, ...SPOKES, ...stars.icaos].filter((v, i, a) => a.indexOf(v) === i).map((i) => fields.find((f) => f.icao === i)).filter(Boolean);
+    const used = order.filter((f) => fieldHasSitrep(f.icao)).length;
+    el.innerHTML = order.map((f) => `<button class="tile ${f.leds.includes("r") || f.worse ? "hot" : ""}" data-go='${JSON.stringify({ cmd: f.cmd, country: f.country, icao: f.icao })}'><span class="top">${starBtn("icaos", f.icao, 'data-stop="1"')}<b>${f.icao}</b><span class="role">${f.icao === HUB ? "hub" : SPOKES.includes(f.icao) ? "spoke" : f.role}</span>${ledsHtml(f.leds.padEnd(5, "u"))}${f.worse ? `<span class="worse">↑</span>` : ""}</span><span class="drv">${h(f.driver)}</span><span class="meta">${f.cmd} · ${h(f.country)}${fieldHasSitrep(f.icao) ? " · SITREP" : " · posture only"}</span></button>`).join("")
+      + `<div class="tile" style="border-style:dashed;color:var(--mut);font-size:10.5px;display:flex;align-items:center;justify-content:center;min-width:150px">＋ add a field · ${used} of ${SITREP_SLOTS} SITREP slots used</div>`;
+  }
+
+  // ---------- board ----------
+  function cmdRow(c) {
+    const isOpen = open.cmd === c.id;
+    const st = starred("cmds", c.id);
+    const postureDots = sortedCountries(c).map((k) => `<i class="led ${k.sev}"></i>`).join("");
+    const reds = c.countries.filter((k) => k.sev === "r").length, ambers = c.countries.filter((k) => k.sev === "a").length, esc = c.countries.filter((k) => k.esc).length;
+    const fields = c.countries.flatMap((k) => k.airfields);
+    const worseF = fields.filter((f) => f.worse);
+    return `<button class="crow ${st ? "must" : ""} ${isOpen ? "open" : ""}" data-cmd="${c.id}" aria-expanded="${isOpen}">
+      ${starBtn("cmds", c.id, 'data-stop="1"')}
+      <span class="cn"><b>${c.name}</b><span class="why">${h(c.why)}</span></span>
+      <span class="cell">${c.iw ? `<span class="lv ${c.iw.level}">${c.iw.level}</span><span class="sub">${c.iw.anomaly} ${c.iw.traj} · ${c.iw.boards} board${c.iw.learning ? " · learning" : ""}</span>` : `<span class="sub muted">no board</span>`}</span>
+      <span class="cell">${c.countries.length ? `<span class="leds">${postureDots}</span><span class="sub">${reds} red · ${ambers} amber${esc ? ` · ${esc} ↑` : ""}</span>` : `<span class="sub muted">no watch</span>`}</span>
+      <span class="cell">${fields.length ? `<span class="leds">${fields.map((f) => `<i class="led ${[...f.leds].sort((a, b) => SEV[b] - SEV[a])[0]}"></i>`).join("")}</span><span class="sub">${fields.length}${worseF.length ? ` · ${worseF.map((f) => f.icao).join(", ")} ↑` : ""}</span>` : `<span class="sub muted">none</span>`}</span>
+      <span class="cell"><span class="dm ${c.demand.dir}">${c.demand.dir}</span><span class="sub">${c.demand.score} · ${c.demand.conf}</span></span>
+      <span class="cell"><span style="font-size:11px;color:var(--txt2)">${c.events.kin ? `${c.events.kin} ✸` : "—"}${c.events.neo ? ` · ${c.events.neo} NEO` : ""}</span><span class="sub">${c.events.newN ? `${c.events.newN} new` : "—"}</span></span>
+      <span class="cell"><span style="font-size:10.5px;color:var(--mut)">${c.delta.worse ? `<b class="red">${c.delta.worse} worse</b>` : "0 worse"} · ${c.delta.better ? `<b class="grn">${c.delta.better} better</b>` : "0 better"}</span></span>
+      <span class="car">${isOpen ? "▴" : "▸"}</span>
+    </button>${isOpen ? drill(c) : ""}`;
+  }
+  function drill(c) {
+    const boards = c.boards.length ? c.boards.map((b) => `<div class="iw"><span class="t"><b>${h(b.name)}</b><span class="sc2">${h(b.scen)}</span></span><span class="anom"><span class="nn">${b.anomaly}</span><span class="l">anomaly · ${h(b.traj)} · ${b.level}</span></span><span class="drv">${b.drivers.map(([s, t]) => `<span><span class="st ${s}">${s}</span>${h(t)}</span>`).join("")}</span><span class="ft">decision linkage: ${h(b.link)} <button class="act ghost" data-toast="The full board (indicators, sparklines, decision log) opens here">open the full board ↗</button></span></div>`).join("")
+      : `<div class="sub muted" style="padding:4px 0 8px">no I&amp;W board declared for this command — <button class="act ghost" data-toast="Declare an AOI with I&W in the Mission Profile">declare one in the Mission Profile</button></div>`;
+    const countries = c.countries.length ? sortedCountries(c).map((k) => countryRow(c, k)).join("") : `<div class="sub muted" style="padding:4px 0 8px">no countries watched in this command</div>`;
+    return `<div class="drill">
+      <div class="sh">Indications &amp; warning · ${c.boards.length} board${c.boards.length === 1 ? "" : "s"} for this command</div>${boards}
+      <div class="sh">Countries · ★ first, then worst · ${c.countries.length} tracked<span class="hint">click a country for its situation room</span></div>${countries}
+      ${c.chokepoint ? `<button class="fold" style="border-top:1px solid var(--bd)"><span>▸</span><b>${h(c.chokepoint.split(" · ")[0])}</b><span>${h(c.chokepoint.split(" · ").slice(1).join(" · "))}</span></button>` : ""}
+    </div>`;
+  }
+  function countryRow(c, k) {
+    const isOpen = open.country === k.id;
+    return `<button class="ctry ${isOpen ? "open" : ""}" data-country="${h(k.id)}" aria-expanded="${isOpen}">
+      ${starBtn("countries", k.id, 'data-stop="1"')}<i class="led ${k.sev}"></i>
+      <span><b>${h(k.id)}</b><span class="sub"> · ${k.airfields.length ? `${k.airfields[0].icao}${k.airfields.length > 1 ? ` + ${k.airfields.length - 1}` : ""}` : "no field"}</span></span>
+      <span><span class="sev ${sevCls[k.sev]}">${sevName[k.sev]}${k.esc ? " · escalated today" : ""}</span>${k.chron || k.was ? `<span class="cm">${k.was ? `was ${k.was} · ` : ""}${h(k.chron)}</span>` : ""}</span>
+      <span class="sub">${h(k.driver)}</span><span class="sub">${h(k.field)}</span>
+      <span>${k.delta ? `<span class="tag ${k.delta}">${k.delta}</span>` : "—"}</span><span class="car">${isOpen ? "▴" : "▸"}</span>
+    </button>${isOpen ? room(c, k) : ""}`;
+  }
+  function room(c, k) {
+    const r = k.room;
+    const fields = [...k.airfields].sort((a, b) => Number(fieldHasSitrep(b.icao)) - Number(fieldHasSitrep(a.icao)));
+    return `<div class="room">
+      <div class="hd"><span class="k">${h(k.id)} — situation room</span><span class="s">posture · conflict reporting · incidents · civil · health · spectrum</span><span class="r"><button class="act" data-toast="AI SITREP for ${h(k.id)} would generate here (chat feature, 15-min cache)">✦ AI SITREP</button></span></div>
+      ${r.banner ? `<div class="banner">${h(r.banner).replace(/^(Active conflict reporting · \w+)/, "<b>$1</b>")}</div>` : ""}
+      <div class="dcols">
+        <div class="dc"><div class="k2">◆ Security incidents <span class="s">ACLED · UCDP · in-country + 500 km</span></div><div class="mini"><div class="mk red" style="left:62%;top:40%"></div><div class="mk conf" style="left:58%;top:44%"></div><div class="mk node" style="left:48%;top:52%">✈</div><div class="label" style="left:10px;top:8px;position:absolute">${h(k.id).toUpperCase()}</div></div>${r.incidents.length ? `<ul>${r.incidents.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : `<p style="color:var(--mut)">no incidents within 500 km in 14 days</p>`}</div>
+        <div class="dc"><div class="k2">📰 Local news &amp; media <span class="s">GDELT + your feeds</span></div>${r.news.length ? `<ul>${r.news.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : `<p style="color:var(--mut)">nothing matched</p>`}</div>
+        <div class="dc"><div class="k2">⚖ Civil / political <span class="s">State advisory</span></div><p>${r.civil}</p></div>
+        <div class="dc"><div class="k2">✚ Health · ⌁ Spectrum</div><p>${r.health}</p></div>
+      </div>
+      <div style="padding:0 14px 10px"><div class="sh">Airfields in ${h(k.id)} · ${k.airfields.length}<span class="hint">★ fields carry a full SITREP (${SITREP_SLOTS} slots); others show posture only</span></div>
+        ${fields.length ? fields.map((f) => fieldRow(c, k, f)).join("") : `<div class="sub muted" style="padding:4px 0">no airfield tracked in ${h(k.id)}</div>`}
+      </div>
+    </div>`;
+  }
+  function fieldRow(c, k, f) {
+    const has = fieldHasSitrep(f.icao);
+    const isOpen = open.icao === f.icao && has;
+    return `<button class="afrow" data-icao="${f.icao}" aria-expanded="${isOpen}" ${has ? "" : 'data-toast="★ this field to assemble a full SITREP for it"'}>
+      ${starBtn("icaos", f.icao, 'data-stop="1"')}
+      <span><b>${f.icao} · ${h(f.name)}</b><span class="sub"> · ${h(f.sub)}</span></span>
+      ${has ? ledsHtml(f.leds.padEnd(5, "u")) : `<span class="leds"><i class="led ${f.leds[0]}"></i></span>`}
+      <span class="sub">${has ? (f.worse ? `<span class="worse">↑</span> worse than yesterday · ${f.worse}` : h(f.driver)) : `${h(f.driver)} · <span style="color:var(--amber)">★ to get a SITREP</span>`}</span>
+      <span class="car">${has ? (isOpen ? "▴" : "▸") : ""}</span>
+    </button>${isOpen ? sitrep(f) : ""}`;
+  }
+  function sitrep(f) {
+    const s = f.sitrep;
+    return `<div class="sitrep">
+      <div class="hd"><span class="k">⚑ ${f.icao} — SITREP</span><span class="s">assembled 6 min ago · 10-min cache</span><span class="r"><button class="act" data-toast="Commander's read: 3-bullet BLUF + asks from the same cached payload">✦ Commander’s read</button><button class="act ghost" data-toast="Zero-JS standalone HTML export">⇩ Export HTML</button><button class="act ghost" data-toast="Saves a dated doc tagged sitrep">⧉ Save to Docs</button></span></div>
+      <div class="mc"><div class="state"><span class="big">${h(s.state)}</span>${s.ccir.map((x) => `<span class="ccir">${h(x)}</span>`).join("")}</div><div class="bluf">${h(s.bluf)}</div><div class="caps">${s.caps.map(([t, l]) => `<span class="cap ${t}">${h(l)}</span>`).join("")}</div></div>
+      <div class="ledrow">${s.leds.map(([c, l, d]) => `<div class="ledbox"><i class="led ${c}"></i><div><b>${l}</b><span>${h(d)}</span></div></div>`).join("")}</div>
+      <div class="more">last 7 days <span class="mono">${s.hist}</span><button class="act ghost wrapbtn" style="margin-left:auto" data-detail="${f.icao}">supporting detail — weather · ops · threats · infrastructure · spectrum · LIMFAC register ${open.detail === f.icao ? "▴" : "▾"}</button></div>
+      ${open.detail === f.icao ? `<div class="detail"><div class="dc"><div class="k2">Weather brief</div><p>METAR 06Z: 8 kt / 6 SM / BKN025 · TAF: IFR from 14Z, 4 h · xwind 18 kt on 06/24 (amber)</p></div><div class="dc"><div class="k2">Ops summary</div><p>NOTAM A0467/26 ILS 24 U/S until 20 Oct · fuel: no restriction · bird activity elevated dawn/dusk</p></div><div class="dc"><div class="k2">Threats</div><p>ACLED: 3 events ≤250 km / 7 d · State: ordered departure in effect · GDELT: 6 corroborating items</p></div><div class="dc"><div class="k2">Infrastructure · Spectrum</div><p>IODA normal · FAA NAS n/a · power: no news · G1 · 1 GPSJam cell · no KEV on declared vendors</p></div><div class="dc" style="grid-column:1/-1"><div class="k2">LIMFAC register</div><p>Auto: ILS 24 U/S × forecast IFR (PMC, all-weather). Manual: none entered — <button class="act ghost" data-toast="Adds a commander-entered LIMFAC (shared, attributed)">＋ add</button></p></div></div>` : ""}
+    </div>`;
+  }
+  function renderBoard() {
+    const cmds = sortedCmds();
+    const main = cmds.filter((c) => !isQuiet(c)), quiet = cmds.filter(isQuiet);
+    const quietLine = quiet.length ? `<button class="fold" id="othersBtn"><span>${open.others ? "▾" : "▸"}</span><b>${quiet.length} other command${quiet.length === 1 ? "" : "s"}</b><span>${quiet.map((c) => `${c.id} — ${c.why}`).join(" · ")}</span><span class="act ghost" style="margin-left:auto">${open.others ? "hide" : "show"}</span></button>${open.others ? quiet.map(cmdRow).join("") : ""}` : "";
+    $("#rows").innerHTML = main.map(cmdRow).join("") + quietLine;
+    $("#boardSub").textContent = open.cmd ? `${byId(open.cmd).name} open — the others stay as one-line rows` : "★ must-tracks first, then worst · click a command to drill in";
+    renderMustTracks();
+  }
+  function renderMustTracks() {
+    const el = $("#mt"); el.hidden = !open.mt; if (!open.mt) return;
+    const chips = (kind, ids) => ids.map((id) => `<button class="sc ${starred(kind, id) ? "on" : ""}" data-star="${kind}:${h(id)}">${starred(kind, id) ? "★" : "☆"} ${h(id)}</button>`).join("");
+    el.innerHTML = `<div class="mh">Must-tracks — what the board, the primer, the airfield strip and the map lead with</div>
+      <div class="grp"><span class="gl">Commands</span>${chips("cmds", DATA.commands.map((c) => c.id))}</div>
+      <div class="grp"><span class="gl">Countries</span>${chips("countries", DATA.commands.flatMap((c) => c.countries.map((k) => k.id)))}</div>
+      <div class="grp"><span class="gl">Airfields</span>${chips("icaos", allFields().map((f) => f.icao))}</div>
+      <div class="mf">Stored in the Mission Profile (team config). ★ rows sort first and never fold; ★ airfields get a full SITREP (${SITREP_SLOTS} slots, hub always); the map’s “My AO” = ★ commands. <button class="act ghost" id="resetStars">reset to the sample</button></div>`;
+  }
+
+  // ---------- picture ----------
+  const activeAor = () => aorOverride ?? open.cmd;
+  function renderPicture() {
+    const aor = activeAor();
+    const chipsFor = [...new Set([...stars.cmds, ...DATA.commands.filter((c) => c.events.kin || c.events.neo).map((c) => c.id)])];
+    $("#aorChips").innerHTML = `<button class="chip ${aorOverride === null ? "on" : ""}" data-aor="follow">${open.cmd && aorOverride === null ? `◆ ${open.cmd} — following the board` : "follows the board — All"}</button>` + chipsFor.map((id) => `<button class="chip ${aorOverride === id ? "on" : ""}" data-aor="${id}">${id}${starred("cmds", id) ? " ★" : ""}</button>`).join("") + `<button class="chip ${aorOverride === "all" ? "on" : ""}" data-aor="all">All</button>`;
+    const narrow = aor && aor !== "all" ? aor : null;
+    const scene = $("#scene");
+    scene.innerHTML = DATA.labels.map(([t, x, y]) => `<div class="label" style="left:${x}%;top:${y}%">${t}</div>`).join("")
+      + DATA.markers.map((m) => `<div class="mk ${m.cls} ${narrow && m.cmd !== narrow ? "dim" : ""}" style="left:${m.x}%;top:${m.y}%">${m.t ?? ""}</div>`).join("")
+      + (open.icao ? `<div class="tip" style="left:${open.icao === "KWRI" ? 8 : open.icao === "ETAD" ? 26 : 56}%;top:${open.icao === "KWRI" ? 24 : open.icao === "ETAD" ? 16 : 36}%">🛡 ${open.icao} · flown to on open</div>` : open.country ? `<div class="tip" style="left:56%;top:36%">◎ ${h(open.country)} · flown to on open</div>` : "")
+      + `<div class="zoom">＋<br>−</div><div class="fly">${narrow ? `view: ${narrow}${aorOverride ? " (manual)" : " (following)"}` : "view: world"}</div>`;
+    const cmds = DATA.commands.filter((c) => c.countries.length && (!narrow || c.id === narrow));
+    const reds = cmds.flatMap((c) => c.countries).filter((k) => k.sev === "r").length, ambers = cmds.flatMap((c) => c.countries).filter((k) => k.sev === "a").length;
+    $("#rail").innerHTML = `<div class="rhd"><b>Force posture${narrow ? ` · ${narrow}` : ""}</b><span class="chip on" style="font-size:9px">Bases</span><span class="chip" style="font-size:9px">Countries</span><span class="s">${reds} red · ${ambers} amber${narrow ? " — narrowed to the open command" : ""}</span></div>`
+      + cmds.map((c) => `<div class="rg"><i class="led ${worstSev(c) >= 3 ? "r" : worstSev(c) >= 2 ? "a" : "g"}"></i>${c.name}<span>${c.countries.length}</span></div>` + sortedCountries(c).map((k) => `<button class="rr" data-go='${JSON.stringify({ cmd: c.id, country: k.id })}'><i class="led ${k.sev}"></i><b>${h(k.id)}${k.airfields[0] ? ` · ${k.airfields[0].icao}` : ""}</b>${k.chron ? `<span class="chip" style="font-size:8px;padding:0 5px">${k.chron.split(" ")[0]}</span>` : ""}<span class="d">${h(k.driver)}</span></button>`).join("")).join("");
+    // events
+    const nearIcaos = new Set([HUB, ...SPOKES, ...stars.icaos]);
+    let evs = DATA.events.filter((e) => !narrow || e.cmd === narrow);
+    if (lens === "near") evs = evs.filter((e) => e.near && nearIcaos.has(e.near));
+    if (lens === "new") evs = evs.filter((e) => e.isNew);
+    $("#newCount").textContent = DATA.events.filter((e) => e.isNew && (!narrow || e.cmd === narrow)).length;
+    $("#lensAll").classList.toggle("on", lens === "all"); $("#lensNear").classList.toggle("on", lens === "near"); $("#lensNew").classList.toggle("on", lens === "new");
+    $("#evSub").textContent = `${evs.length} — ${narrow ? `${narrow}, following the board` : "grouped by command, follows the board"}`;
+    const groups = [...new Set(evs.map((e) => e.cmd))].sort((a, b) => cmdScore(byId(b)) - cmdScore(byId(a)));
+    $("#evRows").innerHTML = groups.length ? groups.map((g) => `<div class="eg"><i class="led ${worstSev(byId(g)) >= 3 ? "r" : "a"}"></i>${byId(g).name}<span>${evs.filter((e) => e.cmd === g).length}</span></div>` + evs.filter((e) => e.cmd === g).map((e) => `<div class="er"><span class="gl">${e.gl}</span><span class="t">${h(e.t)}<em>${h(e.sub)}</em>${e.isNew ? `<span class="tag new">new</span>` : ""}</span><span class="reach">${h(e.reach)}</span></div>`).join("")).join("") : `<div class="sub muted" style="padding:10px 14px">nothing in this view</div>`;
+  }
+
+  // ---------- crumb + folds ----------
+  function renderCrumb() {
+    const parts = ["Commands"];
+    if (open.cmd) parts.push(byId(open.cmd).name);
+    if (open.country) parts.push(open.country);
+    if (open.icao) parts.push(open.icao);
+    $("#crumb").innerHTML = open.cmd ? parts.map((p, i) => i ? `<b>${h(p)}</b>` : p).join(" › ") : "22 feeds · 164 items · live aircraft &amp; maritime";
+    $("#upd").innerHTML = open.cmd ? `primer and My airfields folded while drilled in · <button class="act ghost" id="backBtn" style="color:var(--acc)">▴ back to the board</button>` : `updated 2 min ago · <i>3 changes since you last looked</i>`;
+  }
+  function renderAll() { renderPrimer(); renderTiles(); renderBoard(); renderPicture(); renderCrumb(); }
+
+  function go(target, scroll = true) {
+    const cmd = byId(target.cmd); if (!cmd) return;
+    const wasCmd = open.cmd;
+    open.cmd = cmd.id; open.others = open.others || !!(isQuiet(cmd));
+    open.country = target.country ?? null; open.icao = target.icao ?? null; open.detail = null;
+    aorOverride = null;
+    if (!wasCmd) { open.primer = false; open.mine = false; }
+    renderAll();
+    if (scroll) { const sel = open.icao ? `[data-icao="${open.icao}"]` : open.country ? `[data-country="${CSS.escape(open.country)}"]` : `[data-cmd="${open.cmd}"]`; const el = document.querySelector(sel); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  }
+  function collapseAll() { open.cmd = open.country = open.icao = null; open.detail = null; open.primer = true; open.mine = true; aorOverride = null; renderAll(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+
+  // ---------- events ----------
+  document.addEventListener("click", (ev) => {
+    const t = ev.target.closest("button");
+    if (!t) return;
+    if (t.dataset.star) {
+      ev.stopPropagation();
+      const [kind, id] = t.dataset.star.split(/:(.+)/);
+      toggleStar(kind, id);
+      toast(`${starred(kind, id) ? "★ " + id + " is a must-track" : id + " is no longer a must-track"} — board re-sorted`);
+      renderAll(); return;
+    }
+    if (t.dataset.go) { go(JSON.parse(t.dataset.go)); return; }
+    if (t.dataset.cmd) { if (open.cmd === t.dataset.cmd) { open.cmd = open.country = open.icao = null; open.primer = true; open.mine = true; aorOverride = null; renderAll(); } else go({ cmd: t.dataset.cmd }, false); return; }
+    if (t.dataset.country) { open.country = open.country === t.dataset.country ? null : t.dataset.country; open.icao = null; aorOverride = null; renderAll(); return; }
+    if (t.dataset.icao) { if (t.dataset.toast) { toast(t.dataset.toast); return; } open.icao = open.icao === t.dataset.icao ? null : t.dataset.icao; open.detail = null; aorOverride = null; renderAll(); return; }
+    if (t.dataset.detail) { open.detail = open.detail === t.dataset.detail ? null : t.dataset.detail; renderBoard(); return; }
+    if (t.dataset.aor) { aorOverride = t.dataset.aor === "follow" ? null : t.dataset.aor; renderPicture(); return; }
+    if (t.dataset.toast) { toast(t.dataset.toast); return; }
+    if (t.dataset.inert !== undefined) { toast("Feeds and Sources stay as secondary chips — inert in this prototype"); return; }
+    switch (t.id) {
+      case "mtBtn": open.mt = !open.mt; renderMustTracks(); break;
+      case "collapseAll": collapseAll(); break;
+      case "backBtn": collapseAll(); break;
+      case "othersBtn": open.others = !open.others; renderBoard(); break;
+      case "primerFold": open.primer = !open.primer; renderPrimer(); break;
+      case "mineFold": open.mine = !open.mine; renderTiles(); break;
+      case "resetStars": stars = structuredClone(DEFAULT_STARS); saveStars(); renderAll(); toast("Must-tracks reset to the sample"); break;
+      case "aiRead": toast("The AI read spends one model call on tap and writes two sentences above the list"); break;
+      case "fullBtn": $("#map").classList.toggle("full"); t.textContent = $("#map").classList.contains("full") ? "Exit" : "Full"; break;
+      case "lensAll": lens = "all"; renderPicture(); break;
+      case "lensNear": lens = lens === "near" ? "all" : "near"; renderPicture(); break;
+      case "lensNew": lens = lens === "new" ? "all" : "new"; renderPicture(); break;
+    }
+  });
+
+  renderAll();
+})();
+</script>
+
+</body>
+</html>

@@ -26,3 +26,4 @@ shot email-proposed.html    email.png           1280,1760 2
 shot family-proposed.html   family-proposed.png 1280,1960 2
 shot osint-commands.html    osint-commands.png  1280,2360 2
 shot osint-drill.html       osint-drill.png     1280,2640 2
+shot osint-prototype.html   osint-prototype.png 1280,2400 2   # interactive; the shot is the landing state
