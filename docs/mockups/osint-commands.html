@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>osint — commands (proposed)</title><link rel="stylesheet" href="shot.css"><link rel="stylesheet" href="osint.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+<header>
+  <div class="accentline"></div>
+  <div class="wrap hrow">
+    <div class="brand"><div class="logo">◆</div><div class="title">DEAD&rsquo;s Dashboard</div></div>
+    <div class="actions"><span class="btn">⌕ ⌘K</span><span class="btn primary">▤ Brief</span><span class="btn">≡ Digest</span><span class="btn">＋ Capture</span><span class="btn" style="width:32px;justify-content:center">⚙</span></div>
+  </div>
+  <div class="wrap"><nav class="tabs">
+    <span class="tab">Glance</span><span class="tab">News <span class="badge">9+</span></span><span class="tab">Calendar</span><span class="tab">Email <span class="badge">3</span></span><span class="tab">Family</span><span class="tab active">OSINT</span><span class="tab">Weather</span><span class="tab">Docs</span><span class="tab">Economy</span>
+  </nav></div>
+</header>
+<main class="wrap">
+  <div class="oh">
+    <span class="k">◎ OSINT</span><span class="s">22 feeds · 164 items · live aircraft &amp; maritime</span>
+    <span class="panes"><span class="chip on">◆ Commands</span><span class="chip">≣ Feeds <span class="c">164</span></span><span class="chip">⇪ Sources</span><span class="n">1</span></span>
+    <span class="upd">updated 2 min ago · <i>3 changes since you last looked</i></span>
+  </div>
+
+  <!-- primer -->
+  <div class="primer">
+    <div class="hd"><span class="k">⌖ Where to look first</span><span class="s">deterministic — ranked from the posture, boards, bases, demand and your last look; nothing paid</span><span class="n">2</span><span class="r"><span class="act">✦ Read (AI) ▾</span><span class="act ghost">⇩ OE brief</span></span></div>
+    <div class="prow"><span class="pri r">1</span><span class="t"><b>INDOPACOM · Taiwan</b> board is at <b class="red">ALERT</b> (+0.60, deteriorating) — the only alert in the picture; conflict-event intensity and PNT denial are the drivers.<em>not a must-track — consider ★</em></span><span class="door">→ INDOPACOM › Taiwan board</span></div>
+    <div class="prow"><span class="pri r">2</span><span class="t"><b>CENTCOM › Jordan</b> posture went <b class="red">RED</b> since your last look (was amber): conflict within 207 km of OJAQ, 3 fatalities; <b>OJAQ</b> SITREP ops LED amber — MVFR → IFR forecast by 14Z.<em>★ must-track</em></span><span class="door">→ CENTCOM › Jordan › OJAQ</span></div>
+    <div class="prow"><span class="pri a">3</span><span class="t"><b>KWRI</b> (your hub) RWY 06/24 closed — NOTAM, starts in 6 d; single-runway CCIR on the SITREP.<em>★ hub</em></span><span class="door">→ My airfields › KWRI</span></div>
+    <div class="prow"><span class="pri a">4</span><span class="t"><b>EUCOM</b> demand likely to <b class="amber">RISE</b> over 7 d (2 sources: Ukraine board deteriorating, Belarus ordered departure 4 d old) against <b>thin</b> crews.<em>★ must-track</em></span><span class="door">→ EUCOM</span></div>
+    <div class="prow"><span class="pri m">5</span><span class="t"><b>Forming:</b> “Hormuz” converges across I&amp;W, chokepoint read and your X captures (breadth 3); a saved item on Bab-el-Mandeb reactivated (dormant 41 d).</span><span class="door">→ CENTCOM › Hormuz</span></div>
+    <div class="ft">2 I&amp;W calls are due for scoring · nothing changed in AFRICOM or SOUTHCOM (absence of signal, not evidence of calm) · one source down: DAIP NOTAMs</div>
+  </div>
+
+  <!-- my airfields -->
+  <div class="mine">
+    <div class="hd"><span class="k">✈ My airfields</span><span class="s">hub · spokes · ★ must-track fields — SITREPs one click from anywhere</span><span class="n">3</span><span class="r"><span class="act ghost">manage ★</span></span></div>
+    <div class="tiles">
+      <div class="tile hot"><span class="top"><span class="star on">★</span><b>KWRI</b><span class="role">hub</span><span class="leds"><i class="g"></i><i class="a"></i><i class="g"></i><i class="g"></i><i class="g"></i></span></span><span class="drv">Airspace / NOTAM — RWY 06/24 CLSD · starts in 6 d</span><span class="meta">NORTHCOM · McGuire</span></div>
+      <div class="tile"><span class="top"><span class="star">☆</span><b>ETAD</b><span class="role">spoke</span><span class="leds"><i class="g"></i><i class="a"></i><i class="g"></i><i class="g"></i><i class="u"></i></span></span><span class="drv">Aviation Wx — IFR vis 21Z</span><span class="meta">EUCOM · Ramstein</span></div>
+      <div class="tile hot"><span class="top"><span class="star on">★</span><b>OJAQ</b><span class="role">AOI</span><span class="leds"><i class="a"></i><i class="a"></i><i class="r"></i><i class="g"></i><i class="g"></i></span><span class="worse">↑</span></span><span class="drv">Threat — conflict 207 km, 3 fatalities · MVFR → IFR fcst</span><span class="meta">CENTCOM · Jordan</span></div>
+      <div class="tile"><span class="top"><span class="star">☆</span><b>ORER</b><span class="role">spoke</span><span class="leds"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i></span></span><span class="drv">all green · VFR · no NOTAMs</span><span class="meta">CENTCOM · Erbil</span></div>
+      <div class="tile add">＋ add a field (3 of 6 ★ SITREP slots used)</div>
+    </div>
+  </div>
+
+  <!-- command board -->
+  <div class="board">
+    <div class="hd">
+      <span class="k">◆ Combatant commands</span><span class="s">★ must-tracks first, then worst · click a command to drill in</span><span class="n">4</span>
+      <span class="r"><span class="act">★ must-tracks ▾</span><span class="act ghost">collapse all</span></span>
+      <div class="pop">
+        <div class="mh">Must-tracks — what the board, the primer and the map lead with</div>
+        <div class="grp"><span class="gl">Commands</span><span class="sc on">★ CENTCOM</span><span class="sc on">★ EUCOM</span><span class="sc">☆ INDOPACOM</span><span class="sc">☆ NORTHCOM</span><span class="sc">☆ AFRICOM</span><span class="sc">☆ SOUTHCOM</span></div>
+        <div class="grp"><span class="gl">Countries</span><span class="sc on">★ Jordan</span><span class="sc on">★ Israel</span><span class="sc on">★ Ukraine</span><span class="sc">☆ Taiwan</span><span class="sc">☆ Saudi Arabia</span><span class="sc">☆ Kuwait</span><span class="sc">☆ Iraq</span><span class="sc">☆ Germany</span></div>
+        <div class="grp"><span class="gl">Airfields</span><span class="sc on">★ KWRI</span><span class="sc on">★ OJAQ</span><span class="sc on">★ LLBG</span><span class="sc">☆ ETAD</span><span class="sc">☆ ORER</span><span class="sc">☆ OTBH</span></div>
+        <div class="mf">Stored in the Mission Profile (team config). ★ rows sort first and never fold; ★ airfields get a full SITREP (6 slots); the map&rsquo;s “My AO” = ★ commands.</div>
+      </div>
+    </div>
+    <div class="chead"><span></span><span>command</span><span>I&amp;W</span><span>posture</span><span>bases</span><span>demand · 7d</span><span>events · 24h</span><span>Δ since look</span><span></span></div>
+
+    <div class="crow must"><span class="star on">★</span><span class="cn"><b>USCENTCOM</b><span class="why">Jordan RED (escalated) · Iran board WATCH ↗ · OJAQ ops amber</span></span>
+      <span class="cell"><span class="lv watch">WATCH</span><span class="sub">+0.31 ↗ · 1 board</span></span>
+      <span class="cell"><span class="dots"><i class="r"></i><i class="r"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="g"></i><i class="g"></i></span><span class="sub">2 red · 3 amber · 1 ↑</span></span>
+      <span class="cell"><span class="dots"><i class="a"></i><i class="g"></i><i class="g"></i></span><span class="sub">3 · OJAQ ↑</span></span>
+      <span class="cell"><span class="dm hold">HOLD</span><span class="sub">+12 · med</span></span>
+      <span class="cell"><span class="ev">4 ✸ · 1 NEO</span><span class="sub">1 new</span></span>
+      <span class="cell"><span class="delta"><b class="red">1 worse</b> · 0 better</span></span>
+      <span class="car">▾</span><span class="n">5</span></div>
+
+    <div class="crow must"><span class="star on">★</span><span class="cn"><b>USEUCOM</b><span class="why">Ukraine board WARNING ↗ · Belarus ordered departure · demand rising vs thin crews</span></span>
+      <span class="cell"><span class="lv warn">WARNING</span><span class="sub">+0.52 ↗ · 1 board</span></span>
+      <span class="cell"><span class="dots"><i class="a"></i><i class="a"></i><i class="g"></i><i class="g"></i></span><span class="sub">0 red · 2 amber</span></span>
+      <span class="cell"><span class="dots"><i class="a"></i></span><span class="sub">1 · ETAD</span></span>
+      <span class="cell"><span class="dm rise">RISE</span><span class="sub">+31 · 2 src</span></span>
+      <span class="cell"><span class="ev">2 ✸ · 1 NEO</span><span class="sub">—</span></span>
+      <span class="cell"><span class="delta">0 worse · <b class="grn">1 better</b></span></span>
+      <span class="car">▸</span></div>
+
+    <div class="crow"><span class="star">☆</span><span class="cn"><b>USINDOPACOM</b><span class="why">Taiwan board ALERT ↗ — the only alert; no posture watch declared here</span></span>
+      <span class="cell"><span class="lv alert">ALERT</span><span class="sub">+0.60 ↗ · 1 board</span></span>
+      <span class="cell"><span class="sub muted">no watch</span></span>
+      <span class="cell"><span class="sub muted">none</span></span>
+      <span class="cell"><span class="dm rise">RISE</span><span class="sub">+27 · 1 src</span></span>
+      <span class="cell"><span class="ev">1 ✸</span><span class="sub">—</span></span>
+      <span class="cell"><span class="delta"><b class="red">1 worse</b></span></span>
+      <span class="car">▸</span></div>
+
+    <div class="crow"><span class="star">☆</span><span class="cn"><b>USNORTHCOM</b><span class="why">own force · KWRI RWY 06/24 closure starts in 6 d</span></span>
+      <span class="cell"><span class="sub muted">no board</span></span>
+      <span class="cell"><span class="dots"><i class="a"></i></span><span class="sub">1 amber</span></span>
+      <span class="cell"><span class="dots"><i class="a"></i></span><span class="sub">1 · KWRI</span></span>
+      <span class="cell"><span class="dm hold">HOLD</span><span class="sub">+4 · low</span></span>
+      <span class="cell"><span class="ev">—</span></span>
+      <span class="cell"><span class="delta">—</span></span>
+      <span class="car">▸</span></div>
+
+    <div class="fold"><span>▸</span><b>2 other commands</b><span>AFRICOM — 3 kinetic events, no watch, demand HOLD · SOUTHCOM — board CALM, learning</span><span class="act ghost" style="margin-left:auto">show</span><span class="n">6</span></div>
+  </div>
+
+  <!-- picture -->
+  <div class="pic">
+    <div class="ptop">
+      <span class="k">PICTURE</span>
+      <span class="tb"><span class="act">View ▾</span><span class="act">⚙ Layers (11)</span><span class="act">Legend ▾</span><span class="aor">AOR <span class="chip on">follows the board — All</span><span class="chip">CENTCOM</span><span class="chip">EUCOM</span><span class="chip">INDOPACOM</span></span><span class="act ghost">ICAO / base…</span><span class="act">Fit</span><span class="act">↻</span><span class="act">Full</span><span class="act pri">Demand read</span></span>
+      <span class="n">7</span>
+    </div>
+    <div class="map">
+      <div class="label" style="left:12%;top:28%">TURKEY</div><div class="label" style="left:40%;top:60%">EGYPT</div><div class="label" style="left:72%;top:34%">IRAN</div><div class="label" style="left:58%;top:68%">SAUDI ARABIA</div>
+      <div class="mk red" style="left:47%;top:44%"></div><div class="mk amber" style="left:50%;top:40%"></div><div class="mk node" style="left:44%;top:47%">✈</div><div class="mk node" style="left:63%;top:58%">✈</div><div class="mk hex" style="left:77%;top:26%"></div><div class="mk hex" style="left:80%;top:30%"></div><div class="mk neo" style="left:23%;top:50%"></div><div class="mk conf" style="left:48%;top:42%"></div><div class="mk conf" style="left:46%;top:46%"></div>
+      <div class="tip" style="left:52%;top:36%">🛡 OJAQ · King Hussein Intl · threat ↑</div>
+      <div class="rail">
+        <div class="rhd"><b>Force posture</b><span class="chip on">Bases 7</span><span class="chip">Countries 15</span><span class="s">2 red · 5 amber</span></div>
+        <div class="rg"><i class="r"></i>USCENTCOM<span>5</span></div>
+        <div class="rr"><i class="r"></i><b>Ben Gurion · LLBG</b><span class="chip tiny">chronic</span><span class="d">NOTAM — RWY 12/30 CLSD, starts 6 d</span></div>
+        <div class="rr"><i class="a"></i><b>King Hussein · OJAQ</b><span class="chip tiny">chronic</span><span class="d">Conflict — Israel vs Hamas ~207 km</span></div>
+        <div class="rr"><i class="a"></i><b>Muwaffaq Salti</b><span class="d">Conflict ~156 km</span></div>
+        <div class="rg"><i class="a"></i>USNORTHCOM<span>1</span></div>
+        <div class="rr"><i class="a"></i><b>McGuire · KWRI</b><span class="d">NOTAM — RWY 06/24 CLSD</span></div>
+      </div>
+      <div class="zoom">＋<br>−</div>
+    </div>
+    <div class="events">
+      <div class="hd"><span class="k">⚠ Significant events</span><span class="s">kinetic · NEO · severe wx · tropical · red disasters — grouped by command, follows the board</span><span class="n">8</span><span class="r"><span class="chip on">All</span><span class="chip">near my airfields</span><span class="chip">new since look <b>3</b></span></span></div>
+      <div class="eg"><i class="r"></i>USCENTCOM<span>4</span></div>
+      <div class="er"><span class="gl">✸</span><span class="t">Government of Israel vs Hamas <em>Jordan Valley · 2026-10-05 · 3 fatalities</em><span class="tag new">new</span></span><span class="reach">→ OJAQ · 207 km · ~0.5 hr</span></div>
+      <div class="er"><span class="gl">🛂</span><span class="t">Jordan — ordered departure <em>State Dept · in effect 4 d</em></span><span class="reach">→ OJAQ · on station</span></div>
+      <div class="er"><span class="gl">✸</span><span class="t">Government of Yemen vs Presidential Leadership Council <em>Southwestern Yemen · 2026-09-10</em></span><span class="reach">→ Ramstein AB · 2,782 nm · ~6.3 hr</span></div>
+      <div class="eg"><i class="a"></i>USEUCOM<span>2</span></div>
+      <div class="er"><span class="gl">✸</span><span class="t">Russia vs Ukraine <em>Ukraine · 2026-08-31</em></span><span class="reach">→ Ramstein AB · 953 nm · ~2.2 hr</span></div>
+      <div class="er"><span class="gl">🛂</span><span class="t">Belarus — ordered departure <em>State Dept · 4 d</em><span class="tag new">new</span></span><span class="reach">→ Ramstein AB · 796 nm · ~1.8 hr</span></div>
+      <div class="fold" style="margin:0;border:0;border-top:1px solid var(--bd);border-radius:0"><span>▸</span><b>All disasters (10)</b><span>the full GDACS / USGS / ReliefWeb feed, type + AOR filters</span></div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h3>Proposed changes — callouts (landing)</h3>
+    <ol>
+      <li><span class="n">1</span>Three panes, not four: <b>Commands</b> is the landing (Watch and Regional fold into it); Feeds and Sources stay as secondary chips. The map lives inside Commands.</li>
+      <li><span class="n">2</span><b>Where to look first</b>: a ranked, deterministic primer over what the app already computes (posture escalations, boards at warning/alert, bases worse than yesterday, demand rising, your last look, forming convergence, calls due) — each line with a door into the board. “✦ Read” spends a model call only on tap.</li>
+      <li><span class="n">3</span><b>My airfields</b>: hub, spokes and ★ must-track fields with their five LEDs and driver, pinned above the board so a SITREP is one click from anywhere regardless of command.</li>
+      <li><span class="n">4</span><b>The command board</b>: one row per combatant command — I&amp;W, posture, bases, demand, events, Δ since your last look — ★ must-tracks first, then worst. Each row says WHY it is coloured in one line.</li>
+      <li><span class="n">5</span>A ★ on any command, country or airfield declares it a must-track (stored in the Mission Profile). ★ rows sort first and never fold; ★ airfields earn a full SITREP (6 slots); the primer weights them; the map’s “My AO” is the ★ commands.</li>
+      <li><span class="n">6</span>Commands you do not track fold into one quiet line — present, never hidden; a quiet command still says “absence of signal, not evidence of calm”.</li>
+      <li><span class="n">7</span>The map is retained whole; its AOR filter <b>follows the board</b> (open a command → the map flies there and the force rail and events narrow to it) and can still be set by hand.</li>
+      <li><span class="n">8</span>Significant events keeps its reach legs, grouped by command and following the board, with a “near my airfields” lens and new-since-your-last-look markers.</li>
+    </ol>
+  </div>
+</main>
+</body></html>

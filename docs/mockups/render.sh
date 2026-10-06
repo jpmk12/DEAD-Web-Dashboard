@@ -24,3 +24,5 @@ shot news-read.html        news-read.png        1280,1330 2
 shot calendar-proposed.html calendar.png        1280,1640 2
 shot email-proposed.html    email.png           1280,1760 2
 shot family-proposed.html   family-proposed.png 1280,1960 2
+shot osint-commands.html    osint-commands.png  1280,2360 2
+shot osint-drill.html       osint-drill.png     1280,2640 2
