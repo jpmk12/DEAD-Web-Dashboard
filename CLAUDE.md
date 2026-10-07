@@ -3183,6 +3183,80 @@ interactive prototype the design was approved from is
   reason (owner only / HTTP n) and leaves the row.
 No new npm dep (esbuild `0`).
 
+### The room (2026-10-07, `docs/REVIEW-2026-10.md` §11 C + A′ + C′ + R4, all three decisions as recommended)
+Built from `osint_v1.pdf` ("the country under a command doesn't look
+elegant … airfields are nested too deep"). A country, an airfield or a
+board is a PAGE in ONE drawer; the command rows drill to boards + countries
+only; every tracked airfield has a register of its own by command.
+- **`lib/room.ts` (PURE, tested)**: `RoomRef {kind: country|field|board,
+  id}`; `parseRoomParam` / `roomParam` (`?room=country:Germany`,
+  `field:ETAR`, `board:mp-x` — the ICAO upper-cased); `doorRoom(door)`
+  (icao › problemId › country); `roomSiblings` (countries in board order,
+  the command's fields, boards) for ‹ ›; `roomAor`; `fieldWorst` (worst
+  of SITREP LEDs or posture; UNKNOWN is its own value); `airfieldsByCommand`
+  (one group per command, worst first, UNKNOWN last, hub › ★ › spoke › rest
+  inside). `findField` / `findCountry` / `allFields` search the board's
+  rows AND the ★-only pinned strip (a ★ ICAO with no posture row is still
+  a page).
+- **`components/osint/RoomDrawer.tsx`**: fixed right drawer (62 % wide on
+  desktop, full width on a phone) with a scrim; header = breadcrumb
+  (command › country › field), ‹ › through `roomSiblings`, **⇥ pin** (xl
+  only — the board becomes `xl:grid-cols-[minmax(0,1fr)_minmax(520px,46%)]`
+  and the drawer a sticky right column; remembered in `localStorage
+  commands.roomPinned`), ✕. Keys: Esc closes, ← → are the siblings
+  (ignored in inputs). Pages: **country** = `CountryRoom` with
+  `section` (overview / incidents / news / civil / health / spectrum —
+  `hideHeader`, kept mounted across tabs so the dossier fetch runs once)
+  plus an **Airfields** tab the drawer renders itself (`FieldTile`s with
+  LEDs, hub/spoke switch, ✕, ＋ Track in <country>); **field** =
+  `SitrepPanel single` with `section` (sitrep / weather / ops / threats /
+  infra / spectrum / history), a field with no SITREP slot shows "★ Get a
+  SITREP" and the tap stars it; **board** = `WarningBoard only={[id]}`.
+  The drawer renders only while the OSINT pane is active and data has
+  landed.
+- **`components/osint/CommandAirfields.tsx`** (A′, between the commands
+  and the picture): chips per command (All / per-AOR counts), **hide
+  green** (`localStorage commands.afHideGreen`, the hidden ICAOs named in
+  one line), ＋ Track…, a header per command with its worst field and
+  driver, rows = ★ · ICAO · role badge · country · driver · five LEDs ·
+  posture · hub/spoke switch + ✕ · Δ yesterday · →; a row opens the
+  field's page. My airfields stays as the pinned shortlist above it.
+- **`CommandBoard` rewired**: `openRoom(ref)` is the ONE door (notes the
+  open for `surface_opens`, writes `?room=` with `history.replaceState`;
+  `closeRoom` removes it); `go(door)` → `doorRoom`; `watch:focus` /
+  `regional:select` / the palette / the primer / the My-airfields cards /
+  country rows / field chips / board cards / the airfield register all
+  land in the room (the Crisis-map popups still carry Track buttons only —
+  they do not open the room). A `?room=` on load is parked
+  until the data lands (`TabShell` also lands a `?room=` on OSINT ›
+  commands). **The map follows the room** (`boardAor = room's command ??
+  open command`). Untracking the field whose page is open closes the
+  room. `components/osint/boardBits.tsx` holds the shared bits (`Leds`,
+  `Dot`, `Star` — a span, so it nests inside a row button — `RoleSwitch`,
+  `Untrack`, `EditOps`).
+- **R4 — country codes on the country list**: `commandsAssemble` passes
+  every posture / SITREP / own-field country through
+  `normalizeCountryName` (`sitrepSummary` / `sitrepStub` too), so "DE" and
+  "IQ" join their "Germany" / "Iraq" rows instead of listing beside them.
+- **Combatant command is assigned by COUNTRY first (the Weather-tab bug,
+  same day: US fields under "—", Erbil under USEUCOM)**. Two causes, both
+  in the classifier path, both fixed: (1) `aorFromCoords` puts everything
+  above 36°N between the Atlantic and Iran in EUCOM — Erbil is 36.2°N, so
+  northern Iraq and north-east Syria read EUCOM by latitude while the
+  Unified Command Plan assigns by country; (2) `buildRegistry` listed
+  METAR-only stations (the Weather tab's own list) at 0/0 with no country,
+  which rendered as "—". Now `classifyAor` = `aorFromCountry` (EXACT
+  whole-name match — "Robins AFB, Georgia" is not the Caucasus) › coords
+  (0/0 is "no coordinates", never the Gulf of Guinea) › the substring match
+  on free text as the last resort; `trackingRegistry` passes the country
+  everywhere; `getTrackingRegistry` runs `fillCoords`, which resolves
+  coordinate-less stations through `resolveAirfield` (process cache) and
+  reclassifies them. `tests/aor.test.ts` pins Erbil → CENTCOM. NOT built:
+  a per-airfield manual command override — add one only if a field still
+  lands wrong after this (it would be a `Record<icao, Aor>` on the Mission
+  Profile, read by the registry and the assembler).
+No new npm dep (esbuild `0`).
+
 ### OSINT tab consolidation (9 chips → Watch / Regional / Feeds / Sources) — SUPERSEDED 2026-10-06
 **Historical.** Watch and Regional retired into the command board above;
 the hidden-mount contract, the feed-at-mount rule and the legacy

@@ -28,7 +28,34 @@ const pick = (p: UserPrefs): TrackingPrefs => ({
 
 export async function getTrackingRegistry(): Promise<TrackingRegistry> {
   const [prefs, profile] = await Promise.all([getUserPrefs(), getMissionProfile()]);
-  return buildRegistry(pick(prefs), profile);
+  return fillCoords(buildRegistry(pick(prefs), profile));
+}
+
+// A METAR-only station (in `metarStations` and no other list) carries no
+// coordinates of its own, so the PURE registry lists it at 0/0 with command
+// UNKNOWN — which is how three CONUS fields sat under "—" on the Weather tab
+// (2026-10-07). The server knows where a field is (the curated catalogue,
+// then OurAirports), so fill the gap here, once per ICAO per process; the
+// command is then the country's (classifyAor is country-first), else the
+// coordinates'. An ICAO nobody can place stays 0/0 and UNKNOWN — never
+// guessed.
+const coordCache = new Map<string, { lat: number; lon: number; country: string; label: string } | null>();
+async function fillCoords(reg: TrackingRegistry): Promise<TrackingRegistry> {
+  const missing = reg.airfields.filter((a) => a.icao && !a.lat && !a.lon);
+  if (!missing.length) return reg;
+  await Promise.all(missing.map(async (a) => {
+    if (!coordCache.has(a.icao)) {
+      const r = await resolveAirfield(a.icao).catch(() => null);
+      coordCache.set(a.icao, r ? { lat: r.lat, lon: r.lon, country: normalizeCountryName(r.country), label: r.label } : null);
+    }
+    const c = coordCache.get(a.icao);
+    if (!c) return;
+    a.lat = c.lat; a.lon = c.lon;
+    if (!a.country) a.country = c.country;
+    if (!a.label || a.label === a.icao) a.label = c.label;
+    a.aor = classifyAor({ lat: a.lat, lon: a.lon, name: a.country });
+  }));
+  return reg;
 }
 
 /** One row the picker can offer. Roles are the CURRENT roles (all false when untracked). */

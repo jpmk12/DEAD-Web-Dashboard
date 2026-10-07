@@ -4,40 +4,49 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openTrackPicker, postTrack, roleBody, untrackAirfieldBody, untrackCountryBody, type TrackResponse } from "@/lib/trackClient";
 import dynamic from "next/dynamic";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import WarningBoard from "@/components/osint/WarningBoard";
-import SitrepPanel from "@/components/osint/SitrepPanel";
 import ReactivationCard from "@/components/osint/ReactivationCard";
-import CountryRoom from "@/components/ground/CountryRoom";
+import RoomDrawer from "@/components/osint/RoomDrawer";
+import CommandAirfields from "@/components/osint/CommandAirfields";
+import { Leds, Dot, Star, RoleSwitch, Untrack, LVL_CHIP, TRAJ, type EditOps } from "@/components/osint/boardBits";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { ForceAssessment } from "@/lib/forceProtection";
 import type { CommandsBody } from "@/lib/commandsAssemble";
-import type { CommandRow, CountryRow, FieldRow, CbBoard, CbSitrep, Led } from "@/lib/commandBoard";
+import type { CommandRow, CountryRow, CbBoard, Led } from "@/lib/commandBoard";
 import type { PrimerDoor, PrimerItem } from "@/lib/primer";
-import { toggleMustTrack, isStarCountry, type MustTrack } from "@/lib/missionProfile";
+import { toggleMustTrack, type MustTrack } from "@/lib/missionProfile";
 import { AOR_LABELS, type Aor } from "@/lib/aor";
-import { SEVERITY_DOT, type Severity } from "@/lib/severity";
+import { parseRoomParam, roomParam, roomAor, doorRoom, findField, findCountry, sameRoom, type RoomRef } from "@/lib/room";
 import { noteOpen } from "@/lib/noteOpenClient";
 import { toast } from "@/lib/feedback";
 
-// The OSINT command board — REVIEW-2026-10 §6, decisions 1–4 as recommended.
-// One scrolling page: WHERE TO LOOK FIRST (the deterministic primer, AI read
-// on tap) → MY AIRFIELDS (hub, spokes, ★ fields pinned) → COMBATANT COMMANDS
-// (one row each, ★ first then worst; a row drills IN PLACE to its boards →
-// countries → situation room → airfields → SITREP) → THE PICTURE (the Crisis
-// map and its Significant-events list, which FOLLOW whatever is open).
+// The OSINT command board — REVIEW-2026-10 §6, rebuilt around THE ROOM in
+// §11 (decisions C + A′ + C′). One scrolling page of LISTS: WHERE TO LOOK
+// FIRST (the deterministic primer, AI read on tap) → MY AIRFIELDS (hub,
+// spokes, ★ fields pinned) → COMBATANT COMMANDS (one row each, ★ first then
+// worst; a row drills in place to its boards and countries ONLY) → AIRFIELDS
+// BY COMMAND (every tracked field, the full register) → THE PICTURE (the
+// Crisis map and its Significant-events list, which follow whatever is open).
+//
+// Every detail — a country's situation room, an airfield's SITREP, a board —
+// opens in the room (components/osint/RoomDrawer.tsx), a drawer that slides
+// over the page from the right (a full-screen sheet on a phone; ⇥ pin docks
+// it as a right column on a wide screen). The page behind never reflows.
+// The open room is in the URL as `?room=country:Germany` so ⌘K, the
+// primer's doors, Glance's tiles and a pasted link all open the same thing.
 //
 // Mount contract: the parent keeps this hidden-mounted after first activation
 // so the map does not re-fetch its ~15 sources on every pane hop; the board
-// arms itself lazily on first activation (all tabs mount at app load).
+// arms itself lazily on first activation (all tabs mount at app load). The
+// room renders only while the pane is ACTIVE — it is position:fixed and
+// would otherwise cover the other panes.
 //
 // Every ★ is a Mission Profile write (owner) through PATCH /api/mission-profile
 // — the board never keeps its own tracking state. Add / remove / hub·spoke
-// (2026-10-07) go through the ONE Track door (`postTrack` → /api/track):
-// ＋ Track… opens the picker prefilled; ✕ on an airfield or country row is a
-// full untrack (a hub/spoke loses its role on the same write); the hub/spoke
-// switch is op "role". Every write returns the server's `undo`, shown in a
-// strip above the strip for a few seconds; the board reloads on
-// `tracking:changed` like the Weather tab and the Tracking panel do.
+// go through the ONE Track door (`postTrack` → /api/track): ＋ Track… opens
+// the picker prefilled; ✕ on an airfield or country row is a full untrack (a
+// hub/spoke loses its role on the same write); the hub/spoke switch is op
+// "role". Every write returns the server's `undo`, shown in a strip for a
+// few seconds; the board reloads on `tracking:changed`.
 
 const CrisisMap = dynamic(() => import("@/components/osint/CrisisMap"), {
   ssr: false,
@@ -50,75 +59,19 @@ const CrisisMap = dynamic(() => import("@/components/osint/CrisisMap"), {
 
 type Body = CommandsBody & { canEdit?: boolean };
 
-interface OpenState { aor: Aor | null; board: string | null; country: string | null; icao: string | null }
-const CLOSED: OpenState = { aor: null, board: null, country: null, icao: null };
-
-const LED_CLASS: Record<Led, string> = { g: "bg-emerald-500", a: "bg-amber-400", r: "bg-red-500", u: "bg-slate-600" };
-const LVL_CHIP: Record<string, string> = {
-  alert: "text-red-200 border-red-500/60 bg-red-500/20",
-  warning: "text-orange-300 border-orange-500/50 bg-orange-500/10",
-  watch: "text-amber-300 border-amber-500/50 bg-amber-500/10",
-  calm: "text-slate-400 border-slate-700 bg-transparent",
-};
-const TRAJ: Record<string, string> = { deteriorating: "↗", improving: "↘", stable: "→" };
 const DEMAND_CLASS: Record<string, string> = { rise: "text-amber-300", hold: "text-slate-400", fall: "text-emerald-400" };
 const TONE_RING: Record<string, string> = { red: "border-red-500/50 text-red-300", amber: "border-amber-500/50 text-amber-300", slate: "border-slate-700 text-slate-400" };
 const short = (aor: Aor) => AOR_LABELS[aor].replace(/^US/, "");
-
 const lc = (s: string) => s.trim().toLowerCase();
+const PIN_KEY = "commands.roomPinned";
 
-function Leds({ status, size = "w-1.5 h-1.5" }: { status: CbSitrep["status"]; size?: string }) {
-  return (
-    <span className="flex gap-0.5" title={`wx ${status.wx} · ops ${status.ops} · threat ${status.threat} · infra ${status.infra} · spectrum ${status.spectrum} (g green · a amber · r red · u unknown)`}>
-      {(["wx", "ops", "threat", "infra", "spectrum"] as const).map((k) => <span key={k} className={`${size} rounded-full ${LED_CLASS[status[k]]}`} />)}
-    </span>
-  );
-}
-
-function Dot({ sev, title }: { sev: Severity | null; title?: string }) {
-  return <span style={{ color: sev ? SEVERITY_DOT[sev] : "#334155" }} className="text-[11px]" title={title ?? (sev ?? "not watched")}>●</span>;
-}
-
-/** The hub / spoke switch: the active role is lit; tapping it again clears the role. */
-function RoleSwitch({ icao, role, onSet, disabled }: { icao: string; role: "hub" | "spoke" | null; onSet: (r: "hub" | "spoke" | null) => void; disabled?: boolean }) {
-  const chip = (r: "hub" | "spoke") => {
-    const on = role === r;
-    return (
-      <span
-        key={r} role="button" tabIndex={0} aria-pressed={on} aria-disabled={disabled}
-        title={on ? `${icao} is the ${r} — click to clear its own-force role` : r === "hub" ? `Make ${icao} the hub (the current hub becomes a spoke)` : `Make ${icao} a spoke`}
-        onClick={(e) => { e.stopPropagation(); if (!disabled) onSet(on ? null : r); }}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) onSet(on ? null : r); } }}
-        className={`text-[8px] font-bold uppercase tracking-widest rounded px-1 py-px border cursor-pointer select-none ${on ? "border-sky-500/60 text-sky-200 bg-sky-500/15" : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"} ${disabled ? "opacity-40 cursor-default" : ""}`}
-      >{r}</span>
-    );
-  };
-  return <span className="inline-flex items-center gap-1" title="own-force role">{chip("hub")}{chip("spoke")}</span>;
-}
-
-/** The ✕ that stops tracking a thing everywhere — a span so it can sit inside a row button. */
-function Untrack({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
-  return (
-    <span
-      role="button" tabIndex={0} aria-disabled={disabled} title={`Stop tracking ${label} (removes it from every list — Undo offered)`} aria-label={`Stop tracking ${label}`}
-      onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) onClick(); } }}
-      className={`text-[11px] leading-none px-1 rounded text-slate-600 hover:text-red-300 cursor-pointer select-none ${disabled ? "opacity-40 cursor-default" : ""}`}
-    >✕</span>
-  );
-}
-
-function Star({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      disabled={disabled}
-      title={on ? `★ must-track — click to clear (${label})` : `Make ${label} a must-track`}
-      aria-label={on ? `Clear must-track ${label}` : `Make ${label} a must-track`}
-      className={`text-[14px] leading-none px-1 rounded transition-colors disabled:opacity-40 ${on ? "text-amber-400 hover:text-amber-300" : "text-slate-700 hover:text-amber-400"}`}
-    >{on ? "★" : "☆"}</button>
-  );
+/** The URL half of the room: `?room=` written on open, removed on close. */
+function writeRoomParam(ref: RoomRef | null) {
+  try {
+    const u = new URL(window.location.href);
+    if (ref) u.searchParams.set("room", roomParam(ref)); else u.searchParams.delete("room");
+    window.history.replaceState(null, "", u.toString());
+  } catch { /* ignore */ }
 }
 
 export default function CommandBoard({ active }: { active: boolean }) {
@@ -130,7 +83,9 @@ export default function CommandBoard({ active }: { active: boolean }) {
   const [pendingNote, setPendingNote] = useState<string | null>(null);
   const sinceRef = useRef<number | null>(null);
   const pollTries = useRef(0);
-  const [open, setOpen] = useState<OpenState>(CLOSED);
+  const [openAor, setOpenAor] = useState<Aor | null>(null);
+  const [room, setRoom] = useState<RoomRef | null>(null);
+  const [pinned, setPinned] = useState(false);
   const [othersOpen, setOthersOpen] = useState(false);
   const [mtPanel, setMtPanel] = useState(false);
   const [primerOpen, setPrimerOpen] = useState(true);
@@ -149,6 +104,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
     try {
       setPrimerOpen(localStorage.getItem("commands.primerOpen") !== "0");
       setMineOpen(localStorage.getItem("commands.mineOpen") !== "0");
+      setPinned(localStorage.getItem(PIN_KEY) === "1");
     } catch { /* ignore */ }
   }, []);
   useEffect(() => { try { localStorage.setItem("commands.primerOpen", primerOpen ? "1" : "0"); } catch { /* ignore */ } }, [primerOpen]);
@@ -182,37 +138,6 @@ export default function CommandBoard({ active }: { active: boolean }) {
     return () => { clearInterval(id); window.removeEventListener("tracking:changed", load); };
   }, [armed, load]);
 
-  // ── Track / untrack / role: the ONE door, with the server's undo shown briefly ──
-  const showUndo = useCallback((d: TrackResponse, what: string) => {
-    if (undoTimer.current) clearTimeout(undoTimer.current);
-    if (!d.changes?.length || !d.undo) { setUndoBar(null); return; }
-    setUndoBar({ text: `${what} — ${d.changes.join(" · ")}`, body: d.undo });
-    undoTimer.current = setTimeout(() => setUndoBar(null), 20_000);
-  }, []);
-  const track = useCallback(async (body: Record<string, unknown>, what: string) => {
-    if (!data?.canEdit) { toast.info("Tracking is team config — the owner changes it"); return; }
-    setTrkBusy(true);
-    try {
-      const d = await postTrack(body);
-      if (!d.error) showUndo(d, what);
-    } finally { setTrkBusy(false); }
-  }, [data?.canEdit, showUndo]);
-  const undoTrack = useCallback(async () => {
-    if (!undoBar) return;
-    const body = undoBar.body;
-    setUndoBar(null);
-    setTrkBusy(true);
-    try {
-      const d = await postTrack(body, { quiet: true });
-      if (d.error) toast.error("Could not undo", d.error);
-      else toast.ok("Undone", d.changes?.join(" · "));
-    } finally { setTrkBusy(false); }
-  }, [undoBar]);
-  const setRole = (icao: string, role: "hub" | "spoke" | null) => track(roleBody(icao, role), role ? `${icao} → ${role}` : `${icao} role cleared`);
-  const untrackField = (icao: string, own: "hub" | "spoke" | null) => track(untrackAirfieldBody(icao, own), `${icao} untracked`);
-  const untrackCountry = (country: string) => track(untrackCountryBody(country), `${country} untracked`);
-  const editOps: EditOps | null = data?.canEdit ? { busy: trkBusy, setRole, untrackField, untrackCountry } : null;
-
   // Force assessments (shared client cache — the map pulls the same) for the
   // country situation room, which needs the full category breakdown.
   useEffect(() => {
@@ -224,34 +149,50 @@ export default function CommandBoard({ active }: { active: boolean }) {
     return () => { cancel = true; window.removeEventListener("force-locations:changed", onChange); };
   }, [armed]);
 
-  // ── Doors in: watch:focus {kind, id} · regional:select country ──
-  // Registered regardless of `armed`; a request that arrives before the
-  // board has data is parked and applied when it lands.
-  const go = useCallback((door: PrimerDoor, scrollKey?: string) => {
-    setOpen({ aor: door.aor, board: door.problemId ?? null, country: door.country ?? null, icao: door.icao ?? null });
-    if (door.icao) noteOpen("base", door.icao);
-    else if (door.problemId) noteOpen("board", door.problemId);
-    const key = scrollKey ?? (door.icao ? `cb-field-${door.icao}` : door.problemId ? `cb-board-${door.problemId}` : door.country ? `cb-country-${lc(door.country).replace(/\s+/g, "-")}` : `cb-cmd-${door.aor}`);
+  // ── The room ──
+  const openRoom = useCallback((ref: RoomRef) => {
+    setRoom(ref);
+    if (data) { const a = roomAor(data.board, ref); if (a) setOpenAor(a); }
+    if (ref.kind === "field") noteOpen("base", ref.id);
+    else if (ref.kind === "board") noteOpen("board", ref.id);
+    // (a country notes itself when its dossier mounts)
+    writeRoomParam(ref);
+  }, [data]);
+  const closeRoom = useCallback(() => { setRoom(null); writeRoomParam(null); }, []);
+  const togglePin = () => setPinned((v) => { try { localStorage.setItem(PIN_KEY, v ? "0" : "1"); } catch { /* ignore */ } return !v; });
+  // Once the board lands, the open room's command is known — the drill and the map follow it.
+  useEffect(() => {
+    if (!data || !room) return;
+    const a = roomAor(data.board, room);
+    if (a) setOpenAor((cur) => cur ?? a);
+  }, [data, room]);
+
+  // ── Doors in: a primer door, watch:focus {kind, id}, regional:select, ?room= ──
+  // A door names its deepest level: that opens in the room; the command it
+  // belongs to drills open behind it and its row is flashed.
+  const go = useCallback((door: PrimerDoor) => {
+    setOpenAor(door.aor);
+    const ref = doorRoom(door);
+    if (ref) openRoom(ref);
+    const key = `cb-cmd-${door.aor}`;
     setFlash(key);
-    setTimeout(() => document.getElementById(key)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    if (!ref) setTimeout(() => document.getElementById(key)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     setTimeout(() => setFlash((f) => (f === key ? null : f)), 3_500);
-  }, []);
+  }, [openRoom]);
 
   const resolveDoor = useCallback((req: { kind: "sitrep" | "iw" | "country"; id: string }, body: Body): PrimerDoor | null => {
     const details = Object.values(body.board.details);
     if (req.kind === "sitrep") {
-      for (const d of details) for (const c of d.countries) for (const f of c.fields) if (f.icao === req.id) return { aor: d.aor, country: c.country, icao: f.icao };
-      const mine = body.board.myFields.find((f) => f.icao === req.id);
-      if (mine && mine.aor !== "UNKNOWN") return { aor: mine.aor, country: mine.country || undefined, icao: mine.icao };
-      return null;
+      const f = findField(body.board, req.id);
+      return f && f.aor !== "UNKNOWN" ? { aor: f.aor, country: f.country || undefined, icao: f.icao } : null;
     }
     if (req.kind === "iw") {
       if (!req.id) { const worst = body.board.rows.find((r) => r.iw); return worst ? { aor: worst.aor } : null; }
       for (const d of details) for (const b of d.boards) if (b.problemId === req.id) return { aor: d.aor, problemId: b.problemId };
       return null;
     }
-    for (const d of details) for (const c of d.countries) if (lc(c.country) === lc(req.id)) return { aor: d.aor, country: c.country };
-    return null;
+    const c = findCountry(body.board, req.id);
+    return c ? { aor: c.aor, country: c.country } : null;
   }, []);
 
   useEffect(() => {
@@ -269,6 +210,11 @@ export default function CommandBoard({ active }: { active: boolean }) {
     };
     window.addEventListener("watch:focus", onFocus);
     window.addEventListener("regional:select", onSel);
+    // A pasted / reloaded link with ?room= — parked like any other door.
+    try {
+      const ref = parseRoomParam(new URLSearchParams(window.location.search).get("room"));
+      if (ref) { parked.current = { kind: ref.kind === "field" ? "sitrep" : ref.kind === "board" ? "iw" : "country", id: ref.id }; setArmed(true); }
+    } catch { /* ignore */ }
     return () => { window.removeEventListener("watch:focus", onFocus); window.removeEventListener("regional:select", onSel); };
   }, []);
   useEffect(() => {
@@ -299,6 +245,40 @@ export default function CommandBoard({ active }: { active: boolean }) {
     } finally { setMtBusy(false); }
   };
 
+  // ── Track / untrack / role: the ONE door, with the server's undo shown briefly ──
+  const showUndo = useCallback((d: TrackResponse, what: string) => {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    if (!d.changes?.length || !d.undo) { setUndoBar(null); return; }
+    setUndoBar({ text: `${what} — ${d.changes.join(" · ")}`, body: d.undo });
+    undoTimer.current = setTimeout(() => setUndoBar(null), 20_000);
+  }, []);
+  const track = useCallback(async (body: Record<string, unknown>, what: string) => {
+    if (!data?.canEdit) { toast.info("Tracking is team config — the owner changes it"); return; }
+    setTrkBusy(true);
+    try {
+      const d = await postTrack(body);
+      if (!d.error) showUndo(d, what);
+    } finally { setTrkBusy(false); }
+  }, [data?.canEdit, showUndo]);
+  const undoTrack = useCallback(async () => {
+    if (!undoBar) return;
+    const body = undoBar.body;
+    setUndoBar(null);
+    setTrkBusy(true);
+    try {
+      const d = await postTrack(body, { quiet: true });
+      if (d.error) toast.error("Could not undo", d.error);
+      else toast.ok("Undone", d.changes?.join(" · "));
+    } finally { setTrkBusy(false); }
+  }, [undoBar]);
+  const setRole = (icao: string, role: "hub" | "spoke" | null) => track(roleBody(icao, role), role ? `${icao} → ${role}` : `${icao} role cleared`);
+  const untrackField = (icao: string, own: "hub" | "spoke" | null) => {
+    if (room?.kind === "field" && room.id === icao) closeRoom();
+    return track(untrackAirfieldBody(icao, own), `${icao} untracked`);
+  };
+  const untrackCountry = (country: string) => track(untrackCountryBody(country), `${country} untracked`);
+  const editOps: EditOps | null = data?.canEdit ? { busy: trkBusy, setRole, untrackField, untrackCountry } : null;
+
   const runRead = () => {
     setAiBusy(true); setAiText(null);
     fetch("/api/commands/read", { method: "POST" })
@@ -318,20 +298,24 @@ export default function CommandBoard({ active }: { active: boolean }) {
     const lat = p?.lat ?? o?.lat; const lon = p?.lon ?? o?.lon;
     return lat != null && lon != null && !(lat === 0 && lon === 0) ? [{ icao: f.icao, label: f.label, lat, lon }] : [];
   }), [data]);
-  const forceById = useMemo(() => new Map(forces.map((f) => [f.id, f])), [forces]);
-  const countryForce = (c: CountryRow): { sel: ForceAssessment | null; base: ForceAssessment | null } => {
-    const sel = c.posture ? forceById.get(c.posture.id) ?? null : null;
-    const baseRow = c.fields.find((f) => f.posture)?.posture;
-    const base = baseRow ? forceById.get(baseRow.id) ?? null : null;
-    return { sel: sel ?? base, base };
-  };
+  const roomAorNow = data && room ? roomAor(data.board, room) : null;
+  const mapAor = roomAorNow ?? openAor;
 
   if (!armed) return null;
 
-  const crumb = open.aor ? [short(open.aor), open.country, open.icao ?? (open.board ? "board" : null)].filter(Boolean).join(" › ") : null;
+  const crumbParts: string[] = [];
+  if (openAor) crumbParts.push(short(openAor));
+  if (room && data) {
+    if (room.kind === "field") { const f = findField(data.board, room.id); if (f?.country) crumbParts.push(f.country); crumbParts.push(room.id); }
+    else if (room.kind === "country") crumbParts.push(room.id);
+    else crumbParts.push("board");
+  }
+  const crumb = crumbParts.length ? crumbParts.join(" › ") : null;
+  const roomOpen = !!room && !!data;
 
   return (
-    <div className="space-y-4">
+    <div className={roomOpen && pinned ? "xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(520px,46%)] xl:gap-4 xl:items-start" : ""}>
+    <div className="space-y-4 min-w-0">
       {error && <div className="text-[11px] text-red-300 font-mono border border-red-500/40 bg-red-500/10 rounded-lg px-3 py-2">Command board: {error}</div>}
       {pendingNote && !error && <div className="text-[10px] text-slate-500 font-mono px-1">{pendingNote}</div>}
 
@@ -360,7 +344,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
                   <b className="text-slate-100">{it.subject}</b> {it.text}
                   <span className={`block text-[10px] mt-0.5 ${it.star ? "text-amber-300" : "text-slate-500"}`}>{it.note}</span>
                 </div>
-                <button onClick={() => go(it.door)} className="self-center text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 whitespace-nowrap" title="Open exactly this level on the board">{it.doorLabel}</button>
+                <button onClick={() => go(it.door)} className="self-center text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 whitespace-nowrap" title="Open exactly this level in the room">{it.doorLabel}</button>
               </div>
             ))}
             {aiText !== null && (
@@ -403,16 +387,17 @@ export default function CommandBoard({ active }: { active: boolean }) {
           )}
           {!mineOpen && data.board.myFields.length > 0 && (
             <p className="px-3.5 py-2 text-[11px] text-slate-400 flex flex-wrap gap-x-3 gap-y-1">
-              {data.board.myFields.map((f) => <span key={f.icao} className="flex items-center gap-1.5"><span className="font-mono font-bold text-slate-200">{f.icao}</span>{f.sitrep ? <Leds status={f.sitrep.status} /> : <Dot sev={f.posture?.composite ?? null} />}</span>)}
+              {data.board.myFields.map((f) => <button key={f.icao} onClick={() => openRoom({ kind: "field", id: f.icao })} className="flex items-center gap-1.5 hover:text-sky-200"><span className="font-mono font-bold text-slate-200">{f.icao}</span>{f.sitrep ? <Leds status={f.sitrep.status} /> : <Dot sev={f.posture?.composite ?? null} />}</button>)}
             </p>
           )}
           {mineOpen && data.board.myFields.length > 0 && (
             <div className="px-3.5 py-2.5 flex flex-wrap gap-2">
               {data.board.myFields.map((f) => {
                 const worst = f.sitrep ? (["r", "a", "u", "g"] as Led[]).find((l) => Object.values(f.sitrep!.status).includes(l)) ?? "g" : null;
+                const sel = sameRoom(room, { kind: "field", id: f.icao });
                 return (
-                  <div key={f.icao} id={`cb-mine-${f.icao}`} className={`min-w-[200px] flex-1 max-w-[320px] rounded-xl border transition-colors ${worst === "r" ? "border-red-500/50" : worst === "a" ? "border-amber-500/40" : "border-slate-800"}`}>
-                    <button onClick={() => f.aor !== "UNKNOWN" && go({ aor: f.aor, country: f.country || undefined, icao: f.icao })} className="w-full text-left px-3 pt-2 pb-1 rounded-t-xl hover:bg-slate-800/40">
+                  <div key={f.icao} id={`cb-mine-${f.icao}`} className={`min-w-[200px] flex-1 max-w-[320px] rounded-xl border transition-colors ${sel ? "ring-2 ring-sky-400/60" : ""} ${worst === "r" ? "border-red-500/50" : worst === "a" ? "border-amber-500/40" : "border-slate-800"}`}>
+                    <button onClick={() => openRoom({ kind: "field", id: f.icao })} title="Open the SITREP in the room" className="w-full text-left px-3 pt-2 pb-1 rounded-t-xl hover:bg-slate-800/40">
                       <div className="flex items-center gap-1.5">
                         <Star on={f.star} label={f.icao} onClick={() => star("icao", f.icao)} disabled={mtBusy} />
                         <span className="text-[13px] font-extrabold font-mono text-slate-100">{f.icao}</span>
@@ -421,7 +406,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
                         {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>↑</span>}
                       </div>
                       <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "not watched — posture UNKNOWN"}</p>
-                      <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.aor !== "UNKNOWN" ? short(f.aor) : "—"} · {f.country || "—"} · {f.hasSitrep ? "SITREP" : "★ to get a SITREP"}</p>
+                      <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.aor !== "UNKNOWN" ? short(f.aor) : "—"} · {f.country || "—"} · {f.hasSitrep ? "SITREP →" : "★ to get a SITREP"}</p>
                     </button>
                     {canEdit && (
                       <div className="flex items-center gap-2 px-3 pb-1.5 pt-0.5">
@@ -442,9 +427,9 @@ export default function CommandBoard({ active }: { active: boolean }) {
       <section className="border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
         <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
           <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-200">◆ Combatant commands</span>
-          <span className="text-[10px] text-slate-500">{crumb ? <><span className="text-slate-600">open:</span> <b className="text-sky-200 font-mono">{crumb}</b></> : "★ must-tracks first, then worst · click a command to drill"}</span>
+          <span className="text-[10px] text-slate-500">{crumb ? <><span className="text-slate-600">open:</span> <b className="text-sky-200 font-mono">{crumb}</b></> : "★ must-tracks first, then worst · click a command to drill · a country row opens its room →"}</span>
           <span className="flex-1" />
-          {open.aor && <button onClick={() => setOpen(CLOSED)} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">collapse all</button>}
+          {(openAor || room) && <button onClick={() => { setOpenAor(null); closeRoom(); }} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">collapse all</button>}
           <button onClick={() => setMtPanel((v) => !v)} className={`text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${mtPanel ? "border-amber-500/50 text-amber-300 bg-amber-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>★ Must-tracks ▾</button>
         </div>
 
@@ -475,7 +460,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
           <p className="px-3.5 py-4 text-[11.5px] text-slate-400">Nothing is watched yet. Declare a hub, spokes and an AOI in <b>Preferences → Mission Profile</b>, or <button type="button" onClick={() => openTrackPicker()} className="text-emerald-400 hover:underline">track a country or airfield</button>, and the commands fill in. {quietRows.length} commands are quiet — absence of signal, not evidence of calm.</p>
         )}
         {data && shownRows.map((r) => (
-          <CommandRowView key={r.aor} row={r} data={data} open={open} setOpen={setOpen} go={go} star={star} mtBusy={mtBusy} flash={flash} active={active} countryForce={countryForce} edit={editOps} />
+          <CommandRowView key={r.aor} row={r} data={data} openAor={openAor} setOpenAor={setOpenAor} room={room} openRoom={openRoom} star={star} mtBusy={mtBusy} flash={flash} edit={editOps} />
         ))}
         {data && quietRows.length > 0 && (
           <div className="border-t border-slate-800">
@@ -486,7 +471,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
               <span className="ml-auto text-[9.5px] font-bold uppercase tracking-wider">{othersOpen ? "hide" : "show"}</span>
             </button>
             {othersOpen && quietRows.map((r) => (
-              <CommandRowView key={r.aor} row={r} data={data} open={open} setOpen={setOpen} go={go} star={star} mtBusy={mtBusy} flash={flash} active={active} countryForce={countryForce} edit={editOps} />
+              <CommandRowView key={r.aor} row={r} data={data} openAor={openAor} setOpenAor={setOpenAor} room={room} openRoom={openRoom} star={star} mtBusy={mtBusy} flash={flash} edit={editOps} />
             ))}
           </div>
         )}
@@ -497,27 +482,34 @@ export default function CommandBoard({ active }: { active: boolean }) {
         )}
       </section>
 
+      {/* ── Airfields by command — the full register (A′) ── */}
+      {data && <CommandAirfields board={data.board} room={room} onOpen={openRoom} star={star} mtBusy={mtBusy} edit={editOps} canEdit={canEdit} />}
+
       {/* ── The picture — follows whatever is open ── */}
-      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture{open.aor ? ` — following ${short(open.aor)}` : ""}</p>
+      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture{mapAor ? ` — following ${room ? "the room" : "the board"} · ${short(mapAor)}` : ""}</p>
       <ErrorBoundary label="Crisis map" minHeight="420px">
-        <CrisisMap boardAor={open.aor} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} />
+        <CrisisMap boardAor={mapAor} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} />
       </ErrorBoundary>
+    </div>
+
+    {/* ── The room ── */}
+    {roomOpen && (
+      <RoomDrawer room={room!} board={data!.board} forces={forces} active={active} pinned={pinned} onPin={togglePin} onClose={closeRoom} onOpen={openRoom} star={star} mtBusy={mtBusy} edit={editOps} />
+    )}
     </div>
   );
 }
 
-// ── One command row + its drill ────────────────────────────────────────────
+// ── One command row + its drill (boards + countries; every row is a door) ──
 
-function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, active, countryForce, edit }: {
-  row: CommandRow; data: Body; open: OpenState; setOpen: (o: OpenState) => void; go: (d: PrimerDoor) => void;
-  star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean; flash: string | null; active: boolean;
-  countryForce: (c: CountryRow) => { sel: ForceAssessment | null; base: ForceAssessment | null };
-  edit: EditOps | null;
+function CommandRowView({ row: r, data, openAor, setOpenAor, room, openRoom, star, mtBusy, flash, edit }: {
+  row: CommandRow; data: Body; openAor: Aor | null; setOpenAor: (a: Aor | null) => void; room: RoomRef | null; openRoom: (ref: RoomRef) => void;
+  star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean; flash: string | null; edit: EditOps | null;
 }) {
-  const isOpen = open.aor === r.aor;
+  const isOpen = openAor === r.aor;
   const detail = data.board.details[r.aor];
   const rowKey = `cb-cmd-${r.aor}`;
-  const toggle = () => setOpen(isOpen ? CLOSED : { aor: r.aor, board: null, country: null, icao: null });
+  const toggle = () => setOpenAor(isOpen ? null : r.aor);
   const worstTone = r.posture.worst === "red" || r.iw?.level === "alert" || r.bases.worst === "r" ? "red" : r.posture.worst === "amber" || r.iw?.level === "warning" || r.iw?.level === "watch" || r.bases.worst === "a" ? "amber" : null;
 
   return (
@@ -571,42 +563,37 @@ function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, 
 
       {isOpen && detail && (
         <div className="px-3.5 pb-3 pl-9 space-y-3 bg-slate-950/30">
-          {/* Boards */}
+          {/* Boards — each a door into the room */}
           {detail.boards.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pt-2">I&amp;W boards · {detail.boards.length}</p>
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pt-2">I&amp;W boards · {detail.boards.length} <span className="normal-case tracking-normal font-normal text-slate-600">— tap opens the full board in the room</span></p>
               <div className="flex flex-wrap gap-2">
                 {detail.boards.map((b: CbBoard) => {
-                  const bOpen = open.board === b.problemId;
+                  const sel = sameRoom(room, { kind: "board", id: b.problemId });
                   return (
-                    <button key={b.problemId} id={`cb-board-${b.problemId}`} onClick={() => { if (!bOpen) noteOpen("board", b.problemId); setOpen({ ...open, board: bOpen ? null : b.problemId }); }}
-                      className={`text-left rounded-xl border px-3 py-2 min-w-[220px] flex-1 max-w-[420px] hover:bg-slate-800/40 transition-colors ${flash === `cb-board-${b.problemId}` ? "ring-2 ring-sky-400/60" : ""} ${b.level === "alert" ? "border-red-500/50" : b.level === "warning" ? "border-orange-500/50" : b.level === "watch" ? "border-amber-500/40" : "border-slate-800"}`}>
+                    <button key={b.problemId} id={`cb-board-${b.problemId}`} onClick={() => openRoom({ kind: "board", id: b.problemId })}
+                      className={`text-left rounded-xl border px-3 py-2 min-w-[220px] flex-1 max-w-[420px] hover:bg-slate-800/40 transition-colors ${sel ? "ring-2 ring-sky-400/60" : ""} ${b.level === "alert" ? "border-red-500/50" : b.level === "warning" ? "border-orange-500/50" : b.level === "watch" ? "border-amber-500/40" : "border-slate-800"}`}>
                       <div className="flex items-center gap-2">
                         <span className="text-[12.5px] font-bold text-slate-100 truncate">{b.label}</span>
                         <span className={`ml-auto text-[9px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5 ${LVL_CHIP[b.level]}`}>{b.level}</span>
                         <span className="text-[10px] font-mono text-amber-300">{b.anomaly >= 0 ? "+" : "−"}{Math.abs(b.anomaly).toFixed(2)} {TRAJ[b.trajectory]}</span>
-                        <span className="text-slate-600 text-[10px]">{bOpen ? "▴" : "▾"}</span>
+                        <span className={`text-[10px] ${sel ? "text-sky-300" : "text-slate-600"}`}>→</span>
                       </div>
                       <p className="text-[10.5px] text-slate-500 mt-0.5 truncate">{b.learning ? "learning mode — baseline forming" : b.drivers[0] ?? "no active drivers"}</p>
                     </button>
                   );
                 })}
               </div>
-              {open.board && detail.boards.some((b) => b.problemId === open.board) && (
-                <div className="border border-slate-800 rounded-xl p-3 bg-slate-950/40">
-                  <WarningBoard active={active} only={[open.board]} />
-                </div>
-              )}
             </div>
           )}
 
-          {/* Countries */}
+          {/* Countries — each a door into the room; the pinned field chips open the field */}
           <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pt-1 pb-1">Countries · {detail.countries.length} <span className="normal-case tracking-normal font-normal text-slate-600">— ★ first, then worst</span></p>
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pt-1 pb-1 flex items-center gap-2 flex-wrap">Countries · {detail.countries.length} <span className="normal-case tracking-normal font-normal text-slate-600">— ★ first, then worst · a row opens its room →</span>
+              {edit && <button type="button" onClick={() => openTrackPicker({ kind: "country" })} className="normal-case tracking-normal text-[9.5px] font-bold text-emerald-400 hover:underline">＋ Track a country</button>}</p>
             {detail.countries.length === 0 && <p className="text-[11px] text-slate-500">Nothing watched in {AOR_LABELS[r.aor]}. <button type="button" onClick={() => openTrackPicker()} className="text-emerald-400 hover:underline">Track a country or an airfield</button>, or ★ one from the Must-tracks panel.</p>}
             {detail.countries.map((c: CountryRow) => (
-              <CountryRowView key={c.country} c={c} open={open} setOpen={setOpen} star={star} mtBusy={mtBusy} flash={flash} active={active} force={countryForce(c)} go={go}
-                edit={edit} />
+              <CountryRowView key={c.country} c={c} sel={sameRoom(room, { kind: "country", id: c.country })} room={room} openRoom={openRoom} star={star} mtBusy={mtBusy} flash={flash} edit={edit} />
             ))}
           </div>
 
@@ -619,26 +606,16 @@ function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, 
   );
 }
 
-interface EditOps {
-  busy: boolean;
-  setRole: (icao: string, role: "hub" | "spoke" | null) => void;
-  untrackField: (icao: string, own: "hub" | "spoke" | null) => void;
-  untrackCountry: (country: string) => void;
-}
-
-function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, go, edit }: {
-  c: CountryRow; open: OpenState; setOpen: (o: OpenState) => void; star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean;
-  flash: string | null; active: boolean; force: { sel: ForceAssessment | null; base: ForceAssessment | null }; go: (d: PrimerDoor) => void;
-  /** Owner-only add / remove / role controls; null for crew (read-only). */
-  edit: EditOps | null;
+function CountryRowView({ c, sel, room, openRoom, star, mtBusy, flash, edit }: {
+  c: CountryRow; sel: boolean; room: RoomRef | null; openRoom: (ref: RoomRef) => void; star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean;
+  flash: string | null; edit: EditOps | null;
 }) {
   const key = `cb-country-${lc(c.country).replace(/\s+/g, "-")}`;
-  const isOpen = open.country != null && lc(open.country) === lc(c.country);
   const pinned = c.fields.find((f) => f.sitrep) ?? c.fields[0];
-  const toggle = () => setOpen(isOpen ? { ...open, country: null, icao: null } : { ...open, country: c.country, icao: null });
   return (
     <div id={key} className={`border-t border-slate-800/70 ${flash === key ? "ring-2 ring-sky-400/60 rounded" : ""}`}>
-      <button onClick={toggle} className={`w-full text-left grid grid-cols-[22px_12px_1fr_20px] lg:grid-cols-[22px_12px_1.4fr_1fr_1fr_.8fr_.8fr_20px] gap-2.5 items-center py-2 pr-1 hover:bg-slate-800/30 ${isOpen ? "bg-slate-800/30" : ""}`}>
+      <button onClick={() => openRoom({ kind: "country", id: c.country })} title="Open the situation room"
+        className={`w-full text-left grid grid-cols-[22px_12px_1fr_20px] lg:grid-cols-[22px_12px_1.4fr_1fr_1fr_.8fr_.8fr_20px] gap-2.5 items-center py-2 pr-1 hover:bg-slate-800/30 ${sel ? "bg-sky-500/[0.07] shadow-[inset_3px_0_0_#38bdf8]" : ""}`}>
         <Star on={c.star} label={c.country} onClick={() => star("country", c.country)} disabled={mtBusy} />
         <Dot sev={c.worst} title={c.worst ? `${c.worst}${c.escalated ? " · escalated today" : ""}` : "not in the posture watch — UNKNOWN"} />
         <span className="min-w-0">
@@ -649,60 +626,22 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
           {edit && (!c.unwatched || c.star) && <span className="ml-1.5 align-middle"><Untrack label={`${c.country} (posture watch${c.star ? " + ★" : ""})`} onClick={() => edit.untrackCountry(c.country)} disabled={edit.busy} /></span>}
         </span>
         <span className="hidden lg:block text-[10.5px] text-slate-400 truncate">{c.topDriver || "—"}</span>
-        <span className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-slate-400 min-w-0">
-          {pinned ? (<><span className="text-slate-300">{pinned.icao}</span>{pinned.sitrep ? <Leds status={pinned.sitrep.status} /> : <Dot sev={pinned.posture?.composite ?? null} />}{c.fields.length > 1 && <span className="text-slate-600">+{c.fields.length - 1}</span>}</>) : <span className="text-slate-600">no field</span>}
+        <span className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-slate-400 min-w-0 flex-wrap">
+          {c.fields.length ? c.fields.slice(0, 3).map((f) => (
+            <span key={f.icao} role="button" tabIndex={0} title={`Open ${f.icao} in the room`}
+              onClick={(e) => { e.stopPropagation(); openRoom({ kind: "field", id: f.icao }); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openRoom({ kind: "field", id: f.icao }); } }}
+              className={`inline-flex items-center gap-1 border rounded px-1.5 py-px bg-slate-950/50 hover:border-sky-400 hover:text-sky-200 ${sameRoom(room, { kind: "field", id: f.icao }) ? "border-sky-400 text-sky-200" : "border-slate-700 text-slate-300"}`}>
+              {f.icao}{f.sitrep ? <Leds status={f.sitrep.status} /> : <Dot sev={f.posture?.composite ?? null} />}
+            </span>
+          )) : <span className="text-slate-600">no field</span>}
+          {c.fields.length > 3 && <span className="text-slate-600">+{c.fields.length - 3}</span>}
+          {pinned && c.fields.length === 0 && null}
         </span>
         <span className="hidden lg:block text-[10px] font-mono"><span className={c.delta.worse ? "text-red-300" : "text-slate-500"}>{c.delta.worse} worse</span><span className="text-slate-600"> · </span><span className={c.delta.better ? "text-emerald-300" : "text-slate-500"}>{c.delta.better} better</span></span>
         <span className="hidden lg:block text-[10px] font-mono text-slate-500">{c.events ? `${c.events} event${c.events === 1 ? "" : "s"}` : "—"}</span>
-        <span className="text-slate-600 text-[10px] justify-self-end">{isOpen ? "▾" : "▸"}</span>
+        <span className={`text-[10px] justify-self-end ${sel ? "text-sky-300" : "text-slate-600"}`}>→</span>
       </button>
-
-      {isOpen && (
-        <div className="pl-5 pb-3 space-y-3">
-          <CountryRoom country={c.country} sel={force.sel} base={force.base} active={active} />
-
-          <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pb-1 flex items-center gap-2">
-              <span>Airfields · {c.fields.length}</span>
-              {edit && <button type="button" onClick={() => openTrackPicker({ kind: "airfield", query: c.country })} title={`Track an airfield in ${c.country} (the search is prefilled)`} className="normal-case tracking-normal text-[9.5px] font-bold text-emerald-400 hover:underline">＋ Track in {c.country}</button>}
-            </p>
-            {c.fields.length === 0 && <p className="text-[11px] text-slate-500">No airfield watched in {c.country}. <button type="button" onClick={() => openTrackPicker({ kind: "airfield", query: c.country })} className="text-emerald-400 hover:underline">Track one</button> — search by ICAO, name or country.</p>}
-            {c.fields.map((f: FieldRow) => {
-              const fKey = `cb-field-${f.icao}`;
-              const fOpen = open.icao === f.icao;
-              return (
-                <div key={f.icao} id={fKey} className={`border-t border-slate-800/60 ${flash === fKey ? "ring-2 ring-sky-400/60 rounded" : ""}`}>
-                  <button onClick={() => { if (!f.hasSitrep) { star("icao", f.icao); return; } if (!fOpen) noteOpen("base", f.icao); setOpen({ ...open, icao: fOpen ? null : f.icao }); }}
-                    className={`w-full text-left grid grid-cols-[22px_1fr_auto_20px] gap-2.5 items-center py-2 pr-1 hover:bg-slate-800/30 ${fOpen ? "bg-slate-800/30" : ""}`}>
-                    <Star on={f.star} label={f.icao} onClick={() => star("icao", f.icao)} disabled={mtBusy} />
-                    <span className="min-w-0 flex items-center gap-2 flex-wrap">
-                      <span className="text-[12.5px] font-extrabold font-mono text-slate-100">{f.icao}</span>
-                      {edit ? <RoleSwitch icao={f.icao} role={f.role} onSet={(r) => edit.setRole(f.icao, r)} disabled={edit.busy} />
-                        : f.role && <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{f.role}</span>}
-                      <span className="text-[11px] text-slate-400 truncate">{f.label}</span>
-                      <span className="text-[10.5px] text-slate-500 truncate">{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "posture UNKNOWN — not watched"}</span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      {f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <Dot sev={f.posture?.composite ?? null} />}
-                      {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>↑</span>}
-                      {!f.hasSitrep && <span className="text-[9px] text-slate-500 whitespace-nowrap">★ to get a SITREP</span>}
-                      {!f.posture && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); openTrackPicker({ kind: "airfield", icao: f.icao }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openTrackPicker({ kind: "airfield", icao: f.icao }); } }} className="text-[9px] text-amber-300/80 hover:text-emerald-300 underline decoration-dotted whitespace-nowrap">track</span>}
-                      {edit && <Untrack label={f.icao} onClick={() => edit.untrackField(f.icao, f.role)} disabled={edit.busy} />}
-                    </span>
-                    <span className="text-slate-600 text-[10px] justify-self-end">{f.hasSitrep ? (fOpen ? "▾" : "▸") : ""}</span>
-                  </button>
-                  {fOpen && f.hasSitrep && (
-                    <div className="border border-slate-800 rounded-xl p-3 bg-slate-950/40 mb-2">
-                      <SitrepPanel active={active} focusIcao={f.icao} single />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <button onClick={() => go({ aor: c.aor })} className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-300">← back to {short(c.aor)}</button>
-        </div>
-      )}
     </div>
   );
 }

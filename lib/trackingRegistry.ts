@@ -140,7 +140,7 @@ export function buildRegistry(prefs: TrackingPrefs, profile: MissionProfile): Tr
     if (have) return have;
     const rec: AirfieldRecord = {
       ...seed, key,
-      aor: classifyAor({ lat: seed.lat, lon: seed.lon }),
+      aor: classifyAor({ lat: seed.lat, lon: seed.lon, name: seed.country }),
       roles: { posture: false, metar: false, sitrep: false, star: false },
       own: seed.icao ? own.get(seed.icao) ?? null : null,
       auto: false,
@@ -202,7 +202,7 @@ export function buildRegistry(prefs: TrackingPrefs, profile: MissionProfile): Tr
     if (f.kind !== "country") continue;
     const name = normalizeCountryName(f.country || f.label);
     if (!name || findCountry(name)) continue;
-    countries.push({ country: name, aor: classifyAor({ lat: f.lat, lon: f.lon }), roles: { posture: true, star: false }, aoi: null, auto: isDerivedId(f.id), id: f.id, note: f.note });
+    countries.push({ country: name, aor: classifyAor({ lat: f.lat, lon: f.lon, name }), roles: { posture: true, star: false }, aoi: null, auto: isDerivedId(f.id), id: f.id, note: f.note });
   }
   for (const s of profile.mustTrack?.countries ?? []) {
     const name = normalizeCountryName(s);
@@ -373,7 +373,7 @@ export function planTrack(prefsIn: TrackingPrefs, profileIn: MissionProfile, req
     if (prefs.forceLocations.length >= CAPS.posture) {
       warnings.push(`Posture airfields are full (${CAPS.posture}) — remove one first`);
     } else {
-      prefs.forceLocations.push({ id: `tr-b-${icao}`, label, icao, lat: req.lat, lon: req.lon, country, cocom: classifyAor({ lat: req.lat, lon: req.lon }), kind: "base" });
+      prefs.forceLocations.push({ id: `tr-b-${icao}`, label, icao, lat: req.lat, lon: req.lon, country, cocom: classifyAor({ lat: req.lat, lon: req.lon, name: country }), kind: "base" });
       if (profile.excludedIds.includes(`mp-b-${icao}`)) {
         profile = { ...profile, excludedIds: without(profile.excludedIds, `mp-b-${icao}`) };
         changes.push(`${icao} added to the posture watch (exclusion lifted)`);

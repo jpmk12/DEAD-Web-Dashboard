@@ -108,14 +108,23 @@ function Row({ sev, children, src }: { sev: "g" | "a" | "r" | "u" | "b"; childre
 // The OSINT SITREP pane: a squadron commander's situation report for 1-4
 // configured bases — weather, airfield ops, threats, and an AI BLUF, every
 // row source-attributed and every gap an explicit UNKNOWN.
-export default function SitrepPanel({ active, focusIcao, single = false }: {
+/** The room's airfield tabs (REVIEW-2026-10 §11 C′): one section of the
+ *  pane at a time. `sitrep` = mission impact + status strip + history;
+ *  the rest are the supporting-detail cards one by one. */
+export type SitrepSection = "sitrep" | "weather" | "ops" | "threats" | "infra" | "spectrum" | "history";
+
+export default function SitrepPanel({ active, focusIcao, single = false, section }: {
   active: boolean;
   focusIcao?: string | null;
   /** ONE base, no tile strip, no add-base control — the command board renders
    *  the SITREP inline under its airfield row and already shows the LEDs
    *  there (REVIEW-2026-10 §6 O2: the strip was rendered twice). */
   single?: boolean;
+  /** Render only this section (the room's tabs). Absent = the whole pane. */
+  section?: SitrepSection;
 }) {
+  const all = !section;
+  const show = (k: SitrepSection) => all || section === k;
   const [bases, setBases] = useState<SitrepBase[] | null>(null);
   const [icao, setIcao] = useState<string | null>(null);
   const [payload, setPayload] = useState<SitrepPayload | null>(null);
@@ -454,10 +463,10 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
 
       {payload && currentBase && (
         <>
-          <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} readError={readError} onRetryRead={() => icao && loadRead(icao)} onChanged={() => icao && loadSitrep(icao)} />
+          {show("sitrep") && <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} readError={readError} onRetryRead={() => icao && loadRead(icao)} onChanged={() => icao && loadSitrep(icao)} />}
 
           {/* Status strip */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+          {show("sitrep") && <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
             {([
               ["Weather", payload.status.wx, payload.weather.now ? `${payload.weather.now.flightCategory} now${payload.weather.tafWorst && payload.weather.tafWorst.worst !== payload.weather.now.flightCategory ? ` → ${payload.weather.tafWorst.worst} fcst` : ""}` : "no METAR"],
               ["Ops / Airfield", payload.status.ops, payload.ops.fieldClosed ? "FIELD CLOSED (NOTAM)" : payload.ops.limiting ? "limiting NOTAM active" : payload.ops.configured && payload.ops.live ? `${payload.ops.notamCount} NOTAMs, none limiting` : "DAIP unavailable — UNKNOWN"],
@@ -473,10 +482,11 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
                 </div>
               </div>
             ))}
-          </div>
+          </div>}
 
           {/* Last-7-days trend strip: one LED cluster per day (WX/OPS/THREAT). */}
-          {payload.history.length > 1 && (
+          {show("history") && !all && payload.history.length <= 1 && <p className="text-[11px] text-slate-500 px-1">No recorded history for this base yet — the strip fills in after the second observed day.</p>}
+          {(show("sitrep") || show("history")) && payload.history.length > 1 && (
             <div className="flex items-center gap-2 px-1">
               <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600">Last {payload.history.length} days</span>
               <div className="flex gap-1.5">
@@ -506,7 +516,7 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
           {/* Tempo — the series read along, not for today: IFR days this month vs
               last, NOTAM count direction, closure and crosswind days. Of observed
               days; nothing below four points. */}
-          {payload.tempo && payload.tempo.lines.length > 0 && (
+          {(show("sitrep") || show("history")) && payload.tempo && payload.tempo.lines.length > 0 && (
             <p className="px-1 text-[9.5px] text-slate-500" title="Read from this base's own recorded history (app history, not a feed). Ratios are of days the app observed.">
               <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mr-2">Tempo</span>
               {payload.tempo.lines.join(" · ")}
@@ -515,14 +525,14 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
 
           {/* Supporting detail — the raw signal cards the mission-impact
               layer is derived from. Kept in full below the leadership picture. */}
-          <div className="flex items-center gap-2 pt-1">
+          {all && <div className="flex items-center gap-2 pt-1">
             <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600">Supporting detail</span>
             <div className="flex-1 h-px bg-slate-800/70" />
-          </div>
+          </div>}
 
-          <div className="grid lg:grid-cols-2 gap-3">
+          <div className={all ? "grid lg:grid-cols-2 gap-3" : "grid gap-3"}>
             {/* WEATHER */}
-            <SectionCard led={payload.status.wx} title="Weather Brief" sources="AWC METAR/TAF · NWS · Open-Meteo">
+            {show("weather") && <SectionCard led={payload.status.wx} title="Weather Brief" sources="AWC METAR/TAF · NWS · Open-Meteo">
               <div className="flex items-center gap-3.5 mb-2.5">
                 <div className={`w-12 h-12 rounded-full border-[3px] flex flex-col items-center justify-center flex-shrink-0 ${CAT_COLOR[payload.weather.now?.flightCategory ?? "UNKNOWN"]}`}>
                   <span className="text-[10px] font-bold">{payload.weather.now?.flightCategory ?? "—"}</span>
@@ -590,10 +600,10 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
                 <span className="text-slate-600"> · civil {payload.astro.civilDawnZ?.slice(11, 16) ?? "—"}/{payload.astro.civilDuskZ?.slice(11, 16) ?? "—"}Z</span>
                 <span className="text-slate-400"> · ☽ {payload.astro.moon.illumPct}% {payload.astro.moon.phaseName}</span>
               </p>
-            </SectionCard>
+            </SectionCard>}
 
             {/* OPS */}
-            <SectionCard led={payload.status.ops} title="Ops Summary" sources="DAIP NOTAMs · OurAirports">
+            {show("ops") && <SectionCard led={payload.status.ops} title="Ops Summary" sources="DAIP NOTAMs · OurAirports">
               <Row sev={payload.ops.fieldClosed ? "r" : payload.ops.limiting ? "a" : payload.ops.configured && payload.ops.live ? "g" : "u"} src="DAIP·OA">
                 <b>Field: {payload.ops.fieldClosed ? "CLOSED (NOTAM)" : payload.ops.limiting ? "LIMITED" : payload.ops.configured && payload.ops.live ? "OPEN" : "UNKNOWN"}</b>
                 {payload.ops.capability && <span className="text-slate-400"> · longest open rwy {payload.ops.capability.lengthFt.toLocaleString()} ft {payload.ops.capability.surface} · {payload.ops.capability.cls} capable</span>}
@@ -804,10 +814,10 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
                   </Row>
                 ))}
               </div>
-            </SectionCard>
+            </SectionCard>}
 
             {/* THREATS */}
-            <SectionCard led={payload.status.threat} title="Threats" sources="Force Protection · GDACS/USGS · GDELT">
+            {show("threats") && <SectionCard led={payload.status.threat} title="Threats" sources="Force Protection · GDACS/USGS · GDELT">
               {payload.threats.fp ? (
                 <Row sev={payload.threats.fp.composite === "red" ? "r" : payload.threats.fp.composite === "amber" ? "a" : "g"} src="FP">
                   <b>FP composite: {payload.threats.fp.composite.toUpperCase()}</b> — {payload.threats.fp.topDriver}
@@ -835,11 +845,11 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
                   <span className="block text-[9px] text-slate-600">matched: {n.matched.join(", ")}</span>
                 </Row>
               ))}
-            </SectionCard>
+            </SectionCard>}
 
             {/* INFRASTRUCTURE — IODA internet + FAA NAS + USGS water sensors,
                 power/comms stay news-derived and say so. */}
-            <SectionCard led={payload.status.infra} title="Infrastructure Watch" sources="IODA (Georgia Tech) · FAA NAS · USGS · news">
+            {show("infra") && <SectionCard led={payload.status.infra} title="Infrastructure Watch" sources="IODA (Georgia Tech) · FAA NAS · USGS · news">
               {/* Internet — macro connectivity for the base's state/country */}
               {!payload.infra.internet.live && <Row sev="u" src="IODA"><b>Internet:</b> IODA UNREACHABLE this cycle — UNKNOWN, not clear</Row>}
               {payload.infra.internet.live && (
@@ -913,12 +923,13 @@ export default function SitrepPanel({ active, focusIcao, single = false }: {
                 </div>
               )}
               <p className="text-[9.5px] text-slate-600 mt-2">Planning-grade heuristics: IODA measures state/country-level connectivity (not the base LAN); power has no direct sensor. UNKNOWN ≠ all clear.</p>
-            </SectionCard>
+            </SectionCard>}
 
             {/* SPECTRUM — PNT at the field, space weather → ops, KEV on the
                 declared edge vendors. Space weather is environment: it
                 colours this card and the C2/Comms LIMFAC, never an I&W level. */}
-            {payload.spectrum && (
+            {show("spectrum") && !payload.spectrum && <p className="text-[11px] text-slate-500 px-1">No spectrum block on this assembly — the field predates the spectrum sensors; refresh to assemble one.</p>}
+            {show("spectrum") && payload.spectrum && (
               <SectionCard led={payload.status.spectrum ?? "u"} title="Spectrum" sources="GPSJam · DAIP RAIM · NOAA SWPC · CISA KEV">
                 {/* PNT at the field */}
                 {!payload.spectrum.pnt.live && <Row sev="u" src="GPSJam"><b>PNT:</b> GPSJam UNREACHABLE this cycle — interference at the field UNKNOWN</Row>}

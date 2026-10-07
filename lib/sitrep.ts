@@ -18,6 +18,7 @@ import { getForceProtection } from "./forceProtection";
 import { gdeltLocalNews } from "./localNews";
 import { getCenterNotams, getFuelNotams } from "./airspace";
 import { classifyAor, type Aor } from "./aor";
+import { normalizeCountryName } from "./countryNames";
 import {
   groupNotams, filterImpactNews, tafTimeline, wxLed, opsLed, threatLed, runwayWinds,
   type NotamGroup, type TafSegment, type Led, type RunwayWind,
@@ -219,8 +220,9 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
 
   return {
     icao: p.base.icao, label: p.base.label,
-    country: p.base.country || "",
-    aor: classifyAor({ lat: p.base.lat, lon: p.base.lon, name: p.base.country }),
+    // Older bases carry ISO2 ("DE") — normalise so the board keys one country.
+    country: normalizeCountryName(p.base.country) || "",
+    aor: classifyAor({ lat: p.base.lat, lon: p.base.lon, name: normalizeCountryName(p.base.country) }),
     status: p.status, driver, line, worse: [...worse],
   };
 }
@@ -232,8 +234,8 @@ export function sitrepStub(base: SitrepBase): SitrepSummary {
   return {
     icao: base.icao,
     label: base.label,
-    country: base.country || "",
-    aor: classifyAor({ lat: base.lat, lon: base.lon, name: base.country }),
+    country: normalizeCountryName(base.country) || "",
+    aor: classifyAor({ lat: base.lat, lon: base.lon, name: normalizeCountryName(base.country) }),
     status: { wx: "u", ops: "u", threat: "u", infra: "u", spectrum: "u" },
     driver: "assembly failed — UNKNOWN",
     line: `${base.icao} assembly failed this cycle — status UNKNOWN, not clear.`,

@@ -72,14 +72,24 @@ function CatLines({ c }: { c?: CategoryAssessment }) {
   );
 }
 
-export default function CountryRoom({ country, sel, base, active = true }: {
+/** The room's country tabs (REVIEW-2026-10 §11 C). `overview` = the conflict
+ *  banner, the AI SITREP, civil + health/access, an incidents summary. */
+export type CountrySection = "overview" | "incidents" | "news" | "civil" | "health" | "spectrum";
+
+export default function CountryRoom({ country, sel, base, active = true, section, hideHeader = false }: {
   country: string;
   /** The country watch, else the worst base standing in; null when unwatched. */
   sel: ForceAssessment | null;
   /** The pinned base in this country, when one exists. */
   base: ForceAssessment | null;
   active?: boolean;
+  /** Render only this section (the room's tabs). Absent = the whole dossier. */
+  section?: CountrySection;
+  /** The room draws its own title line. */
+  hideHeader?: boolean;
 }) {
+  const all = !section;
+  const show = (k: CountrySection) => all || section === k;
   const [dossier, setDossier] = useState<CountryDossier | null>(null);
   const [dLoading, setDLoading] = useState(false);
   const [sitrep, setSitrep] = useState<string | null>(null);
@@ -110,7 +120,7 @@ export default function CountryRoom({ country, sel, base, active = true }: {
   return (
     <div className="space-y-3">
       {/* Header */}
-      <div className="border border-slate-800 rounded-xl bg-slate-900/40 px-3.5 py-2.5 flex items-center gap-2 flex-wrap">
+      {!hideHeader && <div className="border border-slate-800 rounded-xl bg-slate-900/40 px-3.5 py-2.5 flex items-center gap-2 flex-wrap">
         <span className="text-lg">🌐</span>
         <h3 className="text-base font-bold text-slate-100">{country}</h3>
         {sel ? (
@@ -131,11 +141,11 @@ export default function CountryRoom({ country, sel, base, active = true }: {
           </span>
         )}
         {baseForSel && <span className="text-[10px] font-mono text-slate-500 ml-auto">pinned base: {baseForSel.label}{baseForSel.icao ? ` (${baseForSel.icao})` : ""}</span>}
-      </div>
+      </div>}
 
       {/* Active conflict reporting — the timeliest kinetic read (same signal
           that sets the posture dot). Leads the dossier; hidden when quiet. */}
-      {!dLoading && dossier && dossier.conflictNews.count > 0 && (() => {
+      {show("overview") && !dLoading && dossier && dossier.conflictNews.count > 0 && (() => {
         const cn = dossier.conflictNews;
         const esc = cn.escalation;
         return (
@@ -158,12 +168,30 @@ export default function CountryRoom({ country, sel, base, active = true }: {
         );
       })()}
 
-      <Card title="✦ AI SITREP" meta={sLoading ? "reading…" : undefined}>
+      {show("overview") && <Card title="✦ AI SITREP" meta={sLoading ? "reading…" : undefined}>
         {sLoading && <p className="text-[12px] text-slate-500">Generating ground situation read…</p>}
         {!sLoading && sitrep && <pre className="text-[12.5px] text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{sitrep}</pre>}
-      </Card>
+      </Card>}
 
-      <Card title="◆ Security incidents" meta="ACLED · UCDP · in-country + ~500km">
+      {/* Overview: the incidents in one line — the full list and the map are the Incidents tab. */}
+      {!all && show("overview") && !dLoading && dossier && (
+        <Card title="◆ Security incidents" meta="ACLED · UCDP · in-country + ~500km">
+          {dossier.incidents.length === 0
+            ? <p className="text-[11px] text-slate-600">No recent in-country or nearby incidents in window.</p>
+            : <ul className="space-y-1">
+                {dossier.incidents.slice(0, 3).map((i, n) => (
+                  <li key={n} className="text-[12px] flex items-start gap-2">
+                    <span className={i.km == null ? "text-red-400" : "text-amber-400"}>◆</span>
+                    <span className="text-slate-300 flex-1 min-w-0">{i.type} <span className="text-slate-500">@ {i.location}</span>{i.fatalities > 0 && <span className="text-red-400/90"> · {i.fatalities} killed</span>}</span>
+                    <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{i.date ? `${i.date} · ` : ""}{i.km == null ? "in-country" : `~${i.km}km`}</span>
+                  </li>
+                ))}
+                {dossier.incidents.length > 3 && <li className="text-[10px] text-slate-500">{dossier.incidents.length} in the window — see Incidents.</li>}
+              </ul>}
+        </Card>
+      )}
+
+      {show("incidents") && <Card title="◆ Security incidents" meta="ACLED · UCDP · in-country + ~500km">
         {dLoading && <p className="text-[12px] text-slate-500">Loading incidents…</p>}
         {!dLoading && dossier && (
           <div className="flex flex-col md:flex-row gap-3">
@@ -193,9 +221,9 @@ export default function CountryRoom({ country, sel, base, active = true }: {
             </div>
           </div>
         )}
-      </Card>
+      </Card>}
 
-      {!dLoading && dossier && dossier.disasters.length > 0 && (
+      {(show("incidents") || show("overview")) && !dLoading && dossier && dossier.disasters.length > 0 && (
         <Card title="🌪 Natural disasters" meta="GDACS · USGS · ReliefWeb — in-country + ~500km">
           <ul className="space-y-1.5">
             {dossier.disasters.map((d, n) => (
@@ -209,7 +237,7 @@ export default function CountryRoom({ country, sel, base, active = true }: {
         </Card>
       )}
 
-      <Card title="📰 Local news & media" meta="GDELT + your OSINT feeds">
+      {show("news") && <Card title="📰 Local news & media" meta="GDELT + your OSINT feeds">
         {dLoading && <p className="text-[12px] text-slate-500">Loading news…</p>}
         {!dLoading && dossier && dossier.news.length === 0 && <p className="text-[11px] text-slate-600">No recent headlines found.</p>}
         {!dLoading && dossier && dossier.news.length > 0 && (
@@ -222,10 +250,10 @@ export default function CountryRoom({ country, sel, base, active = true }: {
             ))}
           </ul>
         )}
-      </Card>
+      </Card>}
 
-      <div className="grid md:grid-cols-2 gap-3">
-        <Card title="⚖ Civil / political">
+      {(show("overview") || show("civil") || show("health")) && <div className={all || show("overview") ? "grid md:grid-cols-2 gap-3" : "grid gap-3"}>
+        {(show("overview") || show("civil")) && <Card title="⚖ Civil / political">
           {dLoading && <p className="text-[12px] text-slate-500">Loading…</p>}
           {!dLoading && dossier && (() => {
             const cv = dossier.civil;
@@ -260,8 +288,8 @@ export default function CountryRoom({ country, sel, base, active = true }: {
               </ul>
             );
           })()}
-        </Card>
-        <Card title="✚ Health · ✈ Access">
+        </Card>}
+        {(show("overview") || show("health")) && <Card title="✚ Health · ✈ Access">
           <div className="space-y-2">
             <div><span className="text-[9px] uppercase tracking-wider text-slate-600">Health / hazard</span><CatLines c={cat(sel, "hazard")} /></div>
             {baseForSel ? (
@@ -275,10 +303,11 @@ export default function CountryRoom({ country, sel, base, active = true }: {
               <p className="text-[10px] text-slate-600 pt-1.5 border-t border-slate-800/60">Pin a base (with ICAO) in this country for aviation weather, NOTAMs &amp; GPS.</p>
             )}
           </div>
-        </Card>
-      </div>
+        </Card>}
+      </div>}
 
-      {!dLoading && dossier && (dossier.health.outbreaks.length > 0 || dossier.health.indicators.length > 0) && (
+      {show("health") && !dLoading && dossier && dossier.health.outbreaks.length === 0 && dossier.health.indicators.length === 0 && <p className="text-[11px] text-slate-500 px-1">No WHO outbreak notice or GHO indicator resolved for {country} — host-nation health UNKNOWN, not clear.</p>}
+      {show("health") && !dLoading && dossier && (dossier.health.outbreaks.length > 0 || dossier.health.indicators.length > 0) && (
         <Card title="✚ Host-nation health" meta="WHO GHO · DON">
           {dossier.health.outbreaks.length > 0 ? (
             <ul className="space-y-1 mb-2">
@@ -313,7 +342,8 @@ export default function CountryRoom({ country, sel, base, active = true }: {
         </Card>
       )}
 
-      {!dLoading && dossier && dossier.digital && (() => {
+      {show("spectrum") && !dLoading && dossier && !dossier.digital && <p className="text-[11px] text-slate-500 px-1">No digital &amp; spectrum block for {country} this pass — UNKNOWN, not clear.</p>}
+      {show("spectrum") && !dLoading && dossier && dossier.digital && (() => {
         const dg = dossier.digital;
         const worstAlert = dg.internet.alerts.find((a) => a.level === "critical") ?? dg.internet.alerts[0];
         const led = (ok: boolean, level: "g" | "a" | "r") => (ok ? level : "u");
@@ -362,6 +392,7 @@ export default function CountryRoom({ country, sel, base, active = true }: {
         );
       })()}
 
+      {dLoading && !all && <p className="text-[12px] text-slate-500 px-1">Loading…</p>}
       <p className="text-[9px] text-slate-600 px-1">Coarse open-source SA — not authoritative tasking.</p>
     </div>
   );

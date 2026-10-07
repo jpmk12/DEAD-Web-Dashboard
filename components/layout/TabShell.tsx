@@ -189,6 +189,13 @@ export default function TabShell() {
       setPrefsOpen(true);
       setTimeout(() => window.dispatchEvent(new CustomEvent("prefs:focus-group", { detail: prefs })), 150);
     }
+    // `?room=country:Germany` — the OSINT command board's room (REVIEW-2026-10
+    // §11). The board reads the param itself once armed; this just lands the
+    // user on the Commands pane so it arms.
+    if (params.get("room")) {
+      setActiveTab("osint");
+      setTimeout(() => window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "commands" })), 40);
+    }
   }, []);
 
   // Mirror the active tab onto <body> so components with no path to this

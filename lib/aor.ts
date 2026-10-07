@@ -115,9 +115,33 @@ export function aorFromCoords(lat: number, lon: number): Aor {
   return "INDOPACOM";
 }
 
-// Classify by coords when available (geography is unambiguous), else by name.
+/** A COUNTRY name (the whole string, normalised form or alias) → its command;
+ *  UNKNOWN for anything that is not exactly a country token. Exact, so a
+ *  label like "Robins AFB, Georgia" never reads as the Caucasus. */
+export function aorFromCountry(name: string | null | undefined): Aor {
+  const t = (name ?? "").trim().toLowerCase();
+  if (!t) return "UNKNOWN";
+  for (const { token, aor } of NAME_INDEX) if (t === token) return aor;
+  return "UNKNOWN";
+}
+
+// Classify by COUNTRY first, coordinates second, free text last.
+//
+// The Unified Command Plan assigns responsibility by country, and the
+// coordinate bands below cannot draw that line: everything above 36°N between
+// the Atlantic and Iran reads EUCOM, so Erbil (36.2°N, Iraq) and Syria's
+// north-east landed in EUCOM while Turkey two degrees further north is EUCOM
+// correctly (Weather tab bug, 2026-10-07). When the caller knows the country —
+// a tracked airfield, a posture row, a SITREP base — that is the answer;
+// coordinates settle the cases with no country (a disaster point, a kinetic
+// event, a METAR station with no record), and the substring match on free
+// text is the last resort for a headline or a region phrase.
 export function classifyAor(opts: { lat?: number | null; lon?: number | null; name?: string }): Aor {
-  if (opts.lat != null && opts.lon != null) return aorFromCoords(opts.lat, opts.lon);
+  if (opts.name) {
+    const byCountry = aorFromCountry(opts.name);
+    if (byCountry !== "UNKNOWN") return byCountry;
+  }
+  if (opts.lat != null && opts.lon != null && !(opts.lat === 0 && opts.lon === 0)) return aorFromCoords(opts.lat, opts.lon);
   if (opts.name) return aorFromName(opts.name);
   return "UNKNOWN";
 }

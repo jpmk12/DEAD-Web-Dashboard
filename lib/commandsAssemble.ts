@@ -31,8 +31,9 @@ import { deriveAvailability, postureAgainstDemand } from "./crewState";
 import { getAllLastSeen } from "./surfaceState";
 import { buildOeSeries } from "./oeDeltaAssemble";
 import { computeDelta } from "./oeDelta";
-import { aorFromCoords, classifyAor, AOR_LABELS, type Aor } from "./aor";
+import { aorFromCoords, aorFromCountry, classifyAor, AOR_LABELS, type Aor } from "./aor";
 import { ALL_AIRFIELDS } from "./airfields";
+import { normalizeCountryName } from "./countryNames";
 import { EMPTY_MUST_TRACK, type MissionProfile, type MustTrack } from "./missionProfile";
 import {
   commandBoard, type CommandBoard, type CommandInput, type CbPosture, type CbBoard, type CbSitrep, type CbDemand,
@@ -81,14 +82,31 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
 
 export function resetCommandsCache(): void { cache = null; lastFailure = null; }
 
+// Country strings reach the board from four stores (posture rows, SITREP
+// bases, the profile's hub/spokes, the resolver) and older rows carry ISO2
+// codes ("DE", "IQ") from before `normalizeCountryName` existed. The board
+// keys countries by name, so "DE" and "Germany" became two rows and "IQ"
+// (Erbil) fell under the wrong command (REVIEW-2026-10 §11 R4). Normalise at
+// THIS boundary — the one place every store meets — and classify the command
+// from coordinates when they exist, else from the normalised name.
+const country = (raw: string | null | undefined): string => normalizeCountryName(raw);
+/** The command: the country decides when known (`classifyAor` is country-first),
+ *  else the coordinates; a declared command is trusted only if it names one. */
+function aorOf(lat: number | null | undefined, lon: number | null | undefined, name: string, declared?: string | null): Aor {
+  const byCountry = aorFromCountry(name);
+  if (byCountry !== "UNKNOWN") return byCountry;
+  if (isAor(declared)) return declared;
+  return classifyAor({ lat, lon, name });
+}
+
 function ownFieldsOf(profile: MissionProfile): CbOwnField[] {
   const out: CbOwnField[] = [];
   const hub = profile.home ?? (profile.homeIcao ? (() => {
     const a = ALL_AIRFIELDS.find((x) => x.icao === profile.homeIcao);
     return a ? { icao: a.icao, label: a.name, lat: a.lat, lon: a.lon, country: a.country ?? "United States" } : null;
   })() : null);
-  if (hub) out.push({ icao: hub.icao, label: hub.label, role: "hub", country: hub.country || "United States", lat: hub.lat, lon: hub.lon });
-  for (const s of profile.spokes) if (!out.some((o) => o.icao === s.icao)) out.push({ icao: s.icao, label: s.label, role: "spoke", country: s.country || "United States", lat: s.lat, lon: s.lon });
+  if (hub) out.push({ icao: hub.icao, label: hub.label, role: "hub", country: country(hub.country) || "United States", lat: hub.lat, lon: hub.lon });
+  for (const s of profile.spokes) if (!out.some((o) => o.icao === s.icao)) out.push({ icao: s.icao, label: s.label, role: "spoke", country: country(s.country) || "United States", lat: s.lat, lon: s.lon });
   return out;
 }
 
@@ -102,7 +120,7 @@ async function gatherShared(): Promise<Shared> {
 
   // Posture.
   const postureP = settle(getForceProtectionCached(countries, bases).then((fp): CbPosture[] => fp.assessments.map((a) => ({
-    id: a.id, label: a.label, kind: a.kind, country: a.country, aor: isAor(a.cocom) ? a.cocom : classifyAor({ lat: a.lat, lon: a.lon, name: a.country }),
+    id: a.id, label: a.label, kind: a.kind, country: country(a.country) || (a.kind === "country" ? country(a.label) : ""), aor: aorOf(a.lat, a.lon, country(a.country) || a.label, a.cocom),
     icao: a.icao, lat: a.lat, lon: a.lon, composite: a.composite, previousComposite: a.previousComposite ?? null,
     chronicity: a.chronicity?.state ?? null, topDriver: a.topDriver,
   }))));
@@ -110,7 +128,7 @@ async function gatherShared(): Promise<Shared> {
   // SITREP summaries — every configured base, stubbed when its assembly fails.
   const sitrepBases = prefs?.sitrepBases ?? [];
   const sitrepP = settle(Promise.all(sitrepBases.map((b) => assembleSitrep(b).then(sitrepSummary).catch(() => sitrepStub(b)))).then((rows: SitrepSummary[]): CbSitrep[] =>
-    rows.map((s) => ({ icao: s.icao, label: s.label, country: s.country, aor: s.aor, status: s.status, driver: s.driver, worse: s.worse }))));
+    rows.map((s) => ({ icao: s.icao, label: s.label, country: country(s.country), aor: isAor(s.aor) ? s.aor : aorOf(null, null, country(s.country)), status: s.status, driver: s.driver, worse: s.worse }))));
 
   // Boards — the declared command from ProblemGeo.aor.
   const boardsP = settle(activeWarningProblems().then(async (ps): Promise<CbBoard[]> => {
