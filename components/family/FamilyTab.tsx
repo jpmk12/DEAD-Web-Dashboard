@@ -451,8 +451,18 @@ export default function FamilyTab({ active }: { active: boolean }) {
     void srcMs;
     return (
       <div key={ev.id} className="flex items-baseline gap-2.5 py-1 text-[11.5px]">
-        <span className={`w-[78px] flex-shrink-0 font-mono text-[10.5px] whitespace-nowrap ${ev.needsConfirm ? "text-amber-400" : "text-slate-400"}`}>
-          {ev.startISO ? fmtDate(ev.startISO) : "?? date"}
+        {/* Date column: a fixed width keeps the titles aligned, so a TIMED
+            event stacks its time under the date instead of overrunning the
+            title (bug report 2026-10-07: "Sat, Oct 17 · 18:00" ran into "PTO
+            Trunk or Treat"). */}
+        <span className={`w-[78px] flex-shrink-0 font-mono text-[10.5px] leading-tight ${ev.needsConfirm ? "text-amber-400" : "text-slate-400"}`}>
+          {(() => {
+            const [day, time] = (ev.startISO ? fmtDate(ev.startISO) : "?? date").split(" · ");
+            return <>
+              <span className="block whitespace-nowrap">{day}</span>
+              {time && <span className="block whitespace-nowrap text-[9.5px] text-slate-500">{time}</span>}
+            </>;
+          })()}
         </span>
         <span className="min-w-0 flex-1 text-slate-300">
           {ev.title}
