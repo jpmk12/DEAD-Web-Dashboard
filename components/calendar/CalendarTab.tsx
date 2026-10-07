@@ -185,11 +185,16 @@ export default function CalendarTab({ active, onEventsLoaded, tasksRefreshKey, o
       const plan = eventPlanFor(d); if (!plan) return;
       const r = await fetch("/api/gmail/convert", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId: d.messageId, account: d.account, kind: "event", mode: "create", plan: { ...plan, timeZone: zone.zone } }),
+        body: JSON.stringify({ messageId: d.messageId, account: d.account, accountEmail: d.accountEmail, kind: "event", mode: "create", plan: { ...plan, timeZone: zone.zone } }),
       }).catch(() => null);
-      const j = r ? await r.json().catch(() => ({})) as { ok?: boolean; error?: string } : null;
+      // Say WHY (bug report 2026-10-07: "Could not add the event" with no
+      // reason). A reply that is not JSON is the platform gateway or a
+      // sign-in redirect, and its status is the only clue there is.
+      if (!r) { toast.error("Could not add the event — the server could not be reached"); return; }
+      const j = await r.json().catch(() => null) as { ok?: boolean; error?: string } | null;
       if (j?.ok) { toast.ok(`Added to your calendar — ${plan.summary}`, `${d.when} · from "${d.subject}"`); mailHandlers.dismiss(d); window.dispatchEvent(new Event("calendar:changed")); }
-      else toast.error(j?.error || "Could not add the event");
+      else if (!j) toast.error(`Could not add the event — HTTP ${r.status}${r.redirected || r.status === 401 ? " (signed out? sign in again)" : " without a JSON reply"}`);
+      else toast.error(j.error || `Could not add the event (HTTP ${r.status})`);
     },
     addTask: async (d) => {
       try { await addTask(d.what, d.when ? d.when.slice(0, 10) : undefined, `From: ${d.subject}`); toast.ok(`Task added — ${d.what}`); mailHandlers.dismiss(d); }

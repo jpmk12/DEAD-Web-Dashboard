@@ -219,10 +219,10 @@ export default function EmailCard(props: EmailCardProps) {
       const res = await fetch("/api/gmail/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId: email.id, account: email.account, kind, mode: "create", plan }),
+        body: JSON.stringify({ messageId: email.id, account: email.account, accountEmail: email.accountEmail, kind, mode: "create", plan }),
       });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok || !d.ok) { setConvert({ phase: "error", message: d?.error || "Couldn't create it" }); return; }
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d?.ok) { setConvert({ phase: "error", message: d?.error || `Couldn't create it (HTTP ${res.status}${d ? "" : ", no JSON reply"})` }); return; }
       setConvert({ phase: "saved", what: kind === "task" ? "task" : "calendar event" });
     } catch {
       setConvert({ phase: "error", message: "Network error" });

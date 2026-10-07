@@ -2615,6 +2615,20 @@ and No date closed by default). `TabShell` renders `CalendarTab` and keeps
   (overdue tasks / family due / check-ins). **TDY chips** (C9,
   `tripChipFor` → "TDY · Amman — day 5 of 9") on the day headers inside a
   trip, from `/api/trips`.
+- **"Could not add the event" (bug report 2026-10-07)**: `/api/gmail/convert`
+  wrote the event with the token of the mailbox the email came from — the
+  SECONDARY account's token is `gmail.modify` + `calendar.readonly` and can
+  never insert an event or a task — and its secondary-cookie decrypt sat
+  outside every try block, so a stale cookie escaped as a bare 500 (HTML
+  from the platform) that the client could only call "Could not add the
+  event". Now: writes (events AND tasks) always use the signed-in
+  account's token, the mailbox token is used only to READ the email in
+  plan mode (`readToken`, which catches), the whole handler is wrapped so
+  nothing escapes as a non-JSON reply, errors carry Google's own reason
+  (`googleReason` — "Insufficient Permission", "Invalid start time"), the
+  client sends `accountEmail` so the backlink still names the right
+  mailbox, and the toast names the HTTP status when the reply is not JSON
+  (a sign-in redirect reads as 401 / redirected → "sign in again").
 - Mockup: `docs/mockups/calendar-proposed.html` → `docs/calendar.png`. No
   new npm dep (esbuild `0`).
 
