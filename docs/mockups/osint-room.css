@@ -1,0 +1,100 @@
+/* Shared styles for the command-board "room" mockups (REVIEW-2026-10 §11):
+   osint-country-dock.html · osint-country-split.html · osint-room-drawer.html ·
+   osint-airfields.html. Builds on shot.css + osint.css. */
+.opt{display:flex;align-items:center;gap:12px;margin:0 0 12px;padding:10px 14px;border:1px solid rgba(56,189,248,.45);border-radius:10px;background:rgba(56,189,248,.06)}
+.opt .lbl{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#7dd3fc;white-space:nowrap}
+.opt h2{font-size:15px;font-weight:800;color:#f1f5f9}
+.opt .s{font-size:11.5px;color:#94a3b8}
+.opt .rec{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6ee7b7;border:1px solid rgba(52,211,153,.5);border-radius:5px;padding:3px 8px;white-space:nowrap}
+.opt .alt{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;border:1px solid var(--bd2);border-radius:5px;padding:3px 8px;white-space:nowrap}
+/* command rows (compact variant for these shots) */
+.crow.cmd.open{background:rgba(30,41,59,.25);box-shadow:inset 3px 0 0 #f59e0b}
+/* selected country row */
+.ctry.sel{background:rgba(56,189,248,.07);box-shadow:inset 3px 0 0 #38bdf8;margin:0 -14px;padding:7px 14px}
+.ctry .trk{font-size:8.5px;color:#fcd34d;text-decoration:underline dotted;margin-left:6px;font-family:ui-monospace,Menlo,monospace}
+.ctry .x{color:#475569;font-size:11px;margin-left:6px}
+.ctry .fld{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:ui-monospace,Menlo,monospace;color:#cbd5e1;border:1px solid var(--bd2);border-radius:4px;padding:1px 6px;background:rgba(2,6,23,.5)}
+.ctry .fld:hover{border-color:#7dd3fc;color:#7dd3fc}
+/* the room (shared by dock / split / drawer) */
+.room{border:1px solid rgba(56,189,248,.35);border-radius:12px;background:rgba(2,6,23,.75);overflow:hidden}
+.room .rh{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(56,189,248,.05);flex-wrap:wrap}
+.room .rh .k{font-size:9.5px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#7dd3fc}
+.room .rh .nav{display:flex;gap:3px;align-items:center;margin-left:auto}
+.room .rh .nav button,.room .rh .nav span{font-size:10px;color:#94a3b8;border:1px solid var(--bd2);border-radius:5px;padding:3px 7px;font-family:ui-monospace,Menlo,monospace}
+.room .rh .nav .on{color:#7dd3fc;border-color:rgba(56,189,248,.6);background:rgba(56,189,248,.1)}
+.room .rh .x{font-size:13px;color:#94a3b8;border:1px solid var(--bd2);border-radius:5px;padding:1px 7px}
+.room .ti{display:flex;align-items:center;gap:10px;padding:10px 14px 6px;flex-wrap:wrap}
+.room .ti h3{font-size:19px;font-weight:800;color:#f8fafc}
+.room .ti .cm{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;border:1px solid var(--bd2);border-radius:4px;padding:1px 6px}
+.room .ti .sev{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.room .ti .chron{font-size:10.5px;color:#94a3b8;font-family:ui-monospace,Menlo,monospace}
+.room .ti .pin{margin-left:auto;font-size:10.5px;color:#94a3b8;font-family:ui-monospace,Menlo,monospace}
+.room .ti .pin b{color:#7dd3fc}
+.room .tabs{display:flex;gap:4px;padding:4px 14px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.room .tabs span{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);padding:6px 9px;border-bottom:2px solid transparent;white-space:nowrap}
+.room .tabs span.on{color:#7dd3fc;border-bottom-color:#38bdf8}
+.room .tabs span i{font-style:normal;font-family:ui-monospace,Menlo,monospace;font-weight:400;margin-left:4px;color:var(--mut2)}
+.room .body{padding:10px 14px}
+.bn{padding:8px 12px;border:1px solid rgba(245,158,11,.5);background:rgba(245,158,11,.06);border-radius:8px;font-size:12px;color:#fde68a;margin-bottom:10px}
+.bn b{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#fcd34d;display:block;margin-bottom:2px}
+.bn .src{display:block;font-size:10px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;margin-top:3px}
+.ai{border:1px solid var(--bd);border-radius:10px;padding:9px 12px;background:rgba(15,23,42,.5);margin-bottom:10px}
+.ai .k{font-size:9.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;margin-bottom:5px;display:flex;gap:10px;align-items:center}
+.ai .k .s{margin-left:auto;font-weight:400;letter-spacing:0;text-transform:none;font-size:9.5px;color:var(--mut)}
+.ai p{margin:0 0 6px;font-size:12px;color:#cbd5e1;line-height:1.55}
+.ai p b{color:#f1f5f9}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.room .af{display:flex;gap:8px;flex-wrap:wrap}
+.room .af .tile{min-width:200px}
+/* dock */
+.dock{margin:10px 0 4px 0}
+.dock .room{border-color:rgba(56,189,248,.45)}
+/* split */
+.split{display:grid;grid-template-columns:300px 1fr;gap:12px;align-items:start;padding:8px 14px 12px 46px;border-top:1px solid rgba(30,41,59,.6)}
+.rail2{border:1px solid var(--bd);border-radius:10px;background:rgba(2,6,23,.45);overflow:hidden}
+.rail2 .rh{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);padding:7px 10px;border-bottom:1px solid var(--bd);display:flex;gap:8px;align-items:center}
+.rrow{display:grid;grid-template-columns:16px 10px 1fr auto;gap:8px;align-items:center;padding:7px 10px;border-top:1px solid rgba(30,41,59,.5);font-size:12px}
+.rrow:first-of-type{border-top:0}
+.rrow.sel{background:rgba(56,189,248,.08);box-shadow:inset 3px 0 0 #38bdf8}
+.rrow b{color:#f1f5f9;display:block;font-size:12.5px;line-height:1.2}
+.rrow .sub{font-size:9.5px;color:#94a3b8;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+.rrow i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.rrow i.r{background:#ef4444}.rrow i.a{background:#f59e0b}.rrow i.g{background:#22c55e}.rrow i.u{background:#475569}
+.rrow .fl{font-size:9.5px;font-family:ui-monospace,Menlo,monospace;color:#94a3b8;display:flex;align-items:center;gap:4px}
+/* drawer */
+.stage{position:relative;overflow:hidden;border-radius:12px}
+.dim{position:absolute;inset:0;background:rgba(2,6,23,.55);backdrop-filter:blur(1px)}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:62%;background:#060b1a;border-left:1px solid rgba(56,189,248,.45);box-shadow:-24px 0 60px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.drawer .room{border:0;border-radius:0;background:transparent;flex:1;display:flex;flex-direction:column;min-height:0}
+.drawer .room .body{overflow:hidden;flex:1}
+.drawer .crumb{font-size:10.5px;font-family:ui-monospace,Menlo,monospace;color:#94a3b8}
+.drawer .crumb b{color:#e2e8f0}
+.kbd{font-size:9px;font-family:ui-monospace,Menlo,monospace;color:var(--mut);border:1px solid var(--bd2);border-radius:3px;padding:0 4px}
+/* airfields by command */
+.afhead,.afr{display:grid;grid-template-columns:22px 1.5fr 1.2fr 110px 1fr .8fr .8fr 20px;gap:10px;align-items:center;padding:7px 14px}
+.afhead{font-size:8.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2);border-bottom:1px solid var(--bd)}
+.afg{display:flex;align-items:center;gap:8px;padding:6px 14px;border-top:1px solid var(--bd);font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#7dd3fc;background:rgba(2,6,23,.4)}
+.afg .s{margin-left:auto;color:var(--mut);font-weight:400;letter-spacing:0;text-transform:none;font-family:ui-monospace,Menlo,monospace}
+.afr{border-top:1px solid rgba(30,41,59,.5);font-size:12px}
+.afr.hot{background:rgba(239,68,68,.04)}
+.afr .ic{display:flex;align-items:center;gap:6px}
+.afr .ic b{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#f1f5f9}
+.afr .role{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:3px;padding:0 4px;color:#94a3b8}
+.afr .role.hub{color:#7dd3fc;border-color:rgba(56,189,248,.5)}
+.afr .nm{color:#cbd5e1;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.afr .nm em{display:block;font-style:normal;font-size:9.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+.afr .drv{font-size:11px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.afr .drv.a{color:#fcd34d}.afr .drv.r{color:#fca5a5}
+.afr .cat{font-size:10px;font-family:ui-monospace,Menlo,monospace}
+.afr .ctl{display:flex;gap:4px;align-items:center;justify-content:flex-end}
+.afr .ctl span{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--bd2);border-radius:3px;padding:0 4px;color:#64748b}
+.afr .ctl span.on{color:#bae6fd;border-color:rgba(56,189,248,.6);background:rgba(56,189,248,.15)}
+.afr .ctl .x{border:0;color:#475569;font-size:11px}
+.peer{display:grid;grid-template-columns:1fr;gap:0}
+.peer .sh{display:flex;align-items:center;gap:8px}
+.peer .sh .add{font-size:9.5px;color:#6ee7b7;text-transform:none;letter-spacing:0}
+
+.room .af .tile{min-width:0;flex:1 1 170px}
+.room .leds i{width:7px;height:7px}
+.ledrow .led{height:auto;width:auto;border-radius:8px}
+.ledrow .led i{width:10px;height:10px;border-radius:50%}

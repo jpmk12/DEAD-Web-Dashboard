@@ -27,3 +27,7 @@ shot family-proposed.html   family-proposed.png 1280,1960 2
 shot osint-commands.html    osint-commands.png  1280,2360 2
 shot osint-drill.html       osint-drill.png     1280,2640 2
 shot osint-prototype.html   osint-prototype.png 1280,2400 2   # interactive; the shot is the landing state
+shot osint-country-dock.html  osint-country-dock.png  1280,1440 2   # §11 option A
+shot osint-country-split.html osint-country-split.png 1280,1180 2   # §11 option B
+shot osint-room-drawer.html   osint-room-drawer.png   1280,1500 2   # §11 option C (recommended)
+shot osint-airfields.html     osint-airfields.png     1280,2120 2   # §11 options A′ B′ C′

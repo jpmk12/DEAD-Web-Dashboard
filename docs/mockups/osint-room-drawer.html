@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>osint — the room as a slide-over drawer (option C, recommended)</title><link rel="stylesheet" href="shot.css"><link rel="stylesheet" href="osint.css"><link rel="stylesheet" href="osint-room.css">
+<style>body{padding:16px 0 30px}.wrap{max-width:1232px}</style></head>
+<body><div class="wrap">
+
+<div class="opt"><span class="lbl">Option C</span><div><h2>One drawer for every detail — country room, airfield SITREP, board</h2><div class="s">The board page is only LISTS (primer · my airfields · commands with boards + countries · airfields by command · the picture). Anything you open slides in from the right as "the room", with tabs, ‹ › and a breadcrumb. The page behind never reflows; Esc closes; on a phone it is a full-screen sheet; on a very wide screen it can pin as a side column (option B for free).</div></div><span class="rec">recommended</span></div>
+
+<div class="stage">
+  <!-- the board behind -->
+  <div class="primer" style="margin-bottom:10px"><div class="folded"><span class="k" style="color:var(--acc)">⌖ Where to look first</span><b>3 to look at — ETAD wx LED worse than yesterday — VFR → IFR fcst</b><span style="margin-left:auto" class="act">unfold ▾</span></div></div>
+  <div class="mine" style="margin-bottom:10px"><div class="hd"><span class="k">✈ My airfields</span><span class="s">hub · spokes · ★ — a SITREP one click from anywhere</span><div class="r"><span class="act pri">＋ Track…</span><span class="act">fold ▴</span></div></div>
+    <div class="tiles">
+      <div class="tile hot"><div class="top"><span class="star">☆</span><b>KWRI</b><span class="role" style="color:#7dd3fc;border-color:rgba(56,189,248,.5)">hub</span><span class="leds"><i class="g"></i><i class="r"></i><i class="g"></i><i class="g"></i><i class="g"></i></span></div><span class="drv red">Airspace / NOTAM — RWY 06/24 CLSD</span><span class="meta">NORTHCOM · United States · SITREP</span></div>
+      <div class="tile" style="border-color:rgba(245,158,11,.45)"><div class="top"><span class="star">☆</span><b>ETAD</b><span class="role">spoke</span><span class="leds"><i class="a"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i></span><span class="worse">↑</span></div><span class="drv amber">VFR → IFR fcst</span><span class="meta">EUCOM · Germany · SITREP</span></div>
+      <div class="tile"><div class="top"><span class="star on">★</span><b>OJAQ</b><span class="role">spoke</span><span class="leds"><i class="g"></i><i class="g"></i><i class="a"></i><i class="g"></i><i class="g"></i></span></div><span class="drv">Conflict — Government of Israel vs Hamas ~206 km</span><span class="meta">CENTCOM · Jordan · SITREP</span></div>
+      <div class="tile"><div class="top"><span class="star">☆</span><b>ORER</b><span class="role">spoke</span><span class="leds"><i class="g"></i><i class="a"></i><i class="g"></i><i class="g"></i><i class="g"></i></span></div><span class="drv">Airspace / NOTAM — A0330/25 THR RWY 36 EL…</span><span class="meta">CENTCOM · Iraq · SITREP</span></div>
+    </div></div>
+
+  <div class="board">
+    <div class="hd"><span class="k">◆ Combatant commands</span><span class="s">open: <b class="mono" style="color:#bae6fd">EUCOM</b></span><div class="r"><span class="act">collapse all</span><span class="act">★ Must-tracks ▾</span></div></div>
+    <div class="chead"><span></span><span>command</span><span>I&amp;W</span><span>posture</span><span>bases</span><span>demand · 7d</span><span>events</span><span>Δ since look</span><span></span></div>
+    <div class="crow cmd open"><span class="star on">★</span><div class="cn"><b>USEUCOM</b><span class="why">ETAD worse than yesterday · Russia RED (chronic) · demand likely to RISE</span></div><div class="cell"><span class="lv calm">calm</span><span class="sub">+0.10 ↗ · 1 board</span></div><div class="cell"><span class="dots"><i class="r"></i><i class="a"></i><i class="g"></i><i class="g"></i></span><span class="sub">1 red · 1 amber</span></div><div class="cell"><span class="dots"><i class="a"></i><i class="a"></i></span><span class="sub">2 · 1 ↑</span></div><div class="cell"><span class="dm rise">rise</span><span class="sub">+40 · medium</span></div><div class="cell"><span class="ev">2 ● · 1 NEO</span><span class="sub">none new</span></div><span class="delta">0 worse · 0 better</span><span class="car">▾</span></div>
+    <div class="sect"><div class="sh">I&amp;W boards · 1 <span style="font-weight:400;letter-spacing:0;text-transform:none;color:#475569">— tap opens the full board in the room</span></div>
+      <div class="iw" style="padding:8px 12px"><div class="t"><b>EUCOM · Ukraine</b><span class="sc">calm +0.10 ↗ — NEO/departure indicator watching</span></div><div class="anom"><span class="lv calm">calm</span></div></div></div>
+    <div class="sect"><div class="sh">Countries · 4 <span style="font-weight:400;letter-spacing:0;text-transform:none;color:#475569">— ★ first, then worst · a row opens its room →</span><span class="n">1</span></div>
+      <div class="ctry"><span class="star">☆</span><i class="r"></i><div><b>Russia</b> <span class="sub mono">chronic</span></div><span class="sub">Conflict — Government of Russia (Sovie…</span><span class="sub" style="color:#475569">no field</span><span class="sub">0 worse · 0 better</span><span class="sub">—</span><span class="car">→</span></div>
+      <div class="ctry sel"><span class="star">☆</span><i class="a"></i><div><b>Germany</b> <span class="sub mono">improving</span></div><span class="sub">No active threat signals</span><span><span class="fld">ETAR <i class="a"></i></span> <span class="fld">ETAD <i class="a"></i></span><span class="n">4</span></span><span class="sub">0 worse · 0 better</span><span class="sub">—</span><span class="car" style="color:#7dd3fc">→</span></div>
+      <div class="ctry"><span class="star">☆</span><i class="g"></i><div><b>United Kingdom</b></div><span class="sub">No active threat signals</span><span class="sub" style="color:#475569">no field</span><span class="sub">0 worse · 0 better</span><span class="sub">—</span><span class="car">→</span></div>
+      <div class="ctry"><span class="star">☆</span><i class="u"></i><div><b>Belarus</b> <span class="trk">unwatched · track</span></div><span class="sub">Ordered departure (State)</span><span class="sub" style="color:#475569">no field</span><span class="sub">—</span><span class="sub">1 NEO</span><span class="car">→</span></div>
+    </div>
+    <div class="crow cmd"><span class="star on">★</span><div class="cn"><b>USCENTCOM</b><span class="why">Ben Gurion, Yahudot Canada RED (chronic) · demand likely to RISE</span></div><div class="cell"><span class="lv calm">calm</span><span class="sub">−0.03 ↘ · 1 board</span></div><div class="cell"><span class="dots"><i class="r"></i><i class="r"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i></span><span class="sub">2 red · 11 amber</span></div><div class="cell"><span class="dots"><i class="a"></i><i class="a"></i></span><span class="sub">2 · steady</span></div><div class="cell"><span class="dm rise">rise</span><span class="sub">+59 · high</span></div><div class="cell"><span class="ev">8 ● · 0 NEO</span><span class="sub">none new</span></div><span class="delta">0 worse · 0 better</span><span class="car">▸</span></div>
+    <div class="fold"><b>3 other commands</b> SOUTHCOM · NORTHCOM · INDOPACOM — present, folded <span style="margin-left:auto">show</span></div>
+  </div>
+
+  <!-- airfields by command, a peer section (option A' from osint-airfields.html) -->
+  <div class="board" style="margin-top:10px"><div class="hd"><span class="k">✈ Airfields by command</span><span class="s">every tracked field · hub › ★ › spokes › rest · worst first</span><div class="r"><span class="chip on">All <span class="c">9</span></span><span class="chip">EUCOM <span class="c">3</span></span><span class="chip">CENTCOM <span class="c">4</span></span><span class="chip">NORTHCOM <span class="c">2</span></span><span class="act">hide green</span><span class="act pri">＋ Track…</span></div></div>
+    <div class="afhead"><span></span><span>airfield</span><span>driver</span><span>LEDs</span><span>fcst · cat</span><span>role</span><span>Δ</span><span></span></div>
+    <div class="afg"><i style="width:7px;height:7px;border-radius:50%;background:#f59e0b;display:inline-block"></i> USEUCOM <span class="s">3 fields · worst: ETAD — VFR → IFR fcst</span></div>
+    <div class="afr"><span class="star">☆</span><div class="ic"><b>ETAD</b><span class="role">spoke</span></div><div class="drv a">VFR → IFR fcst <span class="worse">↑</span></div><span class="leds" style="margin:0"><i class="a"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i></span><span class="cat"><span class="grn">VFR</span> → <span class="red">IFR</span> 02Z</span><span class="sub mono" style="font-size:10px;color:#94a3b8">Germany</span><span class="sub" style="font-size:10px;color:#fca5a5">wx worse</span><span class="car">→</span></div>
+  </div>
+
+  <!-- the drawer -->
+  <div class="dim"></div>
+  <div class="drawer"><div class="room">
+    <div class="rh"><span class="k">◉ Room</span><span class="crumb">EUCOM › <b>Germany</b></span><span class="n">2</span>
+      <div class="nav"><span title="previous country in EUCOM">‹ Russia</span><span title="next">United Kingdom ›</span><span class="on" title="pin as a side column on wide screens">⇥ pin</span></div>
+      <span class="x" title="close (Esc)">✕</span></div>
+    <div class="ti"><span style="font-size:18px">🌐</span><h3>Germany</h3><span class="cm">USEUCOM</span><span class="sev grn">● GREEN</span><span class="chron">· clear today · elevated 8 of 12 observed</span><span class="pin">pinned <b>ETAR</b> · <span class="kbd">★</span> <span class="kbd">✕</span> <span class="kbd">map</span></span></div>
+    <div class="tabs"><span class="on">Overview</span><span>Incidents <i>0</i></span><span>News <i>12</i></span><span>Civil</span><span>Health</span><span>Spectrum</span><span>Airfields <i>2</i></span><span class="n">3</span></div>
+    <div class="body">
+      <div class="bn"><b>⚠ Active conflict reporting (1)</b>World in Brief: Pause in American strikes on Iran; Europe battles wildfires<span class="src">The Economist · 2d ago · 1 corroborating report</span></div>
+      <div class="ai"><div class="k">✦ AI SITREP <span class="s">one call · cached 15 min · ↻</span></div>
+        <p><b>Germany remains operationally stable but regionally tense; backdrop demands continued vigilance — Watchful.</b></p>
+        <p>Force posture holds GREEN with State Level 2 advisory in effect; no direct threat indicators to US installations or airfields. Regional context is elevated: active US strikes on Iran (now paused) and the sustained Russian air campaign against Ukraine keep a heightened threat environment that historically drives protest activity near US military facilities in Germany.</p>
+        <p><b>WATCH:</b> resumption of US strikes on Iran could rapidly energize anti-US demonstrations near Ramstein, Spangdahlem or Grafenwöhr; monitor host-nation police reporting and gate-area crowd indicators in the next 48–72 hours.</p></div>
+      <div class="two">
+        <div class="dc"><div class="k">⚖ Civil / political <span class="s">State · Nager</span></div><ul><li>State advisory: <b class="amber">Level 2</b> — exercise increased caution</li><li>Public holiday: Unity Day — in 28 d</li></ul></div>
+        <div class="dc"><div class="k">✈ Airfields <span class="s">2 watched · ＋ track in Germany</span></div><div class="af"><div class="tile" style="min-width:0;flex:1;border-color:rgba(245,158,11,.45)"><div class="top"><b>ETAR</b><span class="role">pinned</span><span class="leds"><i class="a"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i></span></div><span class="drv amber">TAF: IFR forecast by 02:00Z</span><span class="meta">SITREP in this room →</span></div><div class="tile" style="min-width:0;flex:1;border-color:rgba(245,158,11,.45)"><div class="top"><b>ETAD</b><span class="role">spoke</span><span class="leds"><i class="a"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i></span><span class="worse">↑</span></div><span class="drv amber">VFR → IFR fcst</span><span class="meta">SITREP in this room →</span></div></div></div>
+      </div>
+      <div class="dc" style="margin-top:10px"><div class="k">◆ Security incidents <span class="s">ACLED · UCDP · in-country or ≤500 km</span></div><p style="color:var(--mut)">None in-country in the window. 6 within 500 km (Ukraine) — see Incidents.</p></div>
+    </div>
+  </div></div>
+</div>
+
+<div class="notes"><h3>What changes · option C (recommended)</h3><ol>
+<li><span class="n">1</span><span>A country row is a DOOR (→), not a container. The board page is lists only, so it never jumps; the row keeps its data and the highlight shows what is open.</span></li>
+<li><span class="n">2</span><span>The room slides in from the right (62 % of the width on desktop, full-screen on a phone), with a breadcrumb, ‹ › through the command's countries, ⇥ pin (docks it as a right column on ≥1536 px — option B without a second layout), ✕ / Esc. The URL carries <span class="mono">?room=country:Germany</span>, so ⌘K, Glance tiles and the primer's doors open the same thing.</span></li>
+<li><span class="n">3</span><span>Tabs replace the five-screen scroll: Overview (posture · conflict banner · AI SITREP · civil · the country's airfields · incidents summary) · Incidents · News · Civil · Health · Spectrum · Airfields.</span></li>
+<li><span class="n">4</span><span>The pinned field chips on the row, the Airfields tab, the My airfields cards and the new Airfields-by-command rows all open the SAME drawer on its airfield page (the full SITREP) — no field is ever more than one tap away, from anywhere.</span></li>
+<li><span class="n">✓</span><span>Trade-off: the map behind is half covered while the drawer is open. The room has its own incident mini-map, the big map still follows the open subject, and ⇥ pin keeps both visible on a wide monitor.</span></li>
+</ol></div>
+</div></body></html>
