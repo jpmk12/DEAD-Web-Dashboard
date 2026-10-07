@@ -3,7 +3,8 @@ import { openAppend } from "@/lib/appendClient";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import { FAMILY_LABELS } from "@/lib/familyLabels";
-import { FamilyFileIcon } from "@/lib/icons";
+import { FamilyFileIcon, ExternalLinkIcon } from "@/lib/icons";
+import { SEVERITY_BG } from "@/lib/severity";
 import { toast } from "@/lib/feedback";
 import { senderAddress } from "@/lib/emailLearning";
 
@@ -37,9 +38,11 @@ interface EmailCardProps extends EmailCardHandlers {
 }
 
 const PRIORITY_CONFIG: Record<EmailPriority, { badge: string; bar: string; dot: string }> = {
-  High: { badge: "bg-red-500/15 text-red-400 border border-red-500/40 hover:bg-red-500/25", bar: "bg-red-500", dot: "bg-red-500" },
-  Medium: { badge: "bg-amber-500/15 text-amber-400 border border-amber-500/40 hover:bg-amber-500/25", bar: "bg-amber-500", dot: "bg-amber-500" },
-  Low: { badge: "bg-slate-700/60 text-slate-400 border border-slate-700 hover:bg-slate-700", bar: "bg-slate-700", dot: "bg-slate-500" },
+  // Dots are the shared posture-dot tokens (High = red, Medium = amber, Low =
+  // the UNKNOWN slate — a Low email earns no colour).
+  High: { badge: "bg-red-500/15 text-red-400 border border-red-500/40 hover:bg-red-500/25", bar: "bg-red-500", dot: SEVERITY_BG.red },
+  Medium: { badge: "bg-amber-500/15 text-amber-400 border border-amber-500/40 hover:bg-amber-500/25", bar: "bg-amber-500", dot: SEVERITY_BG.amber },
+  Low: { badge: "bg-slate-700/60 text-slate-400 border border-slate-700 hover:bg-slate-700", bar: "bg-slate-700", dot: SEVERITY_BG.unknown },
 };
 const PRIORITIES: EmailPriority[] = ["High", "Medium", "Low"];
 
@@ -463,7 +466,7 @@ export default function EmailCard(props: EmailCardProps) {
             {saveState === "saved" ? "✓ Doc" : saveState === "error" ? "! Doc" : "▤ Doc"}
           </button>
           <button type="button" onClick={(e) => { stop(e); openAppend({ text: email.summary || email.bodyPreview || email.snippet || email.subject, source: `Email · ${email.from}`, sourceTitle: email.subject, link: { type: "email", id: email.id, title: email.subject } }); }} title="Append to a running log" className={ACT_IDLE}>⧉ Log</button>
-          <a href={gmailLink(email)} target="_blank" rel="noopener noreferrer" onClick={stop} className={`${ACT} border-transparent text-slate-500 hover:text-slate-300`}>open in Gmail ↗</a>
+          <a href={gmailLink(email)} target="_blank" rel="noopener noreferrer" onClick={stop} className={`${ACT} border-transparent text-slate-500 hover:text-slate-300`}>open in Gmail <ExternalLinkIcon size={11} className="inline -mt-px" /></a>
         </div>
 
         {/* Drafted-reply review panel — edit inline, then save to Gmail Drafts. */}
@@ -485,7 +488,7 @@ export default function EmailCard(props: EmailCardProps) {
                 {draft.phase === "saving" ? "Saving…" : "Save to Gmail Drafts"}
               </button>
               <button onClick={generateDraft} disabled={draft.phase === "saving"} className="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-40 transition-all">↻ Regenerate</button>
-              <button onClick={() => setDraft({ phase: "idle" })} disabled={draft.phase === "saving"} className="ml-auto text-slate-600 hover:text-slate-300 text-xs">×</button>
+              <button onClick={() => setDraft({ phase: "idle" })} disabled={draft.phase === "saving"} aria-label="Discard draft" className="ml-auto text-slate-600 hover:text-slate-300 text-xs">✕</button>
             </div>
           </div>
         )}
@@ -523,7 +526,7 @@ export default function EmailCard(props: EmailCardProps) {
               <button onClick={saveConvert} className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${convert.kind === "task" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" : "border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"}`}>
                 {convert.kind === "task" ? "Add task" : "Add to calendar"}
               </button>
-              <button onClick={() => setConvert({ phase: "idle" })} className="ml-auto text-slate-600 hover:text-slate-300 text-xs">×</button>
+              <button onClick={() => setConvert({ phase: "idle" })} aria-label="Cancel" className="ml-auto text-slate-600 hover:text-slate-300 text-xs">✕</button>
             </div>
           </div>
         )}

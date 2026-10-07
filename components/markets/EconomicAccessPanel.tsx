@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { NewsItem } from "@/lib/types";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { BriefIcon } from "@/lib/icons";
+import { LEVEL_PILL } from "@/lib/levelTokens";
 
 interface ActorCall { actor: string; level: "calm" | "watch" | "warning" | "alert"; boardLevel: string; call: string; falsifier: string; decisionLinkage: string }
 interface AccessBrief {
@@ -24,18 +25,14 @@ const FALLBACK_RETRY_MS = 30_000;
 // object must not render as an empty card.
 const CACHE_KEY = "markets:brief:v2";
 
-const LEVEL_CHIP: Record<ActorCall["level"], string> = {
-  calm: "text-slate-400 border-slate-600 bg-slate-500/10",
-  watch: "text-amber-300 border-amber-500/55 bg-amber-500/[0.12]",
-  warning: "text-orange-300 border-orange-500/55 bg-orange-500/[0.12]",
-  alert: "text-white border-red-500 bg-red-500/80",
-};
+// The level chip is the shared I&W pill (lib/levelTokens).
+const LEVEL_CHIP: Record<ActorCall["level"], string> = LEVEL_PILL;
 
 // AI "Economic Warfare Read" for the Economy tab — the deterministic actor
 // board handed to the model as evidence; per actor a level call (agreeing or
 // dissenting from the board, with the reason), a falsifier and the decision
 // it bears on. Cached per day server-side; the client cache mirrors it.
-export default function EconomicAccessPanel({ articles }: { articles: NewsItem[] }) {
+export default function EconomicAccessPanel({ articles, active = true }: { articles: NewsItem[]; active?: boolean }) {
   const [brief, setBrief] = useState<AccessBrief | null>(() => clientCache.peek<AccessBrief>(CACHE_KEY));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,10 +97,13 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
     const t = setTimeout(on, 45_000);
     return () => { window.removeEventListener("econ:board-ready", on); clearTimeout(t); };
   }, []);
+  // Gated on the tab being OPEN: the Economy tab is hidden-mounted at app
+  // load, and this used to fire a Sonnet call on every reload with nobody on
+  // the tab (code review 2026-10-07 — the Threads leak, again).
   useEffect(() => {
-    if (!brief && articles.length > 0 && boardReady) generate();
+    if (!brief && active && articles.length > 0 && boardReady) generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [articles.length, boardReady]);
+  }, [articles.length, boardReady, active]);
 
   const list = (label: string, items: string[]) => items.length > 0 && (
     <div>
@@ -148,7 +148,7 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
                 <div key={a.actor} className="px-2.5 py-2 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] font-semibold text-slate-100">{a.actor}</span>
-                    <span className={`text-[8.5px] font-extrabold font-mono uppercase tracking-[0.1em] px-1.5 py-0.5 rounded border ${LEVEL_CHIP[a.level]}`}>{a.level}</span>
+                    <span className={`text-[8.5px] font-extrabold font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${LEVEL_CHIP[a.level]}`}>{a.level}</span>
                     {a.boardLevel !== a.level && <span className="text-[9px] text-slate-500 font-mono">board says {a.boardLevel}{a.boardLevel !== "unknown" ? " — dissent" : ""}</span>}
                   </div>
                   <p className="text-[11px] text-slate-300 leading-snug">{a.call}</p>
@@ -162,7 +162,7 @@ export default function EconomicAccessPanel({ articles }: { articles: NewsItem[]
             <p className="text-[11px] text-slate-400 border-l-2 border-amber-500/40 pl-2"><span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider mr-1">Fuel</span>{brief.fuelLogistics}</p>
           )}
           {list("Watch", brief.watchItems)}
-          <p className="text-[9px] text-slate-700 italic">The model reads the deterministic board; a call that dissents from the board level says so. Coarse open-source, not authoritative.</p>
+          <p className="text-[9px] text-slate-500 italic">The model reads the deterministic board; a call that dissents from the board level says so. Coarse open-source, not authoritative.</p>
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Leds, Dot, Star, RoleSwitch, Untrack, type EditOps } from "@/components/osint/boardBits";
+import { LED_CLASS } from "@/lib/levelTokens";
 import { openTrackPicker } from "@/lib/trackClient";
 import type { CommandBoard, FieldRow } from "@/lib/commandBoard";
 import { airfieldsByCommand, fieldWorst, sameRoom, type RoomRef } from "@/lib/room";
@@ -14,7 +15,7 @@ import { COCOM_LABEL, type Aor } from "@/lib/aor";
 // and the hub / spoke / ★ / ✕ controls on the row. A row is a door into the
 // room's airfield page. My airfields stays as the pinned shortlist above.
 
-const LED_DOT: Record<string, string> = { r: "bg-red-500", a: "bg-amber-400", u: "bg-slate-600", g: "bg-emerald-500" };
+const LED_DOT: Record<string, string> = LED_CLASS;
 const HIDE_KEY = "commands.afHideGreen";
 
 export default function CommandAirfields({ board, room, onOpen, star, mtBusy, edit, canEdit }: {
@@ -38,18 +39,18 @@ export default function CommandAirfields({ board, room, onOpen, star, mtBusy, ed
   return (
     <section className="border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
       <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
-        <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-200">✈ Airfields by command</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-slate-300">✈ Airfields by command</span>
         <span className="text-[10px] text-slate-500">{total} tracked · hub › ★ › spokes › rest · worst first</span>
         <span className="flex-1" />
-        <button onClick={() => setFilter("ALL")} className={`text-[10px] rounded-full px-2.5 py-0.5 border ${filter === "ALL" ? "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>All <span className="font-mono text-slate-500">{total}</span></button>
+        <button onClick={() => setFilter("ALL")} className={`text-[10px] rounded-full px-2.5 py-0.5 border ${filter === "ALL" ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>All <span className="font-mono text-slate-500">{total}</span></button>
         {groups.map((g) => (
-          <button key={g.aor} onClick={() => setFilter(g.aor)} className={`text-[10px] rounded-full px-2.5 py-0.5 border ${filter === g.aor ? "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{g.aor === "UNKNOWN" ? "—" : g.aor} <span className="font-mono text-slate-500">{g.fields.length}</span></button>
+          <button key={g.aor} onClick={() => setFilter(g.aor)} className={`text-[10px] rounded-full px-2.5 py-0.5 border ${filter === g.aor ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{g.aor === "UNKNOWN" ? "—" : g.aor} <span className="font-mono text-slate-500">{g.fields.length}</span></button>
         ))}
         <button onClick={toggleHide} className={`text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${hideGreen ? "border-sky-500/60 text-sky-300 bg-sky-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>hide green</button>
         {canEdit && <button onClick={() => openTrackPicker({ kind: "airfield" })} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10">＋ Track…</button>}
       </div>
 
-      <div className="hidden lg:grid grid-cols-[22px_1.4fr_1.3fr_96px_1fr_.9fr_.7fr_20px] gap-2.5 px-3.5 py-1.5 border-b border-slate-800 text-[8.5px] font-bold uppercase tracking-[0.12em] text-slate-600">
+      <div className="hidden lg:grid grid-cols-[22px_1.4fr_1.3fr_96px_1fr_.9fr_.7fr_20px] gap-2.5 px-3.5 py-1.5 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-500">
         <span /><span>airfield</span><span>driver</span><span>wx·ops·thr·inf·spc</span><span>posture</span><span>role</span><span>Δ yesterday</span><span />
       </div>
 
@@ -87,7 +88,7 @@ function Row({ f, sel, onOpen, star, mtBusy, edit }: { f: FieldRow; sel: boolean
         <span className="text-[10px] font-mono text-slate-500 truncate">{f.country || "—"}</span>
         <span className="lg:hidden text-[10.5px] text-slate-500 truncate w-full">{driver}</span>
       </span>
-      <span className={`hidden lg:block text-[11px] truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{driver}{f.sitrep && f.sitrep.worse.length > 0 && <span className="ml-1 text-amber-400 font-bold">↑</span>}</span>
+      <span className={`hidden lg:block text-[11px] truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{driver}{f.sitrep && f.sitrep.worse.length > 0 && <span className="ml-1 text-amber-400 font-bold" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>▲</span>}</span>
       <span className="hidden lg:block">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <span className="text-[9px] text-slate-600">no SITREP</span>}</span>
       <span className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-slate-400"><Dot sev={f.posture?.composite ?? null} />{f.posture ? f.posture.composite : <span className="text-slate-600">not watched</span>}</span>
       <span className="hidden lg:flex items-center gap-1.5">

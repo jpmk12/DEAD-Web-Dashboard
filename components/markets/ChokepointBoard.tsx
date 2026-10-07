@@ -142,7 +142,7 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
                 {s.transit && s.transit.state !== "unconfigured" && (
                   <span className={`text-[7.5px] font-bold uppercase tracking-wider px-1 rounded border ${TRANSIT_CHIP[s.transit.state].cls}`}>{s.transit.state === "unknown" ? "AIS" : s.transit.state === "learning" ? "AIS·learn" : s.transit.state}</span>
                 )}
-                {!s.lead && (!s.transit || s.transit.state === "unconfigured") && <span className="text-[8px] text-slate-700">quiet</span>}
+                {!s.lead && (!s.transit || s.transit.state === "unconfigured") && <span className="text-[8px] text-slate-500">quiet</span>}
                 {s.transit && <span className="ml-auto"><TransitSpark t={s.transit} /></span>}
               </div>
             </button>
@@ -178,7 +178,7 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
                 {s.transitLead ? (
                   <span className="block text-[9.5px] text-slate-500 mt-0.5">Suppressed traffic {s.transitLead.label} reported act{s.transitLead.events === 1 ? "" : "s"} here (≤3 d) — confidence only, never a state.</span>
                 ) : (
-                  <span className="block text-[9px] text-slate-700 mt-0.5">Lead test needs three reported acts on record.</span>
+                  <span className="block text-[9px] text-slate-500 mt-0.5">Lead test needs three reported acts on record.</span>
                 )}
               </div>
             )}

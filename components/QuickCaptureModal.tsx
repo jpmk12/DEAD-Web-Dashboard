@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 
 interface QuickCaptureModalProps {
   open: boolean;
@@ -255,9 +256,10 @@ export default function QuickCaptureModal({ open, onClose, onCaptured }: QuickCa
           </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-base leading-none"
+            aria-label="Close"
+            className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"
           >
-            ×
+            <CloseIcon size={14} />
           </button>
         </div>
 

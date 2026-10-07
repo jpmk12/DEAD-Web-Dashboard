@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openAppend } from "@/lib/appendClient";
-import { formatDistanceToNow, parseISO } from "date-fns";
+import { relTime } from "@/lib/relTime";
 import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import CommandBoard from "@/components/osint/CommandBoard";
@@ -50,13 +50,7 @@ const KIND_BADGE: Record<string, string> = {
   other:    "bg-slate-700/40 text-slate-300 border-slate-600",
 };
 
-function timeAgo(s: string): string {
-  try {
-    const d = parseISO(s);
-    if (isNaN(d.getTime())) return "";
-    return formatDistanceToNow(d, { addSuffix: true });
-  } catch { return ""; }
-}
+const timeAgo = (s: string): string => relTime(s);
 
 const PRIORITY_RANK: Record<Priority, number> = { High: 3, Medium: 2, Low: 1 };
 // A story carried by this many distinct feeds is treated as corroborated /
@@ -195,12 +189,13 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   }, []);
 
   // Sources chip health: warn if the capture pipeline is stale or a live feed is
-  // down; green if anything's healthy; no dot if nothing's set up.
+  // down; green if anything's healthy; UNKNOWN (slate) when nothing is set up —
+  // never nothing, because an absent dot is indistinguishable from "fine".
   const anyFeedDown = feeds.some((f) => !["x-import", "article-capture", "event-capture"].includes(f.id) && f.ok === false);
-  const sourcesDot: "ok" | "warn" | null =
+  const sourcesDot: "ok" | "warn" | "unknown" =
     (tokenFresh === false || anyFeedDown) ? "warn"
     : (tokenFresh === true || feeds.length > 0) ? "ok"
-    : null;
+    : "unknown";
 
   const filtered = useMemo(() => {
     const base: OsintItem[] = feedKind === "all" ? items : items.filter((i) => i.feedKind === feedKind);
@@ -610,7 +605,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
           )}
           <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_BADGE[primary.feedKind] ?? KIND_BADGE.other}`}>{primary.feedKind}</span>
           <span className="text-[10px] font-mono text-slate-500 truncate flex-1 min-w-0">{primary.feedLabel}</span>
-          <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">{timeAgo(primary.pubDate)}</span>
+          <span className="text-[9px] text-slate-500 font-mono flex-shrink-0">{timeAgo(primary.pubDate)}</span>
           <button
             type="button"
             onClick={(ev) => saveClusterToDocs(e, ev)}
@@ -640,7 +635,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
               title="Restore — stop hiding this story"
               className="w-5 h-5 flex items-center justify-center rounded transition-all text-[11px] flex-shrink-0 text-amber-400 hover:bg-amber-500/10"
             >
-              ↺
+              ↶
             </button>
           ) : (
             <button
@@ -684,7 +679,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
                     ) : (
                       <span className="text-slate-400 truncate">{d.title}</span>
                     )}
-                    <span className="text-[9px] text-slate-700 font-mono flex-shrink-0 ml-auto">{timeAgo(d.pubDate)}</span>
+                    <span className="text-[9px] text-slate-500 font-mono flex-shrink-0 ml-auto">{timeAgo(d.pubDate)}</span>
                   </li>
                 ))}
               </ul>
@@ -758,8 +753,8 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
             {p.n !== null && (
               <span className="ml-1.5 text-[9px] font-mono opacity-70">{p.n}</span>
             )}
-            {p.id === "sources" && sourcesDot && (
-              <span className={`ml-1.5 inline-block w-1.5 h-1.5 rounded-full align-middle ${sourcesDot === "warn" ? "bg-amber-400" : "bg-emerald-500"}`} title={sourcesDot === "warn" ? "A capture stream is stale or a feed is down" : "Sources healthy"} />
+            {p.id === "sources" && (
+              <span className={`ml-1.5 inline-block w-1.5 h-1.5 rounded-full align-middle ${sourcesDot === "warn" ? "bg-amber-400" : sourcesDot === "ok" ? "bg-emerald-500" : "bg-slate-500"}`} title={sourcesDot === "warn" ? "A capture stream is stale or a feed is down" : sourcesDot === "ok" ? "Sources healthy" : "No sources set up — status UNKNOWN"} />
             )}
           </button>
         ))}
@@ -917,7 +912,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
                 onClick={() => setPane("commands")}
                 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-emerald-400 transition-colors"
               >
-                View map ↗
+                View map →
               </button>
             </div>
           )}
@@ -975,7 +970,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
                   type="button"
                   onClick={() => setShowDismissed((v) => !v)}
                   className="mr-3 text-slate-500 hover:text-amber-400 transition-colors"
-                  title={showDismissed ? "Hide dismissed stories again" : "Show dismissed stories (↺ to restore)"}
+                  title={showDismissed ? "Hide dismissed stories again" : "Show dismissed stories (↶ to restore)"}
                 >
                   {dismissedCount} dismissed · {showDismissed ? "hide" : "show"}
                 </button>
@@ -999,7 +994,7 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
         </>
       )}
 
-      <p className="text-[10px] text-slate-700 text-right">
+      <p className="text-[10px] text-slate-500 text-right">
         Maps via user-selectable community providers · feeds bridged via user-configured RSS endpoints
       </p>
     </div>

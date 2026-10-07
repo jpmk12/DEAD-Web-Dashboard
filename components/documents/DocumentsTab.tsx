@@ -187,7 +187,7 @@ export default function DocumentsTab() {
         >
           ≔ Lexicon
         </button>
-        <span className="text-[10px] text-slate-700 font-mono ml-2">
+        <span className="text-[10px] text-slate-500 font-mono ml-2">
           {pane === "docs" ? "Markdown notes with wiki-links + version history"
            : pane === "files" ? "Uploaded files for safekeeping (30 MB per file)"
            : "Every ≔ term doc as a browsable glossary"}
@@ -284,7 +284,7 @@ export default function DocumentsTab() {
                 <p className="text-xs text-slate-500 max-w-sm">
                   Upload a file with the <span className="text-emerald-400">↑ Upload</span> button or drop one onto the sidebar header.
                 </p>
-                <p className="text-[10px] text-slate-700 font-mono mt-4 max-w-md leading-relaxed">
+                <p className="text-[10px] text-slate-500 font-mono mt-4 max-w-md leading-relaxed">
                   PDFs preview in an inline iframe, images render full-size, small text files
                   preview as text. Everything else gets a Download button. 30 MB per-file,
                   250 MB aggregate.

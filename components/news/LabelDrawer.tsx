@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 import type { LabelOccurrence, StoredThread } from "@/lib/threadHistory";
 
 // The History tab's label timeline and search, as a drawer opened from a
@@ -51,7 +52,7 @@ export default function LabelDrawer({ label, query, days, onClose, onOpenLabel }
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-slate-600">{days}d</span>
-            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 text-lg leading-none" title="Close (Esc)" aria-label="Close">×</button>
+            <button onClick={onClose} className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800" title="Close (Esc)" aria-label="Close"><CloseIcon size={14} /></button>
           </div>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-4">
@@ -66,7 +67,7 @@ export default function LabelDrawer({ label, query, days, onClose, onOpenLabel }
                   const gap = i > 0 ? Math.round((Date.parse(occ.date) - Date.parse(history[i - 1].date)) / 86_400_000) : 0;
                   return (
                     <div key={`${occ.date}-${i}`}>
-                      {gap > 1 && <div className="pl-6 py-1 text-[9px] text-slate-700 font-mono italic">{gap - 1}d gap</div>}
+                      {gap > 1 && <div className="pl-6 py-1 text-[9px] text-slate-500 font-mono italic">{gap - 1}d gap</div>}
                       <div className="flex gap-3 py-2.5">
                         <div className={`w-3 h-3 rounded-full border-2 flex-shrink-0 mt-0.5 z-10 ${tr.dot}`} />
                         <div className="min-w-0">

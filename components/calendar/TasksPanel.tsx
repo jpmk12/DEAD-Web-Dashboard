@@ -57,13 +57,13 @@ function TaskRow({ task, onToggle, onDelete, onReschedule }: { task: GoogleTask;
             className="mt-0.5 bg-slate-800/60 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500/60"
           />
         ) : (
-          <button onClick={() => setEditingDue(true)} title="Change due date" className={`text-[10px] font-mono transition-colors ${task.due ? "text-slate-500 hover:text-emerald-400" : "text-slate-700 hover:text-emerald-400 opacity-0 group-hover:opacity-100"}`}>
+          <button onClick={() => setEditingDue(true)} title="Change due date" className={`text-[10px] font-mono transition-colors ${task.due ? "text-slate-500 hover:text-emerald-400" : "text-slate-500 hover:text-emerald-400 opacity-60 hover:opacity-100"}`}>
             {task.due ? formatDue(task.due) : "+ date"}
           </button>
         )}
         {task.notes && <p className="text-[11px] text-slate-500 mt-0.5 leading-snug truncate">{task.notes}</p>}
       </div>
-      <button onClick={() => onDelete(task)} className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 text-xs transition-all flex-shrink-0 mt-0.5" aria-label="Delete task">×</button>
+      <button onClick={() => onDelete(task)} className="opacity-60 hover:opacity-100 text-slate-500 hover:text-red-400 text-xs transition-all flex-shrink-0 mt-0.5" aria-label="Delete task">✕</button>
     </div>
   );
 }
@@ -110,7 +110,7 @@ export default function TasksPanel({ tasks, loading, error, reauthNeeded, onAdd,
         <div className="flex gap-1.5 items-center">
           <input ref={inputRef} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Add a task…" className="flex-1 min-w-0 bg-slate-800/60 border border-slate-700/80 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500/60 transition-colors" />
           {!showDate && <button type="button" onClick={() => setShowDate(true)} className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 whitespace-nowrap">+ date</button>}
-          <button type="submit" disabled={!newTitle.trim() || adding} className="bg-emerald-600/80 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">+</button>
+          <button type="submit" disabled={!newTitle.trim() || adding} aria-label="Add task" className="text-[11px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-md disabled:opacity-40 transition-colors">＋</button>
         </div>
         {showDate && (
           <input type="date" value={newDue} autoFocus onChange={(e) => setNewDue(e.target.value)} className="mt-1.5 w-full bg-slate-800/40 border border-slate-700/60 rounded-lg px-3 py-1 text-xs text-slate-400 focus:outline-none focus:border-emerald-500/60 transition-colors" />

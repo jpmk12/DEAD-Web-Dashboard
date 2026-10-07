@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { openAppend } from "@/lib/appendClient";
+import { relDay } from "@/lib/relTime";
 
 // The Docs landing (REVIEW-2026-10 §9 D6): the running logs with their
 // newest entry, instead of "No document selected". Open · ⧉ append · ⇩
@@ -9,7 +10,7 @@ import { openAppend } from "@/lib/appendClient";
 
 interface LogRow { id: string; title: string; entries: number; pinned: boolean; updatedAt: string; latest: { date: string; source: string; excerpt: string } | null }
 
-const ago = (ymd: string) => { const d = Math.round((Date.now() - Date.parse(`${ymd}T12:00:00`)) / 86_400_000); return !Number.isFinite(d) ? ymd : d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} d ago`; };
+const ago = (ymd: string) => relDay(ymd) || ymd;
 
 export default function LogsLanding({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => void }) {
   const [logs, setLogs] = useState<LogRow[] | null>(null);
@@ -37,7 +38,7 @@ export default function LogsLanding({ onOpen, onNew }: { onOpen: (id: string) =>
             <p className="text-2xl mb-2">📓</p>
             <p className="text-sm font-bold text-slate-300 mb-1">No running logs yet</p>
             <p className="text-xs text-slate-500 max-w-md mx-auto">Select any text in the app and tap <span className="text-emerald-400">⧉ Append to…</span>, or press <span className="text-emerald-400">⧉ Append</span> on a Thesis — the picker offers “New log” and the entry becomes its first line. Or <button onClick={onNew} className="text-emerald-400 hover:underline">start one here</button>.</p>
-            <p className="text-[10px] text-slate-700 font-mono mt-4">Tip: write <code className="text-emerald-400">[[Other Doc]]</code> in any note to link to another doc.</p>
+            <p className="text-[10px] text-slate-500 font-mono mt-4">Tip: write <code className="text-emerald-400">[[Other Doc]]</code> in any note to link to another doc.</p>
           </div>
         )}
         {logs && logs.length > 0 && (

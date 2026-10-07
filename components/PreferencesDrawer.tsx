@@ -2,6 +2,7 @@
 
 import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
+import { CloseIcon } from "@/lib/icons";
 import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature, AiUsageSummary, AiUsageDay } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { secondaryStartAnchorProps } from "@/lib/secondaryStartLink";
@@ -81,7 +82,7 @@ function TagInput({
           className="flex-1 min-w-[100px] bg-transparent text-xs text-slate-200 placeholder-slate-600 outline-none"
         />
       </div>
-      <p className="text-[10px] text-slate-700 mt-1">Enter or comma to add · Backspace to remove last</p>
+      <p className="text-[10px] text-slate-500 mt-1">Enter or comma to add · Backspace to remove last</p>
     </div>
   );
 }
@@ -287,7 +288,7 @@ function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: Tracke
         </ul>
       )}
 
-      <p className="text-[10px] text-slate-700 mt-3 mb-1.5">…or add by coordinates manually:</p>
+      <p className="text-[10px] text-slate-500 mt-3 mb-1.5">…or add by coordinates manually:</p>
       <input
         value={label} onChange={(e) => { setLabel(e.target.value); setError(null); }}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
@@ -520,7 +521,7 @@ function TestResultPanel({ r, onClose, onSwapTo }: { r: DiagnosticResult; onClos
         </span>
         <span className="text-slate-500 font-mono">{r.durationMs} ms</span>
         {r.contentType && <span className="text-slate-600 font-mono truncate flex-1">{r.contentType}</span>}
-        <button onClick={onClose} className="text-slate-600 hover:text-slate-300 leading-none">×</button>
+        <button onClick={onClose} aria-label="Close" className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
       </div>
       {r.error ? (
         <p className="text-red-400 font-mono">{r.error}</p>
@@ -797,7 +798,7 @@ function NewsSourcesEditor({
                             {stat.count} · {formatTokens(stat.totalChars)}
                           </span>
                         ) : (
-                          <span className="text-[9px] text-slate-700 font-mono flex-shrink-0">— no data</span>
+                          <span className="text-[9px] text-slate-500 font-mono flex-shrink-0">— no data</span>
                         )}
                       </label>
                     </li>
@@ -1015,7 +1016,7 @@ function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (
                             : "border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40"
                         }`}
                       >
-                        {alreadyAdded ? "✓ Added" : "+ Add"}
+                        {alreadyAdded ? "✓ Added" : "＋ Add"}
                       </button>
                     </li>
                   );
@@ -1355,7 +1356,7 @@ function AIControlPanel({
                 onClick={() => setShowBreakdown((v) => !v)}
                 className="text-[10px] text-slate-500 hover:text-slate-300 font-mono mt-2 transition-colors"
               >
-                {showBreakdown ? "▲ Hide" : "▼ Show"} breakdown
+                {showBreakdown ? "▴ Hide" : "▾ Show"} breakdown
               </button>
               {showBreakdown && (() => {
                 // Every window's byRoute/byUser is already computed server-side;
@@ -2233,8 +2234,8 @@ function TripsEditor() {
                     <span className="text-slate-200 font-medium truncate">{t.label}</span>
                     <span className="text-slate-600 font-mono flex-shrink-0">{t.startDate}→{t.endDate}</span>
                     {isCalendar
-                      ? <span className="text-[9px] font-mono text-slate-700 flex-shrink-0" title="Synced from a calendar event — edit the event's dates to change this">📅 calendar</span>
-                      : <span className="text-[9px] font-mono text-slate-700 flex-shrink-0">{t.feedKey ? `news: ${t.feedKey}` : "news: geo"}</span>}
+                      ? <span className="text-[9px] font-mono text-slate-500 flex-shrink-0" title="Synced from a calendar event — edit the event's dates to change this">📅 calendar</span>
+                      : <span className="text-[9px] font-mono text-slate-500 flex-shrink-0">{t.feedKey ? `news: ${t.feedKey}` : "news: geo"}</span>}
                     <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
                       {!isCalendar && (
                         <button type="button" onClick={() => beginEdit(t)} className="text-slate-600 hover:text-sky-300" title="Edit dates / label">✎</button>
@@ -2566,7 +2567,10 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           vipSenders, muteSenders,
           // Force posture / countries / METAR are edited through /api/track
           // (Preferences → Mission → What you track); absent here = preserved.
-          trackedLocations, marketsWatchlist, newsletterSources,
+          // trackedLocations is deliberately NOT sent: the Track command writes it
+          // while the drawer is open and the route preserves an absent list
+          // (code review 2026-10-07 — Save used to delete a just-tracked place).
+          marketsWatchlist, newsletterSources,
           ...(osintFeedsDirty ? { osintFeeds } : {}),
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
@@ -2638,9 +2642,10 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             </a>
             <button
               onClick={onClose}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg leading-none"
+              aria-label="Close"
+              className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"
             >
-              ×
+              <CloseIcon size={14} />
             </button>
           </div>
         </div>
@@ -2656,8 +2661,8 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               aria-current={openGroups[g.key] ? "page" : undefined}
               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded transition-all border flex-shrink-0 ${
                 openGroups[g.key]
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                  : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"
+                  ? "border-sky-500/50 bg-sky-500/15 text-sky-200"
+                  : "border-slate-700 text-slate-400 hover:text-slate-200"
               }`}
             >
               {g.label}
@@ -2686,7 +2691,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               <span className="block text-[10px] text-slate-600 truncate mt-0.5">{groupSubtitle(g.key)}</span>
             </button>
           ))}
-          <p className="mt-auto px-4 pt-3 text-[9px] text-slate-700 font-mono">?prefs={activeGroup}</p>
+          <p className="mt-auto px-4 pt-3 text-[9px] text-slate-500 font-mono">?prefs={activeGroup}</p>
         </nav>
 
         {/* Content — one section at a time; the section forms are unchanged,

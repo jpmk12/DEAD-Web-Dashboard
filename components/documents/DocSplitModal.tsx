@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 import { splitAtHeadings, buildMasterAfterSplit } from "@/lib/composeDocs";
 
 interface DocSplitModalProps {
@@ -101,7 +102,7 @@ export default function DocSplitModal({ docId, title, content, tags, collection,
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-800 flex-shrink-0">
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">✂ Split at headings</h2>
           <span className="text-[10px] text-slate-600 font-mono truncate">{title}</span>
-          <button onClick={onClose} className="ml-auto text-slate-500 hover:text-slate-300 text-lg leading-none">×</button>
+          <button onClick={onClose} aria-label="Close" className="ml-auto w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">

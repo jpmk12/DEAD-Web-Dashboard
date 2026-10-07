@@ -7,7 +7,8 @@ import type { TrendMover } from "@/lib/trends";
 import { suggestTrip, type TripSuggestion } from "@/lib/tripSuggest";
 import { CACHE_KEY as BRIEFING_CACHE_KEY, getInflight } from "@/lib/briefingPrefetch";
 import { zoneForRequests } from "@/lib/zoneClient";
-import { BriefIcon, DigestIcon } from "@/lib/icons";
+import { BriefIcon, DigestIcon, CloseIcon } from "@/lib/icons";
+import { LED_CLASS, LED_GLOW } from "@/lib/levelTokens";
 import { CACHE_KEY as DIGEST_CACHE_KEY, getInflight as getDigestInflight } from "@/lib/digestPrefetch";
 import { buildBriefingHTML, buildDigestHTML, openPrintWindow, downloadHTML } from "@/lib/exports";
 import type { SitrepSummary } from "@/lib/sitrep";
@@ -393,9 +394,10 @@ export default function BriefingModal({
             )}
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg"
+              aria-label="Close"
+              className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"
             >
-              ×
+              <CloseIcon size={14} />
             </button>
           </div>
         </div>
@@ -539,7 +541,7 @@ export default function BriefingModal({
                           </div>
                           <p className="text-sm text-slate-300 leading-relaxed mt-1.5">{s.line}</p>
                           {s.worse.length > 0 && (
-                            <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider mt-1">↑ {s.worse.join(" · ")} worse than yesterday</p>
+                            <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider mt-1">▲ {s.worse.join(" · ")} worse than yesterday</p>
                           )}
                         </div>
                       ))}
@@ -691,11 +693,12 @@ export default function BriefingModal({
   );
 }
 
+// The SITREP LED colours are the shared tokens (lib/levelTokens) + the glow.
 const SITREP_LED: Record<string, string> = {
-  g: "bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400/70",
-  a: "bg-amber-400 shadow-[0_0_6px] shadow-amber-400/70",
-  r: "bg-red-500 shadow-[0_0_6px] shadow-red-500/70",
-  u: "bg-slate-600",
+  g: `${LED_CLASS.g} ${LED_GLOW.g}`,
+  a: `${LED_CLASS.a} ${LED_GLOW.a}`,
+  r: `${LED_CLASS.r} ${LED_GLOW.r}`,
+  u: LED_CLASS.u,
 };
 
 function BriefHeader({ title }: { title: string }) {

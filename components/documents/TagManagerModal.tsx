@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 
 interface TagEntry { tag: string; count: number }
 
@@ -87,9 +88,10 @@ export default function TagManagerModal({ open, onClose, onChanged }: TagManager
             </div>
             <button
               onClick={onClose}
-              className="text-slate-600 hover:text-slate-300 text-lg leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-slate-800 transition-all"
+              aria-label="Close"
+              className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"
             >
-              ×
+              <CloseIcon size={14} />
             </button>
           </div>
 
@@ -210,7 +212,7 @@ export default function TagManagerModal({ open, onClose, onChanged }: TagManager
                             }}
                             disabled={!editing.value.trim() || editing.value.trim() === t.tag}
                             className={`text-[10px] font-bold uppercase tracking-wider text-slate-950 px-2 py-1 rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                              editing.op === "rename" ? "bg-emerald-500 hover:bg-emerald-400" : "bg-amber-500 hover:bg-amber-400"
+                              "bg-emerald-500 hover:bg-emerald-400"
                             }`}
                           >
                             {editing.op === "rename" ? "Rename" : "Merge"}

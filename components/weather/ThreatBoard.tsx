@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { WeatherThreats, SevereThreat, DisasterEvent, TropicalSystem, LocationHazard } from "@/lib/types";
 import { aorFromCoords, COCOM_LABEL, type Aor } from "@/lib/aor";
+import { LED_CLASS } from "@/lib/levelTokens";
 
 // Threats & disasters BY COMBATANT COMMAND (REVIEW-2026-10 W5, W10): one
 // header per COCOM, worst first, with NWS alerts, tropical systems, the 30-h
@@ -31,7 +32,7 @@ const AOR_ORDER: Aor[] = ["CENTCOM", "EUCOM", "INDOPACOM", "AFRICOM", "SOUTHCOM"
 
 type Tone = "r" | "a" | "g";
 const TONE_RANK: Record<Tone, number> = { r: 0, a: 1, g: 2 };
-const LED_DOT: Record<Tone | "u", string> = { r: "bg-red-500", a: "bg-amber-400", g: "bg-emerald-400", u: "bg-slate-600" };
+const LED_DOT: Record<Tone | "u", string> = LED_CLASS;
 
 interface Row { key: string; aor: Aor; tone: Tone; icon: string; iconCls: string; kind: string; text: string; sub: string; near: string | null; source: string; link?: string; expand?: string }
 
@@ -141,7 +142,7 @@ export default function ThreatBoard({ refreshKey = 0, points = [], onLoaded }: {
         {groups.length > 1 && (
           <span className="w-full sm:w-auto flex flex-wrap gap-1">
             {(["ALL", ...groups.map((g) => g.aor)] as const).map((a) => (
-              <button key={a} onClick={() => setAorFilter(a)} className={`text-[8px] font-mono uppercase tracking-wider rounded px-1.5 py-0.5 border transition-colors ${aorFilter === a ? "border-slate-400 bg-slate-700/40 text-slate-100" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+              <button key={a} onClick={() => setAorFilter(a)} className={`text-[8px] font-mono uppercase tracking-wider rounded px-1.5 py-0.5 border transition-colors ${aorFilter === a ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>
                 {a === "ALL" ? "All" : `${a} ${groups.find((g) => g.aor === a)?.items.length ?? ""}`}
               </button>
             ))}

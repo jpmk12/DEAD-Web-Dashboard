@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { openTrackPicker } from "@/lib/trackClient";
+import { ExternalLinkIcon } from "@/lib/icons";
 // Type-only import: keeps the server-side scoring module (which pulls disasters/
 // acled/etc.) OUT of this client bundle. Runtime data comes from the API.
 import type { ForceAssessment, Severity, ForceCategory } from "@/lib/forceProtection";
@@ -75,7 +76,7 @@ function Card({ a }: { a: ForceAssessment }) {
           <p className={`text-[11px] mt-0.5 ${SEV_TEXT[a.composite]}`}>{a.topDriver}</p>
           <p className="text-[10px] text-slate-500 truncate" title={`${a.country || "—"}${a.note ? ` · ${a.note}` : ""}`}>{a.country || "—"}{a.note ? ` · ${a.note}` : ""}</p>
         </div>
-        {elevated.length > 0 && <span className="text-slate-600 text-[10px] mt-0.5">{open ? "▲" : "▼"}</span>}
+        {elevated.length > 0 && <span className="text-slate-600 text-[10px] mt-0.5">{open ? "▴" : "▾"}</span>}
       </button>
       {open && elevated.length > 0 && (
         <div className="px-3 pb-2.5 pt-0 ml-5 space-y-1">
@@ -85,7 +86,7 @@ function Card({ a }: { a: ForceAssessment }) {
               <span className="text-slate-300 font-semibold">{CAT_LABEL[c.category]}</span>
               <span className="text-slate-500"> — {c.signals.join("; ") || c.severity}</span>
               {c.links?.map((l) => (
-                <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200 whitespace-nowrap" title={`Open ${l.label}`}>{l.label} ↗</a>
+                <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200 whitespace-nowrap" title={`Open ${l.label}`}>{l.label} <ExternalLinkIcon size={11} className="inline -mt-px" /></a>
               ))}
             </div>
           ))}
@@ -193,7 +194,7 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
             <button
               key={v}
               onClick={() => setView(v)}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${view === v ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all border ${view === v ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-transparent text-slate-400 hover:text-slate-200"}`}
             >
               {v === "base" ? "Bases" : "Countries"}
               <span className="ml-1 text-slate-500 font-mono">{v === "base" ? counts2.base : counts2.country}</span>
@@ -261,7 +262,7 @@ export default function ForceWatchBoard({ cocomFilter: controlledFilter }: { coc
                     className="w-full flex items-center gap-2 px-3 py-1.5 bg-slate-950/40 hover:bg-slate-800/40 border-b border-slate-800/60"
                   >
                     <span style={{ color: SEV_DOT[worstSev] }} className="text-[10px]">●</span>
-                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left">{COCOM_LABEL[g.cc] ?? g.cc}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-sky-300/90 flex-1 text-left">{COCOM_LABEL[g.cc] ?? g.cc}</span>
                     <span className="text-[8px] font-mono text-slate-600">{g.list.length}</span>
                     <span className="text-[9px] text-slate-600">{collapsed ? "▸" : "▾"}</span>
                   </button>

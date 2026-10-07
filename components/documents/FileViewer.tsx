@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
+import { ExternalLinkIcon } from "@/lib/icons";
 
 interface FileSummary {
   id: string;
@@ -148,7 +149,7 @@ export default function FileViewer({ fileId, onChanged, onDeleted }: FileViewerP
             <>
               {/* Download is a BUTTON, not a glyph (REVIEW-2026-10 D2). */}
               <a href={`/api/files/${file.id}`} download className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-md" title="Download">⇩ Download</a>
-              <a href={`/api/files/${file.id}/inline`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-slate-500 px-2 py-1 rounded-md" title="Open in a new tab (inline)">↗ Open</a>
+              <a href={`/api/files/${file.id}/inline`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-slate-500 px-2 py-1 rounded-md" title="Open in a new tab (inline)"><ExternalLinkIcon size={11} className="inline -mt-px" /> Open</a>
               <button onClick={() => setEditing(true)} title="Edit filename / description / tags" className="text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-slate-500 px-2 py-1 rounded-md">Edit</button>
               <button onClick={onDelete} title="Delete" className="text-[10px] font-bold uppercase tracking-wider border border-red-500/40 text-red-300 hover:bg-red-500/10 px-2 py-1 rounded-md">Delete</button>
             </>
@@ -212,7 +213,7 @@ export default function FileViewer({ fileId, onChanged, onDeleted }: FileViewerP
               download
               className="text-[11px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-md transition-all"
             >
-              ⬇ Download
+              ⇩ Download
             </a>
           </div>
         )}

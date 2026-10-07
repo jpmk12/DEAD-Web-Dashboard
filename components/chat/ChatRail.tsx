@@ -29,7 +29,7 @@ export default function ChatRail({
                 onClick={() => setOpen(false)}
                 className="text-xs text-slate-600 hover:text-slate-400 font-mono transition-colors"
               >
-                Hide analyst ▲
+                Hide analyst ▴
               </button>
             </div>
             {children}

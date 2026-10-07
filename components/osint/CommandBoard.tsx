@@ -83,6 +83,9 @@ export default function CommandBoard({ active }: { active: boolean }) {
   const [pendingNote, setPendingNote] = useState<string | null>(null);
   const sinceRef = useRef<number | null>(null);
   const pollTries = useRef(0);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dataRef = useRef<Body | null>(null);
+  dataRef.current = data;
   const [openAor, setOpenAor] = useState<Aor | null>(null);
   const [room, setRoom] = useState<RoomRef | null>(null);
   const [pinned, setPinned] = useState(false);
@@ -99,6 +102,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
   const [undoBar, setUndoBar] = useState<{ text: string; body: Record<string, unknown> } | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const parked = useRef<{ kind: "sitrep" | "iw" | "country"; id: string } | null>(null);
+  const [doorTick, setDoorTick] = useState(0); // bumps when a door is parked so the resolver re-runs
 
   useEffect(() => {
     try {
@@ -119,11 +123,19 @@ export default function CommandBoard({ active }: { active: boolean }) {
         if (status === 401) { setError("signed out — sign in again"); return; }
         if (body.error && !body.board) { setError(body.error); return; }
         if (sinceRef.current == null && typeof body.sinceMs === "number") sinceRef.current = body.sinceMs;
-        setData(body);
-        setError(body.error ?? null);
+        // A pending / failed reply with an EMPTY board never replaces a board
+        // we already hold: the server answers a stub while it re-assembles
+        // after a tracking write, and swapping it in blanked every section
+        // for ten seconds (bug report 2026-10-07). Keep the picture, note
+        // that it is refreshing, and let the poll bring the new one.
+        const empty = !body.board?.rows?.length && !body.board?.myFields?.length;
+        const stale = (body.pending || body.error) && empty && !!dataRef.current;
+        if (!stale) setData(body);
+        setError(stale ? null : body.error ?? null);
         if (status === 202 || body.pending) {
-          setPendingNote("assembling the command picture — first load takes a moment");
-          if (pollTries.current < 12) { pollTries.current += 1; setTimeout(load, 8_000); }
+          setPendingNote(dataRef.current && !empty ? "refreshing the command picture…" : "assembling the command picture — first load takes a moment");
+          if (pollTimer.current) clearTimeout(pollTimer.current);
+          if (pollTries.current < 12) { pollTries.current += 1; pollTimer.current = setTimeout(load, 8_000); }
         } else { setPendingNote(null); pollTries.current = 0; }
       })
       .catch(() => setError("could not reach /api/commands"));
@@ -135,7 +147,11 @@ export default function CommandBoard({ active }: { active: boolean }) {
     // A Track anywhere (picker, Weather ✕, Preferences, this board) drops the
     // server's commands cache; re-read so the strip and the rows agree.
     window.addEventListener("tracking:changed", load);
-    return () => { clearInterval(id); window.removeEventListener("tracking:changed", load); };
+    return () => {
+      clearInterval(id);
+      if (pollTimer.current) { clearTimeout(pollTimer.current); pollTimer.current = null; }
+      window.removeEventListener("tracking:changed", load);
+    };
   }, [armed, load]);
 
   // Force assessments (shared client cache — the map pulls the same) for the
@@ -200,13 +216,13 @@ export default function CommandBoard({ active }: { active: boolean }) {
       const d = (e as CustomEvent<{ kind?: string; id?: string }>).detail;
       if (!d || (d.kind !== "sitrep" && d.kind !== "iw")) return;
       parked.current = { kind: d.kind, id: typeof d.id === "string" ? d.id : "" };
-      setArmed(true);
+      setArmed(true); setDoorTick((t) => t + 1);
     };
     const onSel = (e: Event) => {
       const c = (e as CustomEvent<string>).detail;
       if (typeof c !== "string" || !c) return;
       parked.current = { kind: "country", id: c };
-      setArmed(true);
+      setArmed(true); setDoorTick((t) => t + 1);
     };
     window.addEventListener("watch:focus", onFocus);
     window.addEventListener("regional:select", onSel);
@@ -223,7 +239,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
     const door = resolveDoor(req, data);
     if (door) { parked.current = null; go(door); }
     else if (!data.pending) { parked.current = null; toast.info(`${req.id || "that item"} is not on the board`); }
-  }, [data, resolveDoor, go]);
+  }, [data, doorTick, resolveDoor, go]);
 
   // ── Must-tracks: optimistic, owner-gated at the route ──
   const mustTrack: MustTrack = data?.mustTrack ?? { aors: [], countries: [], icaos: [] };
@@ -322,7 +338,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
       {/* ── Where to look first ── */}
       <section className="border border-emerald-500/30 rounded-xl bg-slate-900/40 overflow-hidden">
         <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-emerald-300">⌖ Where to look first</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-emerald-300">⌖ Where to look first</span>
           <span className="text-[10px] text-slate-500">ranked from the posture, boards, bases, demand and your last look · nothing paid</span>
           <span className="flex-1" />
           <button onClick={runRead} disabled={aiBusy} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50" title="One model call, on tap, over the deterministic board + primer">{aiBusy ? "Reading…" : "✦ Read (AI)"}</button>
@@ -374,7 +390,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
       {data && (data.board.myFields.length > 0 || canEdit) && (
         <section className="border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
           <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-200">✈ My airfields</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-slate-300">✈ My airfields</span>
             <span className="text-[10px] text-slate-500">hub · spokes · ★ must-track fields — a SITREP one click from anywhere</span>
             <span className="flex-1" />
             {canEdit && (
@@ -393,7 +409,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
           {mineOpen && data.board.myFields.length > 0 && (
             <div className="px-3.5 py-2.5 flex flex-wrap gap-2">
               {data.board.myFields.map((f) => {
-                const worst = f.sitrep ? (["r", "a", "u", "g"] as Led[]).find((l) => Object.values(f.sitrep!.status).includes(l)) ?? "g" : null;
+                const worst = f.sitrep ? (["r", "a", "u", "g"] as Led[]).find((l) => Object.values(f.sitrep!.status).includes(l)) ?? "u" : null;
                 const sel = sameRoom(room, { kind: "field", id: f.icao });
                 return (
                   <div key={f.icao} id={`cb-mine-${f.icao}`} className={`min-w-[200px] flex-1 max-w-[320px] rounded-xl border transition-colors ${sel ? "ring-2 ring-sky-400/60" : ""} ${worst === "r" ? "border-red-500/50" : worst === "a" ? "border-amber-500/40" : "border-slate-800"}`}>
@@ -403,7 +419,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
                         <span className="text-[13px] font-extrabold font-mono text-slate-100">{f.icao}</span>
                         {f.role && !canEdit && <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{f.role}</span>}
                         <span className="ml-auto">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <Dot sev={f.posture?.composite ?? null} />}</span>
-                        {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>↑</span>}
+                        {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>▲</span>}
                       </div>
                       <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "not watched — posture UNKNOWN"}</p>
                       <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.aor !== "UNKNOWN" ? short(f.aor) : "—"} · {f.country || "—"} · {f.hasSitrep ? "SITREP →" : "★ to get a SITREP"}</p>
@@ -426,7 +442,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
       {/* ── Combatant commands ── */}
       <section className="border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
         <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-200">◆ Combatant commands</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-slate-300">◆ Combatant commands</span>
           <span className="text-[10px] text-slate-500">{crumb ? <><span className="text-slate-600">open:</span> <b className="text-sky-200 font-mono">{crumb}</b></> : "★ must-tracks first, then worst · click a command to drill · a country row opens its room →"}</span>
           <span className="flex-1" />
           {(openAor || room) && <button onClick={() => { setOpenAor(null); closeRoom(); }} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">collapse all</button>}
@@ -451,7 +467,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
         )}
 
         {/* column header */}
-        <div className="hidden lg:grid grid-cols-[22px_1.6fr_1fr_1.1fr_.9fr_.9fr_.9fr_.9fr_20px] gap-2.5 px-3.5 py-1.5 border-b border-slate-800 text-[8.5px] font-bold uppercase tracking-[0.12em] text-slate-600">
+        <div className="hidden lg:grid grid-cols-[22px_1.6fr_1fr_1.1fr_.9fr_.9fr_.9fr_.9fr_20px] gap-2.5 px-3.5 py-1.5 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-500">
           <span /><span>command</span><span>I&amp;W</span><span>posture</span><span>bases</span><span>demand · 7d</span><span>events</span><span>Δ since look</span><span />
         </div>
 
@@ -488,7 +504,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
       {/* ── The picture — follows whatever is open ── */}
       <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture{mapAor ? ` — following ${room ? "the room" : "the board"} · ${short(mapAor)}` : ""}</p>
       <ErrorBoundary label="Crisis map" minHeight="420px">
-        <CrisisMap boardAor={mapAor} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} />
+        <CrisisMap boardAor={mapAor} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} active={active} />
       </ErrorBoundary>
     </div>
 
@@ -534,12 +550,12 @@ function CommandRowView({ row: r, data, openAor, setOpenAor, room, openRoom, sta
             {Array.from({ length: Math.min(r.posture.green, 6) }).map((_, i) => <span key={`g${i}`} className="w-2 h-2 rounded-full bg-emerald-500" />)}
             {r.posture.watched === 0 && <span className="w-2 h-2 rounded-full border border-slate-700" />}
           </span>
-          <span className="text-[9.5px] font-mono text-slate-500">{r.posture.watched ? `${r.posture.red} red · ${r.posture.amber} amber${r.posture.unknown ? ` · ${r.posture.unknown} unk` : ""}${r.posture.escalated ? ` · ${r.posture.escalated} ↑` : ""}` : "none watched"}</span>
+          <span className="text-[9.5px] font-mono text-slate-500">{r.posture.watched ? `${r.posture.red} red · ${r.posture.amber} amber${r.posture.unknown ? ` · ${r.posture.unknown} UNKNOWN` : ""}${r.posture.escalated ? ` · ${r.posture.escalated} ▲` : ""}` : "none watched"}</span>
         </span>
         <span className="hidden lg:flex flex-col gap-0.5">
           {r.bases.count ? (<>
             <span className="flex gap-0.5">{Array.from({ length: r.bases.count }).map((_, i) => <span key={i} className={`w-2 h-2 rounded-full ${i < r.bases.red ? "bg-red-500" : i < r.bases.red + r.bases.amber ? "bg-amber-400" : "bg-emerald-500"}`} />)}</span>
-            <span className="text-[9.5px] font-mono text-slate-500">{r.bases.count} · {r.bases.worse ? `${r.bases.worse} ↑` : "steady"}</span>
+            <span className="text-[9.5px] font-mono text-slate-500">{r.bases.count} · {r.bases.worse ? `${r.bases.worse} ▲` : "steady"}</span>
           </>) : <span className="text-[9.5px] text-slate-600 italic">none</span>}
         </span>
         <span className="hidden lg:flex flex-col gap-0.5">
@@ -620,7 +636,7 @@ function CountryRowView({ c, sel, room, openRoom, star, mtBusy, flash, edit }: {
         <Dot sev={c.worst} title={c.worst ? `${c.worst}${c.escalated ? " · escalated today" : ""}` : "not in the posture watch — UNKNOWN"} />
         <span className="min-w-0">
           <span className="text-[13px] font-semibold text-slate-100">{c.country}</span>
-          {c.escalated && <span className="ml-1.5 text-[8px] font-bold uppercase tracking-wider text-red-300 border border-red-500/40 rounded px-1">↑ escalated</span>}
+          {c.escalated && <span className="ml-1.5 text-[8px] font-bold uppercase tracking-wider text-red-300 border border-red-500/40 rounded px-1">▲ escalated</span>}
           {c.chronicity && c.chronicity !== "new" && c.chronicity !== "unknown" && <span className="ml-1.5 text-[8px] font-mono text-slate-500">{c.chronicity}</span>}
           {c.unwatched && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); openTrackPicker({ kind: "country", country: c.country }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openTrackPicker({ kind: "country", country: c.country }); } }} title="Not in the posture watch — click to track it" className="ml-1.5 text-[8px] font-mono text-amber-300/80 hover:text-emerald-300 underline decoration-dotted">unwatched · track</span>}
           {edit && (!c.unwatched || c.star) && <span className="ml-1.5 align-middle"><Untrack label={`${c.country} (posture watch${c.star ? " + ★" : ""})`} onClick={() => edit.untrackCountry(c.country)} disabled={edit.busy} /></span>}

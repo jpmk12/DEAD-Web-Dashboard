@@ -4,6 +4,9 @@ import "leaflet/dist/leaflet.css";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import { CloseIcon, ExternalLinkIcon } from "@/lib/icons";
+import { FLIGHT_CAT_HEX } from "@/lib/levelTokens";
+import { SEVERITY_DOT, asSeverity } from "@/lib/severity";
 import { cellToBoundary } from "h3-js";
 import {
   BASEMAP_STYLES, DARKEN_CLASS, DEFAULT_STYLE, ESRI_REFERENCE_OVERLAY,
@@ -138,7 +141,7 @@ const glyph = (html: string, size = 14) =>
   L.divIcon({ html: `<div style="line-height:1;text-shadow:0 0 3px #020617,0 0 3px #020617">${html}</div>`, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 // Flight-category ring colours (standard aviation: VFR green, MVFR blue, IFR
 // red, LIFR magenta). UNKNOWN gets no ring — never imply a category we lack.
-const CAT_COLOR: Record<string, string> = { VFR: "#10b981", MVFR: "#3b82f6", IFR: "#ef4444", LIFR: "#d946ef" };
+const CAT_COLOR: Record<string, string> = { VFR: FLIGHT_CAT_HEX.VFR, MVFR: FLIGHT_CAT_HEX.MVFR, IFR: FLIGHT_CAT_HEX.IFR, LIFR: FLIGHT_CAT_HEX.LIFR };
 const enrouteIcon = glyph(`<span style="color:#34d399;font-size:13px">✈</span>`);
 const crfIcon = glyph(`<span style="color:#5eead4;font-size:16px;font-weight:900">★</span>`, 16);
 const airfieldIcon = glyph(`<span style="color:#38bdf8;font-size:12px">✈</span>`);
@@ -229,6 +232,8 @@ type EventLens = "all" | "near" | "new";
 const NEAR_MY_KM = 600;
 
 export interface CrisisMapProps {
+  /** The command board pane is shown (polls pause while it is hidden). */
+  active?: boolean;
   /** The command the board has open; the map FOLLOWS it (REVIEW-2026-10 §6)
    *  until an AOR chip overrides. null = no command open. */
   boardAor?: Aor | null;
@@ -273,7 +278,7 @@ function Fitter({ points, fitKey }: { points: [number, number][]; fitKey: number
   return null;
 }
 
-export default function CrisisMap({ boardAor = null, starAors = [], myFields = [], sinceMs = 0 }: CrisisMapProps = {}) {
+export default function CrisisMap({ boardAor = null, starAors = [], myFields = [], sinceMs = 0, active = true }: CrisisMapProps = {}) {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
@@ -541,8 +546,18 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
     return () => ctrl.abort();
   }, [refreshKey]);
 
-  // Auto-refresh every 5 min.
-  useEffect(() => { const id = setInterval(() => setRefreshKey((k) => k + 1), 5 * 60 * 1000); return () => clearInterval(id); }, []);
+  // Auto-refresh every 5 min — only while the pane is shown and the window
+  // is visible (~13 feeds + one DAIP query per FIR per cycle; a hidden tab
+  // used to keep all of it warm for nobody — code review 2026-10-07).
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!activeRef.current || document.visibilityState !== "visible") return;
+      setRefreshKey((k) => k + 1);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // FIR overflight NOTAMs — fetched for the watched countries (from the Forces
   // feed), so it follows the Force posture. Separate effect because it depends
@@ -593,7 +608,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
       .then((d: { aircraft?: MilAc[]; ok?: boolean } | null) => { if (!cancelled && Array.isArray(d?.aircraft)) { setMilair(d!.aircraft); markSrc("Mil ADS-B", d?.ok === false); } })
       .catch(() => {});
     load();
-    const id = setInterval(load, 30_000);
+    const id = setInterval(() => { if (activeRef.current && document.visibilityState === "visible") load(); }, 30_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [on.milair]);
 
@@ -642,7 +657,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
       })
       .catch(() => {});
     load();
-    const id = setInterval(load, 30_000);
+    const id = setInterval(() => { if (activeRef.current && document.visibilityState === "visible") load(); }, 30_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [on.ships, home]);
 
@@ -877,7 +892,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
   const chip = (k: LayerKey, label: string, n?: number, dot?: string) => {
     const zero = typeof n === "number" && n === 0; // dim layers with nothing to show
     return (
-      <button onClick={() => toggle(k)} title={LAYER_DESC[k]} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : `bg-slate-800/80 text-slate-500 border-slate-700/80 hover:text-slate-300${zero ? " opacity-45" : ""}`}`}>
+      <button onClick={() => toggle(k)} title={LAYER_DESC[k]} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${on[k] ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : `bg-slate-800/80 text-slate-400 border-slate-700 hover:text-slate-200${zero ? " opacity-45" : ""}`}`}>
         {dot && <span style={{ color: dot }}>●</span>}{label}{typeof n === "number" && n > 0 ? ` ${n}` : ""}
       </button>
     );
@@ -941,13 +956,13 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
         </div>
         {/* Layers popover (overlays the map; contextual ⚙ for Mil air + Rings) */}
         <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
-          <button onClick={() => { setLayersOpen((v) => !v); setLegendOpen(false); setViewMenuOpen(false); }} title="Map layers" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⚙ Layers <span className="text-slate-500">({activeCount})</span></button>
+          <button onClick={() => { setLayersOpen((v) => !v); setLegendOpen(false); setViewMenuOpen(false); }} title="Map layers" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⚙ Layers <span className="text-slate-500">({activeCount})</span></button>
           {layersOpen && (
             <div className="absolute left-0 top-full mt-1 z-[55] w-[min(580px,calc(100vw-2.5rem))] max-h-[62vh] overflow-auto bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-3 shadow-2xl">
               <div className="flex items-center mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Layers</span>
                 <span className="text-[9px] text-slate-500 ml-2 font-mono">{activeCount} on</span>
-                <button onClick={() => setLayersOpen(false)} aria-label="Close layers" className="ml-auto text-slate-500 hover:text-slate-200 text-xs">✕</button>
+                <button onClick={() => setLayersOpen(false)} aria-label="Close" className="ml-auto w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
               </div>
 
               {/* Basemap style. Above the data toggles because it is a different
@@ -973,7 +988,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
                       title={s.hint}
                       className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${
                         s.id === styleId
-                          ? "bg-violet-500/20 text-violet-200 border-violet-500/40"
+                          ? "border-sky-500/50 bg-sky-500/15 text-sky-200"
                           : "border-slate-700 text-slate-400 hover:text-slate-200"
                       }`}
                     >
@@ -991,10 +1006,10 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
                       <Fragment key={it.k}>
                         {chip(it.k, it.label, layerCount[it.k], it.dot)}
                         {it.k === "milair" && on.milair && (
-                          <button onClick={() => setMilGearOpen((v) => !v)} title="Mil-air filters (mobility / tankers)" className={`px-1.5 py-1 rounded-md text-[10px] border transition-all ${milGearOpen ? "border-violet-500/50 text-violet-200 bg-violet-500/10" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>⚙</button>
+                          <button onClick={() => setMilGearOpen((v) => !v)} title="Mil-air filters (mobility / tankers)" className={`px-1.5 py-1 rounded-md text-[10px] border transition-all ${milGearOpen ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⚙</button>
                         )}
                         {it.k === "rings" && on.rings && (
-                          <button onClick={() => setRingsGearOpen((v) => !v)} title="Reach-ring airframe & payload" className={`px-1.5 py-1 rounded-md text-[10px] border transition-all ${ringsGearOpen ? "border-violet-500/50 text-violet-200 bg-violet-500/10" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>⚙</button>
+                          <button onClick={() => setRingsGearOpen((v) => !v)} title="Reach-ring airframe & payload" className={`px-1.5 py-1 rounded-md text-[10px] border transition-all ${ringsGearOpen ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⚙</button>
                         )}
                       </Fragment>
                     ))}
@@ -1003,8 +1018,8 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
                   {g.label === "Threats" && on.milair && milGearOpen && (
                     <div className="mt-1.5 ml-2 pl-2.5 border-l-2 border-slate-700/70 flex flex-wrap items-center gap-1.5">
                       <span className="text-[8px] uppercase tracking-wider text-slate-500">Mil air</span>
-                      <button onClick={() => setMilMobility((v) => !v)} disabled={tankerOnly} title="Show only mobility/tanker airframes vs all military aircraft" className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all disabled:opacity-40 ${milMobility ? "bg-lime-500/20 text-lime-300 border-lime-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
-                      <button onClick={() => setTankerOnly((v) => !v)} title="Show only aerial-refueling tankers — where's the gas for a reach problem" className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all ${tankerOnly ? "bg-sky-500/20 text-sky-300 border-sky-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⛽ Tankers</button>
+                      <button onClick={() => setMilMobility((v) => !v)} disabled={tankerOnly} title="Show only mobility/tanker airframes vs all military aircraft" className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all disabled:opacity-40 ${milMobility ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>✈ {milMobility ? "Mobility only" : "All mil"}</button>
+                      <button onClick={() => setTankerOnly((v) => !v)} title="Show only aerial-refueling tankers — where's the gas for a reach problem" className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all ${tankerOnly ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⛽ Tankers</button>
                       {!milMobility && zoom < 4 && <span className="text-[9px] text-slate-500 font-mono">zoom in for all-mil</span>}
                     </div>
                   )}
@@ -1014,13 +1029,13 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
                       <span className="text-[8px] uppercase tracking-wider text-slate-500">Airframe</span>
                       <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5">
                         {(Object.keys(AIRFRAMES) as AirframeKey[]).map((k) => (
-                          <button key={k} onClick={() => setAirframe(k)} title={`${k} reach ring`} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${airframe === k ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{k}</button>
+                          <button key={k} onClick={() => setAirframe(k)} title={`${k} reach ring`} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all border ${airframe === k ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-transparent text-slate-400 hover:text-slate-200"}`}>{k}</button>
                         ))}
                       </div>
                       <span className="text-[8px] uppercase tracking-wider text-slate-500">Payload</span>
                       <div className="flex items-center gap-0.5 rounded-md border border-slate-700 p-0.5" title="Reach ring at max payload vs light/ferry load">
                         {(["max", "light"] as PayloadKey[]).map((p) => (
-                          <button key={p} onClick={() => setPayload(p)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${payload === p ? "bg-emerald-500/20 text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}>{p === "max" ? "Max" : "Light"}</button>
+                          <button key={p} onClick={() => setPayload(p)} className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all border ${payload === p ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-transparent text-slate-400 hover:text-slate-200"}`}>{p === "max" ? "Max" : "Light"}</button>
                         ))}
                       </div>
                     </div>
@@ -1032,7 +1047,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
         </div>
         {/* Legend popover */}
         <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
-          <button onClick={() => { setLegendOpen((v) => !v); setLayersOpen(false); setViewMenuOpen(false); }} title="Marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "bg-violet-500/20 text-violet-200 border-violet-500/40" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend ▾</button>
+          <button onClick={() => { setLegendOpen((v) => !v); setLayersOpen(false); setViewMenuOpen(false); }} title="Marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend ▾</button>
           {legendOpen && (
             <div className="absolute left-0 top-full mt-1 z-[55] w-[min(520px,calc(100vw-2.5rem))] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg px-3 py-2.5 shadow-2xl flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-400">
               <span><span className="text-red-400">●</span> disaster (size=HADR)</span>
@@ -1095,7 +1110,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
             ⚠ source down: {srcDown.join(", ")}
           </span>
         )}
-        <span className="text-slate-700 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
+        <span className="text-slate-500 font-mono">{loading ? "loading…" : fetchedAt ? `updated ${Math.max(0, Math.round((Date.now() - fetchedAt) / 1000))}s ago` : "GDACS·USGS·NWS·NHC"}</span>
       </div>
 
       {/* AI map read */}
@@ -1294,7 +1309,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
               </Marker>
             ))}
             {on.forces && forces.filter((f) => !(f.lat === 0 && f.lon === 0)).map((f) => {
-              const color = f.composite === "red" ? "#ef4444" : f.composite === "amber" ? "#fbbf24" : f.composite === "unknown" ? "#94a3b8" : "#10b981";
+              const color = SEVERITY_DOT[asSeverity(f.composite)];
               const sel = selected === `force-${f.id}`;
               return (
                 <CircleMarker key={`force-${f.id}`} center={[f.lat, f.lon]} radius={sel ? 13 : 10} pathOptions={{ color: sel ? "#fff" : color, fillColor: color, fillOpacity: 0.3, weight: 3 }} eventHandlers={{ click: () => pick(`force-${f.id}`, f.lat, f.lon) }}>
@@ -1448,7 +1463,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
                   {it.sub && <span className="text-slate-500">{it.sub}</span>}
                   {it.aor && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{it.aor}</span>}
                   {reach && <span className="text-[10px] text-emerald-500/80 font-mono">{reach}</span>}
-                  {it.href && <a href={it.href} target="_blank" rel="noopener noreferrer" className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono">↗</a>}
+                  {it.href && <a href={it.href} target="_blank" rel="noopener noreferrer" aria-label="Open source" className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono"><ExternalLinkIcon size={11} className="inline -mt-px" /></a>}
                 </li>
               );
             };
@@ -1462,7 +1477,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
                 <li key={`wg-${g.aor}`} className="-mx-1">
                   <button onClick={() => setWatchGroupsOpen((prev) => { const n = new Set(prev); n.has(g.aor) ? n.delete(g.aor) : n.add(g.aor); return n; })} className="w-full flex items-center gap-2 px-1 py-1 hover:bg-slate-800/40 rounded">
                     <span className={toneText(worst as Item["tone"])}>●</span>
-                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-sky-300/90 flex-1 text-left">{g.aor === "—" ? "Other" : g.aor}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-sky-300/90 flex-1 text-left">{g.aor === "—" ? "Other" : g.aor}</span>
                     <span className="text-[8px] font-mono text-slate-600">{g.list.length}</span>
                     <span className="text-[9px] text-slate-600">{collapsed ? "▸" : "▾"}</span>
                   </button>
@@ -1534,14 +1549,14 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
                 <ul className="space-y-1 max-h-[28vh] overflow-y-auto">
                   {shown.length === 0 && <li className="text-[10px] text-slate-600 font-mono">No disasters match this filter.</li>}
                   {shown.map((d) => (
-                    <li key={`all-${d.id}`} id={`row-d-${d.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === `d-${d.id}` ? "bg-slate-800/70" : ""}`}>
+                    <li key={`all-${d.id}`} id={`all-row-d-${d.id}`} className={`text-[11px] flex flex-wrap items-baseline gap-x-2 rounded px-1 -mx-1 ${selected === `d-${d.id}` ? "bg-slate-800/70" : ""}`}>
                       <span className={DISASTER_SEV_TEXT[d.severity]} title={`${d.type} · ${d.severity}`}>{DISASTER_GLYPH[d.type] ?? "●"}</span>
                       <button onClick={() => pick(`d-${d.id}`, d.lat as number, d.lon as number, 5)} className="text-slate-200 hover:text-emerald-400 font-medium text-left">{d.title}</button>
                       {d.country && <span className="text-slate-500">{d.country}</span>}
                       {d.aor !== "UNKNOWN" && <span className="text-[8px] font-mono uppercase tracking-wider text-sky-400/80 border border-sky-500/30 rounded px-1 py-0.5">{d.aor}</span>}
                       {(d.hadrScore ?? 0) >= 55 && <span className="text-[8px] font-mono uppercase tracking-wider text-orange-300 border border-orange-500/40 rounded px-1">HADR</span>}
                       {d.nearLocations.length > 0 && <span className="text-[9px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1">near {d.nearLocations.join(", ")}</span>}
-                      {d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono">↗</a>}
+                      {d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" aria-label="Open source" className="text-[10px] text-slate-600 hover:text-emerald-400 font-mono"><ExternalLinkIcon size={11} className="inline -mt-px" /></a>}
                     </li>
                   ))}
                 </ul>
@@ -1556,7 +1571,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
         </div>
       </section>
 
-      <p className={`text-[10px] text-slate-700 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
+      <p className={`text-[10px] text-slate-500 leading-relaxed ${fullscreen ? "hidden" : ""}`}>
         Disaster watch (GDACS/USGS), hub weather (model, next 30 h), tropical with a ~48 h forecast cone (approx; NHC), and
         NEO watch (State Dept) over the AMC node network (en route hubs ✈, Contingency Response ★, tracked locations). The
         Watch pane&apos;s Converging card shows where independent surfaces point at one place; the Demand read is a Claude anticipatory mobility-demand read — where airlift/HADR/NEO demand is emerging by AOR and the airfield-access implication. The Conflict layer

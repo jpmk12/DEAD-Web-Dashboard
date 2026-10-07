@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { format } from "date-fns";
+import { updatedAgo } from "@/lib/relTime";
 import { CalendarEvent } from "@/lib/types";
 import { Calendar } from "@/lib/icons";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
@@ -129,7 +130,7 @@ function AgendaEvent({ event, zone }: { event: CalendarEvent; zone: EffectiveZon
           <p className="text-sm font-medium text-slate-200 leading-tight group-hover:text-white transition-colors">{event.title}</p>
           <div className="opacity-60 group-hover:opacity-100 transition-opacity flex items-center">
             <EventActionCluster a={a} />
-            {isExpandable && <span className="text-slate-600 text-[10px] mt-0.5 ml-1">{expanded ? "▲" : "▼"}</span>}
+            {isExpandable && <span className="text-slate-600 text-[10px] mt-0.5 ml-1">{expanded ? "▴" : "▾"}</span>}
           </div>
         </div>
         <EventActionPanels a={a} />
@@ -173,7 +174,7 @@ function AgendaEvent({ event, zone }: { event: CalendarEvent; zone: EffectiveZon
             )}
           </div>
         )}
-        {!expanded && event.account && <p className="text-[10px] font-mono text-slate-700 mt-0.5">{event.account}</p>}
+        {!expanded && event.account && <p className="text-[10px] font-mono text-slate-500 mt-0.5">{event.account}</p>}
       </div>
     </div>
   );
@@ -187,12 +188,7 @@ const actMuted = `${act} border-slate-700 text-slate-400 hover:text-slate-200 ho
 const actPri = `${act} border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/10`;
 const actSky = `${act} border-sky-500/50 text-sky-300 hover:bg-sky-500/10`;
 
-function formatUpdated(d: Date): string {
-  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (secs < 60) return "just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
+const formatUpdated = (d: Date): string => updatedAgo(d);
 
 export default function CalendarPanel({ onEventsLoaded, refreshKey: externalRefresh, zone, today, famDates, trips, dontMiss, dontMissHandlers, mailDates, mailHandlers }: CalendarPanelProps) {
   const { data: session, status } = useSession();
@@ -370,7 +366,7 @@ export default function CalendarPanel({ onEventsLoaded, refreshKey: externalRefr
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-600 font-mono hidden sm:inline">{session?.user?.email}</span>
-            {lastUpdated && !loading && <span className="text-[10px] text-slate-700 font-mono">{formatUpdated(lastUpdated)}</span>}
+            {lastUpdated && !loading && <span className="text-[10px] text-slate-500 font-mono">{formatUpdated(lastUpdated)}</span>}
             <button onClick={() => setRefreshKey((k) => k + 1)} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 disabled:opacity-40 font-mono transition-colors">
               <span className={`text-base leading-none ${loading ? "animate-spin" : ""}`}>↻</span>
               {loading ? "Loading…" : "Refresh"}
@@ -407,7 +403,7 @@ export default function CalendarPanel({ onEventsLoaded, refreshKey: externalRefr
             const trip = tripChipFor(dateKey, trips);
             return (
               <div key={dateKey} className="border-b border-slate-800/60 last:border-0">
-                <div className={`flex items-baseline gap-2.5 px-5 py-2.5 sticky top-0 z-10 ${isToday ? "bg-emerald-500/10 border-b border-emerald-500/20" : "bg-slate-900/95 border-b border-slate-800/40"}`}>
+                <div className={`flex items-baseline gap-2.5 px-5 py-2.5 sticky top-14 z-10 ${isToday ? "bg-emerald-500/10 border-b border-emerald-500/20" : "bg-slate-900/95 border-b border-slate-800/40"}`}>
                   <span className={`text-sm font-bold ${isToday ? "text-emerald-400" : "text-slate-300"}`}>{primary}</span>
                   <span className={`text-[11px] font-mono ${isToday ? "text-emerald-600" : "text-slate-600"}`}>{secondary}</span>
                   {trip && <span className="ml-auto text-[8.5px] font-bold uppercase tracking-widest text-amber-300 bg-amber-500/12 border border-amber-500/25 rounded px-1.5 py-0.5">{trip}</span>}

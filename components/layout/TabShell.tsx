@@ -14,8 +14,12 @@ import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
 import DocumentsTab from "@/components/documents/DocumentsTab";
 import GlanceTab from "@/components/glance/GlanceTab";
-import FamilyTab from "@/components/family/FamilyTab";
-import PreferencesDrawer from "@/components/PreferencesDrawer";
+import dynamic from "next/dynamic";
+// Loaded on demand: neither is needed for Glance's first paint — the drawer
+// is a 150 KB component rendered only while open, and the Family tab mounts
+// only when opened (code review 2026-10-07: one 1.2 MB page chunk).
+const FamilyTab = dynamic(() => import("@/components/family/FamilyTab"), { ssr: false });
+const PreferencesDrawer = dynamic(() => import("@/components/PreferencesDrawer"), { ssr: false });
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
 import TrackPicker from "@/components/TrackPicker";
@@ -133,6 +137,9 @@ export default function TabShell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        // An editor owns ⌘K while it has focus (the Docs editor inserts a link).
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "TEXTAREA" || t.isContentEditable)) return;
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
@@ -148,8 +155,12 @@ export default function TabShell() {
     const onBrief = () => { setBriefingMode("briefing"); setBriefingOpen(true); };
     const onDigest = () => { setBriefingMode("digest"); setBriefingOpen(true); };
     const onPrefs = (e: Event) => {
-      setPrefsOpen(true);
       const group = (e as CustomEvent<string>).detail;
+      // The drawer loads on demand and reads `?prefs=` on mount (URL wins
+      // over memory), so the section is written first; the event below only
+      // matters for a drawer that is already mounted.
+      if (typeof group === "string") { try { const u = new URL(window.location.href); u.searchParams.set("prefs", group); window.history.replaceState(null, "", u.toString()); } catch { /* ignore */ } }
+      setPrefsOpen(true);
       if (typeof group === "string") setTimeout(() => window.dispatchEvent(new CustomEvent("prefs:focus-group", { detail: group })), 150);
     };
     window.addEventListener("capture:open", onCapture);
@@ -213,7 +224,13 @@ export default function TabShell() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => { loadWatchlist(); }, [loadWatchlist]);
+  useEffect(() => {
+    loadWatchlist();
+    // Accepting a watchlist suggestion on the Sources pane dispatches this;
+    // nothing listened before, so ⚑ chips and Glance stayed stale until reload.
+    window.addEventListener("watchlist:changed", loadWatchlist);
+    return () => window.removeEventListener("watchlist:changed", loadWatchlist);
+  }, [loadWatchlist]);
 
   // Kick off the weekly digest fetch on mount — it only needs the user's
   // pref history (already on the server), not loaded articles. The result
@@ -450,7 +467,7 @@ export default function TabShell() {
         )}
 
         <div className={activeTab !== "markets" ? "hidden" : ""}>
-          <MarketsTab articles={articles} />
+          <MarketsTab articles={articles} active={activeTab === "markets"} />
         </div>
 
         <div className={activeTab !== "weather" ? "hidden" : ""}>
@@ -458,11 +475,13 @@ export default function TabShell() {
         </div>
       </main>
 
-      <PreferencesDrawer
-        open={prefsOpen}
-        onClose={() => setPrefsOpen(false)}
-        onSaved={loadWatchlist}
-      />
+      {prefsOpen && (
+        <PreferencesDrawer
+          open={prefsOpen}
+          onClose={() => setPrefsOpen(false)}
+          onSaved={loadWatchlist}
+        />
+      )}
 
       <BriefingModal
         open={briefingOpen}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 import { layoutGraph, type GraphEdge, type GraphNode, type PlacedNode } from "@/lib/docGraph";
 import { docTypeMeta, DOC_TYPES } from "@/lib/docTypes";
 import { RELATION_HEX, RELATION_GLYPHS, type LinkRelation } from "@/lib/linkRelations";
@@ -99,7 +100,7 @@ export default function DocGraphModal({ docId, onClose, onOpenDoc }: DocGraphMod
             >
               Labels
             </button>
-            <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-lg leading-none px-1">×</button>
+            <button onClick={onClose} aria-label="Close" className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
           </div>
         </div>
 

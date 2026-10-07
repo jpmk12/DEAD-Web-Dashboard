@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { NewsItem } from "@/lib/types";
+import { relTime } from "@/lib/relTime";
 import EconomicAccessPanel from "./EconomicAccessPanel";
 import ChokepointBoard from "@/components/markets/ChokepointBoard";
 import RegulatoryBoard from "@/components/markets/RegulatoryBoard";
@@ -17,14 +18,9 @@ function pctColor(p: number | null): string {
   if (p == null) return "text-slate-500";
   return p > 0 ? "text-emerald-400" : p < 0 ? "text-red-400" : "text-slate-400";
 }
-function ago(iso: string): string {
-  const d = Date.parse(iso);
-  if (!Number.isFinite(d)) return "";
-  const h = Math.round((Date.now() - d) / 3.6e6);
-  return h < 1 ? "now" : h < 24 ? `${h}h` : `${Math.round(h / 24)}d`;
-}
+const ago = (iso: string): string => relTime(iso);
 
-export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] }) {
+export default function MarketsTab({ articles = [], active = true }: { articles?: NewsItem[]; active?: boolean }) {
   const [energy, setEnergy] = useState<EnergyQuote[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -62,15 +58,15 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
           it was written from, then the evidence beneath that. The panel waits
           for the board to land before its first generate, so order on the
           page does not change what the model is given. */}
-      <EconomicAccessPanel articles={articles} />
+      <EconomicAccessPanel articles={articles} active={active} />
 
       {/* Chokepoint interdiction directly under the read (REVIEW-2026-10 §10
           E9, by request): a strait act is the one economic move that changes
           a mobility route the same day, and it is the evidence the actor
           board's shipping instrument is credited from. */}
-      <ChokepointBoard active />
+      <ChokepointBoard active={active} />
 
-      <EconomicWarfareBoard active refreshKey={refreshKey} />
+      <EconomicWarfareBoard active={active} refreshKey={refreshKey} />
 
       {/* Energy / fuel strip — Brent drives jet-fuel/sustainment cost */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
@@ -99,12 +95,12 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
             );
           })}
         </div>
-        <p className="text-[9px] text-slate-700 mt-2">Session change · {energy.some((q) => q.source === "stooq") ? "Stooq" : "Yahoo Finance"} · for context, not trading.</p>
+        <p className="text-[9px] text-slate-500 mt-2">Session change · {energy.some((q) => q.source === "stooq") ? "Stooq" : "Yahoo Finance"} · for context, not trading.</p>
       </div>
 
       {/* U.S. regulatory actions — the sanctions / export-control / tariff
           record, classified and flagged against the watch. */}
-      <RegulatoryBoard active />
+      <RegulatoryBoard active={active} />
 
       {/* Sanctions / overflight / basing news */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
@@ -123,7 +119,7 @@ export default function MarketsTab({ articles = [] }: { articles?: NewsItem[] })
         )}
       </div>
 
-      <p className="text-[9px] text-slate-700 text-right">Energy via Yahoo Finance · actor / chokepoint / regulatory signals from open feeds and your own sources · economic SA, not market advice.</p>
+      <p className="text-[9px] text-slate-500 text-right">Energy via Yahoo Finance · actor / chokepoint / regulatory signals from open feeds and your own sources · economic SA, not market advice.</p>
     </div>
   );
 }

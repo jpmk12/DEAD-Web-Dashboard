@@ -1,19 +1,18 @@
 "use client";
 
-import type { CbSitrep, Led } from "@/lib/commandBoard";
+import type { CbSitrep } from "@/lib/commandBoard";
 import { SEVERITY_DOT, type Severity } from "@/lib/severity";
+import { LED_CLASS, LEVEL_PILL } from "@/lib/levelTokens";
 
 // The command board's small shared pieces — LEDs, the posture dot, the ★, the
 // hub / spoke switch, the ✕ — used by the board, the airfields-by-command
 // section and the room drawer. One glyph, one meaning (the lib/icons.tsx rule).
+//
+// The LED and level tokens live in lib/levelTokens; they are re-exported here
+// under the names the board files already import.
 
-export const LED_CLASS: Record<Led, string> = { g: "bg-emerald-500", a: "bg-amber-400", r: "bg-red-500", u: "bg-slate-600" };
-export const LVL_CHIP: Record<string, string> = {
-  alert: "text-red-200 border-red-500/60 bg-red-500/20",
-  warning: "text-orange-300 border-orange-500/50 bg-orange-500/10",
-  watch: "text-amber-300 border-amber-500/50 bg-amber-500/10",
-  calm: "text-slate-400 border-slate-700 bg-transparent",
-};
+export { LED_CLASS };
+export const LVL_CHIP: Record<string, string> = LEVEL_PILL;
 export const TRAJ: Record<string, string> = { deteriorating: "↗", improving: "↘", stable: "→" };
 
 /** Owner-only add / remove / role controls; null for crew (read-only). */
@@ -46,7 +45,7 @@ export function RoleSwitch({ icao, role, onSet, disabled }: { icao: string; role
         title={on ? `${icao} is the ${r} — click to clear its own-force role` : r === "hub" ? `Make ${icao} the hub (the current hub becomes a spoke)` : `Make ${icao} a spoke`}
         onClick={(e) => { e.stopPropagation(); if (!disabled) onSet(on ? null : r); }}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) onSet(on ? null : r); } }}
-        className={`text-[8px] font-bold uppercase tracking-widest rounded px-1 py-px border cursor-pointer select-none ${on ? "border-sky-500/60 text-sky-200 bg-sky-500/15" : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"} ${disabled ? "opacity-40 cursor-default" : ""}`}
+        className={`inline-flex items-center min-h-[28px] text-[8px] font-bold uppercase tracking-widest rounded px-1 py-1 border cursor-pointer select-none ${on ? "border-sky-500/60 text-sky-200 bg-sky-500/15" : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"} ${disabled ? "opacity-40 cursor-default" : ""}`}
       >{r}</span>
     );
   };
@@ -60,7 +59,7 @@ export function Untrack({ label, onClick, disabled }: { label: string; onClick: 
       role="button" tabIndex={0} aria-disabled={disabled} title={`Stop tracking ${label} (removes it from every list — Undo offered)`} aria-label={`Stop tracking ${label}`}
       onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) onClick(); } }}
-      className={`text-[11px] leading-none px-1 rounded text-slate-600 hover:text-red-300 cursor-pointer select-none ${disabled ? "opacity-40 cursor-default" : ""}`}
+      className={`inline-flex items-center min-h-[28px] text-[11px] leading-none px-1 py-1 rounded text-slate-600 hover:text-red-300 cursor-pointer select-none ${disabled ? "opacity-40 cursor-default" : ""}`}
     >✕</span>
   );
 }
@@ -74,7 +73,7 @@ export function Star({ on, onClick, label, disabled }: { on: boolean; onClick: (
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) onClick(); } }}
       title={on ? `★ must-track — click to clear (${label})` : `Make ${label} a must-track`}
       aria-label={on ? `Clear must-track ${label}` : `Make ${label} a must-track`}
-      className={`inline-block text-[14px] leading-none px-1 rounded transition-colors cursor-pointer select-none ${disabled ? "opacity-40" : ""} ${on ? "text-amber-400 hover:text-amber-300" : "text-slate-700 hover:text-amber-400"}`}
+      className={`inline-flex items-center min-h-[28px] text-[14px] leading-none px-1 py-1 rounded transition-colors cursor-pointer select-none ${disabled ? "opacity-40" : ""} ${on ? "text-amber-400 hover:text-amber-300" : "text-slate-500 hover:text-amber-400"}`}
     >{on ? "★" : "☆"}</span>
   );
 }

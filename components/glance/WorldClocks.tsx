@@ -112,7 +112,7 @@ export default function WorldClocks() {
               <span className={`block font-mono text-[24px] sm:text-[26px] lg:text-[30px] font-black leading-none tabular-nums tracking-tight mt-1.5 ${digits}`}>
                 {c.time}{zulu && <span className="text-[12px] font-bold text-slate-500 ml-0.5">Z</span>}
               </span>
-              <span className="block mt-2 text-[9.5px] sm:text-[10.5px] font-extrabold uppercase tracking-[0.1em] sm:tracking-[0.18em] text-slate-300 truncate">{c.label}</span>
+              <span className="block mt-2 text-[9.5px] sm:text-[10.5px] font-extrabold uppercase tracking-widest sm:tracking-[0.18em] text-slate-300 truncate">{c.label}</span>
               <span className="block text-[9.5px] text-slate-500 mt-0.5">
                 {c.weekday}{c.dayOffset > 0 ? " +1" : c.dayOffset < 0 ? " −1" : ""}
                 <span className={`ml-1 ${phase.glyph} opacity-80`}>{phase.label}</span>
@@ -143,12 +143,12 @@ export default function WorldClocks() {
             <input value={draft.tz} onChange={(e) => setDraft({ ...draft, tz: e.target.value })} placeholder="Asia/Riyadh" maxLength={40} list="glance-clock-zones"
               className={`w-[130px] bg-slate-800/70 border rounded px-1.5 py-1 text-[11px] text-slate-100 font-mono ${draft.tz && !isValidTz(draft.tz) ? "border-red-500/60" : "border-slate-700"}`} />
             <datalist id="glance-clock-zones">{ZONES.map((z) => <option key={z} value={z} />)}</datalist>
-            <button type="submit" className="text-[11px] px-2 py-1 rounded bg-emerald-600/80 text-white">Add</button>
+            <button type="submit" className="text-[11px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-md">＋ Add</button>
             <button type="button" onClick={() => persist(DEFAULT_CLOCKS)} className="text-[10px] text-slate-500 hover:text-slate-300 px-1">reset</button>
             <button type="button" onClick={() => { setEditing(false); setDraft({ label: "", tz: "" }); }} className="text-[11px] px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300">Done</button>
           </form>
         ) : (
-          <button type="button" onClick={() => setEditing(true)} className="text-[9.5px] text-slate-700 hover:text-slate-400" aria-label="Edit clocks">edit clocks</button>
+          <button type="button" onClick={() => setEditing(true)} className="text-[9.5px] text-slate-500 hover:text-slate-300" aria-label="Edit clocks">edit clocks</button>
         )}
       </div>
     </section>

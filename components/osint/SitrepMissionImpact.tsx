@@ -10,7 +10,7 @@ const CAP_PILL: Record<Capability, string> = {
   nmc: "bg-red-500/15 text-red-300 border-red-500/55",
   unknown: "bg-slate-700/30 text-slate-400 border-slate-600",
 };
-const CAP_TXT: Record<Capability, string> = { fmc: "FMC", pmc: "PMC", nmc: "NMC", unknown: "UNK" };
+const CAP_TXT: Record<Capability, string> = { fmc: "FMC", pmc: "PMC", nmc: "NMC", unknown: "UNKNOWN" };
 const CAP_LONG: Record<Capability, string> = { fmc: "Fully", pmc: "Partially", nmc: "Non-", unknown: "Status" };
 const CAP_BAR: Record<Capability, string> = { fmc: "border-emerald-500/40", pmc: "border-l-amber-400", nmc: "border-l-red-500", unknown: "border-l-slate-600" };
 
@@ -123,7 +123,7 @@ export default function SitrepMissionImpact({
 
       {/* Mission capability by function */}
       <div>
-        <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1.5">Mission capability by function</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Mission capability by function</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
           {mi.functions.map((f) => (
             <div key={f.key} className="flex items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5 overflow-hidden min-w-0">
@@ -147,7 +147,7 @@ export default function SitrepMissionImpact({
       {/* LIMFAC register */}
       <div>
         <div className="flex items-center gap-2 mb-1.5">
-          <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600">LIMFAC register</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">LIMFAC register</p>
           <div className="flex-1 h-px bg-slate-800" />
           <button onClick={() => setAddOpen((v) => !v)} className="text-[9px] font-bold uppercase tracking-wider text-sky-300 border border-sky-500/40 rounded px-2 py-0.5 hover:bg-sky-500/10">＋ Add LIMFAC</button>
         </div>

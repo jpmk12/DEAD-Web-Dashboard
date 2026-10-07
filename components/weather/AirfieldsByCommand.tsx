@@ -6,6 +6,9 @@ import { tafTimeline, type TafSegment } from "@/lib/sitrepSignals";
 import { CAT_RANK } from "@/lib/aviationWx";
 import { COCOM_LABEL, type Aor } from "@/lib/aor";
 import { openTrackPicker } from "@/lib/trackClient";
+import { ExternalLinkIcon } from "@/lib/icons";
+import { LED_CLASS, FLIGHT_CAT_HEX } from "@/lib/levelTokens";
+import { relTime } from "@/lib/relTime";
 
 // My airfields, by combatant command (REVIEW-2026-10 W5, W7, W9): the
 // registry's airfields — hub › ★ › spokes › rest, the OSINT board's order —
@@ -28,13 +31,13 @@ const CAT_CLS: Record<FlightCategory, string> = {
   LIFR: "text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30",
   UNKNOWN: "text-slate-400 bg-slate-700/30 border-slate-600/40",
 };
-const CAT_BAR: Record<FlightCategory, string> = { VFR: "#10b981", MVFR: "#38bdf8", IFR: "#ef4444", LIFR: "#d946ef", UNKNOWN: "#334155" };
+const CAT_BAR: Record<FlightCategory, string> = FLIGHT_CAT_HEX;
 const AOR_ORDER: Aor[] = ["CENTCOM", "EUCOM", "INDOPACOM", "AFRICOM", "SOUTHCOM", "NORTHCOM", "UNKNOWN"];
 const zHour = (ms: number) => `${String(new Date(ms).getUTCHours()).padStart(2, "0")}Z`;
-const obsAge = (iso: string) => { const m = Math.floor((Date.now() - Date.parse(iso)) / 60000); return !Number.isFinite(m) ? "" : m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ${m % 60}m ago`; };
+const obsAge = (iso: string) => relTime(iso);
 
 type Led = "r" | "a" | "g" | "u";
-const LED_DOT: Record<Led, string> = { r: "bg-red-500", a: "bg-amber-400", g: "bg-emerald-400", u: "bg-slate-600" };
+const LED_DOT: Record<Led, string> = LED_CLASS;
 const worstLed = (a: Led, b: Led): Led => (["r", "a", "g", "u"] as Led[]).find((l) => a === l || b === l) ?? "u";
 
 interface Read {
@@ -164,7 +167,7 @@ export default function AirfieldsByCommand({ airfields, stations, awcDown, loadi
         <span className="ml-auto flex items-center gap-2">
           {awcDown && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/40" title="aviationweather.gov unreachable — blank cards are missing data, not clear weather">⚠ AWC down</span>}
           {loading && <span className="text-[9px] text-slate-600 font-mono animate-pulse">loading…</span>}
-          <a href="https://aviationweather.gov/gfa/#sigmet" target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300">SIGMET ↗</a>
+          <a href="https://aviationweather.gov/gfa/#sigmet" target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300">SIGMET <ExternalLinkIcon size={11} className="inline -mt-px" /></a>
           <button type="button" onClick={() => setHideGreen((v) => !v)} className={`text-[9px] font-bold uppercase tracking-wider border rounded px-2 py-0.5 ${hideGreen ? "border-emerald-500/50 text-emerald-300" : "border-slate-700 text-slate-400"}`}>{hideGreen ? "showing non-green" : "hide green"}</button>
           <button type="button" disabled={!canEdit} onClick={() => openTrackPicker({ kind: "airfield" })} className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-40">＋ Airfield</button>
         </span>

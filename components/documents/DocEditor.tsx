@@ -157,13 +157,28 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
       })
       .catch(() => setDoc(null))
       .finally(() => setLoading(false));
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        // Keystrokes inside the debounce window were discarded when the doc
+        // changed under the editor (another doc opened, ← All documents);
+        // flush them now, keepalive so navigation cannot cancel the request.
+        if (dirtyRef.current && docId) {
+          fetch(`/api/documents/${docId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(latestRef.current), keepalive: true }).catch(() => {});
+          dirtyRef.current = false;
+        }
+      }
+    };
   }, [docId]);
 
+  const dirtyRef = useRef(false);
   const scheduleSave = () => {
     setSaveState("dirty");
+    dirtyRef.current = true;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
+      dirtyRef.current = false;
       setSaveState("saving");
       try {
         const res = await fetch(`/api/documents/${docId}`, {
@@ -459,7 +474,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
     if (!meta) return;
     if (e.key === "b") { e.preventDefault(); wrapSelection("**"); return; }
     if (e.key === "i") { e.preventDefault(); wrapSelection("*"); return; }
-    if (e.key === "k") { e.preventDefault(); insertLinkAtSelection(); return; }
+    if (e.key === "k") { e.preventDefault(); e.stopPropagation(); insertLinkAtSelection(); return; }
     if (e.key === "f") { e.preventDefault(); openFind(); return; }
     // ⌘[ creates a wiki-link. Use the literal key — browsers also fire "{"
     // for shift+[ on some layouts, which we don't want.
@@ -751,7 +766,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
             <span className={`text-[10px] font-mono ${
               saveState === "error" ? "text-red-400" :
               saveState === "saving" || saveState === "dirty" ? "text-slate-500" :
-              saveState === "saved" ? "text-emerald-400" : "text-slate-700"
+              saveState === "saved" ? "text-emerald-400" : "text-slate-500"
             }`}>
               {saveState === "saving" ? "Saving…" :
                saveState === "dirty"  ? "Editing…" :
@@ -803,10 +818,10 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
                 <button
                   key={pane}
                   onClick={() => setMobilePane(pane)}
-                  className={`text-[10px] font-mono px-2 py-1 rounded transition-all touch-manipulation ${
+                  className={`text-[10px] font-mono px-2 py-1 rounded transition-all touch-manipulation border ${
                     mobilePane === pane
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : "text-slate-500 hover:text-slate-300"
+                      ? "border-sky-500/50 bg-sky-500/15 text-sky-200"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
                   }`}
                 >
                   {label}
@@ -840,14 +855,14 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
               title="Export this doc as markdown (.md) with YAML frontmatter"
               className="text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-all"
             >
-              ⬇ MD
+              ⇩ MD
             </a>
             <button
               onClick={onToggleArchive}
               title={doc.archived ? "Restore from archive" : "Archive — soft-delete (restore from the Archived view in the sidebar)"}
               className={`text-base transition-colors ${doc.archived ? "text-emerald-400 hover:text-emerald-300" : "text-slate-600 hover:text-slate-300"}`}
             >
-              {doc.archived ? "↺" : "▢"}
+              {doc.archived ? "↶" : "▢"}
             </button>
             <button
               onClick={onDelete}
@@ -964,7 +979,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
           {doc.tags.map((t) => (
             <span key={t} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-300 border border-violet-500/30">
               {t}
-              <button onClick={() => removeTag(t)} className="opacity-60 hover:opacity-100 leading-none">×</button>
+              <button onClick={() => removeTag(t)} aria-label={`Remove tag ${t}`} className="opacity-60 hover:opacity-100 leading-none">✕</button>
             </span>
           ))}
           <input
@@ -996,7 +1011,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
               {doc.aliases.map((a) => (
                 <span key={a} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-300 border border-sky-500/30 font-mono">
                   {a}
-                  <button onClick={() => removeAlias(a)} className="opacity-60 hover:opacity-100 leading-none">×</button>
+                  <button onClick={() => removeAlias(a)} aria-label={`Remove alias ${a}`} className="opacity-60 hover:opacity-100 leading-none">✕</button>
                 </span>
               ))}
               <input
@@ -1023,7 +1038,7 @@ export default function DocEditor({ docId, onChanged, onDeleted, onOpenByTitle, 
                 <button
                   onClick={() => v && filterByProp(k, v)}
                   title={v ? `Filter sidebar to ${k}:${v.split(/\s/)[0]}` : "Empty — edit below"}
-                  className={`flex-1 text-left px-3 py-1.5 text-[11.5px] truncate ${v ? "text-slate-200 hover:text-sky-300" : "text-slate-700 italic"}`}
+                  className={`flex-1 text-left px-3 py-1.5 text-[11.5px] truncate ${v ? "text-slate-200 hover:text-sky-300" : "text-slate-500 italic"}`}
                 >
                   {v ? <span className="border-b border-dashed border-slate-600">{v}</span> : "empty"}
                 </button>

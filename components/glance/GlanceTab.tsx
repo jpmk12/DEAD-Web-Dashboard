@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { openTrackPicker } from "@/lib/trackClient";
 import { toast } from "@/lib/feedback";
+import { relTimeFuture } from "@/lib/relTime";
 import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import { renderOeBriefViewerHtml } from "@/lib/oeBriefViewer";
 import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems, MOVE_LABEL, SIDE_LABEL, type PostureMove } from "@/lib/postureMoves";
@@ -99,20 +100,7 @@ function ms(iso?: string): number {
   const t = Date.parse(iso);
   return Number.isNaN(t) ? 0 : t;
 }
-function relTime(iso?: string): string {
-  const t = ms(iso);
-  if (!t) return "";
-  const diff = Date.now() - t;
-  const past = diff >= 0;
-  const a = Math.abs(diff);
-  const mins = Math.round(a / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${past ? "" : "in "}${mins}m${past ? " ago" : ""}`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${past ? "" : "in "}${hrs}h${past ? " ago" : ""}`;
-  const days = Math.round(hrs / 24);
-  return `${past ? "" : "in "}${days}d${past ? " ago" : ""}`;
-}
+const relTime = (iso?: string): string => relTimeFuture(iso);
 // A Today/Tomorrow agenda row: time + title jumps to the Calendar; the quick
 // actions (AI-edit / edit / nudge / delete) come from the same shared cluster as
 // the Calendar upcoming view, so the two surfaces behave identically.
@@ -379,15 +367,23 @@ export default function GlanceTab({
   useEffect(() => {
     if (!active || status !== "authenticated") return;
     let cancelled = false;
-    const load = () => {
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const load = (attempt = 0) => {
       fetch("/api/sitrep/summary")
         .then((r) => (r.ok ? r.json() : null))
-        .then((d: { bases?: GlanceSitrep[] } | null) => { if (!cancelled && Array.isArray(d?.bases)) setSitreps(d.bases); })
+        .then((d: { bases?: GlanceSitrep[]; pending?: boolean } | null) => {
+          if (cancelled || !Array.isArray(d?.bases)) return;
+          // A cold base answers its UNKNOWN stub flagged pending — keep the
+          // last real LEDs and re-ask shortly instead of showing the stub.
+          if (d.pending) { if (attempt < 3) retry = setTimeout(() => load(attempt + 1), 10_000); if (sitreps.length) return; }
+          setSitreps(d.bases);
+        })
         .catch(() => {});
     };
     load();
-    const id = setInterval(load, 5 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(id); };
+    const id = setInterval(() => load(), 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, status]);
 
   // Force Protection Watch — fused per-base posture. Cached 10 min server-side,
@@ -800,8 +796,10 @@ export default function GlanceTab({
   // ── Derived: force-posture moves — the server sweep merged with this
   //    client's own reading of its articles + newsletter bullets (pure
   //    detector, same grammar both sides). ──
-  const localMoves = detectPostureMoves([...articles, ...newsletterBulletsAsItems(newsletters)]);
-  const postureMoves = mergePostureMoves(serverMoves ?? [], localMoves).slice(0, 6);
+  // Memoised: the 4-s cache tick re-renders Glance, and this is a phrase-regex
+  // scan over every article and bullet (code review 2026-10-07).
+  const localMoves = useMemo(() => detectPostureMoves([...articles, ...newsletterBulletsAsItems(newsletters)]), [articles, newsletters]);
+  const postureMoves = useMemo(() => mergePostureMoves(serverMoves ?? [], localMoves).slice(0, 6), [serverMoves, localMoves]);
   const movesLoading = serverMoves === null && articles.length === 0;
 
   // ── Derived: context strip ──
@@ -1146,6 +1144,7 @@ export default function GlanceTab({
           used to sit below the brief is folded into the Bases tile (the
           Watch pane keeps the full strip). */}
       <StatusRow
+        active={active}
         forceWatch={forceWatch}
         sitreps={sitreps}
         tasks={{ due: dueTasks.length, overdue: overdueTaskCount, asks: emailAsks.length, items: dueTasks.map((x) => `${x.t.title}${x.state === "overdue" ? " (overdue)" : ""}`), askItems: emailAsks.map((e) => e.label) }}
@@ -1213,7 +1212,7 @@ export default function GlanceTab({
                                 {busy ? (
                                   <span className="text-[9px] leading-none animate-pulse">•</span>
                                 ) : (
-                                  <span className="opacity-0 group-hover:opacity-100 text-[10px] leading-none transition-opacity">✓</span>
+                                  <span className="opacity-60 hover:opacity-100 text-[10px] leading-none transition-opacity">✓</span>
                                 )}
                               </button>
                               <button onClick={() => onNavigate("calendar")} className="min-w-0 flex-1 text-left">
@@ -1227,7 +1226,7 @@ export default function GlanceTab({
                                 disabled={busy}
                                 title="Defer to tomorrow"
                                 aria-label={`Defer "${t.title}" to tomorrow`}
-                                className="opacity-0 group-hover:opacity-100 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-violet-300 border border-slate-700 hover:border-violet-400/50 rounded px-1.5 py-0.5 flex-shrink-0 transition-all disabled:opacity-30"
+                                className="opacity-60 hover:opacity-100 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-violet-300 border border-slate-700 hover:border-violet-400/50 rounded px-1.5 py-0.5 flex-shrink-0 transition-all disabled:opacity-30"
                               >
                                 ⏭ tmrw
                               </button>
@@ -1317,7 +1316,7 @@ export default function GlanceTab({
                 <button
                   key={key}
                   onClick={() => setReachFilter(key)}
-                  className={`text-[10px] font-mono rounded px-2 py-0.5 border transition-colors inline-flex items-center gap-1 ${reachFilter === key ? "border-amber-500/50 bg-amber-500/15 text-amber-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+                  className={`text-[10px] font-mono rounded px-2 py-0.5 border transition-colors inline-flex items-center gap-1 ${reachFilter === key ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
                 >
                   {label} <span className="opacity-60">{n}</span>
                 </button>

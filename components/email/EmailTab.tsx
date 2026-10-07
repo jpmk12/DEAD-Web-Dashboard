@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { EmailMessage, EmailPriority, ActionItem, VipSuggestion } from "@/lib/types";
+import { updatedAgo } from "@/lib/relTime";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { Mail } from "@/lib/icons";
 import { toast } from "@/lib/feedback";
@@ -37,12 +38,7 @@ interface RulesInfo {
   rules: string[];
 }
 
-function formatUpdated(d: Date): string {
-  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (secs < 60) return "just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
+const formatUpdated = (d: Date): string => updatedAgo(d);
 
 const GROUP_STYLE: Record<EmailPriority, { label: string; chip: string; chipOn: string }> = {
   High: { label: "text-red-300", chip: "border-red-500/30 text-red-300/80 hover:border-red-500/60", chipOn: "bg-red-500/15 border-red-500/50 text-red-300" },
@@ -526,7 +522,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
                         {added === "doc" ? "✓ Doc" : ds === "pending" ? "…" : ds === "failed" ? "Retry" : "▤ Doc"}
                       </button>
                       <button onClick={() => addActionToTasks(key, action)} disabled={ts === "pending" || added === "task"} title={added === "task" ? "Added to Google Tasks" : ts === "failed" ? "Failed — click to retry" : "Add to Google Tasks"} className={`${BTN} ${added === "task" ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 cursor-default" : ts === "failed" ? "bg-red-500/10 border-red-500/40 text-red-400" : "bg-slate-800/80 border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300"}`}>
-                        {added === "task" ? "✓ Task" : ts === "pending" ? "…" : ts === "failed" ? "Retry" : "+ Task"}
+                        {added === "task" ? "✓ Task" : ts === "pending" ? "…" : ts === "failed" ? "Retry" : "＋ Task"}
                       </button>
                     </div>
                   </li>
@@ -611,7 +607,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
         </div>
         <div className="flex items-center gap-3">
           <AddAccountButton connected={secondaryConnected} primaryEmail={primaryEmail} secondaryEmail={secondaryEmail} onRevoked={() => { setSecondaryConnected(false); setSecondaryEmail(undefined); fetchEmails(true); }} />
-          {lastUpdated && !loading && <span className="text-[10px] text-slate-700 font-mono">{formatUpdated(lastUpdated)}</span>}
+          {lastUpdated && !loading && <span className="text-[10px] text-slate-500 font-mono">{formatUpdated(lastUpdated)}</span>}
           <button onClick={() => fetchEmails(true)} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 disabled:opacity-40 font-mono transition-colors">
             <span className={`text-base leading-none ${loading ? "animate-spin" : ""}`}>↻</span>
             {loading ? "Loading…" : "Refresh"}
@@ -623,7 +619,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
       <div className="flex items-center gap-1.5 mb-3 flex-wrap">
         {([["All", emails.length], ["High", counts.High], ["Medium", counts.Medium], ["Low", counts.Low], ["Kept", counts.Kept]] as [Filter, number][]).map(([f, n]) => {
           const on = filter === f;
-          const cls = f === "All" ? (on ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-300" : "border-slate-700 text-slate-400 hover:border-slate-500")
+          const cls = f === "All" ? (on ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200")
             : f === "Kept" ? (on ? "bg-violet-500/15 border-violet-500/50 text-violet-200" : "border-violet-500/25 text-violet-300/70 hover:border-violet-500/50")
             : on ? GROUP_STYLE[f].chipOn : GROUP_STYLE[f].chip;
           return (

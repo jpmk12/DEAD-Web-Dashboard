@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COCOM_LABEL } from "@/lib/aor";
+import { CloseIcon } from "@/lib/icons";
 import { toast } from "@/lib/feedback";
 import { announceTrackingChanged, type TrackPrefill } from "@/lib/trackClient";
 import type { TrackRoles } from "@/lib/trackingRegistry";
@@ -194,7 +195,7 @@ export default function TrackPicker() {
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-400">Track</span>
             <span className="text-[10px] text-slate-500">country · airfield (ICAO or name) · place</span>
-            <button onClick={() => setOpen(false)} className="ml-auto text-slate-500 hover:text-slate-200 text-sm" aria-label="Close">✕</button>
+            <button onClick={() => setOpen(false)} className="ml-auto w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800" aria-label="Close"><CloseIcon size={14} /></button>
           </div>
           <input ref={inputRef} value={query} onChange={(e) => { setQuery(e.target.value); setSel(null); setResult(null); }}
             placeholder="Jordan · OJAQ · Al Udeid · Amman…" autoComplete="off" spellCheck={false}

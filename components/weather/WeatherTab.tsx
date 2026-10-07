@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TrackedLocation, StationWx, WeatherThreats, LocationHazard } from "@/lib/types";
+import { updatedAgo } from "@/lib/relTime";
 import LocationCard from "./LocationCard";
 import ThreatBoard, { type ThreatPoint } from "./ThreatBoard";
 import SpaceWeatherCard from "./SpaceWeatherCard";
@@ -41,12 +42,7 @@ function buildWindyUrl(lat: number, lon: number, zoom: number, overlay: Overlay)
   return `https://embed.windy.com/embed2.html?${params.toString()}`;
 }
 
-function formatUpdated(d: Date): string {
-  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (secs < 60) return "just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
+const formatUpdated = (d: Date): string => updatedAgo(d);
 
 const FEED_LABELS: Record<string, string> = {
   colorado: "Colorado", dc: "DC Metro", hampton_roads: "Hampton Roads",
@@ -251,7 +247,7 @@ export default function WeatherTab() {
 
       <SpaceWeatherCard onLoaded={(ok) => setSrc((s) => ({ ...s, swpc: ok ? "ok" : "down" }))} />
 
-      <p className="text-[10px] text-slate-700 text-right">
+      <p className="text-[10px] text-slate-500 text-right">
         Weather by <a href="https://www.weather.gov" target="_blank" rel="noopener noreferrer" className="text-slate-600 hover:text-slate-400 underline">NWS</a>
         {" · "}<a href="https://open-meteo.com" target="_blank" rel="noopener noreferrer" className="text-slate-600 hover:text-slate-400 underline">Open-Meteo</a>
         {" · "}<a href="https://aviationweather.gov" target="_blank" rel="noopener noreferrer" className="text-slate-600 hover:text-slate-400 underline">AWC</a>

@@ -70,7 +70,7 @@ export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) 
             {badge > 0 && activeTab !== tab.id && (
               <span
                 title={`${badge} new high-priority signal${badge === 1 ? "" : "s"} since you last looked`}
-                className="ml-0.5 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold leading-none animate-pulse"
+                className="ml-0.5 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full bg-amber-500 text-slate-950 text-[9px] font-bold leading-none"
               >
                 {badge > 9 ? "9+" : badge}
               </span>

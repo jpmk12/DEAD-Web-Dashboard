@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ForceAssessment } from "@/lib/forceProtection";
 import { AOR_LABELS } from "@/lib/aor";
+import { SEVERITY_BG } from "@/lib/severity";
 import { isWorse } from "@/lib/severity";
 import { postureTarget } from "@/lib/postureTarget";
 
@@ -43,10 +44,10 @@ interface SpectrumLite {
 
 type Tone = "red" | "amber" | "unknown" | "green" | "quiet" | "violet";
 const TONE: Record<Tone, { border: string; value: string; dot: string }> = {
-  red:     { border: "border-red-500/50 bg-red-500/[0.06]",     value: "text-red-300",     dot: "bg-red-500" },
-  amber:   { border: "border-amber-500/45 bg-amber-500/[0.05]", value: "text-amber-300",   dot: "bg-amber-500" },
-  unknown: { border: "border-slate-600 bg-slate-800/30",        value: "text-slate-300",   dot: "bg-slate-500" },
-  green:   { border: "border-emerald-500/30 bg-emerald-500/[0.04]", value: "text-emerald-300", dot: "bg-emerald-500" },
+  red:     { border: "border-red-500/50 bg-red-500/[0.06]",     value: "text-red-300",     dot: SEVERITY_BG.red },
+  amber:   { border: "border-amber-500/45 bg-amber-500/[0.05]", value: "text-amber-300",   dot: SEVERITY_BG.amber },
+  unknown: { border: "border-slate-600 bg-slate-800/30",        value: "text-slate-300",   dot: SEVERITY_BG.unknown },
+  green:   { border: "border-emerald-500/30 bg-emerald-500/[0.04]", value: "text-emerald-300", dot: SEVERITY_BG.green },
   quiet:   { border: "border-slate-800 bg-slate-900/40",        value: "text-slate-400",   dot: "bg-slate-700" },
   // Your own actions — the ownership accent the Needs-you-now group uses.
   violet:  { border: "border-violet-500/45 bg-violet-500/[0.06]", value: "text-violet-200", dot: "bg-violet-500" },
@@ -63,12 +64,18 @@ const j = async (url: string) => { try { const r = await fetch(url); return r.ok
 /** One feed, on its own clock: a failed or slow route leaves only ITS tile on
  *  "…", a `pending` answer is re-asked after `retryMs`, and the whole thing
  *  refreshes every five minutes. */
-function useFeed<T>(url: string, accept: (x: unknown) => T | null, opts?: { pendingRetryMs?: number }): T | null {
+function useFeed<T>(url: string, accept: (x: unknown) => T | null, opts?: { pendingRetryMs?: number; active?: boolean }): T | null {
   const [v, setV] = useState<T | null>(null);
+  const active = opts?.active ?? true;
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
     const load = async (attempt = 0) => {
+      // A hidden window keeps nothing warm: these five routes fan out to the
+      // whole board, and an open-but-hidden desktop used to re-run them every
+      // five minutes with no reader (code review 2026-10-07).
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       const x = await j(url);
       if (cancelled) return;
       const val = x == null ? null : accept(x);
@@ -82,22 +89,24 @@ function useFeed<T>(url: string, accept: (x: unknown) => T | null, opts?: { pend
     };
     load();
     const id = setInterval(() => load(), 5 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); document.removeEventListener("visibilitychange", onVisible); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
+  }, [url, active]);
   return v;
 }
 
-export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate }: { forceWatch: ForceAssessment[]; sitreps: SitrepLite[]; tasks?: TaskCounts; onNavigate: Nav }) {
-  const iw = useFeed<IwLite[]>("/api/warning", (x) => Array.isArray((x as { problems?: unknown }).problems) ? (x as { problems: IwLite[] }).problems : null);
+export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate, active = true }: { forceWatch: ForceAssessment[]; sitreps: SitrepLite[]; tasks?: TaskCounts; onNavigate: Nav; active?: boolean }) {
+  const iw = useFeed<IwLite[]>("/api/warning", (x) => Array.isArray((x as { problems?: unknown }).problems) ? (x as { problems: IwLite[] }).problems : null, { active, pendingRetryMs: 10_000 });
   const demand = useFeed<DemandLite[]>("/api/demand-horizon", (x) => {
     const b = x as { outlooks?: unknown; pending?: boolean };
     // A pending stub carries no outlooks: keep "…" rather than show "hold".
     return Array.isArray(b.outlooks) && !(b.pending && b.outlooks.length === 0) ? (b.outlooks as DemandLite[]) : null;
-  }, { pendingRetryMs: 10_000 });
-  const alerts = useFeed<AlertLite[]>("/api/alerts/check", (x) => Array.isArray((x as { alerts?: unknown }).alerts) ? (x as { alerts: AlertLite[] }).alerts : null);
-  const family = useFeed<FamilyWeek>("/api/family/week", (x) => (x && typeof x === "object" ? (x as FamilyWeek) : null));
-  const spectrum = useFeed<SpectrumLite>("/api/spectrum", (x) => (x && typeof (x as { led?: unknown }).led === "string" ? (x as SpectrumLite) : null), { pendingRetryMs: 10_000 });
+  }, { active, pendingRetryMs: 10_000 });
+  const alerts = useFeed<AlertLite[]>("/api/alerts/check", (x) => Array.isArray((x as { alerts?: unknown }).alerts) ? (x as { alerts: AlertLite[] }).alerts : null, { active, pendingRetryMs: 10_000 });
+  const family = useFeed<FamilyWeek>("/api/family/week", (x) => (x && typeof x === "object" ? (x as FamilyWeek) : null), { active });
+  const spectrum = useFeed<SpectrumLite>("/api/spectrum", (x) => (x && typeof (x as { led?: unknown }).led === "string" ? (x as SpectrumLite) : null), { active, pendingRetryMs: 10_000 });
 
   const tiles: Tile[] = [];
 
@@ -112,7 +121,7 @@ export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate }: { 
     tiles.push({
       key: "posture", label: "Posture", tone,
       value: forceWatch.length === 0 ? "—" : red.length ? `${red.length} RED` : amber ? `${amber} amber` : "green",
-      sub: forceWatch.length === 0 ? "no watch set" : [amber && red.length ? `${amber} amber` : "", unknown ? `${unknown} unknown` : "", escalatedToday ? `${escalatedToday} escalated today` : "", `${forceWatch.length} watched`].filter(Boolean).join(" · "),
+      sub: forceWatch.length === 0 ? "no watch set" : [amber && red.length ? `${amber} amber` : "", unknown ? `${unknown} UNKNOWN` : "", escalatedToday ? `${escalatedToday} escalated today` : "", `${forceWatch.length} watched`].filter(Boolean).join(" · "),
       title: (red.length ? red.map((r) => `${r.label}: ${r.topDriver}`).join("\n") : "Force-protection posture across the watch")
         + (target ? `\n\nClick → ${target.label} in Regional` : ""),
       onClick: () => {
@@ -132,7 +141,7 @@ export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate }: { 
     const worseCount = sitreps.filter((s) => s.worse.length > 0).length;
     tiles.push({
       key: "bases", label: "Bases", tone,
-      value: !top ? "—" : w === 3 ? `${top.icao} RED` : w === 2 ? `${top.icao} amber` : w === 1 ? `${top.icao} unknown` : "all green",
+      value: !top ? "—" : w === 3 ? `${top.icao} RED` : w === 2 ? `${top.icao} amber` : w === 1 ? `${top.icao} UNKNOWN` : "all green",
       sub: !top ? "no SITREP bases" : [top.driver && w >= 2 ? top.driver : "", worseCount ? `${worseCount} worse than yesterday` : "", `${sitreps.length} base${sitreps.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "),
       title: sitreps.map((s) => `${s.icao}: ${s.driver || "all green"}`).join("\n") || "Base SITREP",
       onClick: () => { onNavigate("osint"); emit("osint:set-pane", "watch"); if (top) setTimeout(() => emit("watch:focus", { kind: "sitrep", id: top.icao }), 160); },

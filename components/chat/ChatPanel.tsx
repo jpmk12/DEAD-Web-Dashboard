@@ -210,7 +210,7 @@ function EventActionCard({ action, onConfirm, onDismiss }: ActionCardProps<Event
           <button
             onClick={onConfirm}
             disabled={status === "loading"}
-            className="flex items-center gap-1 bg-emerald-600/80 hover:bg-emerald-600 disabled:opacity-50 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-md disabled:opacity-50 transition-colors"
           >
             {status === "loading" ? "Adding…" : "Add to Calendar"}
           </button>
@@ -279,11 +279,11 @@ function CardFooter({ status, errorMsg, confirmLabel, busyLabel, doneLabel, dang
     </p>
   );
   const btn = danger
-    ? "bg-red-600/80 hover:bg-red-600"
-    : "bg-emerald-600/80 hover:bg-emerald-600";
+    ? "bg-red-600/80 hover:bg-red-600 text-white"
+    : "bg-emerald-500 hover:bg-emerald-400 text-slate-950";
   return (
     <div className="flex gap-2 mt-2">
-      <button onClick={onConfirm} disabled={status === "loading"} className={`flex items-center gap-1 ${btn} disabled:opacity-50 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition-colors`}>
+      <button onClick={onConfirm} disabled={status === "loading"} className={`flex items-center gap-1 ${btn} disabled:opacity-50 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md transition-colors`}>
         {status === "loading" ? busyLabel : confirmLabel}
       </button>
       <button onClick={onDismiss} className="text-[11px] text-slate-500 hover:text-slate-300 px-2 transition-colors">Dismiss</button>
@@ -542,6 +542,12 @@ export default function ChatPanel({
         }),
       });
 
+      if (!res.ok) {
+        // /api/chat answers plain text on 401 / 413 / 429 / 503 — show it as
+        // an error, never as the assistant's own reply.
+        const why = (await res.text().catch(() => "")).trim().slice(0, 200);
+        throw new Error(res.status === 401 ? "Signed out — sign in again." : why || `HTTP ${res.status}`);
+      }
       if (!res.body) throw new Error("No response body");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -559,12 +565,13 @@ export default function ChatPanel({
           return updated;
         });
       }
-    } catch {
+    } catch (err) {
+      const why = err instanceof Error && err.message && err.message !== "No response body" ? err.message : "";
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
           role: "assistant",
-          content: "Sorry, something went wrong. Please try again.",
+          content: why ? `⚠ ${why}` : "Sorry, something went wrong. Please try again.",
         };
         return updated;
       });
@@ -610,7 +617,7 @@ export default function ChatPanel({
               title="Clear this conversation and start fresh"
               className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-300 transition-colors"
             >
-              ↺ New chat
+              ↻ New chat
             </button>
           </div>
         )}

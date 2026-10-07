@@ -123,7 +123,7 @@ export default function MapAOIControls({ currentRadiusKm, onApply, onReset }: Ma
         title="Radius (km, 20-500)"
         className="w-16 bg-slate-900 border border-slate-700 focus:border-emerald-500/40 rounded px-2 py-1 text-[11px] text-slate-200 outline-none font-mono text-right transition-colors"
       />
-      <span className="text-slate-700 font-mono shrink-0">km</span>
+      <span className="text-slate-500 font-mono shrink-0">km</span>
       <button
         type="button"
         onClick={submit}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
+import { relDay } from "@/lib/relTime";
 import { toast } from "@/lib/feedback";
 import { appendRecents, noteAppended, todayYmd, type AppendPayload } from "@/lib/appendClient";
 import { entryMarkdown } from "@/lib/docAppend";
@@ -15,7 +17,6 @@ import { docTypeMeta } from "@/lib/docTypes";
 interface LogRow { id: string; title: string; aliases: string[]; tags: string[]; entries: number; latest: { date: string; source: string; excerpt: string } | null; updatedAt: string }
 interface TitleRow { id: string; title: string; aliases?: string[]; docType?: string; collection?: string | null }
 
-const ago = (iso: string) => { const d = Math.round((Date.now() - Date.parse(iso)) / 86_400_000); return !Number.isFinite(d) ? "" : d <= 0 ? "today" : d === 1 ? "1 d ago" : `${d} d ago`; };
 
 export default function AppendPicker() {
   const [open, setOpen] = useState(false);
@@ -111,7 +112,7 @@ export default function AppendPicker() {
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-400">Append to</span>
             <span className="text-[10px] text-slate-500">a running log · dated entry · source kept</span>
-            <button onClick={() => setOpen(false)} className="ml-auto text-slate-500 hover:text-slate-200 text-sm" aria-label="Close">✕</button>
+            <button onClick={() => setOpen(false)} className="ml-auto w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800" aria-label="Close"><CloseIcon size={14} /></button>
           </div>
           {!done && (
             <input ref={inputRef} value={q} onChange={(e) => { setQ(e.target.value); setSel(null); }} placeholder="China · Hormuz · reading log…" autoComplete="off" spellCheck={false}
@@ -140,7 +141,7 @@ export default function AppendPicker() {
                       <span>📓</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13px] text-slate-100 truncate">{l.title}</span>
-                        <span className="block text-[10px] text-slate-500 truncate">{l.entries} entr{l.entries === 1 ? "y" : "ies"}{l.latest ? ` · last ${ago(l.latest.date)} · ${l.latest.excerpt}` : ""}{l.aliases.length ? ` · aliases: ${l.aliases.join(", ")}` : ""}</span>
+                        <span className="block text-[10px] text-slate-500 truncate">{l.entries} entr{l.entries === 1 ? "y" : "ies"}{l.latest ? ` · last ${relDay(l.latest.date)} · ${l.latest.excerpt}` : ""}{l.aliases.length ? ` · aliases: ${l.aliases.join(", ")}` : ""}</span>
                       </span>
                     </button></li>
                   ))}

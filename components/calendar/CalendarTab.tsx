@@ -40,6 +40,8 @@ export interface MailDateHandlers {
   dismiss: (d: MailDate) => void;
 }
 
+const NO_EMAILS: EmailMessage[] = [];
+
 export default function CalendarTab({ active, onEventsLoaded, tasksRefreshKey, onTasksLoaded }: {
   active: boolean;
   onEventsLoaded: (events: CalendarEvent[]) => void;
@@ -135,7 +137,9 @@ export default function CalendarTab({ active, onEventsLoaded, tasksRefreshKey, o
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   useEffect(() => {
     if (!active) return;
-    const read = () => setEmails(clientCache.peek<EmailMessage[]>(EMAIL_CACHE_KEY) ?? []);
+    // Same reference when nothing changed, so the tick does not re-render
+    // and re-run the mail-dates join for an unchanged (or empty) cache.
+    const read = () => setEmails((prev) => { const next = clientCache.peek<EmailMessage[]>(EMAIL_CACHE_KEY) ?? NO_EMAILS; return next === prev ? prev : next; });
     read();
     const id = setInterval(read, 5000);
     return () => clearInterval(id);

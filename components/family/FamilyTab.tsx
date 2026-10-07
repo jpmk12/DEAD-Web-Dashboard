@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FamilyDigest } from "@/lib/family";
+import { relTime } from "@/lib/relTime";
 import type { DeadlineView, GroupedDeadline } from "@/lib/familyDeadlines";
 import { dedupeDeadlines, splitHandled, isNewSince, todayYmd } from "@/lib/familyDeadlines";
 import { awayText, type AwayList } from "@/lib/familyAway";
@@ -65,15 +66,7 @@ const fmtDate = (iso: string | null): string => {
   const day = d.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
   return iso.length === 10 ? day : `${day} · ${d.toISOString().slice(11, 16)}`;
 };
-const ago = (ms: number, nowMs: number): string => {
-  if (!ms || !nowMs) return "";
-  const m = Math.max(0, Math.round((nowMs - ms) / 60_000));
-  if (m < 2) return "just now";
-  if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  if (h < 36) return `${h} h ago`;
-  return `${Math.round(h / 24)} d ago`;
-};
+const ago = (ms: number, nowMs: number): string => (!ms || !nowMs ? "" : relTime(ms, nowMs));
 
 const CHECK_EVERY_MS = 10 * 60_000;
 const BTN = "text-[9px] font-bold uppercase tracking-wider rounded px-2 py-1 border disabled:opacity-40 whitespace-nowrap";
@@ -189,22 +182,28 @@ export default function FamilyTab({ active }: { active: boolean }) {
 
   const profile: FamilyProfile | null = roster ?? digest?.profile ?? null;
   // `family:focus` (detail = person id) — the command palette's door in.
+  // The person cards render only after the digest lands (Gmail + model), so
+  // the id is held in state and the scroll runs once the card exists.
+  const [focusId, setFocusId] = useState<string | null>(null);
   useEffect(() => {
-    const scrollTo = (id: string) => {
-      const el = document.getElementById(`family-person-${id}`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    };
     const onFocus = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
-      if (typeof id === "string" && id) { try { sessionStorage.removeItem("family.focus"); } catch { /* ignore */ } scrollTo(id); }
+      if (typeof id === "string" && id) { try { sessionStorage.removeItem("family.focus"); } catch { /* ignore */ } setFocusId(id); }
     };
     window.addEventListener("family:focus", onFocus);
     try {
       const parked = sessionStorage.getItem("family.focus");
-      if (parked) { sessionStorage.removeItem("family.focus"); setTimeout(() => scrollTo(parked), 400); }
+      if (parked) { sessionStorage.removeItem("family.focus"); setFocusId(parked); }
     } catch { /* ignore */ }
     return () => window.removeEventListener("family:focus", onFocus);
   }, []);
+  useEffect(() => {
+    if (!focusId) return;
+    const el = document.getElementById(`family-person-${focusId}`);
+    if (!el) return; // not rendered yet — re-runs when the digest lands
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setFocusId(null);
+  }, [focusId, digest]);
 
   const personById = useMemo(() => {
     const m = new Map<string, { person: FamilyPerson; tint: (typeof PERSON_TINT)[number] }>();
@@ -484,11 +483,11 @@ export default function FamilyTab({ active }: { active: boolean }) {
     <div className="space-y-4">
       {/* header */}
       <div className="flex items-center gap-3 flex-wrap">
-        <h2 className="text-[13px] font-bold uppercase tracking-widest text-emerald-400">◈ Family</h2>
+        <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Family</h2>
         <div className="ml-auto flex items-center gap-1">
           {([["school", "◈ School"], ["household", "⌂ Household"]] as const).map(([id, label]) => (
             <button key={id} onClick={() => setPane(id)}
-              className={`text-[10px] font-bold uppercase tracking-wider rounded px-2.5 py-1 border transition-colors ${pane === id ? "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+              className={`text-[10px] font-bold uppercase tracking-wider rounded px-2.5 py-1 border transition-colors ${pane === id ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>
               {label}
             </button>
           ))}
@@ -505,9 +504,9 @@ export default function FamilyTab({ active }: { active: boolean }) {
       {/* ── attention line (F9) ── */}
       <div className="flex items-center gap-x-3 gap-y-1 flex-wrap rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2 text-[12px] text-slate-300">
         <span><b className="text-slate-100">{openRows.length}</b> need{openRows.length === 1 ? "s" : ""} you</span>
-        {undatedNamed > 0 && <><span className="text-slate-700">·</span><span><b className="text-slate-100">{undatedNamed}</b> ha{undatedNamed === 1 ? "s" : "ve"} no date — <span className="text-amber-300">the email names one</span></span></>}
-        {awayCount > 0 && <><span className="text-slate-700">·</span><span><b className="text-slate-100">{away!.ahead.length}</b> land{away!.ahead.length === 1 ? "s" : ""} while you are away</span></>}
-        {proposalCount > 0 && <><span className="text-slate-700">·</span><a href="#family-proposals" className="hover:text-sky-300"><b className="text-slate-100">{proposalCount}</b> to file ↓</a></>}
+        {undatedNamed > 0 && <><span className="text-slate-500">·</span><span><b className="text-slate-100">{undatedNamed}</b> ha{undatedNamed === 1 ? "s" : "ve"} no date — <span className="text-amber-300">the email names one</span></span></>}
+        {awayCount > 0 && <><span className="text-slate-500">·</span><span><b className="text-slate-100">{away!.ahead.length}</b> land{away!.ahead.length === 1 ? "s" : ""} while you are away</span></>}
+        {proposalCount > 0 && <><span className="text-slate-500">·</span><a href="#family-proposals" className="hover:text-sky-300"><b className="text-slate-100">{proposalCount}</b> to file ↓</a></>}
         <span className="ml-auto text-[10px] font-mono text-slate-500">
           {generatedMs ? `updated ${ago(generatedMs, nowMs)}` : ""}
           {newDeadlines + newFromBriefs > 0 && <span className="text-emerald-400"> · {newDeadlines + newFromBriefs} new since your last visit</span>}

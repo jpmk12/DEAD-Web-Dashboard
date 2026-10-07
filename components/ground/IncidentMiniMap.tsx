@@ -1,7 +1,7 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { DEFAULT_BASEMAP, DARKEN_CLASS } from "@/lib/basemaps";
@@ -29,8 +29,11 @@ export default function IncidentMiniMap({ center, base, incidents }: {
   base: { lat: number; lon: number; label: string } | null;
   incidents: Incident[];
 }) {
-  const incPts = incidents.filter((i) => Number.isFinite(i.lat) && Number.isFinite(i.lon)).map((i) => [i.lat, i.lon] as [number, number]);
-  const pts: [number, number][] = [...incPts, ...(base ? [[base.lat, base.lon] as [number, number]] : []), ...(center ? [center] : [])];
+  // Memoised on the inputs: a parent re-render (poll tick, busy flag) must not
+  // rebuild the point list and re-fit the map over the user's pan.
+  const incPts = useMemo(() => incidents.filter((i) => Number.isFinite(i.lat) && Number.isFinite(i.lon)).map((i) => [i.lat, i.lon] as [number, number]), [incidents]);
+  const baseLat = base?.lat, baseLon = base?.lon, cLat = center?.[0], cLon = center?.[1];
+  const pts = useMemo<[number, number][]>(() => [...incPts, ...(baseLat != null && baseLon != null ? [[baseLat, baseLon] as [number, number]] : []), ...(cLat != null && cLon != null ? [[cLat, cLon] as [number, number]] : [])], [incPts, baseLat, baseLon, cLat, cLon]);
   const start: [number, number] = center ?? (base ? [base.lat, base.lon] : incPts[0]) ?? [20, 0];
 
   return (

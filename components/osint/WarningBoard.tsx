@@ -3,24 +3,13 @@
 import { useEffect, useState } from "react";
 import DecisionLog from "@/components/osint/DecisionLog";
 import type { WarningAssessmentPlus, IndicatorHistory } from "@/lib/warningAssess";
-import type { WarningLevel, Trajectory, ObservedState, IndicatorScore } from "@/lib/warning";
+import type { Trajectory, ObservedState, IndicatorScore } from "@/lib/warning";
+import { LEVEL_PILL, LEVEL_LABEL, CARD_ACCENT } from "@/lib/levelTokens";
 
 // Presentation vocabulary — one glyph/colour per level/state, red reserved for
-// ALERT so it means something (§5). Short indicator labels live here (client
-// presentation), keyed by the taxonomy ids.
-const LEVEL_PILL: Record<WarningLevel, string> = {
-  calm: "text-slate-400 border-slate-600 bg-slate-500/10",
-  watch: "text-amber-300 border-amber-500/55 bg-amber-500/[0.12]",
-  warning: "text-orange-300 border-orange-500/55 bg-orange-500/[0.12]",
-  alert: "text-white border-red-500 bg-red-500/80",
-};
-const LEVEL_LABEL: Record<WarningLevel, string> = { calm: "Calm", watch: "Watch", warning: "Warning", alert: "Alert" };
-const CARD_ACCENT: Record<WarningLevel, string> = {
-  calm: "border-slate-800",
-  watch: "border-amber-500/40 shadow-[0_0_18px_-6px_rgba(245,158,11,0.3)]",
-  warning: "border-orange-500/45 shadow-[0_0_18px_-6px_rgba(249,115,22,0.35)]",
-  alert: "border-red-500/60 shadow-[0_0_20px_-6px_rgba(239,68,68,0.45)]",
-};
+// ALERT so it means something (§5). The level pill / card accent live in
+// lib/levelTokens (shared with the Economy board). Short indicator labels
+// live here (client presentation), keyed by the taxonomy ids.
 const STATE_DOT: Record<ObservedState, string> = { confirmed: "bg-red-500", active: "bg-orange-400", watching: "bg-amber-400", dormant: "bg-slate-600" };
 const TRAJ: Record<Trajectory, { t: string; c: string }> = {
   deteriorating: { t: "↗ deteriorating", c: "text-orange-300 border-orange-500/40" },
@@ -88,7 +77,7 @@ export default function WarningBoard({ active, focusProblemId, onFocused, only }
     <div className="space-y-3">
       {!only && (
         <div className="flex items-baseline gap-3 flex-wrap">
-          <h2 className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-slate-100">◎ Indications &amp; Warning</h2>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">◎ Indications &amp; Warning</h2>
           <span className="text-[11px] text-slate-500">anomaly &amp; trajectory — calm by default. Color is earned by crossing a threshold, never by standing level.</span>
         </div>
       )}
@@ -101,7 +90,7 @@ export default function WarningBoard({ active, focusProblemId, onFocused, only }
 
       {!only && problems && problems.length > 0 && (
         <div className="text-[10px] text-slate-600 leading-relaxed border-t border-slate-800 pt-3">
-          <span className="text-amber-400 font-semibold">Unofficial &amp; personal.</span> Not a USAF/DoD position, product, or endorsement.
+          <span className="text-slate-400 font-semibold">Unofficial &amp; personal.</span> Not a USAF/DoD position, product, or endorsement.
           Fused from open sources; indicator taxonomy sourced from open doctrine (ISW · CSIS · RAND · Grabo).
           Sources: ACLED (Armed Conflict Location &amp; Event Data Project — acleddata.com) · UCDP · GDELT · GDACS · USGS · ReliefWeb · State Dept · gpsjam.org · community ADS-B.
         </div>
@@ -134,7 +123,7 @@ function ProblemCard({ p, flash }: { p: WarningAssessmentPlus; flash?: boolean }
       </div>
 
       <div className="text-[11px] text-slate-400 border-l-2 border-slate-700 pl-2.5 py-1">
-        <span className="text-emerald-400 font-bold uppercase text-[9px] tracking-[0.1em]">Decision linkage — </span>{p.decisionLinkage}
+        <span className="text-emerald-400 font-bold uppercase text-[9px] tracking-widest">Decision linkage — </span>{p.decisionLinkage}
       </div>
 
       {/* Drivers */}

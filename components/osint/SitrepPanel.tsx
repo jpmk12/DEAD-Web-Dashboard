@@ -1,18 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
 import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
 import { renderSitrepHtml } from "@/lib/sitrepExport";
 import { SITREP_MAX } from "@/lib/missionProfile";
 import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
+import { LED_CLASS as LED_BG, LED_GLOW } from "@/lib/levelTokens";
 
+// The LED colours are the shared tokens (lib/levelTokens); the strip's large
+// LEDs carry the glow on top.
 const LED_CLASS: Record<Led, string> = {
-  g: "bg-emerald-400 shadow-[0_0_8px] shadow-emerald-400/70",
-  a: "bg-amber-400 shadow-[0_0_8px] shadow-amber-400/70",
-  r: "bg-red-500 shadow-[0_0_8px] shadow-red-500/70",
-  u: "bg-slate-600",
+  g: `${LED_BG.g} ${LED_GLOW.g}`,
+  a: `${LED_BG.a} ${LED_GLOW.a}`,
+  r: `${LED_BG.r} ${LED_GLOW.r}`,
+  u: LED_BG.u,
 };
 
 const CAT_COLOR: Record<FlightCategory, string> = {
@@ -186,7 +189,9 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
   // Kick the Commander's Read for a base. A transient AI/JSON failure returns an
   // error → keep the block visible in an error state (Retry) instead of letting
   // it silently vanish, which reads as "it loaded then disappeared".
+  const loadSeq = useRef(0);
   const loadRead = useCallback((target: string) => {
+    const my = loadSeq.current;
     setReadLoading(true);
     setReadError(false);
     fetch("/api/sitrep/read", {
@@ -196,14 +201,19 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
     })
       .then((r) => r.json())
       .then((rd) => {
+        if (my !== loadSeq.current) return;
         if (rd && !rd.error) { setRead(rd); setReadError(false); }
         else { setRead(null); setReadError(true); }
       })
-      .catch(() => { setRead(null); setReadError(true); })
-      .finally(() => setReadLoading(false));
+      .catch(() => { if (my === loadSeq.current) { setRead(null); setReadError(true); } })
+      .finally(() => { if (my === loadSeq.current) setReadLoading(false); });
   }, []);
 
   const loadSitrep = useCallback((target: string) => {
+    // One panel instance walks several bases (the room's ‹ ›); the sequence
+    // id drops a slow earlier base's reply so it never lands under the
+    // header of the base now selected.
+    const my = ++loadSeq.current;
     setLoading(true);
     setError(null);
     setRead(null);
@@ -211,13 +221,14 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
     fetch(`/api/sitrep?icao=${target}`)
       .then((r) => r.json())
       .then((d) => {
+        if (my !== loadSeq.current) return;
         if (d.error) throw new Error(d.error);
         setPayload(d);
         // Kick the Commander's Read once the picture exists; server caches it.
         loadRead(target);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "SITREP failed"))
-      .finally(() => setLoading(false));
+      .catch((e) => { if (my === loadSeq.current) setError(e instanceof Error ? e.message : "SITREP failed"); })
+      .finally(() => { if (my === loadSeq.current) setLoading(false); });
     // The freshly assembled payload may have moved this base's LEDs — keep the
     // tile strip in step (server-side cache makes this cheap).
     loadSummaries();
@@ -405,7 +416,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                 {s ? s.driver : "loading…"}
               </p>
               {s && s.worse.length > 0 && (
-                <p className="text-[8.5px] text-amber-400 font-bold uppercase tracking-wider mt-0.5">↑ {s.worse.join(" · ")} worse than yesterday</p>
+                <p className="text-[8.5px] text-amber-400 font-bold uppercase tracking-wider mt-0.5">▲ {s.worse.join(" · ")} worse than yesterday</p>
               )}
             </button>
           );
@@ -477,7 +488,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               <div key={k} className="flex items-center gap-2.5 bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2.5">
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${LED_CLASS[l]}`} />
                 <div className="min-w-0">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-500">{k}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{k}</p>
                   <p className="text-[11px] text-slate-200 font-medium truncate" title={v}>{v}</p>
                 </div>
               </div>
@@ -488,7 +499,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
           {show("history") && !all && payload.history.length <= 1 && <p className="text-[11px] text-slate-500 px-1">No recorded history for this base yet — the strip fills in after the second observed day.</p>}
           {(show("sitrep") || show("history")) && payload.history.length > 1 && (
             <div className="flex items-center gap-2 px-1">
-              <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600">Last {payload.history.length} days</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Last {payload.history.length} days</span>
               <div className="flex gap-1.5">
                 {payload.history.map((h) => (
                   <div key={h.day} title={`${h.day} — WX/OPS/THREAT`} className="flex flex-col items-center gap-0.5">
@@ -497,7 +508,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                         <span key={i} className={`w-1.5 h-1.5 rounded-full ${LED_CLASS[l]}`} />
                       ))}
                     </div>
-                    <span className="text-[7px] text-slate-700 font-mono">{h.day.slice(8)}</span>
+                    <span className="text-[7px] text-slate-500 font-mono">{h.day.slice(8)}</span>
                   </div>
                 ))}
               </div>
@@ -508,7 +519,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                   ? (["wx", "ops", "threat"] as const).filter((k) => RANK[payload.status[k]] > RANK[prev[k]] && prev[k] !== "u")
                   : [];
                 return worseAxes.length > 0
-                  ? <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">↑ {worseAxes.join(" · ")} worse than yesterday</span>
+                  ? <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">▲ {worseAxes.join(" · ")} worse than yesterday</span>
                   : null;
               })()}
             </div>
@@ -518,7 +529,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               days; nothing below four points. */}
           {(show("sitrep") || show("history")) && payload.tempo && payload.tempo.lines.length > 0 && (
             <p className="px-1 text-[9.5px] text-slate-500" title="Read from this base's own recorded history (app history, not a feed). Ratios are of days the app observed.">
-              <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mr-2">Tempo</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mr-2">Tempo</span>
               {payload.tempo.lines.join(" · ")}
             </p>
           )}
@@ -526,7 +537,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
           {/* Supporting detail — the raw signal cards the mission-impact
               layer is derived from. Kept in full below the leadership picture. */}
           {all && <div className="flex items-center gap-2 pt-1">
-            <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600">Supporting detail</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Supporting detail</span>
             <div className="flex-1 h-px bg-slate-800/70" />
           </div>}
 
@@ -559,7 +570,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               )}
               {payload.weather.tafSegments.length > 0 && (
                 <div className="mb-2.5">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1">TAF trend — next 24 hr</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">TAF trend — next 24 hr</p>
                   <div className="flex gap-0.5">
                     {payload.weather.tafSegments.map((s, i) => (
                       <div key={i} className={`h-4 rounded-sm flex items-center justify-center text-[7.5px] font-bold ${SEG_BG[s.cat]}`}
@@ -612,7 +623,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               </Row>
               {payload.ops.groups.map((g) => (
                 <div key={g.key} className="mt-2">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">{g.label} <span className="font-mono font-normal">({g.items.length})</span></p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">{g.label} <span className="font-mono font-normal">({g.items.length})</span></p>
                   {g.items.slice(0, 4).map((n, i) => (
                     <Row key={i} sev={n.amber ? "a" : "u"} src="NOTAM">
                       <span className={n.amber ? "text-slate-100 font-medium" : undefined}>{n.text.length > 180 ? n.text.slice(0, 179) + "…" : n.text}</span>
@@ -633,7 +644,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               {/* Runway wind components — advisory, from the current METAR. */}
               {payload.ops.runwayWinds.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-slate-800/60">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
                     Runway winds <span className="font-normal normal-case tracking-normal">— advisory, not flight guidance</span>
                   </p>
                   <div className="flex flex-wrap gap-1.5">
@@ -662,7 +673,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                   with parseable windows become bars; the rest stay text above. */}
               {tlWindows.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-slate-800/60">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
                     Closure windows <span className="font-normal normal-case tracking-normal">— next 48 h, all times Z</span>
                   </p>
                   {/* hour axis: 8 ticks × 6 h */}
@@ -772,7 +783,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               {/* Fuel NOTAMs (system feed, filtered to this ICAO). */}
               {payload.ops.fuel && (
                 <div className="mt-2 pt-2 border-t border-slate-800/60">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">Fuel NOTAMs</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Fuel NOTAMs</p>
                   {!payload.ops.fuel.live && <Row sev="u" src="DAIP">Fuel feed UNREACHABLE — UNKNOWN, not clear</Row>}
                   {payload.ops.fuel.live && payload.ops.fuel.items.length === 0 && <Row sev="g" src="DAIP">No fuel NOTAMs referencing {payload.base.icao}</Row>}
                   {payload.ops.fuel.items.map((t, i) => <Row key={i} sev="a" src="DAIP">{t}</Row>)}
@@ -792,7 +803,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
 
               {/* Center (ARTCC) enroute picture — configured per base. */}
               <div className="mt-2 pt-2 border-t border-slate-800/60">
-                <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
                   Center NOTAMs {payload.ops.center ? `— ${payload.ops.center.code} ARTCC` : ""}
                   {payload.ops.center?.live && <span className="font-mono font-normal"> ({payload.ops.center.count})</span>}
                 </p>
@@ -835,7 +846,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                       <b>{d.type}</b> {d.km} km — {d.title.slice(0, 120)}
                     </Row>
                   ))}
-              <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mt-2 mb-0.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-2 mb-0.5">
                 Local reporting — impact-filtered <span className="font-mono font-normal">({payload.threats.news.length} of {payload.threats.newsScanned})</span>
               </p>
               {payload.threats.news.length === 0 && <Row sev="g" src="GDELT">Nothing impact-relevant in local reporting</Row>}
@@ -864,7 +875,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                           : (sr.dropPct ?? 0) >= 50 ? "border-amber-500/50 text-amber-300 bg-amber-500/10"
                           : "border-slate-700 text-slate-500"
                         }`}>
-                          {sr.label} {sr.dropPct !== null ? `−${sr.dropPct}%` : "n/a"}
+                          {sr.label} {sr.dropPct !== null ? `−${sr.dropPct}%` : "—"}
                         </span>
                       ))}
                     </span>
@@ -907,7 +918,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                   from the NWS alerts in the Weather card) */}
               {payload.infra.water && (
                 <div className="mt-2 pt-2 border-t border-slate-800/60">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
                     Water gauges <span className="font-normal normal-case tracking-normal">— levels only; flood warnings appear under Weather</span>
                   </p>
                   {!payload.infra.water.live && <Row sev="u" src="USGS">Gauge feed UNREACHABLE — UNKNOWN</Row>}
@@ -967,7 +978,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
 
                 {/* KEV × declared vendors */}
                 <div className="mt-2 pt-2 border-t border-slate-800/60">
-                  <p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
                     Edge exposure <span className="font-normal normal-case tracking-normal">— CISA Known Exploited Vulnerabilities × your declared vendors, 14 days</span>
                   </p>
                   {!payload.spectrum.edge.declared && <Row sev="u" src="KEV">No edge vendors declared — exposure UNKNOWN. Declare them in Preferences → Mission Profile → Spectrum dependencies.</Row>}
@@ -995,7 +1006,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
           </div>
 
           <p className="text-[9px] text-slate-600 font-mono px-1">
-            Sources: AWC {payload.weather.live ? "live" : "DOWN"} · DAIP {payload.ops.configured ? (payload.ops.live ? "live" : "DOWN") : "not configured"} · FP {payload.threats.fp ? "live" : "DOWN"} · IODA {payload.infra.internet.live ? "live" : "DOWN"} · NAS {payload.infra.nas ? (payload.infra.nas.live ? "live" : "DOWN") : "n/a"} · GDELT scanned {payload.threats.newsScanned} · every gap reads UNKNOWN, never implied-clear
+            Sources: AWC {payload.weather.live ? "live" : "DOWN"} · DAIP {payload.ops.configured ? (payload.ops.live ? "live" : "DOWN") : "not configured"} · FP {payload.threats.fp ? "live" : "DOWN"} · IODA {payload.infra.internet.live ? "live" : "DOWN"} · NAS {payload.infra.nas ? (payload.infra.nas.live ? "live" : "DOWN") : "—"} · GDELT scanned {payload.threats.newsScanned} · every gap reads UNKNOWN, never implied-clear
           </p>
         </>
       )}

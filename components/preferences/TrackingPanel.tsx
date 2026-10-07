@@ -93,7 +93,7 @@ export default function TrackingPanel() {
         <>
           {/* Airfields */}
           <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1">Airfields · {reg.counts.airfields} <span className="text-slate-700 normal-case tracking-normal">({reg.counts.sitrep} SITREP{reg.counts.starIcaos ? ` · ${reg.counts.starIcaos} ★` : ""})</span></p>
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1">Airfields · {reg.counts.airfields} <span className="text-slate-500 normal-case tracking-normal">({reg.counts.sitrep} SITREP{reg.counts.starIcaos ? ` · ${reg.counts.starIcaos} ★` : ""})</span></p>
             {reg.airfields.length === 0 && <p className="text-[11px] text-slate-600">No airfield tracked. Declare a hub in the Mission Profile below, or ＋ Track one.</p>}
             <ul className="divide-y divide-slate-800/70">
               {reg.airfields.map((a) => (
@@ -116,7 +116,7 @@ export default function TrackingPanel() {
 
           {/* Countries */}
           <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1">Countries · {reg.counts.countries}{reg.counts.starCountries ? <span className="text-slate-700 normal-case tracking-normal"> ({reg.counts.starCountries} ★)</span> : null}</p>
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1">Countries · {reg.counts.countries}{reg.counts.starCountries ? <span className="text-slate-500 normal-case tracking-normal"> ({reg.counts.starCountries} ★)</span> : null}</p>
             {reg.countries.length === 0 && <p className="text-[11px] text-slate-600">No country in the posture watch. Declare an AOI below, or ＋ Track one.</p>}
             <ul className="divide-y divide-slate-800/70">
               {reg.countries.map((c) => (

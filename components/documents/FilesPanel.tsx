@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatDistanceToNow, parseISO } from "date-fns";
+import { relTime } from "@/lib/relTime";
 import { toast } from "@/lib/feedback";
 
 interface FileSummary {
@@ -46,9 +46,7 @@ function fileGlyph(mime: string): string {
   return "📁";
 }
 
-function timeAgo(s: string): string {
-  try { return formatDistanceToNow(parseISO(s), { addSuffix: true }); } catch { return ""; }
-}
+const timeAgo = (s: string): string => relTime(s);
 
 // Upload queue entry — one per dropped/picked file, with its own state so one
 // failure can be retried without re-dropping the rest (REVIEW-2026-10 D3).
@@ -182,7 +180,7 @@ export default function FilesPanel({ selectedId, onSelect, refreshKey, onRefresh
       {/* Header: upload + quota + search */}
       <div className="p-3 border-b border-slate-800 space-y-2">
         <div className="flex gap-1.5">
-          <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-md transition-all glow-green">
+          <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-md transition-all">
             <span className="text-base leading-none">↑</span>{pending ? `Uploading ${pending}…` : "Upload"}
           </button>
           <button onClick={() => folderInputRef.current?.click()} title="Upload a whole folder" className="text-[10px] font-bold uppercase tracking-wider px-2 rounded-md border border-slate-700 text-slate-400 hover:text-slate-200">folder</button>

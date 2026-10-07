@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { MetarStation, StationWx, FlightCategory } from "@/lib/types";
+import { ExternalLinkIcon } from "@/lib/icons";
+import { relTime } from "@/lib/relTime";
 
 const CATEGORY_STYLE: Record<FlightCategory, { cls: string; title: string }> = {
   VFR:     { cls: "text-green-400 bg-green-500/10 border-green-500/30",       title: "Visual conditions" },
@@ -11,15 +13,7 @@ const CATEGORY_STYLE: Record<FlightCategory, { cls: string; title: string }> = {
   UNKNOWN: { cls: "text-slate-400 bg-slate-700/40 border-slate-600/40",      title: "Unknown" },
 };
 
-function obsAge(iso: string): string {
-  if (!iso) return "";
-  const mins = Math.floor((Date.now() - Date.parse(iso)) / 60000);
-  if (!Number.isFinite(mins)) return "";
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const h = Math.floor(mins / 60);
-  return `${h}h ${mins % 60}m ago`;
-}
+const obsAge = (iso: string): string => relTime(iso);
 
 function tafTime(iso: string): string {
   if (!iso) return "";
@@ -155,7 +149,7 @@ export default function MetarPanel({ stations, refreshKey = 0 }: { stations: Met
             rel="noopener noreferrer"
             className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 transition-colors"
           >
-            SIGMET ↗
+            SIGMET <ExternalLinkIcon size={11} className="inline -mt-px" />
           </a>
         </div>
       </div>

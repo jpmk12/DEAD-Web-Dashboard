@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 import type { FamilyProfile, FamilyPerson, FamilySender, FamilyBiller, FamilyDocument, BillCadence, DocExpectationEntry } from "@/lib/familyProfile";
 import { slug } from "@/lib/familyProfile";
 import { defaultLeadDays } from "@/lib/familyProposals";
@@ -123,7 +124,7 @@ export default function FamilyRosterEditor({
       <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl my-8" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
           <h3 className="text-[12px] font-bold uppercase tracking-widest text-emerald-400">Family roster</h3>
-          <button onClick={onClose} className="ml-auto text-slate-500 hover:text-slate-300 text-lg leading-none">×</button>
+          <button onClick={onClose} aria-label="Close" className="ml-auto w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
         </div>
 
         <div className="p-4 space-y-5">
@@ -143,7 +144,7 @@ export default function FamilyRosterEditor({
                   <span className="text-slate-500 text-[10px]">
                     {p.role === "adult" ? "adult" : [p.grade && `${p.grade} grade`, p.school].filter(Boolean).join(" · ") || "child"}
                   </span>
-                  <button onClick={() => setPeople((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                  <button onClick={() => setPeople((xs) => xs.filter((_, j) => j !== i))} aria-label="Remove person" className="ml-auto text-slate-600 hover:text-red-400">✕</button>
                 </div>
               ))}
               {people.length === 0 && <p className="text-[10.5px] text-slate-600 italic">No one added yet.</p>}
@@ -167,7 +168,7 @@ export default function FamilyRosterEditor({
                 <div key={s.id} className="flex items-center gap-2 text-[11.5px] bg-slate-800/40 rounded px-2.5 py-1.5">
                   <span className="font-mono text-slate-300">{s.pattern}</span>
                   {s.personId && <span className="text-[9.5px] text-slate-500">→ {people.find((p) => p.id === s.personId)?.name ?? "?"}</span>}
-                  <button onClick={() => setSenders((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                  <button onClick={() => setSenders((xs) => xs.filter((_, j) => j !== i))} aria-label="Remove sender" className="ml-auto text-slate-600 hover:text-red-400">✕</button>
                 </div>
               ))}
               {senders.length === 0 && <p className="text-[10.5px] text-slate-600 italic">No senders yet — the tab reads nothing until you add one.</p>}
@@ -199,7 +200,7 @@ export default function FamilyRosterEditor({
                   <span className="font-mono text-[10px] text-slate-500 truncate">{b.pattern}</span>
                   <span className="text-[9px] uppercase tracking-wider text-slate-500">{b.cadence}</span>
                   {b.autopay && <span className="text-[9px] uppercase tracking-wider text-emerald-400">autopay</span>}
-                  <button onClick={() => setBillers((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                  <button onClick={() => setBillers((xs) => xs.filter((_, j) => j !== i))} aria-label="Remove biller" className="ml-auto text-slate-600 hover:text-red-400">✕</button>
                 </div>
               ))}
               {billers.length === 0 && <p className="text-[10.5px] text-slate-600 italic">No billers — the Household pane reads nothing.</p>}
@@ -237,7 +238,7 @@ export default function FamilyRosterEditor({
                   <span className="text-[9px] text-slate-500">
                     {d.leadDays ? `${d.leadDays}d lead` : defaultLeadDays(d.label) ? `${defaultLeadDays(d.label)}d lead (default)` : ""}
                   </span>
-                  <button onClick={() => setDocuments((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                  <button onClick={() => setDocuments((xs) => xs.filter((_, j) => j !== i))} aria-label="Remove document" className="ml-auto text-slate-600 hover:text-red-400">✕</button>
                 </div>
               ))}
               {documents.length === 0 && <p className="text-[10.5px] text-slate-600 italic">None yet.</p>}
@@ -267,7 +268,7 @@ export default function FamilyRosterEditor({
                   <span className="font-mono text-[10px] text-amber-300/80">&ldquo;{x.match}&rdquo;</span>
                   <span className="font-mono text-[10px] text-slate-500">by {x.byISO}</span>
                   {x.fromPattern && <span className="font-mono text-[9px] text-slate-600 truncate">{x.fromPattern}</span>}
-                  <button onClick={() => setExpectations((xs) => xs.filter((_, j) => j !== i))} className="ml-auto text-slate-600 hover:text-red-400">×</button>
+                  <button onClick={() => setExpectations((xs) => xs.filter((_, j) => j !== i))} aria-label="Remove expected document" className="ml-auto text-slate-600 hover:text-red-400">✕</button>
                 </div>
               ))}
               {expectations.length === 0 && <p className="text-[10.5px] text-slate-600 italic">None yet.</p>}

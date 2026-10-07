@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CloseIcon, ExternalLinkIcon } from "@/lib/icons";
+import { LEVEL_PILL, LEVEL_LABEL, CARD_ACCENT } from "@/lib/levelTokens";
 import type { EconomicWarfareBody, ActorBoard } from "@/lib/economicWarfareAssess";
 import type { TimelineDot, DotKind } from "@/lib/economicTimeline";
 import type { LeverageEntry } from "@/lib/leverage";
 import type { EconomyEdits } from "@/lib/missionProfile";
 import { INSTRUMENTS, INSTRUMENT_META, type Instrument } from "@/lib/economicWarfare";
-import type { WarningLevel, Trajectory, ObservedState } from "@/lib/warning";
+import type { Trajectory, ObservedState } from "@/lib/warning";
 import type { Modality } from "@/lib/chokepointSignals";
 
 // The Economy tab's organising unit is the ACTOR. One tile per tracked actor
@@ -18,19 +20,8 @@ import type { Modality } from "@/lib/chokepointSignals";
 // board — red is reserved for ALERT, learning mode is said out loud ("day N
 // of 14"), and every row states the phrase it rests on. REVIEW-2026-10 §10.
 
-const LEVEL_PILL: Record<WarningLevel, string> = {
-  calm: "text-slate-400 border-slate-600 bg-slate-500/10",
-  watch: "text-amber-300 border-amber-500/55 bg-amber-500/[0.12]",
-  warning: "text-orange-300 border-orange-500/55 bg-orange-500/[0.12]",
-  alert: "text-white border-red-500 bg-red-500/80",
-};
-const LEVEL_LABEL: Record<WarningLevel, string> = { calm: "Calm", watch: "Watch", warning: "Warning", alert: "Alert" };
-const CARD_ACCENT: Record<WarningLevel, string> = {
-  calm: "border-slate-800",
-  watch: "border-amber-500/40",
-  warning: "border-orange-500/45 shadow-[0_0_18px_-6px_rgba(249,115,22,0.35)]",
-  alert: "border-red-500/60 shadow-[0_0_20px_-6px_rgba(239,68,68,0.45)]",
-};
+// LEVEL_PILL / LEVEL_LABEL / CARD_ACCENT come from lib/levelTokens — the
+// SAME pill the I&W board renders, so one level reads one way everywhere.
 const TRAJ: Record<Trajectory, { t: string; c: string }> = {
   deteriorating: { t: "↗ deteriorating", c: "text-orange-300" },
   improving: { t: "↘ improving", c: "text-emerald-300" },
@@ -159,7 +150,7 @@ function ActorTile({ b, selected, onSelect, canEdit, onExclude }: { b: ActorBoar
             <div className="text-[13px] font-semibold text-slate-100 truncate">{b.actor.label}</div>
             <div className="text-[9.5px] text-slate-600 font-mono truncate">{b.actor.aor} · {b.actor.kind === "nonstate" ? "non-state" : "state"}</div>
           </div>
-          <span className={`flex-shrink-0 text-[9.5px] font-extrabold font-mono uppercase tracking-[0.1em] px-2 py-0.5 rounded-md border ${LEVEL_PILL[a.level]}`}>{LEVEL_LABEL[a.level]}</span>
+          <span className={`flex-shrink-0 text-[9.5px] font-extrabold font-mono uppercase tracking-widest px-2 py-0.5 rounded-md border ${LEVEL_PILL[a.level]}`}>{LEVEL_LABEL[a.level]}</span>
         </div>
         <div className="mt-2 flex items-baseline gap-2">
           <span className={`text-[20px] font-mono font-bold leading-none ${a.anomaly > 0.05 ? "text-slate-100" : "text-slate-500"}`}>{fmtAnom(a.anomaly)}</span>
@@ -223,9 +214,9 @@ function ActorEditor({ body, canEdit, busy, onPatch, onClose }: { body: Economic
     <div ref={rootRef} className="border-b border-slate-800 bg-slate-950/40" data-testid="actor-editor">
       <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 border-b border-slate-800/60">
         <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Actors — who is on the board and why</span>
-        <span className="text-[9px] text-slate-600">{canEdit ? "✕ removes · ↩ restores · add by country name" : "read-only — the owner edits the register"}</span>
+        <span className="text-[9px] text-slate-600">{canEdit ? "✕ removes · ↶ restores · add by country name" : "read-only — the owner edits the register"}</span>
         <a href="?prefs=mission" className="ml-auto text-[9px] text-sky-400 hover:text-sky-300">edit tracking →</a>
-        <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-sm leading-none">×</button>
+        <button onClick={onClose} aria-label="Close" className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
       </div>
       <div className="divide-y divide-slate-800/40">
         {body.actors.map((b) => (
@@ -252,7 +243,7 @@ function ActorEditor({ body, canEdit, busy, onPatch, onClose }: { body: Economic
           <div key={`ex:${s.name}`} className={`${row} opacity-70`}>
             <span className="text-slate-400 line-through w-32 flex-shrink-0 truncate">{s.name}</span>
             <span className="text-slate-600 flex-1 min-w-0 truncate">excluded · still tracked as {s.reason}</span>
-            {canEdit && <button disabled={busy} onClick={() => restore(s.name)} className={btn}>↩ restore</button>}
+            {canEdit && <button disabled={busy} onClick={() => restore(s.name)} className={btn}>↶ restore</button>}
           </div>
         ))}
         {canEdit && (
@@ -437,7 +428,7 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
                   {detailDot.label}
                   {detailDot.title && <span className="text-slate-400"> — “{detailDot.title}”</span>}
                   {detailDot.source && <span className="text-slate-600"> · {detailDot.source}</span>}
-                  {detailDot.link && <a href={detailDot.link} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-sky-300 hover:text-sky-200">open ↗</a>}
+                  {detailDot.link && <a href={detailDot.link} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-sky-300 hover:text-sky-200">open <ExternalLinkIcon size={11} className="inline -mt-px" /></a>}
                   {pinDot && <button onClick={() => setPinDot(null)} className="ml-1.5 text-slate-600 hover:text-slate-300">×</button>}
                 </span>
               ) : (
@@ -486,8 +477,8 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
                       <span className="text-[9px] text-slate-600 font-mono">as of {lev.asOf} · curated, refreshed quarterly</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
-                      <div><p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1">What they can threaten</p><LeverageBars items={lev.threatens} /></div>
-                      <div><p className="text-[8.5px] font-bold uppercase tracking-widest text-slate-600 mb-1">What we hold over them</p><LeverageBars items={lev.weHold} /></div>
+                      <div><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">What they can threaten</p><LeverageBars items={lev.threatens} /></div>
+                      <div><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">What we hold over them</p><LeverageBars items={lev.weHold} /></div>
                     </div>
                   </div>
                 );
@@ -525,7 +516,7 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
           </p>
         ) : (
           <div className="divide-y divide-slate-800/60">
-            <div className="hidden md:grid grid-cols-[110px_110px_92px_1fr_120px] gap-2 px-3.5 py-1.5 text-[8.5px] font-bold uppercase tracking-widest text-slate-600">
+            <div className="hidden md:grid grid-cols-[110px_110px_92px_1fr_120px] gap-2 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
               <span>actor → target</span><span>instrument</span><span>grade</span><span>evidence</span><span>age · source</span>
             </div>
             {rows.map((m) => {
@@ -556,7 +547,7 @@ export default function EconomicWarfareBoard({ active, refreshKey = 0 }: { activ
                       <p><span className="text-slate-600 uppercase tracking-wider text-[8.5px] font-bold mr-1.5">corroboration</span><span className="text-slate-300">{m.corroboration.length ? m.corroboration.join(" · ") : "none attached"}</span></p>
                       <p><span className="text-slate-600 uppercase tracking-wider text-[8.5px] font-bold mr-1.5">affects</span><span className="text-slate-300">{m.affects}</span></p>
                       <p><span className="text-slate-600 uppercase tracking-wider text-[8.5px] font-bold mr-1.5">falsifier</span><span className="text-slate-400">{meta.falsifier}</span></p>
-                      {m.link && <a href={m.link} target="_blank" rel="noopener noreferrer" className="text-sky-300 hover:text-sky-200 underline decoration-slate-700">open source ↗</a>}
+                      {m.link && <a href={m.link} target="_blank" rel="noopener noreferrer" className="text-sky-300 hover:text-sky-200 underline decoration-slate-700">open source <ExternalLinkIcon size={11} className="inline -mt-px" /></a>}
                     </div>
                   )}
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   deriveTracking, suggestChokepoints, suggestAoiCountries, slugify, EMPTY_PROFILE, SITREP_MAX, DEFAULT_SPECTRUM, EMPTY_MUST_TRACK,
   toggleMustTrack, isStarCountry,
@@ -209,16 +209,21 @@ export default function MissionProfileEditor() {
   // No auto-defaulting of picks beyond the live set: an Apply must never
   // change the SITREP bases unless the user deliberately changed the picks.
 
-  const patch = (p: Partial<MissionProfile>) => { setProfile((prev) => ({ ...prev, ...p })); setMsg(null); setPlan(null); setDirty(true); };
+  const editSerial = useRef(0); // bumped per edit; a save only clears `dirty` for the edits it carried
+  const patch = (p: Partial<MissionProfile>) => { editSerial.current += 1; setProfile((prev) => ({ ...prev, ...p })); setMsg(null); setPlan(null); setDirty(true); };
 
   useEffect(() => {
     if (!dirty || !canEdit || !loaded) return;
     const t = setTimeout(async () => {
+      const carried = editSerial.current;
       try {
         const res = await fetch("/api/mission-profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }) });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) { setSaveErr(d.error || "Save failed"); return; }
-        setSaveErr(null); setDirty(false);
+        setSaveErr(null);
+        // An edit made while this PUT was in flight stays dirty and gets its
+        // own save (code review 2026-10-07 — it used to be dropped as "saved").
+        if (editSerial.current === carried) setDirty(false);
         setSavedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
         // ★ must-tracks and hub/spokes read live on the command board.
         window.dispatchEvent(new Event("force-locations:changed"));
@@ -601,7 +606,7 @@ function AoiCard({ aoi, canEdit, onChange, onRemove }: {
             </button>
           ))}
           {showCountrySuggest && countrySuggestions.length === 0 && (
-            <span className="text-[9px] text-slate-700">every {aoi.aor} country is already in the AOI</span>
+            <span className="text-[9px] text-slate-500">every {aoi.aor} country is already in the AOI</span>
           )}
         </div>
       )}
@@ -624,7 +629,7 @@ function AoiCard({ aoi, canEdit, onChange, onRemove }: {
           );
         })}
         {suggested.length === 0 && aoi.chokepointIds.length === 0 && (
-          <span className="text-[9px] text-slate-700">none nearby (add countries)</span>
+          <span className="text-[9px] text-slate-500">none nearby (add countries)</span>
         )}
       </div>
     </div>

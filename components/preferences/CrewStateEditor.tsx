@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "@/lib/feedback";
+import { relTime } from "@/lib/relTime";
 import type { CrewSummary, CrewAvailability } from "@/lib/crewState";
 
 // Team state editor — crew COUNTS per qualification level. No names by
@@ -13,12 +14,7 @@ import type { CrewSummary, CrewAvailability } from "@/lib/crewState";
 type Draft = { qual: string; label: string; total: string; crewRest: string; onMission: string; dnif: string; other: string; note: string };
 const toDraft = (r: CrewAvailability): Draft => ({ qual: r.qual, label: r.label, total: String(r.total), crewRest: String(r.crewRest), onMission: String(r.onMission), dnif: String(r.dnif), other: String(r.other), note: r.note ?? "" });
 
-const ago = (iso: string | null): string => {
-  if (!iso) return "never";
-  const h = (Date.now() - Date.parse(iso)) / 3_600_000;
-  if (!Number.isFinite(h)) return "—";
-  return h < 1 ? "just now" : h < 24 ? `${Math.round(h)}h ago` : `${Math.round(h / 24)}d ago`;
-};
+const ago = (iso: string | null): string => (!iso ? "never" : relTime(iso) || "—");
 
 export default function CrewStateEditor() {
   const [summary, setSummary] = useState<CrewSummary | null>(null);
@@ -158,7 +154,7 @@ export default function CrewStateEditor() {
               className="w-full bg-slate-800/70 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100" />
           </label>
           <div className="flex gap-2">
-            <button type="button" onClick={save} disabled={busy || !editing.qual.trim()} className="text-xs px-3 py-1.5 rounded-md bg-emerald-600/80 hover:bg-emerald-600 text-white disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
+            <button type="button" onClick={save} disabled={busy || !editing.qual.trim()} className="text-[11px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-md disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
             <button type="button" onClick={() => setEditing(null)} className="text-xs px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300">Cancel</button>
           </div>
         </div>

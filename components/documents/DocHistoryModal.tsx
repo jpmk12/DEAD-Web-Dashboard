@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatDistanceToNow, parseISO, format } from "date-fns";
+import { CloseIcon } from "@/lib/icons";
 
 interface DocumentVersion {
   id: string;
@@ -84,9 +85,10 @@ export default function DocHistoryModal({ open, docId, onClose, onRestored }: Do
             </div>
             <button
               onClick={onClose}
-              className="text-slate-600 hover:text-slate-300 text-lg leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-slate-800 transition-all"
+              aria-label="Close"
+              className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"
             >
-              ×
+              <CloseIcon size={14} />
             </button>
           </div>
 
@@ -121,7 +123,7 @@ export default function DocHistoryModal({ open, docId, onClose, onRestored }: Do
                         <p className="text-[9px] text-slate-500 font-mono mt-0.5">
                           {(() => { try { return formatDistanceToNow(parseISO(v.savedAt), { addSuffix: true }); } catch { return v.savedAt; } })()}
                         </p>
-                        <p className="text-[9px] text-slate-700 font-mono">
+                        <p className="text-[9px] text-slate-500 font-mono">
                           {(() => { try { return format(parseISO(v.savedAt), "MMM d, h:mm a"); } catch { return ""; } })()}
                         </p>
                         {idx === 0 && (

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
 import ChatPanel from "./ChatPanel";
-import { AssistantIcon } from "@/lib/icons";
+import { AssistantIcon, CloseIcon } from "@/lib/icons";
 
 interface FloatingAssistantProps {
   calendarEvents: CalendarEvent[];
@@ -84,10 +84,10 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
               </h2>
               <button
                 onClick={() => setOpen(false)}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all text-lg leading-none"
-                title="Close (Esc)" aria-label="Close assistant"
+                className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"
+                title="Close (Esc)" aria-label="Close"
               >
-                ×
+                <CloseIcon size={14} />
               </button>
             </div>
             <div className="flex-1 min-h-0 p-3">

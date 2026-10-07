@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 import CountryRoom, { type CountrySection } from "@/components/ground/CountryRoom";
 import SitrepPanel, { type SitrepSection } from "@/components/osint/SitrepPanel";
 import WarningBoard from "@/components/osint/WarningBoard";
@@ -107,7 +108,7 @@ export default function RoomDrawer({ room, board, forces, active, pinned, onPin,
             <button onClick={() => next && onOpen(next)} disabled={!next} title={next ? `→ ${next.id}` : "last in the command"} className="text-[10px] font-mono px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-100 disabled:opacity-35 max-w-[150px] truncate">{next ? next.id : ""} ›</button>
           </span>
           <button onClick={onPin} title={pinned ? "Unpin — the room slides over the board again" : "Pin as a side column on a wide screen"} className={`hidden xl:inline-block text-[9.5px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${pinned ? "border-sky-500/60 text-sky-300 bg-sky-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⇥ pin</button>
-          <button onClick={onClose} title="close (Esc)" aria-label="Close the room" className="text-[12px] px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-100">✕</button>
+          <button onClick={onClose} title="close (Esc)" aria-label="Close" className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
         </div>
 
         {/* title line */}
@@ -120,7 +121,7 @@ export default function RoomDrawer({ room, board, forces, active, pinned, onPin,
               {country ? (
                 <>
                   <span className={`text-[11px] font-extrabold tracking-wide ${SEVERITY_TEXT[(country.worst ?? "unknown") as Severity]}`}>● {SEV_WORD[country.worst ?? "unknown"]}</span>
-                  {country.escalated && <span className="text-[8px] font-bold uppercase tracking-wider text-red-300 border border-red-500/40 rounded px-1">↑ escalated</span>}
+                  {country.escalated && <span className="text-[8px] font-bold uppercase tracking-wider text-red-300 border border-red-500/40 rounded px-1">▲ escalated</span>}
                   {country.chronicity && country.chronicity !== "unknown" && <span className="text-[10.5px] font-mono text-slate-500">· {country.chronicity}</span>}
                   {country.unwatched && <span className="text-[10px] text-amber-300/90">not in the posture watch — UNKNOWN, not clear</span>}
                 </>
@@ -139,7 +140,7 @@ export default function RoomDrawer({ room, board, forces, active, pinned, onPin,
               {field && <span className="text-[13px] text-slate-300 truncate">{field.label}</span>}
               {field && <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 border border-slate-700 rounded px-1.5 py-px">{aor ? AOR_LABELS[aor] : "—"}{field.country ? ` · ${field.country}` : ""}</span>}
               {field?.sitrep ? <Leds status={field.sitrep.status} size="w-2 h-2" /> : <Dot sev={field?.posture?.composite ?? null} />}
-              {field?.sitrep && field.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${field.sitrep.worse.join(", ")}`}>↑ {field.sitrep.worse.join(" · ")}</span>}
+              {field?.sitrep && field.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${field.sitrep.worse.join(", ")}`}>▲ {field.sitrep.worse.join(" · ")}</span>}
               {!field && <span className="text-[10px] text-slate-500">not on the board</span>}
               <span className="ml-auto flex items-center gap-1.5 flex-wrap">
                 {edit && field && <RoleSwitch icao={field.icao} role={field.role} onSet={(r) => edit.setRole(field.icao, r)} disabled={edit.busy} />}
@@ -229,7 +230,7 @@ function FieldTile({ f, onOpen }: { f: FieldRow; onOpen: (ref: RoomRef) => void 
         <span className="text-[13px] font-extrabold font-mono text-slate-100">{f.icao}</span>
         {f.role ? <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{f.role}</span> : f.star ? <span className="text-amber-400 text-[11px]">★</span> : null}
         <span className="ml-auto">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <Dot sev={f.posture?.composite ?? null} />}</span>
-        {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400">↑</span>}
+        {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>▲</span>}
       </div>
       <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "not watched — posture UNKNOWN"}</p>
       <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.hasSitrep ? "SITREP in this room →" : "★ to get a SITREP"}</p>

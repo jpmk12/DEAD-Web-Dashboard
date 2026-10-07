@@ -47,7 +47,7 @@ function markTracked(itemId: string): void {
 
 const CATEGORY_STYLE: Record<string, { badge: string; bar: string }> = {
   overview:  { badge: "bg-blue-500/10 text-blue-400 border border-blue-500/30",    bar: "bg-blue-500"    },
-  defense:   { badge: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30", bar: "bg-emerald-500" },
+  defense:   { badge: "bg-slate-700/40 text-slate-300 border border-slate-600", bar: "bg-slate-500" },
   strategic: { badge: "bg-violet-500/10 text-violet-400 border border-violet-500/30",  bar: "bg-violet-500"  },
   domestic:  { badge: "bg-amber-500/10 text-amber-400 border border-amber-500/30",  bar: "bg-amber-500"   },
   space:     { badge: "bg-sky-500/10 text-sky-400 border border-sky-500/30",        bar: "bg-sky-500"     },

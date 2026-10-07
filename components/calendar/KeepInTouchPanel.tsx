@@ -167,7 +167,7 @@ export default function KeepInTouchPanel({ rows, loading, onChanged }: { rows: R
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="text-xs font-semibold text-slate-200 truncate">{r.name}</span>
                     <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border flex-shrink-0 ${chip.cls}`}>{chip.text}</span>
-                    <button onClick={() => remove(r.id)} className="ml-auto text-slate-700 hover:text-red-400 text-[11px] flex-shrink-0" title="Remove">✕</button>
+                    <button onClick={() => remove(r.id)} className="ml-auto text-slate-500 hover:text-red-400 text-[11px] flex-shrink-0" title="Remove" aria-label="Remove">✕</button>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button onClick={() => markContacted(r.id)} disabled={busyId === r.id} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-300/90 hover:bg-emerald-500/10 disabled:opacity-40 transition-all" title="Reset the clock — you reached out">✓ Contacted</button>

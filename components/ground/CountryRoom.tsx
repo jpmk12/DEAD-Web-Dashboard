@@ -6,6 +6,9 @@ import dynamic from "next/dynamic";
 import type { ForceAssessment, CategoryAssessment } from "@/lib/forceProtection";
 import type { CountryDossier } from "@/lib/groundTruth";
 import { SEVERITY_DOT as SEV_DOT, SEVERITY_TEXT as SEV_TEXT, type Severity } from "@/lib/severity";
+import { LED_HEX, type LedKey } from "@/lib/levelTokens";
+import { ExternalLinkIcon } from "@/lib/icons";
+import { relTime } from "@/lib/relTime";
 import { COCOM_LABEL } from "@/lib/aor";
 import { noteOpen } from "@/lib/noteOpenClient";
 
@@ -26,22 +29,13 @@ const ADV_LABEL: Record<number, string> = { 1: "Exercise Normal Precautions", 2:
 const ADV_COLOR: Record<number, string> = { 1: "text-emerald-400", 2: "text-amber-400", 3: "text-orange-400", 4: "text-red-400" };
 const ADV_DOT: Record<number, string> = { 1: "#10b981", 2: "#fbbf24", 3: "#fb923c", 4: "#ef4444" };
 const DISASTER_DOT: Record<string, string> = { red: "#ef4444", orange: "#fb923c", green: "#10b981", unknown: "#94a3b8" };
-const POSTURE_DOT: Record<string, string> = { red: "#ef4444", amber: "#fbbf24", green: "#10b981", unknown: "#64748b" };
-const POSTURE_TEXT: Record<string, string> = { red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400", unknown: "text-slate-500" };
+// Health-indicator posture uses the shared severity tokens (SEV_DOT / SEV_TEXT).
 
 function fmtMonthYear(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString([], { month: "short", year: "numeric" });
 }
-function fmtAgo(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
+const fmtAgo = (iso: string): string => relTime(iso);
 
 const cat = (a: ForceAssessment | null | undefined, name: CategoryAssessment["category"]) => a?.categories.find((c) => c.category === name);
 
@@ -49,7 +43,7 @@ function Card({ title, meta, children }: { title: string; meta?: string; childre
   return (
     <div className="border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
       <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
-        <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400">{title}</span>
+        <span className="text-[10.5px] font-bold uppercase tracking-widest text-slate-400">{title}</span>
         {meta && <span className="text-[9px] font-mono text-slate-600">{meta}</span>}
       </div>
       <div className="px-3.5 py-3">{children}</div>
@@ -65,7 +59,7 @@ function CatLines({ c }: { c?: CategoryAssessment }) {
       {c.signals.map((s, i) => (
         <li key={i} className="text-[12px] text-slate-300 flex items-start gap-1.5">
           <span style={{ color: SEV_DOT[c.severity as Sev] }} className="mt-0.5 text-[8px]">●</span>
-          <span>{s}{i === 0 && c.links?.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200">{l.label} ↗</a>)}</span>
+          <span>{s}{i === 0 && c.links?.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200">{l.label} <ExternalLinkIcon size={11} className="inline -mt-px" /></a>)}</span>
         </li>
       ))}
     </ul>
@@ -152,7 +146,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
           <div className={`rounded-xl border px-3 py-2.5 flex items-start gap-2.5 ${esc ? "border-red-500/40 bg-red-500/[0.09]" : "border-amber-500/35 bg-amber-500/[0.08]"}`}>
             <span className={`text-[13px] leading-tight flex-shrink-0 ${esc ? "text-red-400" : "text-amber-400"}`}>⚠</span>
             <div className="min-w-0">
-              <p className={`text-[9px] font-bold uppercase tracking-[0.1em] ${esc ? "text-red-300" : "text-amber-300"}`}>Active conflict reporting ({cn.count})</p>
+              <p className={`text-[9px] font-bold uppercase tracking-widest ${esc ? "text-red-300" : "text-amber-300"}`}>Active conflict reporting ({cn.count})</p>
               {cn.latest ? (
                 <a href={cn.latest.link} target="_blank" rel="noopener noreferrer" className="text-[12.5px] text-slate-200 hover:text-sky-200 leading-snug block mt-0.5">{cn.latest.title}</a>
               ) : (
@@ -212,7 +206,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
                   {dossier.incidents.map((i, n) => (
                     <li key={n} className="text-[12px] flex items-start gap-2">
                       <span className={i.km == null ? "text-red-400" : "text-amber-400"}>◆</span>
-                      <span className="text-slate-300 flex-1 min-w-0">{i.type} <span className="text-slate-500">@ {i.location}</span>{i.fatalities > 0 && <span className="text-red-400/90"> · {i.fatalities} killed</span>}{i.url && <a href={i.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] text-violet-300/80">↗</a>}</span>
+                      <span className="text-slate-300 flex-1 min-w-0">{i.type} <span className="text-slate-500">@ {i.location}</span>{i.fatalities > 0 && <span className="text-red-400/90"> · {i.fatalities} killed</span>}{i.url && <a href={i.url} target="_blank" rel="noopener noreferrer" aria-label="Open source" className="ml-1 text-[10px] text-violet-300/80"><ExternalLinkIcon size={11} className="inline -mt-px" /></a>}</span>
                       <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{i.date ? `${i.date} · ` : ""}{i.km == null ? "in-country" : `~${i.km}km`} · {i.src.toUpperCase()}</span>
                     </li>
                   ))}
@@ -229,7 +223,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
             {dossier.disasters.map((d, n) => (
               <li key={n} className="text-[12px] flex items-start gap-2">
                 <span style={{ color: DISASTER_DOT[d.severity] ?? "#94a3b8" }} className="mt-0.5 text-[8px]">●</span>
-                <span className="text-slate-300 flex-1 min-w-0"><span className="uppercase text-[9px] text-slate-500">{d.type}</span> {d.title}{d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] text-violet-300/80">↗</a>}</span>
+                <span className="text-slate-300 flex-1 min-w-0"><span className="uppercase text-[9px] text-slate-500">{d.type}</span> {d.title}{d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" aria-label="Open source" className="ml-1 text-[10px] text-violet-300/80"><ExternalLinkIcon size={11} className="inline -mt-px" /></a>}</span>
                 <span className="text-[10px] font-mono text-slate-600 flex-shrink-0">{d.km == null ? "in-country" : `~${d.km}km`}</span>
               </li>
             ))}
@@ -264,7 +258,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
                 {cv.advisoryLevel != null && (
                   <li className="text-[12px] flex items-start gap-1.5">
                     <span style={{ color: ADV_DOT[cv.advisoryLevel] ?? "#94a3b8" }} className="mt-0.5 text-[8px]">●</span>
-                    <span className="text-slate-300"><b className="text-slate-200">State advisory:</b> Level {cv.advisoryLevel}{ADV_LABEL[cv.advisoryLevel] ? <> — <span className={ADV_COLOR[cv.advisoryLevel]}>{ADV_LABEL[cv.advisoryLevel]}</span></> : null}{cv.worstAreaLevel != null && cv.worstAreaLevel > cv.advisoryLevel && <span className="ml-1 text-[10px] text-red-400/90">(areas to Level {cv.worstAreaLevel})</span>}{cv.advisoryIssued && <span className="ml-1 text-[10px] text-slate-500">· {cv.advisoryIssued}</span>}{cv.advisoryLink && <a href={cv.advisoryLink} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200">State ↗</a>}</span>
+                    <span className="text-slate-300"><b className="text-slate-200">State advisory:</b> Level {cv.advisoryLevel}{ADV_LABEL[cv.advisoryLevel] ? <> — <span className={ADV_COLOR[cv.advisoryLevel]}>{ADV_LABEL[cv.advisoryLevel]}</span></> : null}{cv.worstAreaLevel != null && cv.worstAreaLevel > cv.advisoryLevel && <span className="ml-1 text-[10px] text-red-400/90">(areas to Level {cv.worstAreaLevel})</span>}{cv.advisoryIssued && <span className="ml-1 text-[10px] text-slate-500">· {cv.advisoryIssued}</span>}{cv.advisoryLink && <a href={cv.advisoryLink} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[10px] text-violet-300/80 hover:text-violet-200">State <ExternalLinkIcon size={11} className="inline -mt-px" /></a>}</span>
                   </li>
                 )}
                 {cv.guidance && <li className="text-[11.5px] text-slate-400 flex items-start gap-1.5"><span className="text-slate-600 text-[8px] mt-0.5">›</span><span className="leading-snug">{cv.guidance}</span></li>}
@@ -316,7 +310,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
                   <span className="text-orange-400 text-[8px] mt-0.5">●</span>
                   <a href={o.link} target="_blank" rel="noopener noreferrer" className="text-orange-300/90 hover:text-orange-200">{o.disease}</a>
                   {o.date && <span className="text-slate-600 text-[9px] font-mono">{fmtMonthYear(o.date)}</span>}
-                  <span className="text-slate-600 text-[9px] font-mono">DON ↗</span>
+                  <span className="text-slate-600 text-[9px] font-mono">DON <ExternalLinkIcon size={10} className="inline -mt-px" /></span>
                 </li>
               ))}
             </ul>
@@ -328,17 +322,17 @@ export default function CountryRoom({ country, sel, base, active = true, section
               {dossier.health.indicators.map((ind) => (
                 <div key={ind.key}>
                   <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
-                    <span style={{ color: POSTURE_DOT[ind.posture] }} className="text-[7px]">●</span>{ind.label}
+                    <span style={{ color: SEV_DOT[ind.posture as Sev] ?? SEV_DOT.unknown }} className="text-[7px]">●</span>{ind.label}
                   </div>
                   <div className="flex items-baseline gap-1.5">
-                    <span className={`text-[13px] font-bold font-mono ${POSTURE_TEXT[ind.posture]}`}>{ind.display}</span>
-                    {ind.year && <span className="text-[8px] text-slate-700 font-mono">{ind.year}</span>}
+                    <span className={`text-[13px] font-bold font-mono ${SEV_TEXT[ind.posture as Sev] ?? SEV_TEXT.unknown}`}>{ind.display}</span>
+                    {ind.year && <span className="text-[8px] text-slate-500 font-mono">{ind.year}</span>}
                   </div>
                 </div>
               ))}
             </div>
           )}
-          <p className="text-[8px] text-slate-700 mt-2">WHO Global Health Observatory (latest year) + Disease Outbreak News — planning baseline, not medical guidance.</p>
+          <p className="text-[8px] text-slate-500 mt-2">WHO Global Health Observatory (latest year) + Disease Outbreak News — planning baseline, not medical guidance.</p>
         </Card>
       )}
 
@@ -347,7 +341,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
         const dg = dossier.digital;
         const worstAlert = dg.internet.alerts.find((a) => a.level === "critical") ?? dg.internet.alerts[0];
         const led = (ok: boolean, level: "g" | "a" | "r") => (ok ? level : "u");
-        const dot = (l: string) => (l === "r" ? "#ef4444" : l === "a" ? "#fbbf24" : l === "g" ? "#10b981" : "#64748b");
+        const dot = (l: string) => LED_HEX[(l === "r" || l === "a" || l === "g" ? l : "u") as LedKey];
         const rows: { led: string; text: React.ReactNode; src: string }[] = [
           { led: led(dg.internet.live, worstAlert ? (worstAlert.level === "critical" ? "r" : "a") : "g"), src: "IODA",
             text: dg.internet.live ? (worstAlert ? `Connectivity outage alert — ${worstAlert.level} (${worstAlert.sources} source${worstAlert.sources === 1 ? "" : "s"}, 24 h)` : "No national connectivity outage alert (24 h)") : "IODA unreachable — connectivity UNKNOWN" },
@@ -387,7 +381,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
                 </li>
               ))}
             </ul>
-            <p className="text-[8px] text-slate-700 mt-2">Passive published feeds only — nothing probes a network. Graded text: act › threat › analysis; a bare mention earns nothing. UNKNOWN ≠ clear.</p>
+            <p className="text-[8px] text-slate-500 mt-2">Passive published feeds only — nothing probes a network. Graded text: act › threat › analysis; a bare mention earns nothing. UNKNOWN ≠ clear.</p>
           </Card>
         );
       })()}

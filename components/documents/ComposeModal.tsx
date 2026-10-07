@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CloseIcon } from "@/lib/icons";
 import MarkdownPreview from "./MarkdownPreview";
 import { compileDocs, renderNotebookHtml, type ComposeDoc, type ComposeOptions } from "@/lib/composeDocs";
 
@@ -120,7 +121,7 @@ export default function ComposeModal({ docIds, onClose, onSaved }: ComposeModalP
           <span className="text-[10px] text-slate-600 font-mono">
             {loading ? "loading…" : `${items.length} section${items.length === 1 ? "" : "s"} · ~${wordCount.toLocaleString()} words`}
           </span>
-          <button onClick={onClose} className="ml-auto text-slate-500 hover:text-slate-300 text-lg leading-none">×</button>
+          <button onClick={onClose} aria-label="Close" className="ml-auto w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">

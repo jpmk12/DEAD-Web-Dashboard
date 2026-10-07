@@ -72,7 +72,7 @@ export default function RegulatoryBoard({ active }: { active: boolean }) {
           const on = filter === k;
           return (
             <button key={k} type="button" onClick={() => { setFilter(k); setShowAll(false); }}
-              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${on ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${on ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>
               {k === "all" ? "All" : k === "watch" ? "Touches watch" : CLASS_LABEL[k]} <span className="font-mono">{n}</span>
             </button>
           );
@@ -107,7 +107,7 @@ export default function RegulatoryBoard({ active }: { active: boolean }) {
         </button>
       )}
 
-      <p className="text-[9px] text-slate-700 mt-2">
+      <p className="text-[9px] text-slate-500 mt-2">
         U.S. actions only — foreign counter-measures (retaliatory tariffs, host-nation export bans) arrive via news and your feeds, not here.
         {body.failed.length > 0 && <span className="text-amber-500/80"> Queries that failed this pass: {body.failed.join(", ")}.</span>}
       </p>

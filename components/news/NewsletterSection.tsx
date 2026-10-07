@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { NewsletterSummary, NewsThread } from "@/lib/types";
+import { ExternalLinkIcon } from "@/lib/icons";
 import { queueReason, perSource, oldestAgeDays } from "@/lib/newsletterQueue";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { DigestIcon } from "@/lib/icons";
@@ -166,7 +167,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     if (showSpinner) { setLoading(true); onLoadingChange?.(true); }
 
     const controller = new AbortController();
-    fetch("/api/newsletters", { signal: controller.signal })
+    fetch("/api/newsletters", { signal: controller.signal, headers: { "x-dead-client": "1" } })
       .then((r) => r.json())
       .then((data) => {
         const items: NewsletterSummary[] = data.newsletters ?? [];
@@ -591,8 +592,9 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                         onClick={() => openOriginal(n)}
                         title="Read the original email in Gmail"
                         className="w-7 h-7 flex items-center justify-center rounded-md text-slate-600 hover:text-blue-400 hover:bg-blue-500/10 transition-all text-sm"
+                        aria-label="Open in Gmail"
                       >
-                        ↗
+                        <ExternalLinkIcon size={12} />
                       </a>
                     )}
                     <button
@@ -617,7 +619,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
                   {/* Expand chevron */}
                   <span className={`text-slate-500 flex-shrink-0 text-xs transition-transform ${open ? "rotate-180" : ""}`}>
-                    ▼
+                    ▾
                   </span>
                 </div>
 
@@ -652,7 +654,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                           className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400/80 hover:text-blue-300 transition-colors"
                         >
                           Read the original email in Gmail
-                          <span aria-hidden>↗</span>
+                          <ExternalLinkIcon size={11} aria-hidden />
                         </a>
                       </div>
                     )}
@@ -666,7 +668,7 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
           {hiddenCount > 0 && (
             <button
               onClick={() => setShowHidden((v) => !v)}
-              className="w-full text-center text-[10px] text-slate-700 hover:text-slate-500 font-mono py-1 transition-colors"
+              className="w-full text-center text-[10px] text-slate-500 hover:text-slate-300 font-mono py-1 transition-colors"
             >
               {showHidden ? "Hide removed items" : `${hiddenCount} removed newsletter${hiddenCount > 1 ? "s" : ""} — show`}
             </button>

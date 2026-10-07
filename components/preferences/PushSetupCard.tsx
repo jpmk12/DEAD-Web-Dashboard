@@ -125,7 +125,7 @@ export default function PushSetupCard() {
         <div className="flex flex-wrap items-center gap-2">
           {canEnable && (
             <button type="button" onClick={enable} disabled={busy}
-              className="text-xs px-3 py-1.5 rounded-md bg-emerald-600/80 hover:bg-emerald-600 text-white disabled:opacity-50">
+              className="text-[11px] font-bold uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-md disabled:opacity-50">
               {busy ? "Enabling…" : "Enable alerts"}
             </button>
           )}

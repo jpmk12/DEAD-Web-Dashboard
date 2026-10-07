@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ExternalLinkIcon } from "@/lib/icons";
 import type { FamilyProposals, SenderMention, DocumentProposal } from "@/lib/familyProposals";
 import { mentionKey, docKey } from "@/lib/familyProposals";
 import type { ProposalCategory } from "@/lib/senderDiscovery";
@@ -124,7 +125,7 @@ export default function ProposalsCard({ proposals, onChanged, accountEmail }: { 
               </span>
               <span className="block text-[10px] text-slate-500 mt-0.5">
                 Tracking it reads {TRACKS[chosen] ?? TRACKS.other} from the next digest.
-                {m.sourceIds[0] && <> <a href={gmailHref(m.sourceIds[0])} target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300">open the email ↗</a></>}
+                {m.sourceIds[0] && <> <a href={gmailHref(m.sourceIds[0])} target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300">open the email <ExternalLinkIcon size={11} className="inline -mt-px" /></a></>}
               </span>
             </span>
             {m.domain && (

@@ -404,7 +404,7 @@ export default function NewsFeed({
               key={id}
               onClick={() => setTab(id)}
               className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-all whitespace-nowrap ${
-                isActive ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300" : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"
+                isActive ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"
               }`}
             >
               {id === "overview" ? "All" : label}
@@ -431,7 +431,7 @@ export default function NewsFeed({
           >
             <span className="text-amber-400">⚠</span>
             <span>{failedCount} source{failedCount > 1 ? "s" : ""} unavailable</span>
-            <span className="text-amber-600">{errorsExpanded ? "▲" : "▼"}</span>
+            <span className="text-amber-600">{errorsExpanded ? "▴" : "▾"}</span>
           </button>
           {errorsExpanded && (
             <div className="mt-2 space-y-1.5 pl-1">
@@ -483,7 +483,7 @@ export default function NewsFeed({
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-500 group-hover:text-slate-300 transition-colors">Everything else</span>
                 <span className="text-[9px] px-1.5 py-0.5 rounded font-mono leading-none bg-slate-800 text-slate-600">{lanes.rest.length}</span>
                 <div className="flex-1 h-px bg-slate-800" />
-                <span className="text-slate-600 text-xs">{showRest ? "▲" : "▼"}</span>
+                <span className="text-slate-600 text-xs">{showRest ? "▴" : "▾"}</span>
               </button>
               {showRest && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

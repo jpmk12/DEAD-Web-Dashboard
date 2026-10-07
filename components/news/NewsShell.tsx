@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import NewsFeed from "./NewsFeed";
 import NewsletterSection from "./NewsletterSection";
+import { updatedAgo } from "@/lib/relTime";
 import ThreadsView from "./ThreadsView";
 import MovingRail, { type Days } from "./MovingRail";
 import LabelDrawer from "./LabelDrawer";
@@ -40,12 +41,7 @@ interface NewsShellProps {
 type ViewMode = "threads" | "read";
 type ThreadsBody = ThreadsResult & { previous?: StoredSession | null; capped?: boolean; generations?: number; generatedAt?: string; cached?: boolean };
 
-function formatUpdated(d: Date): string {
-  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (secs < 60) return "just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
+const formatUpdated = (d: Date): string => updatedAgo(d);
 
 const emit = (name: string, detail?: unknown) => window.dispatchEvent(new CustomEvent(name, { detail }));
 
@@ -208,7 +204,7 @@ export default function NewsShell({
             <button
               onClick={() => setViewMode("threads")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all ${
-                viewMode === "threads" ? "bg-emerald-500 text-slate-950 shadow-sm glow-green" : "text-slate-500 hover:text-slate-300"
+                viewMode === "threads" ? "bg-slate-700 text-slate-100 shadow-sm" : "text-slate-500 hover:text-slate-300"
               }`}
             >
               <ThreadsViewIcon size={14} strokeWidth={2.25} className="leading-none" />
@@ -234,7 +230,7 @@ export default function NewsShell({
               </span>
             )}
             {refreshing && <span className="text-[10px] text-emerald-600 font-mono uppercase tracking-wider animate-pulse">Fetching…</span>}
-            {lastUpdated && !refreshing && <span className="text-[10px] text-slate-700 font-mono">{formatUpdated(lastUpdated)}</span>}
+            {lastUpdated && !refreshing && <span className="text-[10px] text-slate-500 font-mono">{formatUpdated(lastUpdated)}</span>}
             <button onClick={handleRefresh} disabled={refreshing} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 disabled:opacity-40 font-mono transition-colors">
               <span className={`text-base leading-none ${refreshing ? "animate-spin" : ""}`}>↻</span>
               {refreshing ? "Refreshing…" : "Refresh"}

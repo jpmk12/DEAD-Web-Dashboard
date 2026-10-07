@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { SpaceWeather } from "@/lib/types";
 import { spaceWxSentence, type SpaceWxImpact, type NoaaScales } from "@/lib/spaceWeatherOps";
+import { LED_CLASS } from "@/lib/levelTokens";
 
 // NOAA scale colour mapping (G/R/S 0..5). G0/R0/S0 = green; rises through
 // yellow/orange/red to deep red.
@@ -25,7 +26,7 @@ function kpClass(kp: number): string {
   return "text-emerald-400";
 }
 
-const LED_DOT: Record<string, string> = { g: "bg-emerald-400", a: "bg-amber-400", r: "bg-red-500", u: "bg-slate-600" };
+const LED_DOT: Record<string, string> = LED_CLASS;
 
 interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null; gShare?: { hits: number; observed: number; label: string } | null }
 
@@ -104,7 +105,7 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
-          <span className="text-[9px] text-slate-700 font-mono">NOAA SWPC</span>
+          <span className="text-[9px] text-slate-500 font-mono">NOAA SWPC</span>
           <button type="button" onClick={() => setDetail((v) => !v)} className="text-[9px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-300">Kp · G/R/S · history {detail ? "▴" : "▾"}</button>
         </span>
       </div>
@@ -186,7 +187,7 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
         </div>
       )}
 
-      {detail && <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">
+      {detail && <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">
         Environment, not warning: these rows colour the SITREP Spectrum card and the C2/Comms LIMFAC and page you at R3/G3/S3+; they never raise an I&amp;W level, and a G3+ storm is attributed before any GPS-jamming read.
         {ops?.polar === false && " Polar / HF routes: not declared (Mission Profile)."}
       </p>}

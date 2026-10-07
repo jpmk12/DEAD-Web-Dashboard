@@ -140,7 +140,7 @@ function ThreadCard(p: {
                 <a key={a.id} href={a.link} target="_blank" rel="noopener noreferrer" className="flex items-start gap-2 group min-w-0">
                   <span className={`text-[8px] font-bold uppercase tracking-wider rounded px-1 py-[1px] flex-shrink-0 mt-[3px] ${laneCls}`}>{laneTxt}</span>
                   <span className="text-xs text-slate-500 group-hover:text-slate-300 transition-colors leading-snug min-w-0">
-                    {a.title}<span className="text-slate-700 ml-1.5">{a.source}</span>
+                    {a.title}<span className="text-slate-500 ml-1.5">{a.source}</span>
                   </span>
                 </a>
               );
