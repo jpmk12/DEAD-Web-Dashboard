@@ -352,7 +352,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
         country: base.country || "United States",
         cocom: classifyAor({ lat: base.lat, lon: base.lon, name: base.country }),
         kind: "base" as const,
-      }]).catch(() => null),
+      }], { record: false }).catch(() => null),
       gdeltLocalNews(base.place || base.label).catch(() => []),
       getInfraSources(base).catch((): SitrepInfra => ({ internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null })),
     ]);

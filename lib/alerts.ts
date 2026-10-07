@@ -48,6 +48,13 @@ export async function computeAlerts(): Promise<AlertCheck> {
   return inFlight;
 }
 
+function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(null), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, () => { clearTimeout(t); resolve(null); });
+  });
+}
+
 async function build(): Promise<AlertCheck> {
   const alerts: AlertItem[] = [];
   const prefs = await getUserPrefs().catch(() => null);
@@ -103,8 +110,13 @@ async function build(): Promise<AlertCheck> {
   // I&W boards at warning/alert (calm/watch stay quiet — color is earned).
   try {
     const problems = await activeWarningProblems();
-    for (const p of problems) {
-      const a = await assessWarning(p.def.id).catch(() => null);
+    // In parallel and bounded — this used to run the boards one after another
+    // on the request path (code review 2026-10-07). A board past the wait
+    // raises nothing this cycle; its assessment keeps running into the cache.
+    const assessed = await Promise.all(problems.map((p) => within(assessWarning(p.def.id).catch(() => null), 15_000)));
+    for (let i = 0; i < problems.length; i++) {
+      const p = problems[i];
+      const a = assessed[i];
       if (a && (a.level === "warning" || a.level === "alert")) {
         alerts.push({
           id: `iw-${p.def.id}-${a.level}`,

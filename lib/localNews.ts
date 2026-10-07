@@ -11,6 +11,36 @@ import type { NewsItem } from "./types";
 interface CacheEntry { items: NewsItem[]; expires: number }
 const cache = new Map<string, CacheEntry>();
 const TTL = 60 * 60 * 1000;
+// A refused / failed query is remembered briefly so the next caller does not
+// re-fire into the same 429 (code review 2026-10-07).
+const NEG_TTL = 5 * 60 * 1000;
+const negCache = new Map<string, number>();
+
+// GDELT allows ONE request per 5 s per address and this module is called
+// from eight places, several of them `Promise.all` fan-outs (chokepoints ×8,
+// conflict news ×16, SITREP bases ×6). Every fetch goes through one serial
+// gate with the gap enforced process-wide. A caller that would wait longer
+// than MAX_QUEUE_WAIT_MS is answered immediately from stale/empty with
+// `live:false` — the bounded callers degrade instead of piling up, and the
+// queue keeps draining into the cache for the next pass.
+const GAP_MS = 5_200;
+const MAX_QUEUE_WAIT_MS = 20_000;
+let gate: Promise<void> = Promise.resolve();
+let lastStart = 0;
+let queued = 0;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+async function paced<T>(fn: () => Promise<T>): Promise<T | null> {
+  const expected = Math.max(0, lastStart + GAP_MS * (queued + 1) - Date.now());
+  if (expected > MAX_QUEUE_WAIT_MS) return null;
+  queued += 1;
+  const turn = gate.then(async () => {
+    const wait = Math.max(0, lastStart + GAP_MS - Date.now());
+    if (wait > 0) await sleep(wait);
+    lastStart = Date.now();
+  });
+  gate = turn.catch(() => {});
+  try { await turn; return await fn(); } finally { queued -= 1; }
+}
 
 interface GdeltArticle { url?: string; title?: string; domain?: string; seendate?: string }
 
@@ -22,9 +52,13 @@ function parseSeendate(s: string): string {
 }
 
 export async function gdeltLocalNews(place: string): Promise<NewsItem[]> {
+  return (await gdeltLocalNewsLive(place)).items;
+}
+
+export async function gdeltLocalNewsLive(place: string): Promise<{ items: NewsItem[]; live: boolean }> {
   const key = place.trim().toLowerCase();
-  if (!key) return [];
-  return gdeltSearch(`"${place}" sourcelang:english`, { cacheKey: `place:${key}`, timespan: "2d", maxrecords: 10, keep: 8, source: "local", category: "local" });
+  if (!key) return { items: [], live: true };
+  return gdeltSearchLive(`"${place}" sourcelang:english`, { cacheKey: `place:${key}`, timespan: "2d", maxrecords: 10, keep: 8, source: "local", category: "local" });
 }
 
 export interface GdeltSearchOpts {
@@ -45,10 +79,19 @@ export interface GdeltSearchOpts {
 // name (the Economy tab's per-actor economic-warfare read). GDELT's query
 // grammar: quoted phrases, OR inside parentheses, `sourcelang:english`.
 export async function gdeltSearch(query: string, opts: GdeltSearchOpts = {}): Promise<NewsItem[]> {
+  return (await gdeltSearchLive(query, opts)).items;
+}
+
+/** Same search, with LIVENESS: `live` is false when GDELT did not answer
+ *  this call (a stale or empty list then says nothing about the world — a
+ *  caller recording "no act today" must not write on it). */
+export async function gdeltSearchLive(query: string, opts: GdeltSearchOpts = {}): Promise<{ items: NewsItem[]; live: boolean }> {
   const key = (opts.cacheKey ?? query).trim().toLowerCase();
-  if (!key || !query.trim()) return [];
+  if (!key || !query.trim()) return { items: [], live: true };
   const hit = cache.get(key);
-  if (hit && hit.expires > Date.now()) return hit.items;
+  if (hit && hit.expires > Date.now()) return { items: hit.items, live: true };
+  const neg = negCache.get(key);
+  if (neg && neg > Date.now()) return { items: hit?.items ?? [], live: false };
 
   const timespan = opts.timespan ?? "2d";
   const maxrecords = Math.min(75, Math.max(1, opts.maxrecords ?? 10));
@@ -57,8 +100,9 @@ export async function gdeltSearch(query: string, opts: GdeltSearchOpts = {}): Pr
     "https://api.gdeltproject.org/api/v2/doc/doc?query=" + encodeURIComponent(query) +
     `&mode=artlist&format=json&timespan=${encodeURIComponent(timespan)}&maxrecords=${maxrecords}&sort=datedesc`;
   try {
-    const res = await fetchWithTimeout(url, { headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" } }, 12_000);
-    if (!res.ok) return hit?.items ?? []; // serve stale on a blip / 429
+    const res = await paced(() => fetchWithTimeout(url, { headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" } }, 12_000));
+    if (!res) return { items: hit?.items ?? [], live: false }; // queue too deep this pass
+    if (!res.ok) { negCache.set(key, Date.now() + NEG_TTL); return { items: hit?.items ?? [], live: false }; } // serve stale on a blip / 429
     const data = await res.json();
     const arts: GdeltArticle[] = Array.isArray(data?.articles) ? data.articles : [];
     const seen = new Set<string>();
@@ -79,11 +123,12 @@ export async function gdeltSearch(query: string, opts: GdeltSearchOpts = {}): Pr
       });
       if (items.length >= keep) break;
     }
-    // Only cache a non-empty result so a transient empty doesn't pin a blank
-    // section for an hour.
-    if (items.length > 0) cache.set(key, { items, expires: Date.now() + TTL });
-    return items;
+    // A non-empty result is cached for the hour; an answered empty for five
+    // minutes (it is a fact, but a short one — and it must not re-fire).
+    cache.set(key, { items, expires: Date.now() + (items.length > 0 ? TTL : NEG_TTL) });
+    return { items, live: true };
   } catch {
-    return hit?.items ?? [];
+    negCache.set(key, Date.now() + NEG_TTL);
+    return { items: hit?.items ?? [], live: false };
   }
 }

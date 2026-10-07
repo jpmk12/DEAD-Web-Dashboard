@@ -1,4 +1,5 @@
 import Parser from "rss-parser";
+import { safeFetch } from "./safeFetch";
 import { NewsItem } from "./types";
 
 const parser = new Parser({
@@ -34,6 +35,12 @@ function categorizeRssError(err: unknown): string {
   return "fetch_error";
 }
 
+/** Feed-supplied links are rendered as hrefs; keep only http(s). */
+function httpLink(link: string | undefined): string {
+  const l = (link ?? "").trim();
+  return /^https?:\/\//i.test(l) ? l : "";
+}
+
 export async function fetchFeed(
   url: string,
   source: string,
@@ -52,7 +59,7 @@ export async function fetchFeed(
 
     let text: string;
     try {
-      const res = await fetch(url, { signal: controller.signal, headers: FETCH_HEADERS });
+      const res = await safeFetch(url, { signal: controller.signal, headers: FETCH_HEADERS });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       text = await res.text();
     } finally {
@@ -67,7 +74,7 @@ export async function fetchFeed(
       category,
       pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
       summary: stripHtml(item.contentSnippet || item.summary || item.content || ""),
-      link: item.link || "",
+      link: httpLink(item.link),
       imageUrl: extractImage(item),
     }));
 

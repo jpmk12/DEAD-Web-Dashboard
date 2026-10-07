@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { format } from "date-fns";
+import { longDateInTz, todayInTz } from "@/lib/date";
 import { anthropic } from "@/lib/claude";
 import { auth } from "@/lib/auth";
 import { createTask } from "@/lib/googleTasks";
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
 
   const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
   const tz = prefs?.timezone || "America/Chicago";
-  const today = format(new Date(), "EEEE, MMMM d, yyyy");
+  const today = longDateInTz(tz);
 
   if (!isFeatureEnabled("quick_capture", prefs)) {
     return NextResponse.json(
@@ -288,7 +288,7 @@ async function executePlan(plan: Captured, accessToken: string, userEmail: strin
       const all = await listDocuments({ limit: 1000 });
       const match = (d: { title: string; aliases: string[] }) => d.title.toLowerCase() === key || d.aliases.some((a) => a.toLowerCase() === key) || d.title.toLowerCase().includes(key);
       const target = all.filter((d) => d.docType === "log").find(match) ?? all.find(match);
-      const dateStr = format(new Date(), "yyyy-MM-dd");
+      const dateStr = todayInTz(tz);
       let id: string, title: string;
       if (target) { id = target.id; title = target.title; }
       else {
@@ -310,7 +310,7 @@ async function executePlan(plan: Captured, accessToken: string, userEmail: strin
     // into the "Capture Inbox" doc so captured context is findable/linkable in
     // Docs instead of vanishing into the memory blob (best-effort mirror).
     const memory = await getMemory(userEmail);
-    const dateStr = format(new Date(), "yyyy-MM-dd");
+    const dateStr = todayInTz(tz);
     const noteBullet = `- (${dateStr}) ${plan.content.trim()}`;
     const updated = appendNoteToMemory(memory.content ?? "", noteBullet);
     await saveMemory(userEmail, updated);

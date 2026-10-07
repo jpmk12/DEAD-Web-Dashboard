@@ -36,7 +36,7 @@ function buildNewsletterQuery(rule: NewsletterSourceRule): string {
   return `from:${v.replace(/\s+/g, "")} newer_than:7d`;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -105,8 +105,12 @@ export async function GET() {
   // Mark as read (fire-and-forget — newsletters are shown from cache regardless)
   const primaryIds = allEmails.filter((e) => e.account === "primary").map((e) => e.id);
   const secondaryIds = allEmails.filter((e) => e.account === "secondary").map((e) => e.id);
-  if (primaryIds.length > 0) markAsRead(primaryToken, primaryIds).catch(() => {});
-  if (secondaryIds.length > 0 && secondaryAccessToken) markAsRead(secondaryAccessToken, secondaryIds).catch(() => {});
+  // Only when the app's own client asked (a custom header a cross-site
+  // top-level navigation cannot carry) — a state change behind a GET must
+  // not be reachable by a link (code review 2026-10-07).
+  const fromApp = req.headers.get("x-dead-client") === "1";
+  if (fromApp && primaryIds.length > 0) markAsRead(primaryToken, primaryIds).catch(() => {});
+  if (fromApp && secondaryIds.length > 0 && secondaryAccessToken) markAsRead(secondaryAccessToken, secondaryIds).catch(() => {});
 
   // Check cache for already-summarised emails
   const allIds = allEmails.map((e) => e.id);

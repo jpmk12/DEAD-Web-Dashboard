@@ -51,10 +51,10 @@ anything you delete — anywhere — stays deleted** across re-applies.
 | Database | managed MySQL via `mysql2` (`lib/db.ts`) — schema auto-migrates |
 | AI | Anthropic SDK (`@anthropic-ai/sdk`) — Opus / Sonnet / Haiku per route |
 | Auth | NextAuth 5 + Google OAuth — owner (`OWNER_EMAIL`) + crew allowlist (`ALLOWED_EMAILS`) |
-| Maps | React-Leaflet 5 + OpenStreetMap / CARTO dark tiles, `h3-js` for GPS hexes |
+| Maps | React-Leaflet 5 over keyless Esri / OpenStreetMap basemap chains (`lib/basemaps.ts`, self-healing on a refusing provider), `h3-js` for GPS hexes |
 | Icons | `lucide-react` (vocabulary in `lib/icons.tsx`) |
 | Realtime | `ws` — server-side AISStream vessel bridge |
-| Alerting | Chrome extension (`tools/x-auto-capture/`) — capture + OS notifications |
+| Alerting | Web push (installable PWA, `web-push`) + the Chrome extension (`tools/x-auto-capture/`) — capture, OS notifications, the alert poll |
 
 All outbound traffic is **HTTPS (443)** only (plus the managed MySQL), per the
 hosting platform's network policy. The container is ephemeral — all state lives
@@ -64,62 +64,87 @@ in the managed database.
 
 ## Features
 
-Eight tabs, a timezone-aware Morning Brief (cached once per day *per zone*, so
-devices share one generation and travel regenerates correctly; opens with a
-deterministic "Your day" block — tasks + keep-in-touch — and a live Base SITREP
-block), and a floating AI assistant whose conversation persists across
-close/reopen.
+Nine tabs, a timezone-aware Morning Brief (cached once per day *per zone*;
+"today" follows the pinned zone › an active TDY › the device), a ⌘K command
+palette that reaches every surface by name, and a floating assistant that
+carries the dashboard's own computed picture (posture, SITREP LEDs, I&W
+boards, alerts, what changed since you looked) into every turn.
 
-- **Glance** — the landing view: Base SITREP LED strip, brief hero with
-  generation stamp, **Needs you now** (your due/overdue tasks pinned in their
-  own group with inline complete/defer, above world-state alerts), the ranked
-  **Global Reach Watch** (NEO / disasters / weather / conflict / GPS /
-  airspace), today/tomorrow schedule, and radar metrics with deltas.
-- **News** — national-security RSS across ~20 sources, preference-sorted, with
-  AI curation, article theses, cross-article threads, and feedback signals.
-- **Calendar** — Google Calendar + Tasks (inline due-date editing), keep-in-touch
-  contact cadences, iCal subscription, meeting prep.
-- **Email** — AI-triaged unread inbox across primary + optional secondary Gmail,
-  action-item extraction (auto-pruned as mail is cleared), VIP/mute rules,
-  draft replies, one-click convert to task/event/doc.
-- **Docs** — a markdown wiki grown into a synthesis workbench: typed wiki-links,
-  aliases, backlinks with snippets, unlinked-mention detection, collections /
-  doc types / properties, a local knowledge graph, lexicon, thread timelines,
-  compose-to-deliverable, split-at-headings, templates, version history,
-  **running logs** (📓 — append a dated entry from anywhere: select text and
-  tap ⧉, a Thesis, the assistant, ⌘K, or "add to my China log: …" in
-  Capture), and a file repo with bulk upload, multi-select, zip download and
-  an inline PDF preview. Quick capture (⌘K) routes thoughts here (`doc` kind + a findable
-  "Capture Inbox"), with high-confidence tasks auto-committed behind an Undo.
+- **Glance** — the landing view: world clocks west→east with the part of the
+  day, **weather where you are** (home or the active TDY, with the nearest
+  tracked airfield's flight category), the Morning Brief overview, the
+  **RIGHT NOW** status row (Posture · Bases · I&W · Spectrum · Demand ·
+  Alerts · Tasks · Family — colour is earned, UNKNOWN is its own tone), the
+  **OE delta** ("what changed since you last looked", net change per
+  subject, improvements first-class), **Needs you now**, the **7-day demand
+  horizon** per combatant command with crew posture against it, the ranked
+  **Global Reach Watch**, posture moves read from the news, and the day.
+- **News** — **Threads** first (the day's narratives with trajectory, sources
+  added / dropped, the AMC angle, doors to the I&W board or chokepoint they
+  touch; capped at three model reads a day), then the **Read** view in lanes
+  (depth · now · rest) with newsletters as an earned queue.
+- **Calendar** — **Don't miss** (family deadlines, tasks and check-ins in one
+  list, late → today → week), the agenda in the effective zone with TDY day
+  chips, **Dates in your mail** (＋ Event / ＋ Task from a date the triage
+  found — never a guessed date), keep-in-touch cadences, tasks, iCal.
+- **Email** — the sift: always grouped High → Medium → Low with per-group
+  mark-read, **Keep** (held at both ends — the UI and the mark-read route),
+  a per-email priority menu with "Always High / Low from this sender", a
+  **why** line on every row, learning from your corrections (suggested
+  sender rules, corrections fed back to the classifier), action items cached
+  per message, keyboard triage, **File under Family**, a second Gmail account.
+- **Family** — the unit is the deadline, not the email: school deadlines
+  merged across newsletters with Done / Not mine / Set date / snooze, a
+  **running brief per person** (updated, never rewritten; "what's new"
+  highlighted), **while you are away** against the active trip, events per
+  person, proposals mined from mail already read; the **Household** pane
+  watches bills (cadence learned, silence watch, amount creep), declared
+  documents with lead days, and account jeopardy. The roster is the query:
+  only declared senders are ever read.
+- **Docs** — a markdown wiki grown into a synthesis workbench: typed
+  wiki-links, aliases, backlinks with snippets, unlinked mentions,
+  collections / doc types / properties, a local graph, lexicon, thread
+  timelines, compose-to-deliverable, split-at-headings, templates, version
+  history, **running logs** (📓 — append a dated entry from anywhere: select
+  text and tap ⧉, a Thesis, the assistant, ⌘K, or "add to my China log: …"
+  in Capture), and a file repo with bulk upload, zip download and an inline
+  PDF preview.
 - **OSINT** — three panes: **◆ Commands · ≣ Feeds · ⇪ Sources**.
-  **Commands** is one page in drill order: **Where to look first** (a ranked,
-  deterministic primer — every line a door to the exact level; an AI read on
-  tap), **My airfields** (hub, spokes and ★ fields with their five LEDs),
-  then **one row per combatant command** — I&W, posture, bases, 7-day demand,
-  events, Δ since your last look, with a why — that drills in place to its
-  I&W boards → its countries (★ first, then worst) → a country's situation
-  room (incidents, advisories, health, holidays, your captured sources, AI
-  SITREP) → its airfields → the full base SITREP. **★ must-tracks** on any
-  command, country or airfield order and pin everything (and take the six
-  SITREP slots). Below it the **Crisis map** follows whatever is open:
-  disasters, conflict (UCDP/ACLED), weather hazards, GPS interference,
-  FIR/overflight NOTAMs, live military ADS-B + AIS, AMC hubs/gateways with
-  runway capability + live flight categories, planning-grade reach rings, and
-  the **Significant events** list with "near my airfields" and "new since
-  look" lenses. **Feeds** merges the reporting list (kind + time-window filters, clustering,
-  triage, the Situation line). The **Sources pane** is
-  the ingestion control room — browser-captured X posts / analysis articles /
-  LiveUAMap events (captured in *your* logged-in browser, never server-side),
-  plus the live RSS/Telegram feed editor with AO-aware suggestions.
-- **Weather** — where you are first (also a strip under the Glance clocks),
-  NWS + Open-Meteo forecast cards for your civil places (7-day worldwide),
-  then your airfields by combatant command with decoded METAR, a 24-h TAF
-  category bar, model hazards and crosswind, threats & disasters by command,
-  a Windy map that follows the selected place or airfield, and space weather
-  in one crew sentence. Places and airfields are added or removed on the page
-  through the one Track command; a sources strip names every feed.
-- **Economy** — mobility economics: energy/fuel prices, an AI *Economic Access
-  Read*, and a strategic-chokepoint watch.
+  **Commands** is one page in drill order: **Where to look first** (a
+  ranked, deterministic primer — every line a door; an AI read on tap),
+  **My airfields** (hub, spokes and ★ fields with five LEDs and a hub /
+  spoke switch), **one row per combatant command** (I&W · posture · bases ·
+  7-day demand · events · Δ since your look, with a why) that drills in place
+  to its boards and countries, and **Airfields by command** (every tracked
+  field, worst first, hide-green). A country, an airfield or a board opens
+  as a page in **the room** — one drawer with tabs (incidents, news, civil,
+  health, spectrum, airfields; SITREP weather / ops / threats / infra /
+  spectrum / history), ‹ › through the command, ⇥ pin as a right column,
+  Esc / ← / →, and a `?room=` deep link. Add, remove and re-role airfields
+  and countries from the board itself. Below it the **Crisis map** follows
+  whatever is open: disasters, conflict (UCDP / ACLED), weather hazards, GPS
+  interference, FIR / overflight NOTAMs, live military ADS-B + AIS, hubs /
+  gateways with runway capability and flight categories, planning-grade
+  reach rings, outages and launches, and the **Significant events** list
+  with "near my airfields" and "new since look" lenses. **Feeds** merges the
+  reporting list (clustering, triage, the Situation line). **Sources** is
+  the ingestion control room — browser-captured X posts / analysis articles
+  / LiveUAMap events / MOFCOM notices (captured in *your* logged-in browser,
+  never server-side), the live RSS / Telegram feed editor with AO-aware
+  suggestions, and watchlist recommendations with their evidence.
+- **Weather** — where you are first, then your civil places (NWS + Open-Meteo,
+  7-day worldwide), your **airfields by combatant command** (decoded METAR,
+  24-h TAF category bar, model hazards, crosswind, a SITREP door), threats &
+  disasters by command, a map that follows the selection, and space weather
+  in one crew sentence. Places and airfields are added or removed on the
+  page through the one Track command; a sources strip names every feed.
+- **Economy** — **Economic Warfare Watch**: one tile per tracked actor
+  (I&W level against its own baseline, lit instrument chips, the driver in
+  words, an editor for the register), a moves-and-counter-moves timeline
+  with one lane per actor, the coercion board (one author per headline;
+  reversals graded as such), the leverage map, chokepoints with AIS transit
+  counts, energy, U.S. regulatory actions, EU / UK listing waves, and an AI
+  read that never blanks.
 
 ### SITREP — the per-base commander's report
 
@@ -193,9 +218,10 @@ npm run dev                   # next dev with hot reload
 npm test                      # npx vitest run — needs network (vitest is fetched on demand)
 ```
 
-Pure logic (parsers, scorers, matchers, the Mission Profile derivation) is
-unit-tested against committed fixtures, since the build sandbox can't reach
-external data hosts. Live data sources are verified in production via owner-only
+Pure logic (parsers, scorers, matchers, the Mission Profile derivation, the
+severity and AOR vocabularies, the SSRF guard) is unit-tested — 117 files —
+against committed fixtures, since the build sandbox can't reach external data
+hosts. Live data sources are verified in production via owner-only
 `?debug=1` / `*-diag` endpoints.
 
 ---
@@ -212,9 +238,10 @@ hosting platform. The rest are set via the hosting UI (see `.env.example`):
 `ALLOWED_EMAILS` (comma-separated additional sign-ins — crew accounts get their
 own email/calendar/brief/chat memory; team config stays owner-managed),
 `GMAIL_SECONDARY_REDIRECT_URI` (second Gmail account), `AISSTREAM_API_KEY` (live
-maritime AIS), `UCDP_API_TOKEN` (Crisis-map conflict layer), and ACLED
+maritime AIS), `UCDP_API_TOKEN` (Crisis-map conflict layer), ACLED
 credentials (set in Preferences, or `ACLED_EMAIL` / `ACLED_PASSWORD` to
-override).
+override), and `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`
+(web push — `npx web-push generate-vapid-keys`).
 
 ---
 
@@ -240,6 +267,18 @@ constraints are load-bearing and documented in **[CLAUDE.md](CLAUDE.md)**:
 - **No `esbuild` in the dependency tree** (`grep -c esbuild package-lock.json`
   must stay `0`) — it breaks the platform's archive extract / sandboxed install.
   Tests run via `npx vitest` on demand so esbuild never enters the installed tree.
+
+### Security model
+
+Google sign-in gated by an allowlist that is re-checked on every token
+refresh (removing a crew address takes effect within minutes, not at JWT
+expiry); team configuration (tracking, Mission Profile, SITREP slots, feeds,
+ACLED credentials, capture corpora) is owner-only, personal surfaces are
+keyed per user; user-supplied feed URLs are resolved and redirect-checked
+before any server-side fetch (`lib/safeFetch.ts`); uploaded files are served
+inline only for types a browser renders without executing anything;
+parameterized SQL throughout; a CSP without `unsafe-eval` in production.
+Diagnostic routes (`*-diag`, `?debug=1`) are owner-only.
 
 ### Browser extension
 

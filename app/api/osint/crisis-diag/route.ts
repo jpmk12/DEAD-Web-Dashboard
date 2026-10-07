@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail, isOwner } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { diagnoseAcled } from "@/lib/acled";
 import { diagnoseUcdp } from "@/lib/conflictEvents";
@@ -32,6 +33,9 @@ async function probe(url: string, headers: Record<string, string>, timeoutMs = 2
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Owner-only like every other diag route: each hit performs a live ACLED
+  // login plus five upstream probes and echoes their error text.
+  if (!isOwner(normEmail(session.user?.email))) return NextResponse.json({ error: "Owner only" }, { status: 403 });
 
   const UA = "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)";
 

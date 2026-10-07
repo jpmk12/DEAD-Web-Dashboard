@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normEmail, isOwner } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { getAcledEmail, saveAcledCredentials, clearAcledCredentials } from "@/lib/userPrefs";
 import { verifyAcledCredentials, resetAcledCache } from "@/lib/acled";
@@ -19,17 +20,20 @@ const envConfigured = () => Boolean(process.env.ACLED_EMAIL && process.env.ACLED
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+  // Crew see whether the layer is configured; the account itself is the owner's.
+  const owner = isOwner(normEmail(session.user?.email));
   if (envConfigured()) {
-    return NextResponse.json({ source: "env", configured: true, email: process.env.ACLED_EMAIL ?? "" });
+    return NextResponse.json({ source: "env", configured: true, email: owner ? process.env.ACLED_EMAIL ?? "" : "" });
   }
   const email = await getAcledEmail().catch(() => "");
-  return NextResponse.json({ source: email ? "settings" : null, configured: Boolean(email), email });
+  return NextResponse.json({ source: email ? "settings" : null, configured: Boolean(email), email: owner ? email : "" });
 }
 
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Team config in the shared prefs row — owner only (code review 2026-10-07).
+  if (!isOwner(normEmail(session.user?.email))) return NextResponse.json({ error: "Owner only" }, { status: 403 });
 
   // When env credentials are pinned, the settings UI is read-only — don't let a
   // write silently do nothing the operator wouldn't expect.
@@ -58,6 +62,7 @@ export async function POST(request: Request) {
 export async function DELETE() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isOwner(normEmail(session.user?.email))) return NextResponse.json({ error: "Owner only" }, { status: 403 });
   if (envConfigured()) {
     return NextResponse.json({ error: "ACLED credentials are set via environment variables and can't be changed here." }, { status: 409 });
   }

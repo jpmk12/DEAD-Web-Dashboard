@@ -26,7 +26,11 @@ export interface AviationWx {
 }
 
 const TTL = 5 * 60 * 1000;
-let cache: { key: string; data: Record<string, AviationWx>; live: boolean; expires: number } | null = null;
+// Per-ICAO (not per request set): the callers ask for different sets — the
+// map in chunks of 12, force protection for the bases, the SITREP for one
+// field — and a single slot keyed by the whole set almost never hit
+// (code review 2026-10-07). Only the misses go to AWC.
+const metarCache = new Map<string, { data: AviationWx; expires: number }>();
 
 const isIcao = (s: string) => /^[A-Z0-9]{4}$/.test(s);
 
@@ -36,15 +40,20 @@ export async function getFlightCategories(icaosRaw: string[]): Promise<{ live: b
   const icaos = Array.from(new Set(icaosRaw.map((s) => s.trim().toUpperCase()).filter(isIcao))).slice(0, 12);
   if (icaos.length === 0) return { live: true, byIcao: {} };
 
-  const key = icaos.slice().sort().join(",");
-  if (cache && cache.key === key && cache.expires > Date.now()) return { live: cache.live, byIcao: cache.data };
+  const now = Date.now();
+  const byIcao: Record<string, AviationWx> = {};
+  const misses: string[] = [];
+  for (const id of icaos) {
+    const hit = metarCache.get(id);
+    if (hit && hit.expires > now) byIcao[id] = hit.data; else misses.push(id);
+  }
+  if (misses.length === 0) return { live: true, byIcao };
 
   try {
-    const res = await fetchWithTimeout(`${AWC}/metar?ids=${icaos.join(",")}&format=json`, { headers: HEADERS, cache: "no-store" }, 10_000);
+    const res = await fetchWithTimeout(`${AWC}/metar?ids=${misses.join(",")}&format=json`, { headers: HEADERS, cache: "no-store" }, 10_000);
     if (!res.ok) throw new Error(`metar ${res.status}`);
     const rows = await res.json();
     const list: unknown[] = Array.isArray(rows) ? rows : [];
-    const byIcao: Record<string, AviationWx> = {};
     for (const row of list) {
       const id = (row as { icaoId?: string }).icaoId?.toUpperCase();
       if (!id || byIcao[id]) continue; // first row = most recent
@@ -59,13 +68,13 @@ export async function getFlightCategories(icaosRaw: string[]): Promise<{ live: b
         observedAt: m.observedAt,
       };
     }
-    cache = { key, data: byIcao, live: true, expires: Date.now() + TTL };
+    for (const id of misses) if (byIcao[id]) metarCache.set(id, { data: byIcao[id], expires: Date.now() + TTL });
     return { live: true, byIcao };
   } catch {
-    // Serve last-good if we have it; otherwise signal not-live so the scorer
-    // marks affected bases UNKNOWN instead of falsely clear.
-    if (cache && cache.key === key) return { live: cache.live, byIcao: cache.data };
-    return { live: false, byIcao: {} };
+    // Last-good for the misses, flagged — never "live"; the scorer marks a
+    // field with nothing at all UNKNOWN instead of falsely clear.
+    for (const id of misses) { const stale = metarCache.get(id); if (stale) byIcao[id] = stale.data; }
+    return { live: false, byIcao };
   }
 }
 

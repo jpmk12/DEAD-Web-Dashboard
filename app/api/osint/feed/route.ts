@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { normEmail } from "@/lib/allowlist";
+import { safeFetch } from "@/lib/safeFetch";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { recordDailySignals, topicTerms, watchTermsIn } from "@/lib/trends";
@@ -139,6 +140,12 @@ async function fetchTelegram(slug: string, feedId: string, label: string, kind: 
   }
 }
 
+/** Feed-supplied links are rendered as hrefs — keep only http(s). */
+function httpOnly(link: string): string {
+  const l = (link ?? "").trim();
+  return /^https?:\/\//i.test(l) ? l : "";
+}
+
 async function fetchAndParse(url: string, feedId: string, label: string, kind: string): Promise<OsintItem[]> {
   // Telegram channels (native t.me or legacy rsshub bridge URLs) are read from
   // the channel's own preview page rather than a third-party RSS bridge.
@@ -164,7 +171,9 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
     const ua = isReddit
       ? "Mozilla/5.0 (compatible; DEAD-Dashboard/1.0; +https://github.com/jpmk12/dead-web-dashboard)"
       : "DEAD-Dashboard/1.0";
-    const res = await fetch(url, {
+    // Resolved + redirect-checked: a feed host that resolves to loopback or
+    // a 302 to an internal address is refused (lib/safeFetch.ts).
+    const res = await safeFetch(url, {
       headers: { "User-Agent": ua, Accept: "application/rss+xml, application/atom+xml, application/xml" },
       cache: "no-store",
       signal: ctrl.signal,
@@ -187,7 +196,7 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
     for (const m of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
       const block = m[1];
       const title = extractTag(block, "title");
-      const link = extractTag(block, "link");
+      const link = httpOnly(extractTag(block, "link"));
       const description = extractTag(block, "description");
       const pubDate = extractTag(block, "pubDate") || extractTag(block, "dc:date");
       if (!title) continue;
@@ -207,7 +216,7 @@ async function fetchAndParse(url: string, feedId: string, label: string, kind: s
       const title = extractTag(block, "title");
       const summary = extractTag(block, "summary") || extractTag(block, "content");
       const linkM = block.match(/<link[^>]+href="([^"]+)"/i);
-      const link = linkM ? linkM[1] : "";
+      const link = httpOnly(linkM ? linkM[1] : "");
       const pubDate = extractTag(block, "updated") || extractTag(block, "published");
       if (!title) continue;
       push({

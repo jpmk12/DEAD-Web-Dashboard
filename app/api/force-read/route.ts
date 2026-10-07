@@ -5,7 +5,8 @@ import { anthropic } from "@/lib/claude";
 import { logCall } from "@/lib/anthropicLog";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
-import { getForceProtection, CATEGORY_LABEL } from "@/lib/forceProtection";
+import { CATEGORY_LABEL } from "@/lib/forceProtection";
+import { getForceProtectionCached } from "@/lib/forceProtectionCached";
 import { AOR_LABELS, type Aor } from "@/lib/aor";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export async function GET() {
   if (cache && cache.key === key && cache.expires > Date.now()) return NextResponse.json({ text: cache.text, cached: true });
 
   try {
-    const { assessments } = await getForceProtection(countries, bases);
+    const { assessments } = await getForceProtectionCached(countries, bases);
 
     // Compact signal board: one block per watch entry, worst categories first.
     const lines: string[] = [];

@@ -75,6 +75,11 @@ async function savePendingExchanges(email: string, pending: PendingExchange[]): 
   );
 }
 
+async function touchMemory(email: string): Promise<void> {
+  const pool = await getDb();
+  await pool.execute("UPDATE user_memory SET last_updated = ? WHERE user_email = ?", [new Date(), email]);
+}
+
 export async function saveMemory(email: string, content: string): Promise<void> {
   const pool = await getDb();
   const capped = content.slice(0, MAX_MEMORY_CHARS);
@@ -186,8 +191,9 @@ ${exchange}`;
   // an empty / unchanged response means the queued exchanges were considered.
   await savePendingExchanges(email, []);
 
-  if (!text) return;
-  // Don't overwrite with an obvious no-op (same length & prefix → likely unchanged).
-  if (text === current.content.trim()) return;
+  // An unchanged memory still counts as THIS window's consolidation: the
+  // 5-min gap keys off last_updated, and without the touch every later turn
+  // re-ran Haiku over a stable memory (code review 2026-10-07).
+  if (!text || text === current.content.trim()) { await touchMemory(email).catch(() => {}); return; }
   await saveMemory(email, text);
 }

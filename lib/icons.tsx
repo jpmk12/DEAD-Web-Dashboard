@@ -34,6 +34,9 @@ import { Users,
   Sunrise,
   Sunset,
   FolderHeart,
+  X,
+  ExternalLink,
+  MoreHorizontal,
   type LucideIcon,
 } from "lucide-react";
 
@@ -72,6 +75,16 @@ export const DAY_PHASE_ICONS = { day: Sun, night: Moon, dawn: Sunrise, dusk: Sun
 
 // Email → "file under Family" (applies a Gmail label and tracks the sender).
 export const FamilyFileIcon = FolderHeart;
+
+// Affordances shared by every modal / drawer / popover. ONE close control:
+// a header "close this surface" button is always <CloseIcon>; the inline
+// "remove this row" glyph stays the Unicode ✕ so the two never read alike.
+export const CloseIcon = X;
+// A link that leaves the app (new tab). The ↗ glyph is reserved for the
+// I&W "deteriorating" trajectory, so external links carry this instead.
+export const ExternalLinkIcon = ExternalLink;
+// "More actions" overflow menus.
+export const MoreIcon = MoreHorizontal;
 
 // News view-mode toggles.
 export const FeedViewIcon = List;

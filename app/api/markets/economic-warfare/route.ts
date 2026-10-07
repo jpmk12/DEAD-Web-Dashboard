@@ -26,6 +26,7 @@ export async function GET(req: Request) {
   try {
     return NextResponse.json(await getEconomicWarfare({ maxWaitMs: 8_000 }));
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "economic-warfare failed" }, { status: 502 });
+    console.error("economic-warfare failed:", e);
+    return NextResponse.json({ error: "economic-warfare board failed" }, { status: 502 });
   }
 }

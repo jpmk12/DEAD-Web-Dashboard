@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { normEmail } from "@/lib/allowlist";
 import { cookies } from "next/headers";
-import { format } from "date-fns";
+import { longDateInTz } from "@/lib/date";
 import { auth } from "@/lib/auth";
 import { anthropic } from "@/lib/claude";
 import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
@@ -138,7 +138,7 @@ async function handle(request: Request) {
   try {
     const ctx = await getMessageForReply(token, messageId);
     if (!ctx) return NextResponse.json({ error: "Email not found" }, { status: 404 });
-    const today = format(new Date(), "EEEE, MMMM d, yyyy");
+    const today = longDateInTz(tz);
     const emailBlock = `Subject: ${ctx.subject}\nFrom: ${ctx.from}\nDate: ${ctx.date}\n\n${ctx.body.slice(0, 4000)}`;
 
     const modelStart = Date.now();

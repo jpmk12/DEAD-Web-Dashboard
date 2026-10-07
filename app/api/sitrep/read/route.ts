@@ -54,7 +54,7 @@ export async function POST(req: Request) {
   try { s = await assembleSitrep(base); }
   catch (err) {
     console.error("sitrep read — assembly failed:", err);
-    return NextResponse.json({ error: "SITREP assembly failed", detail: String(err instanceof Error ? err.message : err) }, { status: 500 });
+    return NextResponse.json({ error: "SITREP assembly failed — see the server log" }, { status: 500 });
   }
 
   // AI off (no key or feature disabled) → deterministic read, never a blank card.
@@ -162,6 +162,6 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("sitrep read — model call failed:", err);
     // The model is unreachable/erroring — fall back so leadership still gets a read.
-    return NextResponse.json({ ...fallbackCommanderRead(s.mission, base.icao), ai: false, reason: "model-error", detail: String(err instanceof Error ? err.message : err) });
+    return NextResponse.json({ ...fallbackCommanderRead(s.mission, base.icao), ai: false, reason: "model-error" });
   }
 }

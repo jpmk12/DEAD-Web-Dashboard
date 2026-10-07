@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "./fetchTimeout";
 // Global airfield "search others" fill from OurAirports (open data, keyless).
 // Complements the curated mobility set (lib/airfields.ts) for crises with no
 // nearby gateway. Lazily fetched + cached 24h so it adds load time at most once
@@ -68,7 +69,7 @@ async function load(): Promise<OaAirfield[]> {
   if (loading) return loading;
   loading = (async () => {
     try {
-      const res = await fetch(CSV_URL, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store" });
+      const res = await fetchWithTimeout(CSV_URL, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store" }, 30_000);
       if (!res.ok) return cache?.fields ?? [];
       const text = await res.text();
       const lines = text.split(/\r?\n/);
@@ -113,7 +114,7 @@ async function loadRunways(): Promise<Map<string, RunwayCap>> {
   if (rwLoading) return rwLoading;
   rwLoading = (async () => {
     try {
-      const res = await fetch(RUNWAYS_URL, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store" });
+      const res = await fetchWithTimeout(RUNWAYS_URL, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store" }, 30_000);
       if (!res.ok) return rwCache?.map ?? new Map();
       const text = await res.text();
       const lines = text.split(/\r?\n/);

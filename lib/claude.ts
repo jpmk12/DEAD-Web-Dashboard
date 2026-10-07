@@ -10,7 +10,10 @@ export function getAnthropic(): Anthropic {
   // placeholder ("No key facts extracted", "Couldn't generate a thesis").
   const apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-  return new Anthropic({ apiKey });
+  // Bounded: the SDK's defaults are 10 min and two retries, which outlive the
+  // platform gateway (~20-30 s) and could spend a call three times after the
+  // client already saw a 502. Routes with a longer budget override per call.
+  return new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 });
 }
 
 // Shape of the configured key, for the owner-only diagnostic in AI Controls.

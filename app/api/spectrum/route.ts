@@ -24,6 +24,7 @@ export async function GET(req: Request) {
   try {
     return NextResponse.json(await getSpectrumSummary({ maxWaitMs: 8_000 }));
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "spectrum failed" }, { status: 502 });
+    console.error("spectrum failed:", e);
+    return NextResponse.json({ error: "spectrum summary failed" }, { status: 502 });
   }
 }

@@ -36,8 +36,8 @@ export async function recordSightings(
         `INSERT INTO household_bills (message_id, biller_id, seen_date, amount_cents, due_date, subject, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
-           amount_cents = VALUES(amount_cents),
-           due_date     = VALUES(due_date),
+           amount_cents = COALESCE(VALUES(amount_cents), amount_cents),
+           due_date     = COALESCE(VALUES(due_date), due_date),
            subject      = VALUES(subject)`,
         [r.messageId.slice(0, 80), r.billerId.slice(0, 40), r.seenISO.slice(0, 10),
          r.amountCents, r.dueISO, r.subject.slice(0, 255), Date.now()],

@@ -72,6 +72,12 @@ export const SEVERITY_TEXT: Record<Severity, string> = {
   red: "text-red-400", amber: "text-amber-400", green: "text-emerald-400", unknown: "text-slate-400",
 };
 
+/** Tailwind background for a posture DOT (the status-row and email-card
+ *  dots). UNKNOWN is slate — its own tone, never a greyed green. */
+export const SEVERITY_BG: Record<Severity, string> = {
+  red: "bg-red-500", amber: "bg-amber-400", green: "bg-emerald-500", unknown: "bg-slate-500",
+};
+
 export const SEVERITY_BORDER: Record<Severity, string> = {
   red: "border-l-red-500/70", amber: "border-l-amber-500/70",
   green: "border-l-emerald-500/40", unknown: "border-l-slate-500/50",

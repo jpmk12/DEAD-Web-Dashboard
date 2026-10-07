@@ -273,7 +273,26 @@ export async function fetchLocationHazards(locations: NamedPoint[]): Promise<Loc
     .sort((x, y) => rank[x.severity] - rank[y.severity]);
 }
 
+// Signature-keyed memo (3 min, in-flight deduped): the route, computeAlerts
+// and the morning brief all asked for the same picture on their own clocks,
+// each paying NWS + Open-Meteo per point + NHC (code review 2026-10-07).
+const THREATS_TTL = 3 * 60 * 1000;
+const threatsCache = new Map<string, { data: WeatherThreats; expires: number }>();
+const threatsInflight = new Map<string, Promise<WeatherThreats>>();
 export async function getWeatherThreats(locations: NamedPoint[]): Promise<WeatherThreats> {
+  const key = locations.map((l) => `${l.label}|${l.lat.toFixed(3)},${l.lon.toFixed(3)}`).sort().join(";");
+  const hit = threatsCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.data;
+  const running = threatsInflight.get(key);
+  if (running) return running;
+  const p = computeWeatherThreats(locations)
+    .then((data) => { threatsCache.set(key, { data, expires: Date.now() + THREATS_TTL }); return data; })
+    .finally(() => { threatsInflight.delete(key); });
+  threatsInflight.set(key, p);
+  return p;
+}
+
+async function computeWeatherThreats(locations: NamedPoint[]): Promise<WeatherThreats> {
   const [threats, tropical, disastersRaw, hazards] = await Promise.all([
     locations.length > 0 ? aggregateThreats(locations) : Promise.resolve([] as SevereThreat[]),
     fetchActiveTropical(),

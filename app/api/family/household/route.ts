@@ -22,7 +22,6 @@ export async function GET(req: Request) {
     return NextResponse.json(digest);
   } catch (err) {
     console.error("Household digest failed:", err);
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: `Household digest failed: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: "Household digest failed — see the server log" }, { status: 500 });
   }
 }

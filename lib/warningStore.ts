@@ -24,7 +24,10 @@ export async function recordWarningDay(
     `INSERT INTO warning_daily (problem_id, day, raw_score, anomaly, level, mobility_count, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, NOW(3))
      ON DUPLICATE KEY UPDATE raw_score = VALUES(raw_score), anomaly = VALUES(anomaly), level = VALUES(level),
-       mobility_count = GREATEST(COALESCE(mobility_count, 0), COALESCE(VALUES(mobility_count), 0)), updated_at = NOW(3)`,
+       mobility_count = CASE WHEN VALUES(mobility_count) IS NULL THEN mobility_count
+                             WHEN mobility_count IS NULL THEN VALUES(mobility_count)
+                             ELSE GREATEST(mobility_count, VALUES(mobility_count)) END,
+       updated_at = NOW(3)`,
     [problemId, day, rawScore, anomaly, level, mobilityCount],
   );
 }

@@ -7,7 +7,7 @@ import { CHOKEPOINTS, type Chokepoint } from "./chokepoints";
 import { readActivity, type GeoEvent, type ChokepointText, type ActivityRead } from "./chokepointSignals";
 import { getConflictPoints } from "./conflictEvents";
 import { getAcledEvents } from "./acled";
-import { gdeltLocalNews } from "./localNews";
+import { gdeltLocalNewsLive } from "./localNews";
 import { ensureChokepointConnection, type AisStatus } from "./aisStream";
 import { getChokepointTransits, type ChokepointTransit } from "./chokepointAis";
 import { getSensorSeries, recordSensorDay } from "./sensorStore";
@@ -75,15 +75,18 @@ async function withTransits(body: ChokepointReadsBody): Promise<ChokepointReadsB
 /** Prior days with a reported act at each chokepoint (the cpact: series),
  *  cached 10 min — one small query per strait per refresh otherwise. */
 export const TRANSIT_LEAD_LAG_DAYS = 3;
-let actCache: { at: number; days: Record<string, string[]> } | null = null;
+let actCache: { at: number; key: string; days: Record<string, string[]> } | null = null;
 async function actDaysFor(ids: string[]): Promise<Record<string, string[]>> {
-  if (actCache && Date.now() - actCache.at < 10 * 60_000) return actCache.days;
+  // Keyed by the id set: an I&W sensor asking for one strait must not leave
+  // the Economy tab's eight-strait read with empty act histories.
+  const key = [...ids].sort().join(",");
+  if (actCache && actCache.key === key && Date.now() - actCache.at < 10 * 60_000) return actCache.days;
   const days: Record<string, string[]> = {};
   await Promise.all(ids.map(async (id) => {
     const series = await getSensorSeries(sensorKey("cpact", id), 90).catch(() => []);
     days[id] = series.filter((p) => p.value >= 1).map((p) => p.day);
   }));
-  actCache = { at: Date.now(), days };
+  actCache = { at: Date.now(), key, days };
   return days;
 }
 
@@ -120,15 +123,16 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
   // One targeted news query per chokepoint, so the text being graded is
   // genuinely about that place rather than filtered out of a global pile.
   const signals: ChokepointRead[] = await Promise.all(points.map(async (cp) => {
-    const news = await gdeltLocalNews(cp.name).catch(() => []);
+    const { items: news, live: newsLive } = await gdeltLocalNewsLive(cp.name).catch(() => ({ items: [], live: false }));
     const texts: ChokepointText[] = news.map((n) => ({
       title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate,
     }));
     const read = readActivity(cp, texts, events, today);
     // The act history that did not exist before (PLAN §5 C3): 1 on a day the
     // graded read holds a reported act, 0 otherwise — an observed quiet day
-    // is a fact too. Day-peak, fire-and-forget.
-    recordSensorDay(sensorKey("cpact", cp.id), today, read.acts > 0 ? 1 : 0).catch(() => {});
+    // is a fact too, but ONLY when the news feed answered: a dead sensor
+    // writes nothing (code review 2026-10-07). Day-peak, fire-and-forget.
+    if (newsLive || read.acts > 0) recordSensorDay(sensorKey("cpact", cp.id), today, read.acts > 0 ? 1 : 0).catch(() => {});
     return {
       ...cp,
       ...read,

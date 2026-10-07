@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { normEmail } from "@/lib/allowlist";
+import { normEmail, isOwner } from "@/lib/allowlist";
 import { verifyXUploadToken, setXTokenCadence } from "@/lib/xUploadToken";
 import { parseNoticesCapture } from "@/lib/noticeCapture";
 import { upsertNotices, getNoticeStatus, clearNotices } from "@/lib/noticeStore";
@@ -30,6 +30,8 @@ export async function POST(req: Request) {
   }
   if (!session?.accessToken && !email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return NextResponse.json({ error: "Payload too large." }, { status: 413 });
   const raw = await req.text();
   if (raw.length > MAX_BODY_BYTES) return NextResponse.json({ error: "Capture too large (3 MB max)." }, { status: 413 });
 
@@ -56,6 +58,9 @@ export async function GET() {
 export async function DELETE() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Owner-only: this clears a SHARED corpus (it feeds I&W corroboration and
+  // the Economy board), not the caller's own rows (code review 2026-10-07).
+  if (!isOwner(normEmail(session.user?.email))) return NextResponse.json({ error: "Owner only" }, { status: 403 });
   await clearNotices().catch(() => {});
   return NextResponse.json({ ok: true });
 }

@@ -3257,6 +3257,120 @@ only; every tracked airfield has a register of its own by command.
   Profile, read by the registry and the assembler).
 No new npm dep (esbuild `0`).
 
+### Code review 2026-10-07 (security · correctness · performance · UI) — what changed and the rules it left behind
+Five parallel reviews over the whole tree (140 routes, 108 components, 248
+libs), each finding confirmed by reading the code path before it was fixed.
+The fixes, grouped by the rule they enforce — keep the rule, not just the
+patch:
+- **Security.** (1) Uploaded files are served inline ONLY for types a
+  browser renders without executing (`INLINE_TYPES` in
+  `/api/files/[id]/inline`: png/jpeg/gif/webp/bmp, pdf, plain/csv/json) —
+  everything else is `attachment` + `nosniff` + a sandboxing CSP on the
+  response. An uploaded `.html`/`.svg` opened in a tab ran as the signed-in
+  user on the app origin (any crew member → owner-gated routes). (2) The
+  allowlist is re-checked in the **`jwt` callback on every turn**, not only
+  at sign-in — a 30-day JWT kept a removed address working; refusing drops
+  the Google token so every route 401s. (3) **`lib/safeFetch.ts`** is the
+  one door for a USER-SUPPLIED URL (OSINT feeds, the feed tester,
+  `lib/rss.ts`): the hostname is resolved and every address must be public
+  (`isPrivateAddress` — loopback, RFC1918, link-local, CGNAT, this-net,
+  multicast, IPv4-mapped v6 in either spelling; tested), then `redirect:
+  "manual"` with every hop re-validated. `isSafeHostname` (the string
+  check) stays as the first gate; it never saw a name that RESOLVES to
+  loopback or a 302 to one. (4) Owner-gated now: ACLED credential writes
+  (+ the env email only to the owner), DELETE on the four shared capture
+  corpora (x-import, articles, events, notices), `crisis-diag`, the
+  secondary-Gmail `?step=debug`. (5) Error replies are generic (the
+  message stays in the server log) on sitrep/read, spectrum,
+  economic-warfare, family/household, family/roster,
+  watchlist-suggestions. (6) The bearer-ingest routes refuse on
+  `content-length` BEFORE reading the body. (7) `/api/newsletters` marks
+  mail read only for the app's own fetch (`x-dead-client: 1` header) — a
+  state change behind a GET must not be reachable by a link. (8) Feed
+  links are kept only when `http(s)` (`lib/rss.ts` `httpLink`, the feed
+  route `httpOnly`). (9) The production CSP has **no `unsafe-eval`** (the
+  TradingView widgets that needed it are gone; dev keeps it for Next).
+- **Correctness (server).** `dismissed_watch_suggestions` was READ but
+  never WRITTEN by `saveUserPrefs` — every dismissal (watchlist
+  suggestions, Back on the board, family proposals) returned on the next
+  load; fixed in the INSERT/UPDATE. `warning_daily.mobility_count`: a NULL
+  (dead ADS-B) second write became `GREATEST(0,0)=0` — a fake quiet day in
+  the baseline; the upsert is a CASE that keeps NULL as NULL. Household
+  bill upserts `COALESCE` amount / due so a partial model pass never erases
+  history. Memory consolidation touches `last_updated` on a no-op result
+  (every later turn re-ran Haiku over a stable memory). Quick-capture and
+  email→event compute "today" in the USER'S zone (`longDateInTz` /
+  `todayInTz`), not the server's UTC day. Nominatim non-2xx is never
+  cached as "no such place". `gdeltSearchLive` / `gdeltLocalNewsLive`
+  carry liveness and the chokepoint `cpact:` series is written only from a
+  live read (a dead sensor writes nothing). The SITREP's single-base
+  `getForceProtection(…, { record: false })` writes no posture row for a
+  field outside the watch; the brief and force-read go through
+  `getForceProtectionCached`. `actDaysFor` is keyed by the id set. A
+  failed AWC fetch serves last-good METAR flagged `live:false`, never live.
+- **Correctness (client).** The command board never replaces a real board
+  with a pending / failed EMPTY stub (the "everything blanks and
+  regenerates after a change" report — the server now also keeps the last
+  body as STALE in `resetCommandsCache` instead of nulling it); door
+  events (`watch:focus`, `regional:select`) are applied immediately when
+  the board is already loaded (`doorTick`), not on the next poll; one poll
+  timer, cleared on unmount. The Economy tab takes `active` and nothing
+  there fires while it is hidden (a Sonnet read used to run on every page
+  load). `SitrepPanel` carries a load sequence so a slow base cannot land
+  under the next base's header. Mission Profile autosave keeps an edit
+  made during an in-flight save dirty (`editSerial`). The assistant shows a
+  non-OK `/api/chat` reply as an error bubble. Preferences Save no longer
+  sends `trackedLocations` (a place tracked while the drawer was open was
+  deleted on Save). ⌘K inside the Docs editor does not open the palette.
+  `watchlist:changed` has a listener. ⌘K → family member scrolls once the
+  card exists. A pending Docs autosave is flushed (`keepalive`) when the
+  doc changes under the editor. The situation-room mini-map memoises its
+  points so a parent re-render does not re-fit over the user's pan.
+- **Performance / cost.** `lib/claude.ts`: `timeout: 60_000, maxRetries:
+  1` for every call site (the SDK default was 10 min and two retries —
+  three spends after the gateway had already answered 502). GDELT goes
+  through ONE process-wide gate (`paced`, 5.2 s apart; a caller that would
+  wait >20 s is answered stale with `live:false`) with a 5-min negative
+  cache — eight callers, several `Promise.all` fan-outs, against a 1-per-5-s
+  limit. Bounded now: `/api/sitrep/summary` (8 s per base → stub flagged
+  `pending`, 202; Glance keeps the last real LEDs and re-asks), `/api/
+  warning` (12 s per board → `pending`), `computeAlerts` boards in parallel
+  and bounded. Per-ICAO METAR cache (only the misses go to AWC; the old
+  single slot keyed by the whole set almost never hit). OurAirports fetches
+  are bounded (30 s). `getWeatherThreats` memo lives in the lib (route,
+  alerts and brief share it). `StatusRow` feeds and the Crisis map's polls
+  run only while their pane is active AND the window is visible (an
+  open-but-hidden desktop kept every fan-out warm 24/7). Glance memoises
+  the posture-move scan; CalendarTab's 5-s tick keeps a stable empty
+  array. `PreferencesDrawer` and `FamilyTab` are `next/dynamic` and the
+  drawer mounts only while open (`?prefs=` is written to the URL BEFORE
+  opening so the on-demand drawer lands on the section). Email action
+  extraction uses Sonnet, not Opus.
+- **UI consistency** (see `docs/REVIEW-2026-10.md` §13 for the audit):
+  `lib/levelTokens.ts` is the ONE home for the I&W level pill, the LED
+  classes/hex and the flight-category hex (three byte-identical
+  `LEVEL_PILL` copies and six LED tables are gone); `lib/relTime.ts` is
+  the one "5m ago" (thirteen private helpers were); `SEVERITY_BG` joins
+  `lib/severity.ts`; `CloseIcon` / `ExternalLinkIcon` / `MoreIcon` join
+  `lib/icons.tsx` and every modal header close is the same `w-7 h-7`
+  button with `aria-label`; selection is SKY everywhere (emerald is ok /
+  nav, violet is yours, amber/red are earned); `↗` means trajectory only
+  (external links carry the icon), `▲` is "worse", `▾/▴` are the only
+  fold glyphs, `↶` undo, `↻` refresh, `⇩` export, `＋` add; UNKNOWN never
+  defaults to green or renders as nothing; section labels are
+  `text-[10px] … text-slate-400` (cards) / `text-xs … text-slate-300`
+  (panes) — no 8.5 px slate-600 labels; hover-only controls are visible
+  on touch.
+- **Settings audit** (`docs/REVIEW-2026-10.md` §12): the drawer keeps
+  declaration · identity · connections · AI controls; every list a page
+  shows should be edited on that page. Recommended cuts (dead markets
+  watchlist, duplicate tracked-locations and OSINT-feeds editors) and
+  moves (crew counts → Glance, trips → Calendar, timezone pin → the zone
+  label, home → Weather, news/newsletter sources → News, spectrum
+  declaration → SITREP/Weather, push → Alerts tile, iCal → Calendar).
+  Not built yet — analysis only.
+No new npm dep (esbuild `0`).
+
 ### OSINT tab consolidation (9 chips → Watch / Regional / Feeds / Sources) — SUPERSEDED 2026-10-06
 **Historical.** Watch and Regional retired into the command board above;
 the hidden-mount contract, the feed-at-mount rule and the legacy

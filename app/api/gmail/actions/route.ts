@@ -86,7 +86,7 @@ export async function POST(request: Request) {
     if (checkRateLimit(`gmail-actions:${normEmail(session.user?.email)}`, 10_000)) {
       try {
         const response = await anthropic.messages.create({
-          model: "claude-opus-4-7",
+          model: "claude-sonnet-4-6",
           max_tokens: 1024,
           system: SYSTEM_PROMPT,
           messages: [
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
           ],
         });
 
-        logCall({ route: "email_actions", model: "claude-opus-4-7", usage: response.usage, user: normEmail(session.user?.email) }).catch(() => {});
+        logCall({ route: "email_actions", model: "claude-sonnet-4-6", usage: response.usage, user: normEmail(session.user?.email) }).catch(() => {});
 
         const textBlock = response.content.find((b) => b.type === "text");
         const raw = textBlock?.type === "text" ? textBlock.text : "[]";

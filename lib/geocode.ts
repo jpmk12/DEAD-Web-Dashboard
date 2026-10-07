@@ -33,7 +33,7 @@ export async function geocodePlace(query: string): Promise<GeoPoint | null> {
       { headers: { "User-Agent": "dead-web-dashboard/1.0 (personal-use)" } },
       8_000,
     );
-    if (!res.ok) { cache.set(key, null); return null; }
+    if (!res.ok) return null; // a 429 / 5xx is transient — never cache it as "no such place"
     const data: unknown = await res.json();
     const first = Array.isArray(data) ? (data[0] as { lat?: string; lon?: string; display_name?: string } | undefined) : undefined;
     const lat = parseFloat(String(first?.lat ?? ""));

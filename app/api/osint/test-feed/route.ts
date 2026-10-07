@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { isSafeHostname } from "@/lib/osintFeeds";
+import { safeFetch } from "@/lib/safeFetch";
 import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -14,18 +16,6 @@ export const dynamic = "force-dynamic";
 //   - status 200 but 0 items found → likely a Twitter-bridge block
 //   - hint for known-problematic upstreams (rsshub.app + twitter pattern)
 
-function isSafeHostname(h: string): boolean {
-  if (!h) return false;
-  if (h === "localhost" || h === "broadcasthost" || h === "ip6-localhost") return false;
-  if (/^127\./.test(h)) return false;
-  if (/^10\./.test(h)) return false;
-  if (/^192\.168\./.test(h)) return false;
-  if (/^169\.254\./.test(h)) return false;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
-  if (/^(::1|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i.test(h)) return false;
-  if (/^0\.0\.0\.0$/.test(h)) return false;
-  return true;
-}
 
 // Recognise Telegram feeds (native t.me or legacy rsshub bridge URLs) and
 // return the channel slug — the real feed route reads these from the channel's
@@ -282,7 +272,7 @@ export async function POST(req: Request) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), 8_000);
   try {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers: {
         "User-Agent": "DEAD-Dashboard/1.0",
         Accept: "application/rss+xml, application/atom+xml, application/xml",

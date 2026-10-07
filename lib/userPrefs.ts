@@ -413,13 +413,13 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
   await pool.execute(
     `INSERT INTO user_prefs
        (id, role, priority_topics, deprioritize_topics, watchlist,
-        vip_senders, mute_senders, dismissed_vip_suggestions,
+        vip_senders, mute_senders, dismissed_vip_suggestions, dismissed_watch_suggestions,
         tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources,
         ai_enabled, ai_feature_toggles,
         local_feed_key, local_city, local_lat, local_lon,
         theme, timezone, timezone_mode, last_updated)
      VALUES (1, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+             CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
              ?, CAST(? AS JSON),
              ?, ?, ?, ?, ?, ?, ?, ?)
@@ -431,6 +431,7 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
        vip_senders                = VALUES(vip_senders),
        mute_senders               = VALUES(mute_senders),
        dismissed_vip_suggestions  = VALUES(dismissed_vip_suggestions),
+       dismissed_watch_suggestions = VALUES(dismissed_watch_suggestions),
        tracked_locations          = VALUES(tracked_locations),
        force_locations            = VALUES(force_locations),
        sitrep_bases               = VALUES(sitrep_bases),
@@ -458,6 +459,10 @@ export async function saveUserPrefs(prefs: Omit<UserPrefs, "lastUpdated">): Prom
       JSON.stringify(prefs.vipSenders),
       JSON.stringify(prefs.muteSenders),
       JSON.stringify(prefs.dismissedVipSuggestions),
+      // Was missing from the write entirely — every "dismiss" (watchlist
+      // suggestions, Back on the board, family proposals) came back on the
+      // next load (code review 2026-10-07).
+      JSON.stringify(prefs.dismissedWatchSuggestions ?? []),
       JSON.stringify(prefs.trackedLocations),
       JSON.stringify(prefs.forceLocations ?? []),
       JSON.stringify(prefs.sitrepBases ?? []),

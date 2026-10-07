@@ -80,7 +80,12 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
-export function resetCommandsCache(): void { cache = null; lastFailure = null; }
+/** Drop the cache after a tracking write. The last body is KEPT as stale (not
+ *  nulled): the next read starts the re-assembly and, past the bounded wait,
+ *  answers the previous picture flagged `pending` instead of an EMPTY stub —
+ *  which the board rendered as every section blanking and regenerating after
+ *  each change (bug report 2026-10-07). */
+export function resetCommandsCache(): void { if (cache) cache = { ...cache, at: 0 }; lastFailure = null; }
 
 // Country strings reach the board from four stores (posture rows, SITREP
 // bases, the profile's hub/spokes, the resolver) and older rows carry ISO2

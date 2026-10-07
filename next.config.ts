@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
             value: [
               "default-src 'self'",
               // TradingView widget loader scripts + Twitter embeds
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://platform.twitter.com https://abs.twimg.com https://x.com https://s3.tradingview.com https://*.tradingview.com https://*.tradingview-widget.com",
+              `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""} https://platform.twitter.com https://abs.twimg.com https://x.com https://s3.tradingview.com https://*.tradingview.com https://*.tradingview-widget.com`,
               // Windy map embed + TradingView widget iframes + Twitter +
               // OSINT aircraft/maritime iframe providers (the page blocks any
               // frame whose origin isn't listed here — without these the

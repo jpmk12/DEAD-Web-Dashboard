@@ -40,7 +40,6 @@ export async function POST(req: Request) {
     // degradation the AI routes had. This is owner-only, so naming the real
     // database error is useful rather than a disclosure.
     console.error("Family roster save failed:", err);
-    const msg = err instanceof Error ? err.message : "Unknown database error";
-    return NextResponse.json({ error: `Could not save the roster: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: "Could not save the roster — database error" }, { status: 500 });
   }
 }

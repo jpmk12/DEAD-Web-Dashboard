@@ -9,7 +9,7 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { NewsItem, NewsletterSummary, CalendarEvent } from "@/lib/types";
 import { getWeatherThreats, type NamedPoint } from "@/lib/severeWeather";
-import { getForceProtection } from "@/lib/forceProtection";
+import { getForceProtectionCached } from "@/lib/forceProtectionCached";
 import { getTrendMovers, formatMoversForPrompt } from "@/lib/trends";
 import { geocodePlace } from "@/lib/geocode";
 import { getDayForecasts, forecastLine, type DayForecast } from "@/lib/forecast";
@@ -367,7 +367,7 @@ export async function POST(request: Request) {
   // newly-escalated spots in the brief. Best-effort and bounded.
   let forceLine = "";
   try {
-    const fp = await getForceProtection(prefs.countriesOfInterest ?? [], prefs.forceLocations ?? []);
+    const fp = await getForceProtectionCached(prefs.countriesOfInterest ?? [], prefs.forceLocations ?? []);
     const notable = fp.assessments.filter((a) => a.composite === "red" || a.composite === "amber" || a.previousComposite);
     if (notable.length) {
       forceLine = notable.slice(0, 8).map((a) => {

@@ -423,7 +423,7 @@ export function countryToEntry(c: CountryWatch): ForceLocation {
   };
 }
 
-export async function getForceProtection(countries: CountryWatch[], bases: ForceLocation[] = []): Promise<ForceProtectionResult> {
+export async function getForceProtection(countries: CountryWatch[], bases: ForceLocation[] = [], opts: { record?: boolean } = {}): Promise<ForceProtectionResult> {
   const locations: ForceLocation[] = [
     ...countries.map(countryToEntry),
     ...bases.map((b) => ({ ...b, kind: "base" as const })),
@@ -498,7 +498,10 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
     );
     if (c.state !== "quiet") a.chronicity = c;
   }
-  recordPosture(assessments).catch(() => {});
+  // The SITREP assembles a single base through here; it must not write a
+  // posture row for a field that is not in the force watch (code review
+  // 2026-10-07) — only the watch assembly records.
+  if (opts.record !== false) recordPosture(assessments).catch(() => {});
 
   return {
     assessments,

@@ -69,6 +69,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       return isAllowedEmail(profile?.email, process.env.OWNER_EMAIL, process.env.ALLOWED_EMAILS);
     },
     async jwt({ token, account }) {
+      // The allowlist is re-checked on EVERY turn, not only at sign-in: a
+      // 30-day JWT would otherwise keep a removed crew address working until
+      // it expired (code review 2026-10-07). Refusing here drops the Google
+      // token, so every route 401s and the session banner asks to sign in.
+      if (!isAllowedEmail(token.email, process.env.OWNER_EMAIL, process.env.ALLOWED_EMAILS)) {
+        return { ...token, accessToken: undefined, refreshToken: undefined, error: "RefreshAccessTokenError" };
+      }
       // Fresh sign-in: capture the tokens and clear any prior error.
       if (account) {
         return {

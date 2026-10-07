@@ -71,8 +71,7 @@ export async function POST(req: Request) {
     await saveUserPrefs({ ...prefs, watchlist, dismissedWatchSuggestions: dismissed });
   } catch (err) {
     console.error("Watchlist suggestion write failed:", err);
-    const msg = err instanceof Error ? err.message : "Unknown database error";
-    return NextResponse.json({ error: `Could not save: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: "Could not save — database error" }, { status: 500 });
   }
   return NextResponse.json({ ok: true, watchlist });
 }
