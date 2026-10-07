@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { openTrackPicker } from "@/lib/trackClient";
+import { openTrackPicker, postTrack, roleBody, untrackAirfieldBody, untrackCountryBody, type TrackResponse } from "@/lib/trackClient";
 import dynamic from "next/dynamic";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WarningBoard from "@/components/osint/WarningBoard";
@@ -31,7 +31,13 @@ import { toast } from "@/lib/feedback";
 // arms itself lazily on first activation (all tabs mount at app load).
 //
 // Every ★ is a Mission Profile write (owner) through PATCH /api/mission-profile
-// — the board never keeps its own tracking state.
+// — the board never keeps its own tracking state. Add / remove / hub·spoke
+// (2026-10-07) go through the ONE Track door (`postTrack` → /api/track):
+// ＋ Track… opens the picker prefilled; ✕ on an airfield or country row is a
+// full untrack (a hub/spoke loses its role on the same write); the hub/spoke
+// switch is op "role". Every write returns the server's `undo`, shown in a
+// strip above the strip for a few seconds; the board reloads on
+// `tracking:changed` like the Weather tab and the Tracking panel do.
 
 const CrisisMap = dynamic(() => import("@/components/osint/CrisisMap"), {
   ssr: false,
@@ -73,6 +79,35 @@ function Dot({ sev, title }: { sev: Severity | null; title?: string }) {
   return <span style={{ color: sev ? SEVERITY_DOT[sev] : "#334155" }} className="text-[11px]" title={title ?? (sev ?? "not watched")}>●</span>;
 }
 
+/** The hub / spoke switch: the active role is lit; tapping it again clears the role. */
+function RoleSwitch({ icao, role, onSet, disabled }: { icao: string; role: "hub" | "spoke" | null; onSet: (r: "hub" | "spoke" | null) => void; disabled?: boolean }) {
+  const chip = (r: "hub" | "spoke") => {
+    const on = role === r;
+    return (
+      <span
+        key={r} role="button" tabIndex={0} aria-pressed={on} aria-disabled={disabled}
+        title={on ? `${icao} is the ${r} — click to clear its own-force role` : r === "hub" ? `Make ${icao} the hub (the current hub becomes a spoke)` : `Make ${icao} a spoke`}
+        onClick={(e) => { e.stopPropagation(); if (!disabled) onSet(on ? null : r); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) onSet(on ? null : r); } }}
+        className={`text-[8px] font-bold uppercase tracking-widest rounded px-1 py-px border cursor-pointer select-none ${on ? "border-sky-500/60 text-sky-200 bg-sky-500/15" : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500"} ${disabled ? "opacity-40 cursor-default" : ""}`}
+      >{r}</span>
+    );
+  };
+  return <span className="inline-flex items-center gap-1" title="own-force role">{chip("hub")}{chip("spoke")}</span>;
+}
+
+/** The ✕ that stops tracking a thing everywhere — a span so it can sit inside a row button. */
+function Untrack({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <span
+      role="button" tabIndex={0} aria-disabled={disabled} title={`Stop tracking ${label} (removes it from every list — Undo offered)`} aria-label={`Stop tracking ${label}`}
+      onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) onClick(); } }}
+      className={`text-[11px] leading-none px-1 rounded text-slate-600 hover:text-red-300 cursor-pointer select-none ${disabled ? "opacity-40 cursor-default" : ""}`}
+    >✕</span>
+  );
+}
+
 function Star({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) {
   return (
     <button
@@ -105,6 +140,9 @@ export default function CommandBoard({ active }: { active: boolean }) {
   const [flash, setFlash] = useState<string | null>(null);
   const [forces, setForces] = useState<ForceAssessment[]>([]);
   const [mtBusy, setMtBusy] = useState(false);
+  const [trkBusy, setTrkBusy] = useState(false);
+  const [undoBar, setUndoBar] = useState<{ text: string; body: Record<string, unknown> } | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const parked = useRef<{ kind: "sitrep" | "iw" | "country"; id: string } | null>(null);
 
   useEffect(() => {
@@ -138,8 +176,42 @@ export default function CommandBoard({ active }: { active: boolean }) {
     if (!armed) return;
     load();
     const id = setInterval(load, 5 * 60 * 1000);
-    return () => clearInterval(id);
+    // A Track anywhere (picker, Weather ✕, Preferences, this board) drops the
+    // server's commands cache; re-read so the strip and the rows agree.
+    window.addEventListener("tracking:changed", load);
+    return () => { clearInterval(id); window.removeEventListener("tracking:changed", load); };
   }, [armed, load]);
+
+  // ── Track / untrack / role: the ONE door, with the server's undo shown briefly ──
+  const showUndo = useCallback((d: TrackResponse, what: string) => {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    if (!d.changes?.length || !d.undo) { setUndoBar(null); return; }
+    setUndoBar({ text: `${what} — ${d.changes.join(" · ")}`, body: d.undo });
+    undoTimer.current = setTimeout(() => setUndoBar(null), 20_000);
+  }, []);
+  const track = useCallback(async (body: Record<string, unknown>, what: string) => {
+    if (!data?.canEdit) { toast.info("Tracking is team config — the owner changes it"); return; }
+    setTrkBusy(true);
+    try {
+      const d = await postTrack(body);
+      if (!d.error) showUndo(d, what);
+    } finally { setTrkBusy(false); }
+  }, [data?.canEdit, showUndo]);
+  const undoTrack = useCallback(async () => {
+    if (!undoBar) return;
+    const body = undoBar.body;
+    setUndoBar(null);
+    setTrkBusy(true);
+    try {
+      const d = await postTrack(body, { quiet: true });
+      if (d.error) toast.error("Could not undo", d.error);
+      else toast.ok("Undone", d.changes?.join(" · "));
+    } finally { setTrkBusy(false); }
+  }, [undoBar]);
+  const setRole = (icao: string, role: "hub" | "spoke" | null) => track(roleBody(icao, role), role ? `${icao} → ${role}` : `${icao} role cleared`);
+  const untrackField = (icao: string, own: "hub" | "spoke" | null) => track(untrackAirfieldBody(icao, own), `${icao} untracked`);
+  const untrackCountry = (country: string) => track(untrackCountryBody(country), `${country} untracked`);
+  const editOps: EditOps | null = data?.canEdit ? { busy: trkBusy, setRole, untrackField, untrackCountry } : null;
 
   // Force assessments (shared client cache — the map pulls the same) for the
   // country situation room, which needs the full category breakdown.
@@ -304,37 +376,61 @@ export default function CommandBoard({ active }: { active: boolean }) {
 
       <ReactivationCard active={armed} />
 
+      {/* ── Undo strip: the last tracking write, reversible for 20 s ── */}
+      {undoBar && (
+        <div className="flex items-center gap-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-100">
+          <span className="min-w-0 truncate" title={undoBar.text}>{undoBar.text}</span>
+          <span className="flex-1" />
+          <button onClick={undoTrack} disabled={trkBusy} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-sky-400/60 text-sky-200 hover:bg-sky-500/20 disabled:opacity-50 whitespace-nowrap">↶ Undo</button>
+          <button onClick={() => setUndoBar(null)} aria-label="Dismiss" className="text-slate-500 hover:text-slate-300 text-[11px]">✕</button>
+        </div>
+      )}
+
       {/* ── My airfields ── */}
-      {data && data.board.myFields.length > 0 && (
+      {data && (data.board.myFields.length > 0 || canEdit) && (
         <section className="border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
           <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-200">✈ My airfields</span>
             <span className="text-[10px] text-slate-500">hub · spokes · ★ must-track fields — a SITREP one click from anywhere</span>
             <span className="flex-1" />
+            {canEdit && (
+              <button onClick={() => openTrackPicker({ kind: "airfield" })} title="Track an airfield (search by ICAO, name or country); then set hub / spoke on its card" className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10">＋ Track…</button>
+            )}
             <button onClick={() => setMineOpen((v) => !v)} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">{mineOpen ? "fold ▴" : "unfold ▾"}</button>
           </div>
-          {!mineOpen && (
+          {data.board.myFields.length === 0 && (
+            <p className="px-3.5 py-3 text-[11px] text-slate-500">No own-force airfield declared. <button type="button" onClick={() => openTrackPicker({ kind: "airfield" })} className="text-emerald-400 hover:underline">＋ Track…</button> a field, then mark it <b>hub</b> or <b>spoke</b> on its card — or declare them in Preferences → Mission Profile.</p>
+          )}
+          {!mineOpen && data.board.myFields.length > 0 && (
             <p className="px-3.5 py-2 text-[11px] text-slate-400 flex flex-wrap gap-x-3 gap-y-1">
               {data.board.myFields.map((f) => <span key={f.icao} className="flex items-center gap-1.5"><span className="font-mono font-bold text-slate-200">{f.icao}</span>{f.sitrep ? <Leds status={f.sitrep.status} /> : <Dot sev={f.posture?.composite ?? null} />}</span>)}
             </p>
           )}
-          {mineOpen && (
+          {mineOpen && data.board.myFields.length > 0 && (
             <div className="px-3.5 py-2.5 flex flex-wrap gap-2">
               {data.board.myFields.map((f) => {
                 const worst = f.sitrep ? (["r", "a", "u", "g"] as Led[]).find((l) => Object.values(f.sitrep!.status).includes(l)) ?? "g" : null;
                 return (
-                  <button key={f.icao} id={`cb-mine-${f.icao}`} onClick={() => f.aor !== "UNKNOWN" && go({ aor: f.aor, country: f.country || undefined, icao: f.icao })}
-                    className={`text-left min-w-[200px] flex-1 max-w-[320px] rounded-xl border px-3 py-2 transition-colors hover:bg-slate-800/40 ${worst === "r" ? "border-red-500/50" : worst === "a" ? "border-amber-500/40" : "border-slate-800"}`}>
-                    <div className="flex items-center gap-1.5">
-                      <Star on={f.star} label={f.icao} onClick={() => star("icao", f.icao)} disabled={mtBusy} />
-                      <span className="text-[13px] font-extrabold font-mono text-slate-100">{f.icao}</span>
-                      {f.role && <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{f.role}</span>}
-                      <span className="ml-auto">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <Dot sev={f.posture?.composite ?? null} />}</span>
-                      {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>↑</span>}
-                    </div>
-                    <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "not watched — posture UNKNOWN"}</p>
-                    <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.aor !== "UNKNOWN" ? short(f.aor) : "—"} · {f.country || "—"} · {f.hasSitrep ? "SITREP" : "★ to get a SITREP"}</p>
-                  </button>
+                  <div key={f.icao} id={`cb-mine-${f.icao}`} className={`min-w-[200px] flex-1 max-w-[320px] rounded-xl border transition-colors ${worst === "r" ? "border-red-500/50" : worst === "a" ? "border-amber-500/40" : "border-slate-800"}`}>
+                    <button onClick={() => f.aor !== "UNKNOWN" && go({ aor: f.aor, country: f.country || undefined, icao: f.icao })} className="w-full text-left px-3 pt-2 pb-1 rounded-t-xl hover:bg-slate-800/40">
+                      <div className="flex items-center gap-1.5">
+                        <Star on={f.star} label={f.icao} onClick={() => star("icao", f.icao)} disabled={mtBusy} />
+                        <span className="text-[13px] font-extrabold font-mono text-slate-100">{f.icao}</span>
+                        {f.role && !canEdit && <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{f.role}</span>}
+                        <span className="ml-auto">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <Dot sev={f.posture?.composite ?? null} />}</span>
+                        {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>↑</span>}
+                      </div>
+                      <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "not watched — posture UNKNOWN"}</p>
+                      <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.aor !== "UNKNOWN" ? short(f.aor) : "—"} · {f.country || "—"} · {f.hasSitrep ? "SITREP" : "★ to get a SITREP"}</p>
+                    </button>
+                    {canEdit && (
+                      <div className="flex items-center gap-2 px-3 pb-1.5 pt-0.5">
+                        <RoleSwitch icao={f.icao} role={f.role} onSet={(r) => setRole(f.icao, r)} disabled={trkBusy} />
+                        <span className="flex-1" />
+                        <Untrack label={f.icao} onClick={() => untrackField(f.icao, f.role)} disabled={trkBusy} />
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -379,7 +475,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
           <p className="px-3.5 py-4 text-[11.5px] text-slate-400">Nothing is watched yet. Declare a hub, spokes and an AOI in <b>Preferences → Mission Profile</b>, or <button type="button" onClick={() => openTrackPicker()} className="text-emerald-400 hover:underline">track a country or airfield</button>, and the commands fill in. {quietRows.length} commands are quiet — absence of signal, not evidence of calm.</p>
         )}
         {data && shownRows.map((r) => (
-          <CommandRowView key={r.aor} row={r} data={data} open={open} setOpen={setOpen} go={go} star={star} mtBusy={mtBusy} flash={flash} active={active} countryForce={countryForce} />
+          <CommandRowView key={r.aor} row={r} data={data} open={open} setOpen={setOpen} go={go} star={star} mtBusy={mtBusy} flash={flash} active={active} countryForce={countryForce} edit={editOps} />
         ))}
         {data && quietRows.length > 0 && (
           <div className="border-t border-slate-800">
@@ -390,7 +486,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
               <span className="ml-auto text-[9.5px] font-bold uppercase tracking-wider">{othersOpen ? "hide" : "show"}</span>
             </button>
             {othersOpen && quietRows.map((r) => (
-              <CommandRowView key={r.aor} row={r} data={data} open={open} setOpen={setOpen} go={go} star={star} mtBusy={mtBusy} flash={flash} active={active} countryForce={countryForce} />
+              <CommandRowView key={r.aor} row={r} data={data} open={open} setOpen={setOpen} go={go} star={star} mtBusy={mtBusy} flash={flash} active={active} countryForce={countryForce} edit={editOps} />
             ))}
           </div>
         )}
@@ -412,10 +508,11 @@ export default function CommandBoard({ active }: { active: boolean }) {
 
 // ── One command row + its drill ────────────────────────────────────────────
 
-function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, active, countryForce }: {
+function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, active, countryForce, edit }: {
   row: CommandRow; data: Body; open: OpenState; setOpen: (o: OpenState) => void; go: (d: PrimerDoor) => void;
   star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean; flash: string | null; active: boolean;
   countryForce: (c: CountryRow) => { sel: ForceAssessment | null; base: ForceAssessment | null };
+  edit: EditOps | null;
 }) {
   const isOpen = open.aor === r.aor;
   const detail = data.board.details[r.aor];
@@ -508,7 +605,8 @@ function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, 
             <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pt-1 pb-1">Countries · {detail.countries.length} <span className="normal-case tracking-normal font-normal text-slate-600">— ★ first, then worst</span></p>
             {detail.countries.length === 0 && <p className="text-[11px] text-slate-500">Nothing watched in {AOR_LABELS[r.aor]}. <button type="button" onClick={() => openTrackPicker()} className="text-emerald-400 hover:underline">Track a country or an airfield</button>, or ★ one from the Must-tracks panel.</p>}
             {detail.countries.map((c: CountryRow) => (
-              <CountryRowView key={c.country} c={c} open={open} setOpen={setOpen} star={star} mtBusy={mtBusy} flash={flash} active={active} force={countryForce(c)} go={go} />
+              <CountryRowView key={c.country} c={c} open={open} setOpen={setOpen} star={star} mtBusy={mtBusy} flash={flash} active={active} force={countryForce(c)} go={go}
+                edit={edit} />
             ))}
           </div>
 
@@ -521,9 +619,18 @@ function CommandRowView({ row: r, data, open, setOpen, go, star, mtBusy, flash, 
   );
 }
 
-function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, go }: {
+interface EditOps {
+  busy: boolean;
+  setRole: (icao: string, role: "hub" | "spoke" | null) => void;
+  untrackField: (icao: string, own: "hub" | "spoke" | null) => void;
+  untrackCountry: (country: string) => void;
+}
+
+function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, go, edit }: {
   c: CountryRow; open: OpenState; setOpen: (o: OpenState) => void; star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean;
   flash: string | null; active: boolean; force: { sel: ForceAssessment | null; base: ForceAssessment | null }; go: (d: PrimerDoor) => void;
+  /** Owner-only add / remove / role controls; null for crew (read-only). */
+  edit: EditOps | null;
 }) {
   const key = `cb-country-${lc(c.country).replace(/\s+/g, "-")}`;
   const isOpen = open.country != null && lc(open.country) === lc(c.country);
@@ -539,6 +646,7 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
           {c.escalated && <span className="ml-1.5 text-[8px] font-bold uppercase tracking-wider text-red-300 border border-red-500/40 rounded px-1">↑ escalated</span>}
           {c.chronicity && c.chronicity !== "new" && c.chronicity !== "unknown" && <span className="ml-1.5 text-[8px] font-mono text-slate-500">{c.chronicity}</span>}
           {c.unwatched && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); openTrackPicker({ kind: "country", country: c.country }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openTrackPicker({ kind: "country", country: c.country }); } }} title="Not in the posture watch — click to track it" className="ml-1.5 text-[8px] font-mono text-amber-300/80 hover:text-emerald-300 underline decoration-dotted">unwatched · track</span>}
+          {edit && (!c.unwatched || c.star) && <span className="ml-1.5 align-middle"><Untrack label={`${c.country} (posture watch${c.star ? " + ★" : ""})`} onClick={() => edit.untrackCountry(c.country)} disabled={edit.busy} /></span>}
         </span>
         <span className="hidden lg:block text-[10.5px] text-slate-400 truncate">{c.topDriver || "—"}</span>
         <span className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-slate-400 min-w-0">
@@ -554,7 +662,10 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
           <CountryRoom country={c.country} sel={force.sel} base={force.base} active={active} />
 
           <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pb-1">Airfields · {c.fields.length}</p>
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 pb-1 flex items-center gap-2">
+              <span>Airfields · {c.fields.length}</span>
+              {edit && <button type="button" onClick={() => openTrackPicker({ kind: "airfield", query: c.country })} title={`Track an airfield in ${c.country} (the search is prefilled)`} className="normal-case tracking-normal text-[9.5px] font-bold text-emerald-400 hover:underline">＋ Track in {c.country}</button>}
+            </p>
             {c.fields.length === 0 && <p className="text-[11px] text-slate-500">No airfield watched in {c.country}. <button type="button" onClick={() => openTrackPicker({ kind: "airfield", query: c.country })} className="text-emerald-400 hover:underline">Track one</button> — search by ICAO, name or country.</p>}
             {c.fields.map((f: FieldRow) => {
               const fKey = `cb-field-${f.icao}`;
@@ -566,7 +677,8 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
                     <Star on={f.star} label={f.icao} onClick={() => star("icao", f.icao)} disabled={mtBusy} />
                     <span className="min-w-0 flex items-center gap-2 flex-wrap">
                       <span className="text-[12.5px] font-extrabold font-mono text-slate-100">{f.icao}</span>
-                      {f.role && <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{f.role}</span>}
+                      {edit ? <RoleSwitch icao={f.icao} role={f.role} onSet={(r) => edit.setRole(f.icao, r)} disabled={edit.busy} />
+                        : f.role && <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{f.role}</span>}
                       <span className="text-[11px] text-slate-400 truncate">{f.label}</span>
                       <span className="text-[10.5px] text-slate-500 truncate">{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "posture UNKNOWN — not watched"}</span>
                     </span>
@@ -575,6 +687,7 @@ function CountryRowView({ c, open, setOpen, star, mtBusy, flash, active, force, 
                       {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>↑</span>}
                       {!f.hasSitrep && <span className="text-[9px] text-slate-500 whitespace-nowrap">★ to get a SITREP</span>}
                       {!f.posture && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); openTrackPicker({ kind: "airfield", icao: f.icao }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openTrackPicker({ kind: "airfield", icao: f.icao }); } }} className="text-[9px] text-amber-300/80 hover:text-emerald-300 underline decoration-dotted whitespace-nowrap">track</span>}
+                      {edit && <Untrack label={f.icao} onClick={() => edit.untrackField(f.icao, f.role)} disabled={edit.busy} />}
                     </span>
                     <span className="text-slate-600 text-[10px] justify-self-end">{f.hasSitrep ? (fOpen ? "▾" : "▸") : ""}</span>
                   </button>

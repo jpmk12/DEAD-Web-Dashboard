@@ -496,6 +496,120 @@ export function missionSummaryLine(profile: MissionProfile): string {
   return parts.length ? `Declared AO — ${parts.join(" · ")}` : "";
 }
 
+// ── Own-force role (hub / spoke / none) as ONE change ───────────────────────
+// The command board's role switch (REVIEW-2026-10 §6 follow-up, 2026-10-07):
+// "make OJAQ a spoke", "KCHS is the hub now", "KADW is no longer ours" — each
+// a single declaration change, computed here so the rule is testable and the
+// server only resolves the field and saves. Disciplines:
+//   • There is ONE hub. Promoting a field demotes the previous hub to a SPOKE
+//     — never silently out of the declaration (crews still live there).
+//   • A field is never in both lists.
+//   • Assigning a role lifts that field's `mp-b-`/`mp-m-` exclusions: the
+//     operator has just said it is own force, so Apply may materialize it.
+//   • Nothing is guessed: the caller supplies the resolved field (coords +
+//     label); the previous hub is kept as a spoke only when it is resolvable
+//     (the stored `home` object or the curated catalogue), else a WARNING.
+//   • `undo` is the exact sequence of role changes that puts things back.
+
+export type OwnForceRole = "hub" | "spoke" | null;
+
+export interface OwnForceOp { icao: string; role: OwnForceRole }
+
+export interface OwnForceChange {
+  profile: MissionProfile;
+  changes: string[];
+  warnings: string[];
+  /** Role changes that reverse this one, in order (empty when nothing changed). */
+  undo: OwnForceOp[];
+}
+
+const upperIcao = (s: string | undefined | null): string => (s ?? "").trim().toUpperCase();
+
+/** The declared own-force role of an ICAO, if any. */
+export function ownForceRoleOf(profile: MissionProfile, icaoRaw: string): OwnForceRole {
+  const icao = upperIcao(icaoRaw);
+  if (!icao) return null;
+  const hub = upperIcao(profile.home?.icao || profile.homeIcao);
+  if (hub && hub === icao) return "hub";
+  return profile.spokes.some((s) => upperIcao(s.icao) === icao) ? "spoke" : null;
+}
+
+/** The hub as a resolved field: the stored object, else the curated catalogue. */
+export function resolvedHub(profile: MissionProfile): MissionSpoke | null {
+  if (profile.home) return profile.home;
+  if (!profile.homeIcao) return null;
+  const a = ALL_AIRFIELDS.find((x) => x.icao === upperIcao(profile.homeIcao));
+  return a ? { icao: a.icao, label: a.name, lat: a.lat, lon: a.lon, country: a.country ?? "United States" } : null;
+}
+
+export function setOwnForceRole(profileIn: MissionProfile, field: MissionSpoke, role: OwnForceRole): OwnForceChange {
+  const icao = upperIcao(field.icao);
+  const changes: string[] = [];
+  const warnings: string[] = [];
+  if (!/^[A-Z0-9]{4}$/.test(icao)) return { profile: profileIn, changes, warnings: ["A valid 4-character ICAO is required"], undo: [] };
+  const current = ownForceRoleOf(profileIn, icao);
+  if (current === role) {
+    return { profile: profileIn, changes, warnings: [role ? `${icao} is already the ${role}` : `${icao} is not an own-force field`], undo: [] };
+  }
+  const resolved: MissionSpoke = { icao, label: (field.label || icao).trim().slice(0, 80), lat: field.lat, lon: field.lon, country: (field.country || "").trim().slice(0, 60) };
+  let profile: MissionProfile = { ...profileIn, spokes: profileIn.spokes.filter((s) => upperIcao(s.icao) !== icao), excludedIds: [...profileIn.excludedIds] };
+  const undo: OwnForceOp[] = [];
+  const liftExclusions = () => {
+    const drop = new Set([`mp-b-${icao}`, `mp-m-${icao}`]);
+    if (profile.excludedIds.some((id) => drop.has(id))) {
+      profile = { ...profile, excludedIds: profile.excludedIds.filter((id) => !drop.has(id)) };
+      changes.push(`${icao}'s Apply exclusion lifted`);
+    }
+  };
+
+  if (role === "hub") {
+    const oldHub = resolvedHub(profileIn);
+    const oldHubIcao = upperIcao(profileIn.home?.icao || profileIn.homeIcao);
+    profile = { ...profile, homeIcao: icao, home: resolved };
+    changes.push(`${icao} is now the hub${current === "spoke" ? " (was a spoke)" : ""}`);
+    if (oldHubIcao && oldHubIcao !== icao) {
+      if (oldHub && !profile.spokes.some((s) => upperIcao(s.icao) === oldHubIcao)) {
+        if (profile.spokes.length >= MAX_SPOKES) {
+          warnings.push(`${oldHubIcao} (the previous hub) could not be kept as a spoke — spokes are full (${MAX_SPOKES}); track it again if crews still live there`);
+        } else {
+          profile = { ...profile, spokes: [...profile.spokes, oldHub] };
+          changes.push(`${oldHubIcao} is now a spoke (was the hub)`);
+        }
+      } else if (!oldHub) {
+        warnings.push(`${oldHubIcao} (the previous hub) is not in the catalogue and could not be kept as a spoke — track it again if needed`);
+      }
+      undo.push({ icao: oldHubIcao, role: "hub" });
+    }
+    undo.push({ icao, role: current });
+    liftExclusions();
+    return { profile, changes, warnings, undo };
+  }
+
+  if (role === "spoke") {
+    if (profile.spokes.length >= MAX_SPOKES) {
+      return { profile: profileIn, changes, warnings: [`Spokes are full (${MAX_SPOKES}) — remove one first`], undo: [] };
+    }
+    if (current === "hub") {
+      profile = { ...profile, homeIcao: "" };
+      delete (profile as { home?: MissionSpoke | null }).home;
+      changes.push(`${icao} is now a spoke (was the hub — no hub is declared now)`);
+    } else changes.push(`${icao} is now a spoke`);
+    profile = { ...profile, spokes: [...profile.spokes, resolved] };
+    undo.push({ icao, role: current });
+    liftExclusions();
+    return { profile, changes, warnings, undo };
+  }
+
+  // role === null — drop the declaration (tracking is the caller's call).
+  if (current === "hub") {
+    profile = { ...profile, homeIcao: "" };
+    delete (profile as { home?: MissionSpoke | null }).home;
+    changes.push(`${icao} is no longer the hub — no hub is declared now`);
+  } else changes.push(`${icao} is no longer a spoke`);
+  undo.push({ icao, role: current });
+  return { profile, changes, warnings, undo };
+}
+
 /**
  * The SITREP base set the ★ declaration implies, given what is configured
  * today: hub first, then ★ ICAOs (declaration order), then the existing set

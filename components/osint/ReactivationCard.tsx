@@ -43,11 +43,19 @@ export default function ReactivationCard({ active }: { active: boolean }) {
     const key = `${r.interest.kind}:${r.interest.id}:${r.signal.term}`;
     setBusy(key);
     try {
-      await fetch("/api/osint/reactivations", {
+      const res = await fetch("/api/osint/reactivations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: r.interest.kind, id: r.interest.id, term: r.signal.term }),
       });
+      if (!res.ok) {
+        // The dismissal lives in the shared prefs row (owner-only write). A
+        // refused save must NOT drop the row — it would be back on the next
+        // load and read as "the app forgot".
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error("Could not save that dismissal", d.error || (res.status === 403 ? "owner only" : `HTTP ${res.status}`));
+        return;
+      }
       // Drop locally rather than refetching — the signals haven't changed,
       // only our answer to them.
       setItems((prev) => prev.filter((x) => !(x.interest.id === r.interest.id && x.signal.term === r.signal.term)));

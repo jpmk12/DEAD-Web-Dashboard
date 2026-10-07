@@ -3130,6 +3130,57 @@ interactive prototype the design was approved from is
   regardless of `armed`; a request that arrives before the data lands is
   parked and applied when it does). The palette's base/board/country entries
   and Glance's tiles dispatch to Commands.
+- **Add / remove / hub·spoke from the board (2026-10-07, "I wish it were
+  easy to add and remove airfields right from the airfields tab and the
+  country list … and update if a location is a hub or spoke")**. Every
+  write goes through the ONE Track door — no board-local state:
+  - **＋ Track…** on the My airfields header (`openTrackPicker({kind:
+    "airfield"})`) and **＋ Track in <country>** on each country's
+    Airfields header (search prefilled with the country). The strip now
+    renders for the owner even with NO own-force field, with the empty
+    state saying "＋ Track… then mark it hub or spoke".
+  - **✕** on every airfield card / row (`untrackAirfieldBody` — all four
+    roles off; a hub/spoke loses its role ON THE SAME WRITE via op `role`
+    + `then`, so the strip and the lists cannot disagree) and on a
+    country row that is in the posture watch or ★ (`untrackCountryBody`).
+    A field present only because its country's fields are tracked has no
+    country-level ✕ (nothing to remove). The AUTO-row rule is unchanged:
+    removing an `mp-` row records its exclusion (the change line says so);
+    Restore lives in Preferences → Mission → Excluded from Apply.
+  - **hub / spoke switch** (`RoleSwitch`, on My-airfields cards and on
+    every airfield row under a country): the lit chip is the current role,
+    tapping it again clears the role. PURE rule `setOwnForceRole(profile,
+    field, role)` in `lib/missionProfile.ts` (tested): ONE hub —
+    promoting a field demotes the previous hub to a SPOKE, never out of
+    the declaration (a warning names it when the spokes are full or the
+    old `homeIcao` is uncurated and unresolvable); a field is never in
+    both lists; demoting the hub to spoke leaves no hub and says so;
+    assigning a role lifts that field's `mp-b-`/`mp-m-` exclusions;
+    `undo` is the exact ordered sequence of role ops. Server
+    `applyOwnForceOps(ops, then?)` in `lib/trackingOps.ts` (POST
+    `/api/track {op:"role", ops:[{icao, role}], then?}`, owner-gated):
+    resolves the field (profile → registry → `resolveAirfield`), ENSURES
+    an own-force field is tracked (posture + METAR added only if missing —
+    "spoke but unwatched" is a contradiction), keeps the SITREP set
+    hub-first through `sitrepBasesForStars` (the ★-tap rule), runs the
+    optional `then` request on the same in-memory state, saves once, and
+    drops the commands / posture / SITREP / brief caches. The response is
+    the ordinary `{changes, warnings, undo}`; `undo` is `{op:"role", ops,
+    then}` so one tap reverses the whole write.
+  - **Undo strip**: the board shows the server's `undo` for the last
+    write in a sky strip above My airfields for 20 s (`postTrack` already
+    toasts the change lines). The board now reloads on `tracking:changed`
+    (it only listened to `force-locations:changed` before, so a Track from
+    the picker or the Weather tab did not refresh the rows). Crew see the
+    rows read-only (`canEdit` from `/api/commands`); the ★ keeps its toast.
+  - The Mission Profile editor is unaffected (it re-reads on open); a role
+    set here shows there as the hub/spoke declaration, and Apply derives
+    from it as before.
+- **Back on the board — dismiss (same day)**: `ReactivationCard.dismiss`
+  dropped the row before checking the response, so a crew member (the
+  POST is owner-only — the key lands in the shared prefs row) saw the row
+  vanish and return on the next load. It now checks `res.ok`, names the
+  reason (owner only / HTTP n) and leaves the row.
 No new npm dep (esbuild `0`).
 
 ### OSINT tab consolidation (9 chips → Watch / Regional / Feeds / Sources) — SUPERSEDED 2026-10-06

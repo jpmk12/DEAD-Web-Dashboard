@@ -9,6 +9,7 @@ import {
   buildRegistry, planTrack, planRestore,
   type TrackingRegistry, type TrackingPrefs, type TrackRequest, type TrackRoles, type TrackPlan,
 } from "./trackingRegistry";
+import { setOwnForceRole, ownForceRoleOf, deriveTracking, sitrepBasesForStars, type MissionSpoke, type OwnForceOp, type MissionProfile } from "./missionProfile";
 import { resolveAirfield } from "./resolveAirfield";
 import { ALL_AIRFIELDS } from "./airfields";
 import { centroidCountryNames } from "./countryCentroids";
@@ -215,4 +216,113 @@ export async function applyTrackRequest(req: TrackRequest): Promise<TrackOutcome
 export async function restoreExclusion(id: string): Promise<TrackOutcome> {
   const [prefs, profile] = await Promise.all([getUserPrefs(), getMissionProfile()]);
   return commit(planRestore(pick(prefs), profile, id), prefs);
+}
+
+// ── Own-force role: hub / spoke / none, from the command board ──────────────
+// POST /api/track { op: "role", ops: [{ icao, role }], then?: TrackBody }
+// The role change itself is PURE (lib/missionProfile.setOwnForceRole). What
+// this door adds: the field is resolved (registry → shared resolver), an
+// own-force field is ENSURED tracked (posture + METAR — crews live there, so
+// "spoke but unwatched" is a contradiction), the SITREP set is kept hub-first
+// (the same rule as the ★ taps), and an optional `then` track request runs on
+// the SAME in-memory state — the board's ✕ on a hub/spoke sends
+// { role: null } + { roles: all false } as one write with one undo.
+
+export interface RoleOutcome extends TrackOutcome {
+  /** The request that reverses the whole write (role ops + the `then` step). */
+  undoRole: { op: "role"; ops: OwnForceOp[]; then?: TrackRequest | null } | null;
+}
+
+function parseRoleOps(raw: unknown): OwnForceOp[] | string {
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? [raw] : [];
+  const out: OwnForceOp[] = [];
+  for (const v of list.slice(0, 4)) {
+    if (!v || typeof v !== "object") continue;
+    const o = v as Record<string, unknown>;
+    const icao = String(o.icao ?? "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(icao)) return `A valid 4-character ICAO is required (got “${String(o.icao ?? "")}”)`;
+    const role = o.role === "hub" ? "hub" : o.role === "spoke" ? "spoke" : o.role == null || o.role === "none" ? null : undefined;
+    if (role === undefined) return "role must be hub | spoke | null";
+    out.push({ icao, role });
+  }
+  return out;
+}
+
+async function resolveField(icao: string, prefs: TrackingPrefs, profile: MissionProfile): Promise<MissionSpoke | null> {
+  if (profile.home && profile.home.icao.toUpperCase() === icao) return profile.home;
+  const sp = profile.spokes.find((s) => s.icao.toUpperCase() === icao);
+  if (sp) return sp;
+  const reg = buildRegistry(prefs, profile);
+  const have = reg.airfields.find((a) => a.icao === icao && (a.lat || a.lon));
+  if (have) return { icao, label: have.label, lat: have.lat, lon: have.lon, country: have.country };
+  const r = await resolveAirfield(icao).catch(() => null);
+  return r ? { icao: r.icao, label: r.label, lat: r.lat, lon: r.lon, country: normalizeCountryName(r.country) } : null;
+}
+
+export async function applyOwnForceOps(rawOps: unknown, thenBody?: TrackBody | null): Promise<RoleOutcome | string> {
+  const ops = parseRoleOps(rawOps);
+  if (typeof ops === "string") return ops;
+  if (!ops.length && !thenBody) return "No role change given";
+  const [prefsRow, profileIn] = await Promise.all([getUserPrefs(), getMissionProfile()]);
+  let prefs = pick(prefsRow);
+  let profile = profileIn;
+  const changes: string[] = [];
+  const warnings: string[] = [];
+  const undoOps: OwnForceOp[] = [];
+
+  for (const op of ops) {
+    const field = await resolveField(op.icao, prefs, profile);
+    if (!field) {
+      if (op.role == null && ownForceRoleOf(profile, op.icao) == null) { warnings.push(`${op.icao} is not an own-force field`); continue; }
+      if (op.role != null) { warnings.push(`${op.icao} not found in hubs, gateways, or OurAirports`); continue; }
+    }
+    const stub: MissionSpoke = field ?? { icao: op.icao, label: op.icao, lat: 0, lon: 0, country: "" };
+    const r = setOwnForceRole(profile, stub, op.role);
+    profile = r.profile;
+    changes.push(...r.changes);
+    warnings.push(...r.warnings);
+    // Each change's undo is already an ordered sequence; later changes are
+    // undone before earlier ones.
+    undoOps.unshift(...r.undo);
+
+    if (op.role != null && field) {
+      // An own-force field is tracked by definition — add only what is missing.
+      const plan = planTrack(prefs, profile, {
+        kind: "airfield", icao: op.icao, label: field.label, lat: field.lat, lon: field.lon, country: field.country,
+        roles: { posture: true, metar: true },
+      });
+      prefs = plan.prefs; profile = plan.profile;
+      changes.push(...plan.changes);
+      warnings.push(...plan.warnings.filter((w) => !/already/.test(w)));
+    }
+  }
+
+  // The SITREP set follows the hub (hub first, ★ next, current, cap).
+  const hubIcao = profile.home?.icao ?? profile.homeIcao;
+  const derived = deriveTracking(profile);
+  const sitrepBases = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, profile.mustTrack.icaos, hubIcao);
+  if (sitrepBases.length !== prefs.sitrepBases.length || sitrepBases.some((b, i) => b.icao !== prefs.sitrepBases[i]?.icao)) {
+    const gained = sitrepBases.filter((b) => !prefs.sitrepBases.some((p) => p.icao === b.icao)).map((b) => b.icao);
+    const dropped = prefs.sitrepBases.filter((p) => !sitrepBases.some((b) => b.icao === p.icao)).map((b) => b.icao);
+    prefs = { ...prefs, sitrepBases };
+    if (gained.length) changes.push(`${gained.join(", ")} takes a SITREP slot (hub first)`);
+    if (dropped.length) warnings.push(`${dropped.join(", ")} dropped from SITREP to make room (${sitrepBases.length} slots)`);
+  }
+
+  // The optional second step on the SAME state (the board's ✕ on an own field).
+  let thenUndo: TrackRequest | null = null;
+  if (thenBody) {
+    const req = await buildTrackRequest(thenBody);
+    if (typeof req === "string") warnings.push(req);
+    else {
+      const plan = planTrack(prefs, profile, req);
+      prefs = plan.prefs; profile = plan.profile;
+      changes.push(...plan.changes); warnings.push(...plan.warnings);
+      thenUndo = plan.undo;
+    }
+  }
+
+  const out = await commit({ prefs, profile, changes, warnings, undo: null }, prefsRow);
+  const undoRole = undoOps.length || thenUndo ? { op: "role" as const, ops: undoOps, ...(thenUndo ? { then: thenUndo } : {}) } : null;
+  return { ...out, undoRole };
 }

@@ -31,6 +31,30 @@ export interface TrackResponse {
   undo?: Record<string, unknown> | null;
 }
 
+/** Every role an airfield can hold, all off — the body of a full untrack. */
+export const NO_AIRFIELD_ROLES = { posture: false, metar: false, sitrep: false, star: false } as const;
+
+/** Hub / spoke / none for an own-force field (POST /api/track op "role"). */
+export function roleBody(icao: string, role: "hub" | "spoke" | null): Record<string, unknown> {
+  return { op: "role", ops: [{ icao, role }] };
+}
+
+/**
+ * Stop tracking an airfield everywhere. A hub/spoke first loses its role on
+ * the same write (one undo puts both back); any other field is a plain
+ * all-roles-off request.
+ */
+export function untrackAirfieldBody(icao: string, own: "hub" | "spoke" | null): Record<string, unknown> {
+  const roles = { ...NO_AIRFIELD_ROLES };
+  return own
+    ? { op: "role", ops: [{ icao, role: null }], then: { kind: "airfield", icao, roles } }
+    : { kind: "airfield", icao, roles };
+}
+
+export function untrackCountryBody(country: string): Record<string, unknown> {
+  return { kind: "country", country, roles: { posture: false, star: false } };
+}
+
 /** Tell every surface that reads the tracking lists to reload. */
 export function announceTrackingChanged(): void {
   if (typeof window === "undefined") return;
