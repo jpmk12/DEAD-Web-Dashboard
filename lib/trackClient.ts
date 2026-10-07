@@ -8,7 +8,8 @@ import { toast } from "./feedback";
 import { clientCache } from "./clientCache";
 
 export interface TrackPrefill {
-  kind?: "airfield" | "country" | "place";
+  /** `home` = set the personal home location (geocoded like a place; any user). */
+  kind?: "airfield" | "country" | "place" | "home";
   query?: string;
   icao?: string;
   country?: string;

@@ -12,7 +12,10 @@ import { useEventActions, EventActionCluster, EventActionPanels } from "./eventA
 import { familyDatesByDay, FAMILY_DATE_GLYPH, type FamilyDate } from "@/lib/familyCalendar";
 import type { EffectiveZone } from "@/lib/zoneClient";
 import { ymdInZone, addDays, timeInZone, zoneLabel } from "@/lib/effectiveZone";
-import { agendaFamilyDates, tripChipFor, todayCounts, type DontMissRow } from "@/lib/calendarDontMiss";
+import { agendaFamilyDates, tripChipFor, tripFor, todayCounts, type DontMissRow } from "@/lib/calendarDontMiss";
+import ZonePin from "@/components/ZonePin";
+import { TripChip, TripQuickAdd } from "./TripControls";
+import CalendarSubscription from "./CalendarSubscription";
 import { senderShort, type MailDate } from "@/lib/mailDates";
 import { gmailMessageUrl } from "@/lib/gmailLink";
 import type { DontMissHandlers, MailDateHandlers } from "./CalendarTab";
@@ -259,9 +262,8 @@ export default function CalendarPanel({ onEventsLoaded, refreshKey: externalRefr
       <section className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.05] px-4 py-2.5 flex items-center gap-x-4 gap-y-1.5 flex-wrap">
         <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-400">Today</span>
         <span className="text-[13px] font-bold text-slate-100">{todayLabel}</span>
-        <span className="text-[10px] font-mono text-slate-500" title={zone.source === "trip" ? "Active TDY sets the zone" : zone.source === "pinned" ? "Pinned in Preferences → Profile" : "Device zone"}>
-          {zone.label}{activeTrip ? ` · ${activeTrip}` : zone.source === "trip" && zone.trip ? ` · TDY ${zone.trip.label}` : ""}
-        </span>
+        <ZonePin zone={zone} className="text-[10px] font-mono text-slate-500">{zone.label}</ZonePin>
+        {activeTrip ? <TripChip trip={tripFor(today, trips)} label={activeTrip} today={today} /> : zone.source === "trip" && zone.trip ? <span className="text-[10px] font-mono text-slate-500">TDY {zone.trip.label}</span> : <TripQuickAdd today={today} />}
         {todayEvents.slice(0, 3).map((e) => (
           <span key={e.id} className="text-xs text-slate-300 flex items-center gap-1.5 min-w-0">
             <b className="text-amber-300 font-mono font-bold">{e.isAllDay ? "all day" : timeInZone(ms(e.start), zone.zone)}</b>
@@ -365,6 +367,10 @@ export default function CalendarPanel({ onEventsLoaded, refreshKey: externalRefr
             <span className="text-[10px] text-slate-600 font-mono">from today · times in {zone.label}</span>
           </div>
           <div className="flex items-center gap-3">
+            <details className="relative">
+              <summary className="cursor-pointer select-none list-none text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200" title="Subscribe from Apple Calendar, iOS or Outlook">⇩ subscribe</summary>
+              <div className="absolute right-0 top-full mt-1 z-30 w-[min(440px,calc(100vw-32px))] rounded-lg border border-slate-700 bg-slate-900 shadow-xl p-3"><CalendarSubscription compact /></div>
+            </details>
             <span className="text-xs text-slate-600 font-mono hidden sm:inline">{session?.user?.email}</span>
             {lastUpdated && !loading && <span className="text-[10px] text-slate-500 font-mono">{formatUpdated(lastUpdated)}</span>}
             <button onClick={() => setRefreshKey((k) => k + 1)} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 disabled:opacity-40 font-mono transition-colors">
@@ -406,7 +412,7 @@ export default function CalendarPanel({ onEventsLoaded, refreshKey: externalRefr
                 <div className={`flex items-baseline gap-2.5 px-5 py-2.5 sticky top-14 z-10 ${isToday ? "bg-emerald-500/10 border-b border-emerald-500/20" : "bg-slate-900/95 border-b border-slate-800/40"}`}>
                   <span className={`text-sm font-bold ${isToday ? "text-emerald-400" : "text-slate-300"}`}>{primary}</span>
                   <span className={`text-[11px] font-mono ${isToday ? "text-emerald-600" : "text-slate-600"}`}>{secondary}</span>
-                  {trip && <span className="ml-auto text-[8.5px] font-bold uppercase tracking-widest text-amber-300 bg-amber-500/12 border border-amber-500/25 rounded px-1.5 py-0.5">{trip}</span>}
+                  {trip && <span className="ml-auto"><TripChip trip={tripFor(dateKey, trips)} label={trip} today={today} small /></span>}
                   {isToday && !trip && <span className="ml-auto text-[9px] font-bold uppercase tracking-widest text-emerald-500 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">Today</span>}
                 </div>
                 <div className="px-5">

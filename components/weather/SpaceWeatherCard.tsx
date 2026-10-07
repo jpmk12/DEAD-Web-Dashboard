@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SpaceWeather } from "@/lib/types";
 import { spaceWxSentence, type SpaceWxImpact, type NoaaScales } from "@/lib/spaceWeatherOps";
 import { LED_CLASS } from "@/lib/levelTokens";
+import { PolarRoutesInline } from "@/components/preferences/SpectrumInline";
 
 // NOAA scale colour mapping (G/R/S 0..5). G0/R0/S0 = green; rises through
 // yellow/orange/red to deep red.
@@ -43,7 +44,10 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(false);
 
-  useEffect(() => {
+  // The route reads the Mission Profile's polar declaration on every GET
+  // (it sits outside the route's 10-min cache), so re-asking after the
+  // inline toggle saves is enough to re-read the S-scale rows against it.
+  const load = useCallback(() => {
     fetch("/api/weather/space")
       .then((r) => r.json())
       .then((d) => { setData(d.space ?? null); setOps(d.ops ?? null); onLoaded?.(!!(d.ops?.scales?.live)); })
@@ -51,6 +55,8 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   if (loading) {
     return (
@@ -113,7 +119,15 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
           {ops.impacts.map((imp) => (
             <span key={imp.key} className="inline-flex items-center gap-1.5 text-[10.5px] text-slate-400" title={`${imp.now} · outlook: ${imp.outlook}`}>
-              <span className={`w-2 h-2 rounded-full ${LED_DOT[imp.led] ?? LED_DOT.u}`} />{imp.label}{imp.relevance === "not declared" ? <span className="text-slate-600"> — polar routes not declared</span> : null}
+              <span className={`w-2 h-2 rounded-full ${LED_DOT[imp.led] ?? LED_DOT.u}`} />{imp.label}
+              {/* The polar / HF declaration, edited where it is read: the
+                  S-scale row reads "not a factor" or UNKNOWN by it. */}
+              {imp.key === "radiation" && (
+                <span className="inline-flex items-center gap-1">
+                  {imp.relevance === "not declared" && <span className="text-slate-600">—</span>}
+                  <PolarRoutesInline initial={ops.polar} onChanged={load} />
+                </span>
+              )}
             </span>
           ))}
         </div>
@@ -169,6 +183,7 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
               <div className="min-w-0 text-[11.5px] text-slate-300 leading-relaxed">
                 <b className="text-slate-200">{imp.label}:</b> {imp.now}
                 {imp.relevance === "not declared" && <span className="text-slate-600"> · not declared</span>}
+                {imp.key === "radiation" && <span className="ml-1.5"><PolarRoutesInline initial={ops.polar} onChanged={load} /></span>}
                 <span className="block text-[9.5px] text-slate-600">outlook: {imp.outlook}</span>
               </div>
             </div>
@@ -189,7 +204,7 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
 
       {detail && <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">
         Environment, not warning: these rows colour the SITREP Spectrum card and the C2/Comms LIMFAC and page you at R3/G3/S3+; they never raise an I&amp;W level, and a G3+ storm is attributed before any GPS-jamming read.
-        {ops?.polar === false && " Polar / HF routes: not declared (Mission Profile)."}
+        {ops?.polar === false && " Polar / HF routes: not declared (Mission Profile) — the toggle on the radiation row changes it."}
       </p>}
     </div>
   );

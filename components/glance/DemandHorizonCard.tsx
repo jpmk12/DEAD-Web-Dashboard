@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import CrewStateEditor from "@/components/preferences/CrewStateEditor";
 import { AOR_LABELS, type Aor } from "@/lib/aor";
 import type { DemandOutlook, DemandDriver } from "@/lib/demandHorizon";
 
@@ -53,7 +54,7 @@ export default function DemandHorizonCard() {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (j && Array.isArray(j.outlooks)) setBody(j); })
       .catch(() => {});
-    fetch("/api/team/crew")
+    const loadCrew = () => fetch("/api/team/crew")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (!j?.posture) return;
@@ -62,7 +63,13 @@ export default function DemandHorizonCard() {
         setCrew({ headline: j.posture.headline ?? "", byAor, declared: (j.summary?.total ?? 0) > 0, stale: !!j.summary?.stale, trend: j.trend ?? null });
       })
       .catch(() => {});
+    loadCrew();
+    // The counts are edited HERE (the editor below the Crews line) — re-read
+    // the posture line when they change.
+    window.addEventListener("crew:changed", loadCrew);
+    return () => window.removeEventListener("crew:changed", loadCrew);
   }, []);
+  const [crewEdit, setCrewEdit] = useState(false);
 
   const toggleFold = () => {
     setFolded((f) => { try { localStorage.setItem("glance.demandFolded", f ? "0" : "1"); } catch { /* ignore */ } return !f; });
@@ -94,7 +101,8 @@ export default function DemandHorizonCard() {
             <div className={`px-3.5 py-1.5 border-t border-slate-800/60 text-[10.5px] ${Object.values(crew.byAor).some((x) => x.mismatch) ? "text-amber-200 bg-amber-500/[0.05]" : crew.declared ? "text-slate-300" : "text-slate-500"}`}>
               <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mr-2">Crews</span>
               {crew.headline}
-              {!crew.declared && <span className="text-slate-600"> — declare counts in Preferences → Mission Profile → Team state.</span>}
+              {!crew.declared && <span className="text-slate-600"> — no counts declared; do not assume crews are available.</span>}
+              <button type="button" onClick={() => setCrewEdit((v) => !v)} aria-expanded={crewEdit} className="ml-2 text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-100 border border-slate-700 rounded px-1.5 py-0.5">{crewEdit ? "close ▴" : crew.declared ? "edit counts ▾" : "declare counts ▾"}</button>
               {/* Availability along the series (crew_state_daily): a 30-day
                   sparkline once four observed days exist, and the join to
                   recorded demand. */}
@@ -108,6 +116,11 @@ export default function DemandHorizonCard() {
                   {crew.trend.line && <span className="text-[9.5px] text-slate-500">{crew.trend.line}</span>}
                 </span>
               )}
+            </div>
+          )}
+          {crewEdit && (
+            <div className="px-3.5 py-2 border-t border-slate-800/60 bg-slate-950/40">
+              <CrewStateEditor />
             </div>
           )}
           {body.outlooks.map((o) => {

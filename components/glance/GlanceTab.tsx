@@ -18,6 +18,8 @@ import { ymdInZone, addDays, zoneDayStartMs, zoneDayEndMs, timeInZone, zoneLabel
 import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
+import ZonePin from "@/components/ZonePin";
+import PushSetupCard from "@/components/preferences/PushSetupCard";
 import { useEventActions, EventActionCluster, EventActionPanels } from "@/components/calendar/eventActions";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { ForceAssessment } from "@/lib/forceProtection";
@@ -1113,7 +1115,7 @@ export default function GlanceTab({
           sat at the bottom of the rail; "buried too far down", 2026-10-05).
           Bucketed and labelled in the effective zone. ── */}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Panel title="Today" badge={<span className="text-[10px] font-mono text-slate-500" title={zone.source === "trip" ? "Active TDY sets the zone" : zone.source === "pinned" ? "Pinned in Preferences → Profile" : "Device zone"}>{scheduleZoneNote}</span>} onJump={() => onNavigate("calendar")}>
+        <Panel title="Today" badge={<ZonePin zone={zone} className="text-[10px] font-mono text-slate-500">{scheduleZoneNote}</ZonePin>} onJump={() => onNavigate("calendar")}>
           {todayEvents.length === 0 ? (
             <Empty>Nothing on the calendar today.</Empty>
           ) : (
@@ -1150,6 +1152,13 @@ export default function GlanceTab({
         tasks={{ due: dueTasks.length, overdue: overdueTaskCount, asks: emailAsks.length, items: dueTasks.map((x) => `${x.t.title}${x.state === "overdue" ? " (overdue)" : ""}`), askItems: emailAsks.map((e) => e.label) }}
         onNavigate={onNavigate}
       />
+
+      {/* Alerts on this device — push setup lives beside the Alerts tile it
+          serves (REVIEW-2026-10 §12), folded; the drawer links here. */}
+      <details className="rounded-lg border border-slate-800 bg-slate-900/40">
+        <summary className="cursor-pointer select-none px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300">📲 Alerts on this device</summary>
+        <div className="px-3 pb-3 pt-1"><PushSetupCard /></div>
+      </details>
 
       {/* ── What moved since you last looked ── */}
       <OeDeltaCard />

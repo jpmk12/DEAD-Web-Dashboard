@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import type { TrackedLocation, StationWx, WeatherThreats, LocationHazard } from "@/lib/types";
 import { updatedAgo } from "@/lib/relTime";
 import LocationCard from "./LocationCard";
@@ -11,6 +11,8 @@ import AirfieldsByCommand, { type RegAirfield } from "./AirfieldsByCommand";
 import WeatherSources, { type SourceStatuses } from "./WeatherSources";
 import { CloudSun } from "@/lib/icons";
 import { openTrackPicker, postTrack } from "@/lib/trackClient";
+import { toast } from "@/lib/feedback";
+import { invalidateEffectiveZone } from "@/lib/zoneClient";
 
 // The Weather tab (rebuilt 2026-10-06, REVIEW-2026-10 §8): header + the
 // sources strip → Places (where you are · home · civil points, with ＋/✕)
@@ -99,15 +101,34 @@ export default function WeatherTab() {
     return () => { window.removeEventListener("dashboard-cache-cleared", hydrate); window.removeEventListener("tracking:changed", hydrate); };
   }, [hydrate]);
 
+  const tripId = useRef<string | null>(null);
   useEffect(() => {
-    fetch("/api/trips")
+    const load = () => fetch("/api/trips")
       .then((r) => r.json())
-      .then((d: { active?: { label: string; lat: number; lon: number } | null }) => {
-        if (d?.active) setTrip({ id: "trip", label: `${d.active.label} (TDY)`, lat: d.active.lat, lon: d.active.lon });
-        else setTrip(null);
+      .then((d: { active?: { id?: string; label: string; lat: number; lon: number } | null }) => {
+        if (d?.active) { tripId.current = d.active.id ?? null; setTrip({ id: "trip", label: `${d.active.label} (TDY)`, lat: d.active.lat, lon: d.active.lon }); }
+        else { tripId.current = null; setTrip(null); }
       })
       .catch(() => {});
+    load();
+    window.addEventListener("trips:changed", load);
+    return () => window.removeEventListener("trips:changed", load);
   }, [refreshKey]);
+  // The TDY card's ✕ ends the trip today (its dates stay editable in
+  // Preferences) — the Weather tab shows it, so the Weather tab can end it.
+  const endTrip = async () => {
+    const id = tripId.current; if (!id) return;
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const r = await fetch("/api/trips", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, endDate: today }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error("Could not end the TDY", d?.error || `HTTP ${r.status}`); return; }
+      toast.ok("TDY ends today");
+      invalidateEffectiveZone();
+      window.dispatchEvent(new Event("trips:changed"));
+      window.dispatchEvent(new CustomEvent("dashboard-cache-cleared"));
+    } catch (e) { toast.error("Could not end the TDY", e); }
+  };
 
   // METAR/TAF for every registry airfield (the route takes 12 per call).
   useEffect(() => {
@@ -191,7 +212,8 @@ export default function WeatherTab() {
         <div className="flex items-center gap-2 flex-wrap px-4 py-2.5 border-b border-slate-800">
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">◎ Places</h3>
           <span className="text-[10px] text-slate-600">where you are · home · civil points you track (forecast cards — not bases)</span>
-          <button type="button" disabled={!canEdit} onClick={() => openTrackPicker({ kind: "place" })} className="ml-auto text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-600 text-slate-300 hover:border-emerald-500/50 disabled:opacity-40">＋ Place</button>
+          <button type="button" onClick={() => openTrackPicker({ kind: "home" })} className="ml-auto text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-600 text-slate-300 hover:border-emerald-500/50" title={home ? `Home: ${home.label} — change it` : "Set your home (forecast card, map marker, local news, the brief)"}>⌂ {home ? "change home" : "set home"}</button>
+          <button type="button" disabled={!canEdit} onClick={() => openTrackPicker({ kind: "place" })} className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-600 text-slate-300 hover:border-emerald-500/50 disabled:opacity-40">＋ Place</button>
         </div>
         {places.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 p-3">
@@ -202,7 +224,7 @@ export default function WeatherTab() {
                 active={mapSel?.label === loc.label}
                 onSelect={() => setSelected({ label: loc.label, lat: loc.lat, lon: loc.lon })}
                 tag={loc.id === "home" ? "home" : loc.id === "trip" ? "tdy" : undefined}
-                onRemove={canEdit && loc.id !== "home" && loc.id !== "trip" ? () => removePlace(loc) : undefined}
+                onRemove={loc.id === "trip" ? endTrip : canEdit && loc.id !== "home" ? () => removePlace(loc) : undefined}
                 onLoaded={onCardLoaded}
               />
             ))}
@@ -212,7 +234,7 @@ export default function WeatherTab() {
           </div>
         ) : (
           <p className="px-4 py-5 text-xs text-slate-500 font-mono">
-            No places yet. Set a home in <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("prefs:open", { detail: "you" }))} className="text-emerald-400 hover:underline">Preferences → You → Home Location</button>, or <button type="button" onClick={() => openTrackPicker({ kind: "place" })} className="text-emerald-400 hover:underline">＋ Place</button>.
+            No places yet. <button type="button" onClick={() => openTrackPicker({ kind: "home" })} className="text-emerald-400 hover:underline">⌂ Set home</button> (city, address or ZIP), or <button type="button" onClick={() => openTrackPicker({ kind: "place" })} className="text-emerald-400 hover:underline">＋ Place</button>.
           </p>
         )}
       </div>

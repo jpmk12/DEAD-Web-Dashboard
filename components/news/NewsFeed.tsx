@@ -6,6 +6,8 @@ import { formatDistanceToNow, parseISO } from "date-fns";
 import { NewsItem, NewsThread, SavedItem } from "@/lib/types";
 import { laneFor, mentionsTerm, threadForArticle } from "@/lib/newsLanes";
 import { clientCache, CACHE_TTL } from "@/lib/clientCache";
+import { toast } from "@/lib/feedback";
+import { sourceChips, sourcesOnLabel, type SourceStat } from "@/lib/newsSourceToggle";
 import NewsCard from "./NewsCard";
 import TrendStrip from "./TrendStrip";
 
@@ -13,6 +15,11 @@ const CACHE_KEY = "news:items";
 // Cached separately so the TDY strip survives the warm-cache early-return below
 // (which skips the network fetch and would otherwise leave tripNews empty).
 const TRIP_CACHE_KEY = "news:tripNews";
+// Per-source counts from the same response, for the Sources control — same
+// reason: a warm load never hits the network.
+const STATS_CACHE_KEY = "news:sourceStats";
+// Fold state of the Sources control, per browser.
+const LS_SOURCES_OPEN = "news.sourcesOpen";
 
 // Relative time that's safe against missing/malformed feed dates — parseISO on a
 // bad string yields an Invalid Date and formatDistanceToNow then throws
@@ -116,17 +123,54 @@ export default function NewsFeed({
   // the tab is open. The server's ctx_hash keying makes the regenerate cheap
   // and one-shot — unchanged prefs still hit the daily cache.
   const [prefsVersion, setPrefsVersion] = useState(0);
+  // A cache clear also RE-FETCHES the feed (the fetch effect below keys on
+  // this): the Preferences drawer wipes clientCache on save, and before this
+  // the feed sat on its in-memory items until the next manual refresh — a
+  // source toggled off on the tab (or in the drawer) kept showing.
+  const [reloadTick, setReloadTick] = useState(0);
+  const reloadSeen = useRef(0);
+  // Sources edited ON THE TAB (REVIEW-2026-10 §12 item 6): per-source counts
+  // from the feed response and the user's own disabled list (a PERSONAL pref,
+  // one GET of /api/user-prefs). The toggle is optimistic through the
+  // append-only door; a failed write reverts.
+  const [sourceStats, setSourceStats] = useState<SourceStat[]>([]);
+  const [disabledSources, setDisabledSources] = useState<string[]>([]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const togglingRef = useRef<Set<string>>(new Set());
   // refreshKey of the last COMPLETED curation. "Manual" = the current refreshKey
   // hasn't been curated yet — which stays true across the items-churn re-run a
   // manual refresh triggers (the news refetch swaps the items array), so the
   // forced ?refresh=1 isn't lost to a race. Updated only on completion.
   const lastCuratedKey = useRef(0);
 
+  const loadDisabledSources = useCallback(() => {
+    fetch("/api/user-prefs")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const list = d?.prefs?.disabledNewsSources;
+        if (Array.isArray(list)) setDisabledSources(list.filter((x: unknown): x is string => typeof x === "string"));
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
-    const onCleared = () => setPrefsVersion((v) => v + 1);
+    const onCleared = () => {
+      setPrefsVersion((v) => v + 1);
+      // Re-fetch WITHOUT dropping the items already on screen (no skeleton):
+      // the fetch effect treats a new tick as "fetch even if fresh".
+      setReloadTick((t) => t + 1);
+      // The drawer may have changed the disabled list too.
+      loadDisabledSources();
+    };
     window.addEventListener("dashboard-cache-cleared", onCleared);
     return () => window.removeEventListener("dashboard-cache-cleared", onCleared);
-  }, []);
+  }, [loadDisabledSources]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    loadDisabledSources();
+    try { setSourcesOpen(localStorage.getItem(LS_SOURCES_OPEN) === "1"); } catch { /* ignore */ }
+  }, [status, loadDisabledSources]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -138,7 +182,14 @@ export default function NewsFeed({
     if (stale) { setItems(stale); onArticlesLoaded?.(stale); }
     const staleTrip = clientCache.peek<{ label: string; items: NewsItem[] }>(TRIP_CACHE_KEY);
     if (staleTrip) setTripNews(staleTrip);
-    if (isFresh && !isManualRefresh) return;
+    const staleStats = clientCache.peek<SourceStat[]>(STATS_CACHE_KEY);
+    if (staleStats) setSourceStats(staleStats);
+    // A cache-cleared tick forces the network even on a fresh cache, but keeps
+    // the stale items on screen (no spinner) — a source toggle must not flash
+    // the skeleton over the list it just filtered.
+    const forced = reloadTick !== reloadSeen.current;
+    reloadSeen.current = reloadTick;
+    if (isFresh && !isManualRefresh && !forced) return;
 
     const showSpinner = !stale || isManualRefresh;
     if (showSpinner) { setLoading(true); onLoadingChange?.(true); }
@@ -157,6 +208,11 @@ export default function NewsFeed({
         setTripNews(data.tripNews ?? null);
         clientCache.set(TRIP_CACHE_KEY, data.tripNews ?? null, CACHE_TTL.NEWS);
         setSourceErrors(data.sourceErrors ?? {});
+        const stats: SourceStat[] = Array.isArray(data.sourceStats)
+          ? data.sourceStats.filter((s: unknown): s is SourceStat => !!s && typeof (s as SourceStat).name === "string").map((s: SourceStat) => ({ name: s.name, count: Number(s.count) || 0 }))
+          : [];
+        setSourceStats(stats);
+        clientCache.set(STATS_CACHE_KEY, stats, CACHE_TTL.NEWS);
         clientCache.set(CACHE_KEY, loaded, CACHE_TTL.NEWS);
       })
       .catch((e) => {
@@ -168,7 +224,7 @@ export default function NewsFeed({
       });
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, refreshKey]);
+  }, [status, refreshKey, reloadTick]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -263,6 +319,47 @@ export default function NewsFeed({
     fetch(`/api/saved?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
   }, []);
 
+  // One tap toggles a source: optimistic, ONE POST through the append-only
+  // door (op add = stop reading, op remove = read again — the pref is the
+  // DISABLED list), the server's `values` reconcile, then the feed re-fetches
+  // through the cache-cleared event so the skipped source leaves (or returns).
+  const toggleSource = useCallback(async (name: string) => {
+    if (!name || togglingRef.current.has(name)) return;
+    togglingRef.current.add(name);
+    const wasDisabled = disabledSources.includes(name);
+    const op = wasDisabled ? "remove" : "add";
+    const prev = disabledSources;
+    setDisabledSources(wasDisabled ? prev.filter((n) => n !== name) : [...prev, name]);
+    try {
+      const res = await fetch("/api/user-prefs/append", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field: "disabledNewsSources", value: name, op }),
+      });
+      const d = await res.json().catch(() => ({})) as { error?: string; values?: unknown };
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      if (Array.isArray(d.values)) setDisabledSources(d.values.filter((x): x is string => typeof x === "string"));
+      toast.ok(wasDisabled ? `Reading ${name} again` : `Stopped reading ${name}`, wasDisabled ? "Its articles return on the next fetch." : "Skipped before fetch — it leaves the threads and the brief too.");
+      window.dispatchEvent(new Event("dashboard-cache-cleared"));
+    } catch (e) {
+      setDisabledSources(prev);
+      toast.error(`Could not ${wasDisabled ? "re-enable" : "mute"} ${name}`, e);
+    } finally {
+      togglingRef.current.delete(name);
+    }
+  }, [disabledSources]);
+
+  const toggleSourcesOpen = () => {
+    setSourcesOpen((v) => {
+      const next = !v;
+      try { localStorage.setItem(LS_SOURCES_OPEN, next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const disabledSet = useMemo(() => new Set(disabledSources), [disabledSources]);
+  const chips = useMemo(() => sourceChips(sourceStats, disabledSources), [sourceStats, disabledSources]);
+
   const countByCategory = useMemo(() =>
     items.reduce<Record<string, number>>((acc, item) => {
       acc[item.category] = (acc[item.category] ?? 0) + 1;
@@ -289,14 +386,17 @@ export default function NewsFeed({
   // The lanes (lib/newsLanes, pure): depth by source/length, now by curation,
   // the rest folded. Category chip and trending term narrow all three.
   const lanes = useMemo(() => {
-    const base = tab === "saved" ? [] : items.filter((i) => (tab === "overview" || tab === "all" || i.category === tab) && (!pickedTerm || mentionsTerm(i, pickedTerm)));
+    // A muted source leaves the lanes AT ONCE (the optimistic half of the
+    // toggle) — the re-fetch then makes it real. The frozen curated set is
+    // filtered the same way, or a muted outlet's curated piece would linger.
+    const base = tab === "saved" ? [] : items.filter((i) => !disabledSet.has(i.source) && (tab === "overview" || tab === "all" || i.category === tab) && (!pickedTerm || mentionsTerm(i, pickedTerm)));
     const depth: NewsItem[] = [], now: NewsItem[] = [], rest: NewsItem[] = [];
     // Curated-critical items that rolled off the live feed still belong in "now".
     const seen = new Set<string>();
     for (const it of base) { seen.add(it.id); const l = laneFor(it, criticalIds); (l === "depth" ? depth : l === "now" ? now : rest).push(it); }
-    if (tab === "overview" || tab === "all") for (const c of criticalItems) if (!seen.has(c.id) && (!pickedTerm || mentionsTerm(c, pickedTerm))) (laneFor(c, criticalIds) === "depth" ? depth : now).push(c);
+    if (tab === "overview" || tab === "all") for (const c of criticalItems) if (!seen.has(c.id) && !disabledSet.has(c.source) && (!pickedTerm || mentionsTerm(c, pickedTerm))) (laneFor(c, criticalIds) === "depth" ? depth : now).push(c);
     return { depth, now, rest };
-  }, [items, tab, pickedTerm, criticalIds, criticalItems]);
+  }, [items, tab, pickedTerm, criticalIds, criticalItems, disabledSet]);
   const visible = tab === "saved" ? savedAsItems : [];
 
   if (status === "unauthenticated") {
@@ -341,6 +441,7 @@ export default function NewsFeed({
       previousSeen={previousSeen}
       showThesis={showThesis}
       threadLabel={threadForArticle(item.id, threads)}
+      onMuteSource={toggleSource}
     />
   );
 
@@ -412,7 +513,51 @@ export default function NewsFeed({
             </button>
           );
         })}
+        {/* Sources — edited HERE, not in Preferences (REVIEW-2026-10 §12 item 6).
+            The handle says how many are on; the fold lists one chip per source
+            the feed knows (muted ones stay listed so they can come back). */}
+        {chips.length > 0 && (
+          <button
+            type="button"
+            onClick={toggleSourcesOpen}
+            aria-expanded={sourcesOpen}
+            aria-controls="news-sources-fold"
+            title="Choose which feeds the News tab reads"
+            className={`ml-auto flex-shrink-0 inline-flex items-center gap-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider px-2 py-1 border transition-all ${
+              sourcesOpen ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Sources <span className="font-mono normal-case tracking-normal opacity-80">{sourcesOnLabel(chips)}</span> <span>{sourcesOpen ? "▴" : "▾"}</span>
+          </button>
+        )}
       </div>
+
+      {sourcesOpen && chips.length > 0 && (
+        <div id="news-sources-fold" className="-mt-2 mb-5 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="flex items-center gap-2 mb-2 text-[10px] text-slate-600">
+            <span>Tap a source to stop or resume reading it — a muted feed is skipped before fetch, so it leaves the threads and the brief too. Yours alone; the team list is unchanged.</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {chips.map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                onClick={() => void toggleSource(c.name)}
+                aria-pressed={c.enabled}
+                title={c.enabled ? `Stop reading ${c.name}` : `Read ${c.name} again`}
+                className={`inline-flex items-center gap-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider px-2 py-1 border transition-all ${
+                  c.enabled
+                    ? "border-sky-500/50 bg-sky-500/15 text-sky-200"
+                    : "border-slate-700 text-slate-500 line-through decoration-slate-600 opacity-60 hover:opacity-100 hover:text-slate-200"
+                }`}
+              >
+                {c.name}
+                <span className="text-[9px] font-mono opacity-70 no-underline">{c.enabled ? c.count : "off"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading && <SkeletonGrid />}
 

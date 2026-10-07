@@ -9,6 +9,7 @@ import { clientCache, CACHE_TTL } from "@/lib/clientCache";
 import { DigestIcon } from "@/lib/icons";
 import { gmailMessageUrl } from "@/lib/gmailLink";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
+import { toast } from "@/lib/feedback";
 import { formatDistanceToNow, parseISO } from "date-fns";
 
 // Mirror of lib/newsletterPrefs.normalizeSubject — kept here because that
@@ -133,6 +134,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // (a watchlist hit, a thread match, a kept pin) show; "show all" opens
   // the rest. Nothing is hidden from Catch me up (the digest).
   const [showAll, setShowAll] = useState(false);
+  // Series the user stopped summarising FROM A ROW (REVIEW-2026-10 §12 item
+  // 6): rule ids, applied at once so the rows leave before the re-fetch
+  // confirms it; a failed write puts them back.
+  const [mutedRules, setMutedRules] = useState<Set<string>>(new Set());
+  const mutingRef = useRef<Set<string>>(new Set());
 
   const onSummariesLoadedRef = useRef(onSummariesLoaded);
   useEffect(() => { onSummariesLoadedRef.current = onSummariesLoaded; });
@@ -172,6 +178,8 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
       .then((data) => {
         const items: NewsletterSummary[] = data.newsletters ?? [];
         setNewsletters(items);
+        // The server's list already reflects any rule switched off from a row.
+        setMutedRules(new Set());
         onSummariesLoadedRef.current(items);
         clientCache.set(CACHE_KEY, items, CACHE_TTL.NEWSLETTERS);
         if (Array.isArray(data.sources)) {
@@ -278,9 +286,40 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     syncHideKeep(n.id, "hide");
   }, []);
 
+  // "Stop summarising this series": a row maps to a configured rule by
+  // `n.source` (the rule id — see NewsletterSummary.source). The mapping is
+  // unambiguous exactly when the route's `sources` metadata carries that id,
+  // so the button is offered only then; a summary whose rule was removed has
+  // nothing to stop. The write DISABLES the rule (reversible in Preferences →
+  // Sources & feeds), through the same append door as the news sources.
+  const stopSeries = useCallback(async (n: NewsletterSummary, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ruleId = n.source;
+    const meta = sourceMeta[ruleId];
+    if (!meta || mutingRef.current.has(ruleId)) return;
+    mutingRef.current.add(ruleId);
+    setMutedRules((prev) => new Set(prev).add(ruleId));
+    try {
+      const res = await fetch("/api/user-prefs/append", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field: "newsletterSources", value: ruleId, op: "remove" }),
+      });
+      const d = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      toast.ok(`Stopped summarising ${meta.label}`, "The rule is switched off, not deleted — turn it back on in Preferences → Sources & feeds.");
+      window.dispatchEvent(new Event("dashboard-cache-cleared"));
+    } catch (err) {
+      setMutedRules((prev) => { const next = new Set(prev); next.delete(ruleId); return next; });
+      toast.error(`Could not stop summarising ${meta.label}`, err);
+    } finally {
+      mutingRef.current.delete(ruleId);
+    }
+  }, [sourceMeta]);
+
   const visibleNewsletters = useMemo(
-    () => newsletters.filter((n) => !dismissed.has(n.id)),
-    [newsletters, dismissed]
+    () => newsletters.filter((n) => !dismissed.has(n.id) && !mutedRules.has(n.source)),
+    [newsletters, dismissed, mutedRules]
   );
 
   const reasons = useMemo(() => {
@@ -615,6 +654,17 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
                     >
                       ×
                     </button>
+                    {sourceMeta[n.source] && (
+                      <button
+                        type="button"
+                        onClick={(e) => void stopSeries(n, e)}
+                        title={`Stop summarising ${badge.label} — switches the source rule off`}
+                        aria-label={`Stop summarising ${badge.label}`}
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all text-sm leading-none"
+                      >
+                        ⊘
+                      </button>
+                    )}
                   </div>
 
                   {/* Expand chevron */}

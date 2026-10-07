@@ -7,6 +7,7 @@ import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type 
 import { renderSitrepHtml } from "@/lib/sitrepExport";
 import { SITREP_MAX } from "@/lib/missionProfile";
 import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
+import { EdgeVendorsInline } from "@/components/preferences/SpectrumInline";
 import { LED_CLASS as LED_BG, LED_GLOW } from "@/lib/levelTokens";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
@@ -146,6 +147,10 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
   // Closure-timeline row the user tapped open (reveals the NOTAM text — the only
   // way to see the cause on mobile, where the bar's hover tooltip doesn't exist).
   const [tlOpenLabel, setTlOpenLabel] = useState<string | null>(null);
+  // The Spectrum card's "⚙ vendors" fold — the edge-vendor declaration edited
+  // where its KEV row is read (REVIEW-2026-10 §12 item 7). Always open when
+  // nothing is declared (the row reads UNKNOWN and the fix is right there).
+  const [vendorsOpen, setVendorsOpen] = useState(false);
 
   const loadSummaries = useCallback(() => {
     fetch("/api/sitrep/summary")
@@ -978,10 +983,31 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
 
                 {/* KEV × declared vendors */}
                 <div className="mt-2 pt-2 border-t border-slate-800/60">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
-                    Edge exposure <span className="font-normal normal-case tracking-normal">— CISA Known Exploited Vulnerabilities × your declared vendors, 14 days</span>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5 flex items-center gap-2 flex-wrap">
+                    <span>Edge exposure <span className="font-normal normal-case tracking-normal">— CISA Known Exploited Vulnerabilities × your declared vendors, 14 days</span></span>
+                    {payload.spectrum.edge.declared && (
+                      <button type="button" onClick={() => setVendorsOpen((v) => !v)} aria-expanded={vendorsOpen}
+                        className="ml-auto text-[9px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-300 normal-case">
+                        ⚙ vendors {vendorsOpen ? "▴" : "▾"}
+                      </button>
+                    )}
                   </p>
-                  {!payload.spectrum.edge.declared && <Row sev="u" src="KEV">No edge vendors declared — exposure UNKNOWN. Declare them in Preferences → Mission Profile → Spectrum dependencies.</Row>}
+                  {/* The declaration, edited where it is read: with nothing
+                      declared the editor sits under the UNKNOWN row; with
+                      vendors declared it folds under "⚙ vendors". A save
+                      drops the SITREP cache server-side, so the reload
+                      re-assembles KEV against the new list. */}
+                  {!payload.spectrum.edge.declared && (
+                    <Row sev="u" src="KEV">
+                      No edge vendors declared — exposure UNKNOWN, never green. Declare them here (or in Preferences → Mission Profile → Spectrum dependencies):
+                      <EdgeVendorsInline initial={payload.spectrum.edge.vendors} onChanged={() => { if (icao) loadSitrep(icao); }} />
+                    </Row>
+                  )}
+                  {payload.spectrum.edge.declared && vendorsOpen && (
+                    <div className="pl-4 pb-1.5 mb-1 border-b border-slate-800/40">
+                      <EdgeVendorsInline initial={payload.spectrum.edge.vendors} onChanged={() => { if (icao) loadSitrep(icao); }} />
+                    </div>
+                  )}
                   {payload.spectrum.edge.declared && !payload.spectrum.edge.live && <Row sev="u" src="KEV">KEV catalog UNREACHABLE — UNKNOWN</Row>}
                   {payload.spectrum.edge.declared && payload.spectrum.edge.live && payload.spectrum.edge.hits.length === 0 && (
                     <Row sev="g" src="KEV">No new KEV entries for {payload.spectrum.edge.vendors.join(", ")}</Row>

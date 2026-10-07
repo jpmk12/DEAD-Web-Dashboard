@@ -370,6 +370,29 @@ export async function getPersonalOverlay(email: string): Promise<Partial<UserPre
 }
 
 // Merge-save the personal subset of `patch` into the caller's overlay row.
+/** The PERSONAL scalars an inline control may change on its own (the zone
+ *  pin on Glance / Calendar, "set home" on the Weather tab). The owner's
+ *  values live as columns on the shared row and are UPDATEd column-wise —
+ *  the full `/api/user-prefs` POST rebuilds the whole row from its body, so
+ *  a partial body there would reset everything else. Crew go through their
+ *  overlay as usual. */
+export const PATCHABLE_SCALARS = {
+  timezone: "timezone", timezoneMode: "timezone_mode",
+  localCity: "local_city", localLat: "local_lat", localLon: "local_lon",
+} as const;
+export type PatchableScalar = keyof typeof PATCHABLE_SCALARS;
+
+export async function patchPrefScalars(email: string, patch: Partial<Pick<UserPrefs, PatchableScalar>>): Promise<void> {
+  if (!isOwner(email)) { await savePersonalPrefs(email, patch); return; }
+  const sets: string[] = []; const vals: unknown[] = [];
+  for (const [k, col] of Object.entries(PATCHABLE_SCALARS)) {
+    if (k in patch) { sets.push(`${col} = ?`); vals.push((patch as Record<string, unknown>)[k] ?? null); }
+  }
+  if (!sets.length) return;
+  const pool = await getDb();
+  await pool.execute(`UPDATE user_prefs SET ${sets.join(", ")}, last_updated = ? WHERE id = 1`, [...vals, new Date()] as (string | number | Date | null)[]);
+}
+
 export async function savePersonalPrefs(email: string, patch: Partial<UserPrefs>): Promise<void> {
   const clean = sanitizeOverlay(pickPersonal(patch));
   const existing = await getPersonalOverlay(email).catch(() => ({}));

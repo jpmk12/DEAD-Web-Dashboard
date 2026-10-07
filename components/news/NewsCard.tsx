@@ -19,6 +19,9 @@ interface NewsCardProps {
   showThesis?: boolean;
   /** The thread this article belongs to on today's board (Read view lanes). */
   threadLabel?: string | null;
+  /** "Stop reading <source>" on the source badge — the parent (NewsFeed)
+   *  owns the toggle through /api/user-prefs/append; absent = no affordance. */
+  onMuteSource?: (source: string) => void;
 }
 
 // Per-article cooldown for the implicit "opened" signal so refresh / re-click
@@ -55,7 +58,7 @@ const CATEGORY_STYLE: Record<string, { badge: string; bar: string }> = {
 };
 const DEFAULT_STYLE = { badge: "bg-slate-700/40 text-slate-400 border border-slate-700", bar: "bg-slate-600" };
 
-export default function NewsCard({ item, onFeedback, isSaved = false, onSave, onUnsave, watchlist = [], previousSeen = 0, showThesis = false, threadLabel = null }: NewsCardProps) {
+export default function NewsCard({ item, onFeedback, isSaved = false, onSave, onUnsave, watchlist = [], previousSeen = 0, showThesis = false, threadLabel = null, onMuteSource }: NewsCardProps) {
   const [rated, setRated] = useState<"useful" | "not_useful" | null>(null);
   const [notingState, setNotingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const style = CATEGORY_STYLE[item.category] ?? DEFAULT_STYLE;
@@ -105,8 +108,19 @@ export default function NewsCard({ item, onFeedback, isSaved = false, onSave, on
 
       <div className="flex items-start justify-between mb-3 gap-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${style.badge}`}>
+          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${style.badge}`}>
             {item.source.toUpperCase()}
+            {onMuteSource && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onMuteSource(item.source); }}
+                title={`Stop reading ${item.source}`}
+                aria-label={`Stop reading ${item.source}`}
+                className="-mr-1 w-4 h-4 inline-flex items-center justify-center rounded opacity-50 hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-all leading-none"
+              >
+                ✕
+              </button>
+            )}
           </span>
           {isWatchlisted && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-500/15 text-orange-400 border border-orange-500/40">

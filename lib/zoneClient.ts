@@ -41,6 +41,13 @@ export function fetchEffectiveZone(): Promise<EffectiveZone | null> {
   return inflight;
 }
 
+/** Drop the cached effective zone and tell every `useEffectiveZone` to
+ *  re-ask — after a pin / unpin or a trip change. */
+export function invalidateEffectiveZone(): void {
+  clientCache.delete(ZONE_CACHE_KEY);
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("zone:changed"));
+}
+
 /** The zone the brief POSTs should carry: the effective one when known,
  *  else the device's. Synchronous — reads the cache only. */
 export function zoneForRequests(): string {
@@ -58,8 +65,10 @@ export function useEffectiveZone(): EffectiveZone {
   });
   useEffect(() => {
     let alive = true;
-    fetchEffectiveZone().then((r) => { if (alive && r) setZ(r); });
-    return () => { alive = false; };
+    const ask = () => fetchEffectiveZone().then((r) => { if (alive && r) setZ(r); });
+    ask();
+    window.addEventListener("zone:changed", ask);
+    return () => { alive = false; window.removeEventListener("zone:changed", ask); };
   }, []);
   return z;
 }

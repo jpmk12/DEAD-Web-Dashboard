@@ -59,6 +59,10 @@ export default function TrackPicker() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [placeTracked, setPlaceTracked] = useState(false);
+  // `home` mode: the same geocoded search, but the pick becomes the user's
+  // home (personal prefs — any user) instead of a tracked place.
+  const [homeMode, setHomeMode] = useState(false);
+  const homeRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
 
@@ -69,8 +73,9 @@ export default function TrackPicker() {
     if (t.length < 2) { setCands([]); return; }
     setSearching(true);
     try {
+      const home = want?.kind === "home" || homeRef.current;
       const [a, g] = await Promise.all([
-        fetch(`/api/track?q=${encodeURIComponent(t)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        home ? Promise.resolve(null) : fetch(`/api/track?q=${encodeURIComponent(t)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         t.length >= 3 && want?.kind !== "airfield" && want?.kind !== "country"
           ? fetch(`/api/osint/geocode?q=${encodeURIComponent(t)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
           : Promise.resolve(null),
@@ -110,6 +115,7 @@ export default function TrackPicker() {
     const onOpen = (e: Event) => {
       const p = ((e as CustomEvent<TrackPrefill>).detail ?? {}) as TrackPrefill;
       setOpen(true); setResult(null); setSel(null); setPlaceTracked(false);
+      const home = p.kind === "home"; setHomeMode(home); homeRef.current = home;
       if (canEdit == null) fetch("/api/track").then((r) => (r.ok ? r.json() : null)).then((d) => setCanEdit(!!d?.canEdit)).catch(() => setCanEdit(false));
       if (p.kind === "place" && typeof p.lat === "number" && typeof p.lon === "number") {
         const c: Candidate = { kind: "place", label: (p.label ?? "Place").slice(0, 60), displayName: p.label, lat: p.lat, lon: p.lon, country: p.country ?? "", roles: NONE, tracked: false, source: "prefill" };
@@ -160,8 +166,23 @@ export default function TrackPicker() {
     } finally { setBusy(false); }
   };
 
+  const setHome = async () => {
+    if (!sel || sel.kind !== "place" || typeof sel.lat !== "number" || typeof sel.lon !== "number") return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/user-prefs/patch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ localCity: sel.label, localLat: sel.lat, localLon: sel.lon }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error("Could not set home", d?.error || `HTTP ${r.status}`); return; }
+      announceTrackingChanged();
+      toast.ok(`Home → ${sel.label}`);
+      setResult({ changes: [`Home is now ${sel.label}`], warnings: [], undo: null });
+    } catch (e) { toast.error("Could not set home", e); }
+    finally { setBusy(false); }
+  };
+
   const submit = async () => {
     if (!sel) return;
+    if (homeMode) { await setHome(); return; }
     let body: Record<string, unknown>;
     if (sel.kind === "place") body = { kind: "place", label: sel.label, lat: sel.lat, lon: sel.lon, remove: placeTracked };
     else if (sel.kind === "country") body = { kind: "country", country: sel.country, roles: diff };
@@ -186,21 +207,21 @@ export default function TrackPicker() {
   };
 
   if (!open) return null;
-  const canSubmit = !!sel && !busy && canEdit !== false && (sel.kind === "place" || Object.keys(diff).length > 0);
+  const canSubmit = !!sel && !busy && (homeMode ? sel.kind === "place" : canEdit !== false && (sel.kind === "place" || Object.keys(diff).length > 0));
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-slate-950/70 backdrop-blur-sm px-3 pt-[8vh]" onMouseDown={() => setOpen(false)}>
       <div onMouseDown={(e) => e.stopPropagation()} className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden" role="dialog" aria-label="Track a country, airfield or place">
         <div className="px-4 pt-3 pb-2 border-b border-slate-800">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-400">Track</span>
-            <span className="text-[10px] text-slate-500">country · airfield (ICAO or name) · place</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-400">{homeMode ? "Set home" : "Track"}</span>
+            <span className="text-[10px] text-slate-500">{homeMode ? "city, address or ZIP — your forecast card, map marker, local news and the brief's weather line" : "country · airfield (ICAO or name) · place"}</span>
             <button onClick={() => setOpen(false)} className="ml-auto w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800" aria-label="Close"><CloseIcon size={14} /></button>
           </div>
           <input ref={inputRef} value={query} onChange={(e) => { setQuery(e.target.value); setSel(null); setResult(null); }}
-            placeholder="Jordan · OJAQ · Al Udeid · Amman…" autoComplete="off" spellCheck={false}
+            placeholder={homeMode ? "Colorado Springs · 08641 · 123 Main St…" : "Jordan · OJAQ · Al Udeid · Amman…"} autoComplete="off" spellCheck={false}
             className="mt-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/60" />
-          {canEdit === false && <p className="mt-1.5 text-[10.5px] text-amber-300">Tracking is shared team config — the owner changes it. You can look; the buttons are off.</p>}
+          {canEdit === false && !homeMode && <p className="mt-1.5 text-[10.5px] text-amber-300">Tracking is shared team config — the owner changes it. You can look; the buttons are off.</p>}
         </div>
 
         <div className="max-h-[55vh] overflow-y-auto">
@@ -245,7 +266,7 @@ export default function TrackPicker() {
               </div>
 
               {sel.kind === "place" ? (
-                <p className="text-[11px] text-slate-400">A civil weather point: a forecast card on the Weather tab and a marker on the map. Not a base — track an airfield for posture.</p>
+                <p className="text-[11px] text-slate-400">{homeMode ? "Your home: the forecast card and map marker, local news where you are, and the brief's weather line. Personal — yours only." : "A civil weather point: a forecast card on the Weather tab and a marker on the map. Not a base — track an airfield for posture."}</p>
               ) : (
                 <div className="grid sm:grid-cols-2 gap-1.5">
                   {((sel.kind === "airfield" ? ["posture", "metar", "sitrep", "star"] : ["posture", "star"]) as (keyof TrackRoles)[]).map((k) => (
@@ -272,7 +293,7 @@ export default function TrackPicker() {
               <div className="flex items-center gap-2">
                 <button onClick={submit} disabled={!canSubmit}
                   className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-40">
-                  {busy ? "…" : sel.kind === "place" ? (placeTracked ? "Remove place" : "Track place") : Object.keys(diff).length ? "Apply" : "No change"}
+                  {busy ? "…" : homeMode ? "Set as home" : sel.kind === "place" ? (placeTracked ? "Remove place" : "Track place") : Object.keys(diff).length ? "Apply" : "No change"}
                 </button>
                 <button onClick={() => setOpen(false)} className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded border border-slate-700 text-slate-300 hover:bg-slate-800">Done</button>
                 <span className="text-[9.5px] text-slate-600 ml-auto">Esc closes</span>

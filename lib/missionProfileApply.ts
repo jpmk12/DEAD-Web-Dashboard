@@ -14,8 +14,8 @@ import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { getUserPrefs, saveUserPrefs } from "./userPrefs";
 import {
-  sanitizeMissionProfile, sanitizeMustTrack, sanitizeEconomyEdits, deriveTracking, sitrepBasesForStars,
-  type MissionProfile, type DerivedTracking, type MustTrack, type EconomyEdits,
+  sanitizeMissionProfile, sanitizeMustTrack, sanitizeEconomyEdits, sanitizeSpectrum, deriveTracking, sitrepBasesForStars, DEFAULT_SPECTRUM,
+  type MissionProfile, type DerivedTracking, type MustTrack, type EconomyEdits, type SpectrumDependencies,
 } from "./missionProfile";
 import { planApply, type ApplyDiff } from "./missionApplyPlan";
 import { resolveAirfield } from "./resolveAirfield";
@@ -74,6 +74,32 @@ export async function patchEconomy(raw: unknown): Promise<{ economy: EconomyEdit
   const profile = await getMissionProfile();
   await saveMissionProfile({ ...profile, economy });
   return { economy };
+}
+
+const SPECTRUM_KEYS = ["polarRoutes", "satcom", "edgeVendors", "spaceActivity"] as const;
+
+/**
+ * Save a PARTIAL spectrum declaration (REVIEW-2026-10 §12 item 7 — "the
+ * spectrum declaration is edited where it is read": the SITREP Spectrum
+ * card's vendor chips and the Weather tab's polar toggle). Only the keys
+ * PRESENT in the patch change; `polarRoutes: null` ("not declared") is a
+ * value, so presence is `!== undefined`, not truthiness. The merge goes
+ * through `sanitizeSpectrum`, so a crafted field lands as the default it
+ * would land as from the editor. Owner-gated at the route; the caller drops
+ * the SITREP / spectrum-summary / commands caches so the surfaces that read
+ * the declaration re-assemble against the new one.
+ */
+export async function patchSpectrum(raw: unknown): Promise<{ spectrum: SpectrumDependencies }> {
+  const profile = await getMissionProfile();
+  const current = profile.spectrum ?? { ...DEFAULT_SPECTRUM };
+  const patch: Record<string, unknown> = {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const r = raw as Record<string, unknown>;
+    for (const k of SPECTRUM_KEYS) if (r[k] !== undefined) patch[k] = r[k];
+  }
+  const spectrum = sanitizeSpectrum({ ...current, ...patch });
+  await saveMissionProfile({ ...profile, spectrum });
+  return { spectrum };
 }
 
 export interface ApplyResult {

@@ -353,6 +353,24 @@ Order: header (counts, ＋ Place / ＋ Airfield / manage / Refresh) → **source
 
 ---
 
+## Inline settings (where the pages edit their own lists)
+
+The rule (REVIEW-2026-10 §12): if a page shows a list, that page edits it; the
+Preferences drawer keeps declaration · identity · connections · AI controls.
+Inline doors: tracking (Track picker, ✕, hub/spoke, ★ — board, Weather, map
+popups, situation room); email priority rules (badge menu); the Economy actor
+register; the Family roster; crew counts (Glance → Demand horizon → Crews);
+TDY (＋ TDY on the Calendar Today strip, end / remove on any TDY chip, the
+Weather TDY card ✕); the timezone pin (tap the zone label on Glance or the
+Calendar strip); home (⌂ set home on the Weather Places header → the Track
+picker's `home` mode); news sources (Sources fold + ✕ on a card's source
+badge) and newsletter series (⊘ on a queue row); the spectrum declaration
+(edge vendors on the SITREP Spectrum card, polar routes on the Weather space
+card); push setup (fold under the Glance status row); the iCal subscription
+(⇩ subscribe in the Calendar header). Personal scalars go through
+`POST /api/user-prefs/patch`; list membership through `/api/user-prefs/append`
+(`op: add | remove`).
+
 ## Mission Profile (the configuration spine)
 
 **Preferences → Mission Profile.** Declare WHAT you command; the app derives WHAT TO TRACK. Pure model + derivation in `lib/missionProfile.ts` (tested); `lib/missionApplyPlan.ts` (`planApply`, pure); server `lib/missionProfileApply.ts`; `/api/mission-profile` GET · PUT (declaration) · POST (apply) · PATCH (`mustTrack` / `economy`), owner-gated writes.

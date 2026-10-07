@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail, isOwner } from "@/lib/allowlist";
-import { getMissionProfile, saveMissionProfile, applyMissionProfile, patchMustTrack, patchEconomy } from "@/lib/missionProfileApply";
+import { getMissionProfile, saveMissionProfile, applyMissionProfile, patchMustTrack, patchEconomy, patchSpectrum } from "@/lib/missionProfileApply";
 import { resetEconomicWarfareCache } from "@/lib/economicWarfareAssess";
+import { resetSpectrumCache } from "@/lib/spectrum";
 import { sanitizeMissionProfile, SITREP_MAX } from "@/lib/missionProfile";
 import { clearBriefingCache } from "@/lib/briefingCache";
 import { resetCommandsCache } from "@/lib/commandsAssemble";
@@ -26,6 +27,14 @@ export const dynamic = "force-dynamic";
 //                                   overlay (exclude / add) — resets the
 //                                   economic-warfare cache so the board
 //                                   re-resolves on its next fetch
+//   PATCH { spectrum }            → owner-only: a PARTIAL spectrum declaration
+//                                   (polarRoutes / satcom / edgeVendors /
+//                                   spaceActivity — only the keys present
+//                                   change), edited where it is read: the
+//                                   SITREP Spectrum card and the Weather
+//                                   tab's space-weather card. Drops the
+//                                   SITREP, spectrum-summary and commands
+//                                   caches; responds with the saved block.
 // The materialized fields are team config, so writes are owner-gated like the
 // user-prefs POST.
 
@@ -89,11 +98,22 @@ export async function PATCH(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isOwner(normEmail(session.user?.email))) {
-    return NextResponse.json({ error: "Must-tracks are shared team config — owner only." }, { status: 403 });
+    return NextResponse.json({ error: "The Mission Profile is shared team config — owner only." }, { status: 403 });
   }
-  let body: { mustTrack?: unknown; economy?: unknown };
+  let body: { mustTrack?: unknown; economy?: unknown; spectrum?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   try {
+    if (body.spectrum !== undefined && body.mustTrack === undefined && body.economy === undefined) {
+      const result = await patchSpectrum(body.spectrum);
+      // The SITREP assembly, the Glance spectrum rollup and the command board
+      // all read the declaration inside a cached assembly — drop them so the
+      // next fetch re-reads it. /api/weather/space reads the profile on
+      // every GET (polar sits outside its cache), so it needs nothing.
+      resetSitrepCache();
+      resetSpectrumCache();
+      resetCommandsCache();
+      return NextResponse.json({ ok: true, ...result });
+    }
     if (body.economy !== undefined && body.mustTrack === undefined) {
       const result = await patchEconomy(body.economy);
       resetEconomicWarfareCache();
@@ -103,7 +123,7 @@ export async function PATCH(req: Request) {
     resetCommandsCache();
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
-    console.error("mission-profile must-track patch failed:", err);
+    console.error("mission-profile patch failed:", err);
     return NextResponse.json({ error: "Could not save — database unavailable." }, { status: 500 });
   }
 }

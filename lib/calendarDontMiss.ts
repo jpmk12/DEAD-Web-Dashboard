@@ -134,6 +134,12 @@ export function todayCounts(rows: DontMissRow[]): TodayCounts {
   };
 }
 
+/** The trip a day falls inside (first match), or null — the object behind
+ *  `tripChipFor`, for the controls that end or delete it. */
+export function tripFor<T extends { startDate: string; endDate: string }>(ymd: string, trips: T[]): T | null {
+  return trips.find((t) => t.startDate <= ymd && ymd <= t.endDate) ?? null;
+}
+
 /** "TDY · Amman — day 5 of 9" for a day inside a trip; null otherwise. */
 export function tripChipFor(ymd: string, trips: { label: string; startDate: string; endDate: string }[]): string | null {
   const t = trips.filter((x) => x.startDate <= ymd && x.endDate >= ymd).sort((a, b) => (a.startDate < b.startDate ? 1 : -1))[0];

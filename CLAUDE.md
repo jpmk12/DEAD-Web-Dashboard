@@ -3371,6 +3371,79 @@ patch:
   Not built yet — analysis only.
 No new npm dep (esbuild `0`).
 
+### Settings moved inline (2026-10-07, `docs/REVIEW-2026-10.md` §12, built as recommended)
+The rule: **if a page shows the list, that page edits it.** Preferences
+keeps the declaration (Mission Profile), identity (role, topics, VIP /
+muted registers, theme), connections and secrets, and AI controls. Every
+move below leaves a one-line pointer in the drawer where the editor was.
+- **Cuts.** `TrackedLocationsEditor`, `OsintFeedsEditor` and
+  `MarketsWatchlistEditor` are deleted from `PreferencesDrawer` (−660
+  lines). Places are edited on the Weather tab and under Mission → What you
+  track; feeds on OSINT → Sources (the only editor now); the markets
+  watchlist had NO consumer since the Markets → Economy retool — the
+  `marketsWatchlist` pref is still read/written by the full POST for
+  compatibility but nothing renders it.
+- **`POST /api/user-prefs/patch`** (any allowlisted user, own values) is
+  the door for the PERSONAL scalars an inline control changes on its own:
+  `timezone`, `timezoneMode`, `localCity`, `localLat`, `localLon`
+  (`PATCHABLE_SCALARS` + `patchPrefScalars` in `lib/userPrefs.ts`). The
+  owner's values are UPDATEd column-wise on the shared row; crew go through
+  their overlay. **Never send a partial body to the full `/api/user-prefs`
+  POST** — it rebuilds the whole row from its body (role → "", timezone →
+  the default), which is why this route exists. Drops the user's brief
+  cache (day-cached per zone).
+- **Zone pin = the zone label** (`components/ZonePin.tsx`, on the Glance
+  Today panel and the Calendar Today strip): pin the zone shown, pin this
+  device's zone, or unpin and follow the device (an active TDY still
+  wins). `invalidateEffectiveZone()` in `lib/zoneClient.ts` drops the
+  cached zone and fires `zone:changed`, which `useEffectiveZone` follows.
+- **TDY on the Calendar** (`components/calendar/TripControls.tsx`): ＋ TDY
+  on the Today strip (location + dates → `POST /api/trips`, geocoded
+  server-side as before); every TDY chip (strip and day headers) is a menu
+  — end today (`PATCH endDate`) / remove (`DELETE`); the Weather TDY
+  card's ✕ ends it today. All announce `trips:changed` (CalendarTab and
+  WeatherTab re-read) + `dashboard-cache-cleared` and invalidate the zone.
+  Dates / notes / the full list stay in the drawer's `TripsEditor`.
+- **Home = the Track picker's `home` mode** (`openTrackPicker({ kind:
+  "home" })`, from "⌂ set home / change home" on the Weather Places header
+  and the empty state): the same geocoded search, but the pick POSTs
+  `localCity/Lat/Lon` to the patch route — personal, not owner-gated —
+  and `announceTrackingChanged()` so the home card, the map marker and the
+  brief follow. The local-news area dropdown (`localFeedKey`) stays in
+  Preferences → You.
+- **Crew counts on Glance**: `CrewStateEditor` renders under the Demand
+  horizon's Crews line ("edit counts ▾" / "declare counts ▾"); every save
+  fires `crew:changed` and the card re-reads `/api/team/crew`. The drawer
+  no longer mounts the editor.
+- **News sources on the News tab** (`lib/newsSourceToggle.ts`, PURE,
+  tested): a "Sources · N of M on" fold beside the category chips (one chip
+  per source from `sourceStats` ∪ the disabled list — a muted source is
+  skipped before fetch and would otherwise vanish from the stats and never
+  be un-mutable here), a ✕ on a card's source badge, and ⊘ "stop
+  summarising" on a newsletter queue row (which DISABLES the rule —
+  `enabled:false` — rather than deleting what the user typed; `add`
+  re-enables). All through `/api/user-prefs/append`, which gained
+  `op: "add" | "remove"` and the two fields; crew writes go through their
+  overlay (both are personal prefs). Fixed on the way: `NewsFeed` only
+  re-curated on `dashboard-cache-cleared` and never re-fetched, so a
+  source disabled in the drawer stayed on screen until a manual refresh.
+- **Spectrum declaration on the cards** (`components/preferences/
+  SpectrumInline.tsx`; `PATCH /api/mission-profile { spectrum }` →
+  `patchSpectrum`, owner-gated, resets the SITREP / spectrum / commands
+  caches): `EdgeVendorsInline` on the SITREP Spectrum card's KEV row (and
+  folded under "⚙ vendors" once vendors exist), `PolarRoutesInline` on the
+  Weather space card's radiation row. One `GET /api/mission-profile` per
+  page (module cache); a `spectrum:changed` event keeps siblings in step.
+  `satcom` / `spaceActivity` are accepted by the PATCH but stay in the
+  Mission Profile editor. A vendor change re-kicks the Commander's Read
+  (its fingerprint includes the spectrum LED) — one Sonnet call, same as
+  the ARTCC setter.
+- **Push setup** is a fold under the Glance status row ("📲 Alerts on
+  this device"); **⇩ subscribe** (the iCal URL) is a popover in the
+  Calendar "Upcoming" header (`components/calendar/CalendarSubscription.tsx`,
+  shared with the drawer's Connections section).
+No new npm dep (esbuild `0`).
+
 ### OSINT tab consolidation (9 chips → Watch / Regional / Feeds / Sources) — SUPERSEDED 2026-10-06
 **Historical.** Watch and Regional retired into the command board above;
 the hidden-mount contract, the feed-at-mount rule and the legacy

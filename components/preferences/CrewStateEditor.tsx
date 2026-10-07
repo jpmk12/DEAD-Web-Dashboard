@@ -45,6 +45,7 @@ export default function CrewStateEditor() {
       toast.ok(`${editing.qual} updated.`);
       setEditing(null);
       await load();
+      window.dispatchEvent(new Event("crew:changed"));
     } finally { setBusy(false); }
   };
 
@@ -54,6 +55,7 @@ export default function CrewStateEditor() {
       await fetch(`/api/team/crew?qual=${encodeURIComponent(qual)}`, { method: "DELETE" });
       toast.info(`${qual} removed.`);
       await load();
+      window.dispatchEvent(new Event("crew:changed"));
     } finally { setBusy(false); }
   };
 
@@ -62,6 +64,7 @@ export default function CrewStateEditor() {
     try {
       await fetch("/api/team/crew", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "seed" }) });
       await load();
+      window.dispatchEvent(new Event("crew:changed"));
     } finally { setBusy(false); }
   };
 

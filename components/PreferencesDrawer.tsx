@@ -3,19 +3,15 @@
 import { useEffect, useState, KeyboardEvent, type ReactElement } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { CloseIcon } from "@/lib/icons";
-import { UserPrefs, AppTheme, TrackedLocation, TickerEntry, OsintFeed, NewsletterSourceRule, AiFeature, AiUsageSummary, AiUsageDay } from "@/lib/types";
+import { UserPrefs, AppTheme, NewsletterSourceRule, AiFeature, AiUsageSummary, AiUsageDay } from "@/lib/types";
 import { ALL_AI_FEATURES, AI_FEATURE_LABELS } from "@/lib/aiFeatures";
 import { secondaryStartAnchorProps } from "@/lib/secondaryStartLink";
-import { OSINT_FEED_SUGGESTIONS, type OsintFeedSuggestion } from "@/lib/osintSuggestions";
 import { BASE_NEWS_SOURCES, LOCAL_NEWS_SETS, allKnownNewsSources, type NewsSource } from "@/lib/newsSources";
-import { AMC_HUBS, type AmcHub } from "@/lib/amcHubs";
 import { clientCache } from "@/lib/clientCache";
 import { applyTheme } from "@/components/ThemeApplicator";
 import MissionProfileEditor from "@/components/preferences/MissionProfileEditor";
 import TrackingPanel from "@/components/preferences/TrackingPanel";
-import { postTrack } from "@/lib/trackClient";
-import PushSetupCard from "@/components/preferences/PushSetupCard";
-import CrewStateEditor from "@/components/preferences/CrewStateEditor";
+import CalendarSubscription from "@/components/calendar/CalendarSubscription";
 
 interface PreferencesDrawerProps {
   open: boolean;
@@ -111,217 +107,6 @@ function parseCoordInput(raw: string): number | null {
 
 interface GeoResult { lat: number; lon: number; displayName: string; country?: string }
 
-function TrackedLocationsEditor({ value, onChange, onAddMetar }: { value: TrackedLocation[]; onChange: (v: TrackedLocation[]) => void; onAddMetar?: (s: { icao: string; label: string }) => void; }) {
-  const [label, setLabel] = useState("");
-  const [lat, setLat] = useState("");
-  const [lon, setLon] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  // Place / ZIP search (geocoded via /api/osint/geocode → Nominatim).
-  const [geoQuery, setGeoQuery] = useState("");
-  const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
-  const [geoBusy, setGeoBusy] = useState(false);
-  // AMC hub quick-add (collapsed by default).
-  const [hubsOpen, setHubsOpen] = useState(false);
-
-  // A hub is "on the map" if a tracked location already sits on its coords.
-  const hubOnMap = (h: AmcHub) => value.some((v) => Math.abs(v.lat - h.lat) < 0.05 && Math.abs(v.lon - h.lon) < 0.05);
-
-  // One tap adds the hub as a tracked location (map + AOR threat board) AND
-  // registers its ICAO for global METAR/TAF (the aviation weather that works
-  // worldwide, unlike the US-only NWS forecast).
-  const addHub = (h: AmcHub) => {
-    onAddMetar?.({ icao: h.icao, label: h.name }); // parent dedupes by ICAO
-    if (hubOnMap(h)) { setError(null); return; }
-    if (value.length >= 10) {
-      setError(`Added ${h.icao} aviation weather. Tracked-location map is full (10 max) — remove one to also pin this hub.`);
-      return;
-    }
-    onChange([...value, { id: `${h.lat.toFixed(2)},${h.lon.toFixed(2)}-${Date.now()}`, label: h.name.slice(0, 60), lat: h.lat, lon: h.lon }]);
-    setError(null);
-  };
-
-  const add = () => {
-    if (value.length >= 10) { setError("Maximum of 10 tracked locations reached."); return; }
-    if (!label.trim()) { setError("Enter a label for this location."); return; }
-    const la = parseCoordInput(lat);
-    const lo = parseCoordInput(lon);
-    if (la === null || lo === null) { setError("Enter coordinates as decimal (34.67, -99.27) or DMS (34°40′05″N), or use the place search above."); return; }
-    if (Math.abs(la) > 90) { setError(`Latitude must be between -90 and 90 (got ${la.toFixed(4)}). Did you swap lat and lon?`); return; }
-    if (Math.abs(lo) > 180) { setError(`Longitude must be between -180 and 180 (got ${lo.toFixed(4)}).`); return; }
-    onChange([...value, { id: `${la.toFixed(2)},${lo.toFixed(2)}-${Date.now()}`, label: label.trim().slice(0, 60), lat: la, lon: lo }]);
-    setLabel(""); setLat(""); setLon(""); setError(null);
-  };
-
-  // Geocode a free-text place name, address, or ZIP/postal code. Clicking a
-  // result adds it to the list immediately (one tap) — see addFromResult.
-  const searchPlace = async () => {
-    const q = geoQuery.trim();
-    if (q.length < 2) return;
-    setGeoBusy(true); setError(null); setGeoResults([]);
-    try {
-      const res = await fetch(`/api/osint/geocode?q=${encodeURIComponent(q)}`);
-      const data = await res.json().catch(() => ({}));
-      const results: GeoResult[] = Array.isArray(data?.results) ? data.results : [];
-      setGeoResults(results);
-      if (results.length === 0) setError("No match found. Try a city, full address, or ZIP/postal code.");
-    } catch {
-      setError("Place lookup failed — check your connection, or enter coordinates manually below.");
-    } finally {
-      setGeoBusy(false);
-    }
-  };
-
-  // Clicking a search result adds the location straight to the list (the list
-  // is staged; the drawer's Save button persists it). No extra Add step.
-  const addFromResult = (r: GeoResult) => {
-    if (value.length >= 10) { setError("Maximum of 10 tracked locations reached."); return; }
-    const lbl = r.displayName.split(",").slice(0, 2).join(",").trim().slice(0, 60) || "Location";
-    onChange([...value, { id: `${r.lat.toFixed(2)},${r.lon.toFixed(2)}-${Date.now()}`, label: lbl, lat: r.lat, lon: r.lon }]);
-    setGeoResults([]); setGeoQuery(""); setError(null);
-  };
-
-  return (
-    <div className="mb-5">
-      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Tracked Locations
-      </label>
-      <p className="text-[10px] text-slate-600 mb-3">
-        Extra locations shown alongside your home on the Weather tab. Each gets a forecast card,
-        active NWS alerts, and feeds the alerts aggregator. Up to 10. Search by place or ZIP, or
-        enter coordinates (decimal or DMS) manually. (Your home base isn&apos;t in this list — it&apos;s
-        the &quot;Local Area / Home&quot; setting under General.)
-      </p>
-
-      {value.length > 0 && (
-        <ul className="mb-2 space-y-1.5">
-          {value.map((loc) => (
-            <li key={loc.id} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-              <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{loc.label}</span>
-              <span className="text-[10px] text-slate-500 font-mono">{loc.lat.toFixed(2)}, {loc.lon.toFixed(2)}</span>
-              <button
-                onClick={() => onChange(value.filter((x) => x.id !== loc.id))}
-                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
-                title="Remove"
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* AMC hub quick-add — adds the en route/staging base as a map location
-          AND its ICAO for global METAR/TAF (works OCONUS where NWS doesn't). */}
-      <button
-        onClick={() => setHubsOpen((v) => !v)}
-        className="w-full flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-300 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-500 rounded-md px-2.5 py-1.5 transition-all mb-2"
-      >
-        <span>✈ Add AMC hub</span>
-        <span className="text-slate-500">{hubsOpen ? "▴" : "▾"}</span>
-      </button>
-      {hubsOpen && (
-        <div className="mb-3 border border-slate-800 rounded-md p-2.5 bg-slate-900/40 max-h-60 overflow-y-auto">
-          <p className="text-[10px] text-slate-600 mb-2 leading-snug">
-            One tap pins the base on the map/threat board <span className="text-slate-500">and</span> adds its ICAO
-            for global METAR/TAF — the aviation weather that works worldwide.
-          </p>
-          {AMC_HUBS.map(({ region, hubs }) => (
-            <div key={region} className="mb-2 last:mb-0">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">{region}</p>
-              <div className="flex flex-wrap gap-1">
-                {hubs.map((h: AmcHub) => {
-                  const on = hubOnMap(h);
-                  return (
-                    <button
-                      key={h.icao}
-                      onClick={() => addHub(h)}
-                      title={on ? `${h.name} — already pinned · ${h.icao}` : `Add ${h.name} (${h.icao})`}
-                      className={`text-[10px] px-2 py-1 rounded border font-mono transition-all touch-manipulation ${
-                        on
-                          ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
-                          : "border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-400 hover:bg-emerald-500/10"
-                      }`}
-                    >
-                      {on ? "✓ " : "+ "}{h.name.split(",")[0]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Search by place name, address, or ZIP — geocodes to coordinates */}
-      <div className="flex gap-1.5">
-        <input
-          value={geoQuery}
-          onChange={(e) => { setGeoQuery(e.target.value); setError(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchPlace(); } }}
-          placeholder="Search city, address, or ZIP…"
-          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
-        <button
-          onClick={searchPlace}
-          disabled={geoBusy || geoQuery.trim().length < 2}
-          className="text-[11px] font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40"
-        >
-          {geoBusy ? "…" : "Find"}
-        </button>
-      </div>
-
-      {geoResults.length > 0 && (
-        <ul className="mt-1.5 space-y-1">
-          {geoResults.map((r, i) => (
-            <li key={i}>
-              <button
-                onClick={() => addFromResult(r)}
-                title="Add this location"
-                className="w-full text-left flex items-center gap-2 bg-slate-800/40 hover:bg-emerald-500/10 border border-slate-700/60 hover:border-emerald-500/40 rounded-md px-2.5 py-1.5 transition-colors group"
-              >
-                <span className="text-emerald-400 font-bold text-sm leading-none flex-shrink-0">+</span>
-                <span className="text-xs text-slate-200 flex-1 min-w-0 truncate">{r.displayName}</span>
-                <span className="text-[10px] text-slate-500 group-hover:text-emerald-400/80 font-mono flex-shrink-0">{r.lat.toFixed(2)}, {r.lon.toFixed(2)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <p className="text-[10px] text-slate-500 mt-3 mb-1.5">…or add by coordinates manually:</p>
-      <input
-        value={label} onChange={(e) => { setLabel(e.target.value); setError(null); }}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-        placeholder="Label (e.g. Kadena AB)"
-        className="w-full bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 mb-1.5"
-      />
-      <div className="flex gap-1.5">
-        <input
-          value={lat} onChange={(e) => { setLat(e.target.value); setError(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="Lat"
-          title="Decimal (34.6679) or DMS (34°40′05″N)"
-          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
-        />
-        <input
-          value={lon} onChange={(e) => { setLon(e.target.value); setError(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="Lon"
-          title="Decimal (-99.2677) or DMS (99°16′04″W)"
-          className="flex-1 min-w-0 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
-        />
-        <button
-          onClick={add}
-          disabled={value.length >= 10}
-          className="flex-shrink-0 text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-4 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
-        >
-          Add
-        </button>
-      </div>
-      {error && <p className="mt-1.5 text-[10px] text-red-400">{error}</p>}
-    </div>
-  );
-}
 
 // ─── Markets watchlist editor (Markets tab) ──────────────────────────────────
 
@@ -414,69 +199,6 @@ function NewsletterSourcesEditor({ value, onChange }: { value: NewsletterSourceR
   );
 }
 
-function MarketsWatchlistEditor({ value, onChange }: { value: TickerEntry[]; onChange: (v: TickerEntry[]) => void; }) {
-  const [symbol, setSymbol] = useState("");
-  const [label, setLabel] = useState("");
-  const add = () => {
-    const sym = symbol.trim().toUpperCase();
-    const lab = label.trim().slice(0, 60);
-    if (!sym || !lab) return;
-    if (!/^[A-Z0-9:_!.\-]{1,32}$/.test(sym)) return;
-    if (value.some((e) => e.symbol === sym)) return;
-    onChange([...value, { symbol: sym, label: lab }]);
-    setSymbol(""); setLabel("");
-  };
-
-  return (
-    <div className="mb-5">
-      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Markets Watchlist
-      </label>
-      <p className="text-[10px] text-slate-600 mb-3">
-        TradingView symbols shown on the Markets tab. Format: <code className="text-emerald-400">EXCHANGE:TICKER</code> (e.g.&nbsp;
-        <code className="text-emerald-400">NYSE:LMT</code>, <code className="text-emerald-400">NYMEX:CL1!</code>,
-        <code className="text-emerald-400">FX:USDJPY</code>). Up to 30.
-      </p>
-
-      {value.length > 0 && (
-        <ul className="mb-2 space-y-1.5 max-h-48 overflow-y-auto">
-          {value.map((t) => (
-            <li key={t.symbol} className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-              <span className="text-[10px] font-mono text-emerald-400 flex-shrink-0">{t.symbol}</span>
-              <span className="text-xs text-slate-300 flex-1 min-w-0 truncate">{t.label}</span>
-              <button
-                onClick={() => onChange(value.filter((x) => x.symbol !== t.symbol))}
-                className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1"
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="flex gap-1.5">
-        <input
-          value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-          placeholder="NYSE:KTOS"
-          className="w-32 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
-        />
-        <input
-          value={label} onChange={(e) => setLabel(e.target.value)}
-          placeholder="Display name"
-          className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
-        <button
-          onClick={add}
-          disabled={!symbol.trim() || !label.trim() || value.length >= 30}
-          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
-        >
-          Add
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── OSINT feeds editor ──────────────────────────────────────────────────────
 
@@ -813,319 +535,6 @@ function NewsSourcesEditor({
   );
 }
 
-function OsintFeedsEditor({ value, onChange }: { value: OsintFeed[]; onChange: (v: OsintFeed[]) => void; }) {
-  const [label, setLabel] = useState("");
-  const [url, setUrl] = useState("");
-  const [kind, setKind] = useState<OsintFeed["kind"]>("social");
-  const [health, setHealth] = useState<Record<string, OsintFeedHealth>>({});
-  const [healthLoading, setHealthLoading] = useState(false);
-  // Per-row + add-form test state. "new" is the sentinel key for the
-  // add-form's tester. Tests are user-initiated (Test button), so the result
-  // object hangs around until the user dismisses it via the × in the panel.
-  const [testResults, setTestResults] = useState<Record<string, DiagnosticResult>>({});
-  const [testing, setTesting] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (value.length === 0) { setHealth({}); return; }
-    setHealthLoading(true);
-    fetch("/api/osint/feed")
-      .then((r) => r.json())
-      .then((d) => {
-        const arr: OsintFeedHealth[] = Array.isArray(d?.feeds) ? d.feeds : [];
-        const map: Record<string, OsintFeedHealth> = {};
-        for (const f of arr) map[f.id] = f;
-        setHealth(map);
-      })
-      .catch(() => {})
-      .finally(() => setHealthLoading(false));
-  }, [value.length]);
-
-  const healthLabel = (h: OsintFeedHealth | undefined): { dot: string; title: string } => {
-    if (!h || !h.fetchedAt) return { dot: "bg-slate-700", title: "Not fetched yet" };
-    const ageMin = Math.floor((Date.now() - h.fetchedAt) / 60_000);
-    const ageLabel = ageMin < 1 ? "just now" : ageMin < 60 ? `${ageMin}m ago` : `${Math.floor(ageMin / 60)}h ago`;
-    if (!h.ok) return { dot: "bg-red-500", title: `Last fetch failed · ${ageLabel}` };
-    if (h.count === 0) return { dot: "bg-amber-500", title: `0 items · last fetched ${ageLabel}` };
-    return { dot: "bg-emerald-500", title: `${h.count} items · last fetched ${ageLabel}` };
-  };
-
-  // Run the diagnostic against an arbitrary URL. `key` is either an existing
-  // feed's id or the sentinel "new" for the add-form. Setting the result
-  // populates the inline TestResultPanel for that row.
-  const runTest = async (key: string, testUrl: string) => {
-    if (!testUrl.trim()) return;
-    setTesting((prev) => new Set(prev).add(key));
-    try {
-      const res = await fetch("/api/osint/test-feed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: testUrl.trim() }),
-      });
-      const data = await res.json();
-      setTestResults((prev) => ({ ...prev, [key]: data }));
-    } catch (e) {
-      setTestResults((prev) => ({
-        ...prev,
-        [key]: { ok: false, url: testUrl, error: e instanceof Error ? e.message : "Network error", durationMs: 0 },
-      }));
-    } finally {
-      setTesting((prev) => { const next = new Set(prev); next.delete(key); return next; });
-    }
-  };
-  const closeTest = (key: string) => {
-    setTestResults((prev) => { const next = { ...prev }; delete next[key]; return next; });
-  };
-
-  const add = () => {
-    const trimUrl = url.trim();
-    const trimLabel = label.trim().slice(0, 60);
-    if (!trimUrl || !trimLabel) return;
-    try {
-      const u = new URL(trimUrl);
-      if (u.protocol !== "https:" && u.protocol !== "http:") return;
-    } catch { return; }
-    onChange([...value, { id: `${kind}-${Date.now()}`, label: trimLabel, url: trimUrl.slice(0, 500), kind }]);
-    setLabel(""); setUrl("");
-    closeTest("new");
-  };
-
-  // One-click add from the curated suggestion list. Same URL = no-op (the
-  // suggestion's Add button is disabled in that case). Each insert uses the
-  // suggestion's label and kind as the saved values.
-  // In-place URL swap for an existing feed row. Preserves id / label / kind
-  // and only updates the URL — then re-runs the diagnostic so the user sees
-  // whether the alternative actually worked.
-  const swapFeedUrl = (id: string, newUrl: string) => {
-    const next = value.map((f) => f.id === id ? { ...f, url: newUrl.slice(0, 500) } : f);
-    onChange(next);
-    runTest(id, newUrl);
-  };
-
-  const addSuggestion = (s: OsintFeedSuggestion) => {
-    if (value.length >= 20) return;
-    if (value.some((f) => f.url === s.url)) return;
-    onChange([
-      ...value,
-      {
-        id: `${s.kind}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        label: s.label.slice(0, 60),
-        url: s.url.slice(0, 500),
-        kind: s.kind,
-      },
-    ]);
-  };
-
-  const KIND_STYLE: Record<OsintFeed["kind"], string> = {
-    social:   "bg-sky-500/15 text-sky-300 border-sky-500/40",
-    telegram: "bg-cyan-500/15 text-cyan-300 border-cyan-500/40",
-    news:     "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-    other:    "bg-slate-700/40 text-slate-300 border-slate-600",
-  };
-
-  return (
-    <div className="mb-5">
-      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        OSINT Feeds
-      </label>
-      <p className="text-[10px] text-slate-600 mb-2 leading-relaxed">
-        RSS / Atom URLs shown on the OSINT tab. Up to 20. The <span className="text-slate-400 font-bold">Test</span> button
-        on each row diagnoses what the upstream is returning (status, item count,
-        common-failure hints).
-      </p>
-      <details className="text-[10px] text-slate-600 mb-3 leading-relaxed bg-slate-900/40 border border-slate-800 rounded-md px-2.5 py-1.5">
-        <summary className="cursor-pointer text-slate-400 hover:text-slate-200 select-none">
-          Social feeds that work (X is a dead end — use native RSS)
-        </summary>
-        <div className="pt-2 space-y-1.5">
-          <p>
-            <span className="text-amber-400 font-bold">⚠ X / Twitter has no working feed.</span> X killed
-            free API access and blocks scrapers + datacenter IPs, so RSSHub / Nitter bridges to it are dead.
-            Use the platforms that expose <span className="text-slate-300 font-semibold">native RSS</span> instead — keyless and not rate-limited:
-          </p>
-          <ul className="ml-3 space-y-0.5 font-mono">
-            <li>· Bluesky: <code className="text-emerald-400">https://bsky.app/profile/HANDLE/rss</code></li>
-            <li>· Mastodon: <code className="text-emerald-400">https://INSTANCE/@USER.rss</code></li>
-            <li>· Reddit: <code className="text-emerald-400">https://www.reddit.com/r/SUB/.rss</code></li>
-          </ul>
-          <p>
-            Telegram channels (also reliable — read from the channel&apos;s own preview page):
-            <code className="text-emerald-400 ml-1">https://t.me/s/CHANNEL</code>
-          </p>
-          <p>
-            News sites usually expose their own RSS — look for an <code>/rss</code> or <code>/feed</code> path
-            on the publisher&apos;s site. Native feeds are always more reliable than scraper bridges.
-          </p>
-        </div>
-      </details>
-
-      {/* Curated suggestions — collapsed by default so the editor stays
-          compact for returning users. One click per feed; URL is pre-baked
-          to a known pattern (native RSS for Bluesky/Mastodon/Reddit + t.me/s
-          preview pages for Telegram — no scraper bridges). */}
-      <details className="text-[10px] mb-3 bg-slate-900/40 border border-slate-800 rounded-md px-2.5 py-1.5">
-        <summary className="cursor-pointer text-slate-400 hover:text-slate-200 select-none flex items-center gap-1.5">
-          <span className="text-emerald-400">💡</span>
-          <span className="uppercase tracking-wider font-bold">Suggested feeds</span>
-          <span className="text-slate-600 font-mono normal-case tracking-normal">
-            ({OSINT_FEED_SUGGESTIONS.reduce((n, g) => n + g.feeds.length, 0)} curated)
-          </span>
-        </summary>
-        <div className="pt-2 space-y-3 max-h-80 overflow-y-auto">
-          {OSINT_FEED_SUGGESTIONS.map((group) => (
-            <div key={group.name}>
-              <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">{group.name}</p>
-              {group.description && (
-                <p className="text-[10px] text-slate-600 mb-1.5 leading-snug">{group.description}</p>
-              )}
-              <ul className="space-y-1">
-                {group.feeds.map((s) => {
-                  const alreadyAdded = value.some((f) => f.url === s.url);
-                  const atCap = !alreadyAdded && value.length >= 20;
-                  return (
-                    <li
-                      key={s.url}
-                      className="flex items-center gap-2 bg-slate-800/40 border border-slate-800 rounded px-2 py-1"
-                    >
-                      <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border ${KIND_STYLE[s.kind]}`}>
-                        {s.kind}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] text-slate-200 truncate" title={s.note}>{s.label}</span>
-                          {s.bias && (
-                            <span className="text-[9px] text-amber-400 font-mono px-1 py-0 rounded bg-amber-500/10 border border-amber-500/20 truncate">
-                              {s.bias}
-                            </span>
-                          )}
-                        </div>
-                        {s.note && <p className="text-[9px] text-slate-600 leading-tight truncate" title={s.note}>{s.note}</p>}
-                      </div>
-                      <button
-                        onClick={() => addSuggestion(s)}
-                        disabled={alreadyAdded || atCap}
-                        title={
-                          alreadyAdded ? "Already in your list"
-                          : atCap ? "Feed limit reached (20)"
-                          : "Add to OSINT feeds"
-                        }
-                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border transition-all flex-shrink-0 ${
-                          alreadyAdded
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 cursor-default"
-                            : atCap
-                            ? "border-slate-700 text-slate-600 cursor-not-allowed"
-                            : "border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40"
-                        }`}
-                      >
-                        {alreadyAdded ? "✓ Added" : "＋ Add"}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-          <p className="text-[10px] text-slate-600 leading-snug border-t border-slate-800 pt-2">
-            Slugs are best-effort — if a feed returns 0 items via the Test button, search t.me/SLUG to verify it; some channels rename. Telegram bridges work far more reliably than Twitter ones.
-          </p>
-        </div>
-      </details>
-
-      {value.length > 0 && (
-        <ul className="mb-2 space-y-1.5 max-h-72 overflow-y-auto">
-          {value.map((f) => {
-            const h = healthLabel(health[f.id]);
-            const result = testResults[f.id];
-            const isTesting = testing.has(f.id);
-            return (
-              <li key={f.id} className="bg-slate-800/60 border border-slate-700/60 rounded-md px-2.5 py-1.5">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`flex-shrink-0 w-2 h-2 rounded-full ${h.dot} ${healthLoading ? "animate-pulse" : ""}`}
-                    title={h.title}
-                  />
-                  <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${KIND_STYLE[f.kind]}`}>
-                    {f.kind}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-slate-200 truncate">{f.label}</p>
-                    <p className="text-[9px] text-slate-600 font-mono truncate">{f.url}</p>
-                  </div>
-                  <button
-                    onClick={() => runTest(f.id, f.url)}
-                    disabled={isTesting}
-                    title="Fetch the URL now and report status / item count / hints"
-                    className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/40 text-slate-400 hover:text-emerald-400 px-2 py-0.5 rounded transition-all disabled:opacity-40 flex-shrink-0"
-                  >
-                    {isTesting ? "…" : "Test"}
-                  </button>
-                  <button
-                    onClick={() => onChange(value.filter((x) => x.id !== f.id))}
-                    className="text-slate-500 hover:text-red-400 transition-colors leading-none px-1 flex-shrink-0"
-                  >
-                    ×
-                  </button>
-                </div>
-                {result && (
-                  <TestResultPanel
-                    r={result}
-                    onClose={() => closeTest(f.id)}
-                    onSwapTo={(newUrl) => swapFeedUrl(f.id, newUrl)}
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      <div className="grid grid-cols-2 gap-1.5">
-        <input
-          value={label} onChange={(e) => setLabel(e.target.value)}
-          placeholder="Label (e.g. @CSIS)"
-          className="bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500"
-        />
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as OsintFeed["kind"])}
-          className="bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-500"
-        >
-          <option value="social">Social (Bluesky / Mastodon / Reddit)</option>
-          <option value="telegram">Telegram</option>
-          <option value="news">News</option>
-          <option value="other">Other</option>
-        </select>
-        <input
-          value={url} onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://bsky.app/profile/HANDLE/rss"
-          className="col-span-2 bg-slate-800/70 border border-slate-700/80 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-slate-500 font-mono"
-        />
-        <button
-          onClick={() => runTest("new", url)}
-          disabled={!url.trim() || testing.has("new")}
-          className="text-[11px] font-bold border border-slate-700 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40"
-        >
-          {testing.has("new") ? "Testing…" : "Test First"}
-        </button>
-        <button
-          onClick={add}
-          disabled={!label.trim() || !url.trim() || value.length >= 20}
-          className="text-[11px] font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-40 disabled:bg-slate-800 disabled:text-slate-500"
-        >
-          Add Feed
-        </button>
-        {testResults.new && (
-          <div className="col-span-2">
-            <TestResultPanel
-              r={testResults.new}
-              onClose={() => closeTest("new")}
-              onSwapTo={(newUrl) => { setUrl(newUrl); runTest("new", newUrl); }}
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ─── AI control panel (toggles + spend) ──────────────────────────────────────
 
@@ -1565,53 +974,6 @@ function MemoryPanel() {
 }
 
 // ─── iCal subscription block ──────────────────────────────────────────────────
-
-function CalendarSubscription() {
-  const [copied, setCopied] = useState(false);
-  // Built from window.location so it always reflects the current host.
-  const httpsUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/api/calendar/ical`
-    : "/api/calendar/ical";
-  const webcalUrl = typeof window !== "undefined"
-    ? `webcal://${window.location.host}/api/calendar/ical`
-    : "";
-
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(httpsUrl); setCopied(true); setTimeout(() => setCopied(false), 1500); }
-    catch { /* clipboard unavailable */ }
-  };
-
-  return (
-    <div className="mb-5">
-      <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Apple Calendar / iCal Feed
-      </label>
-      <p className="text-[10px] text-slate-600 mb-2">
-        Subscribe to your upcoming events in any iCal-compatible app (Apple Calendar, iOS, Outlook).
-        The feed is session-authenticated — copy the URL while signed in.
-      </p>
-      <div className="flex items-center gap-2">
-        <code className="flex-1 bg-slate-800/70 border border-slate-700/80 rounded-md px-3 py-2 text-[11px] text-slate-300 font-mono truncate" title={httpsUrl}>
-          {httpsUrl}
-        </code>
-        <button
-          onClick={copy}
-          className="flex-shrink-0 text-[11px] text-slate-300 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 px-2.5 py-1.5 rounded-md transition-all font-mono"
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-        {webcalUrl && (
-          <a
-            href={webcalUrl}
-            className="flex-shrink-0 text-[11px] text-emerald-500 hover:text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60 px-2.5 py-1.5 rounded-md transition-all font-mono"
-          >
-            Open in Apple Calendar
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ─── Theme selector ───────────────────────────────────────────────────────────
 
@@ -2287,13 +1649,10 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [vipSenders, setVipSenders] = useState<string[]>([]);
   const [muteSenders, setMuteSenders] = useState<string[]>([]);
-  const [trackedLocations, setTrackedLocations] = useState<TrackedLocation[]>([]);
-  const [marketsWatchlist, setMarketsWatchlist] = useState<TickerEntry[]>([]);
-  const [osintFeeds, setOsintFeeds] = useState<OsintFeed[]>([]);
-  // Only send osintFeeds on save when the drawer's editor actually changed it —
-  // the OSINT Sources pane writes the same field via its own endpoint, and a
-  // whole-row save with a stale copy used to revert those edits.
-  const [osintFeedsDirty, setOsintFeedsDirty] = useState(false);
+  // Tracked places, the markets watchlist and the OSINT feeds are no longer
+  // edited here (REVIEW-2026-10 §12): places on the Weather tab / Mission →
+  // What you track, feeds on OSINT → Sources; the markets watchlist had no
+  // consumer left. The full save omits them and the route preserves them.
   const [newsletterSources, setNewsletterSources] = useState<NewsletterSourceRule[]>([]);
   const [disabledNewsSources, setDisabledNewsSources] = useState<string[]>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
@@ -2413,8 +1772,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
     }
     if (key === "sources") {
       const parts: (string | ReactElement)[] = [];
-      if (trackedLocations.length) parts.push(`${trackedLocations.length} loc`);
-      if (marketsWatchlist.length) parts.push(`${marketsWatchlist.length} tickers`);
       // News-source count: total enabled, with a muted "(N off)" only when
       // any are disabled — keeps the header quiet for the default state.
       const totalNews = allKnownNewsSources().length;
@@ -2428,18 +1785,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         );
       } else {
         parts.push(`${totalNews} news`);
-      }
-      if (osintFeeds.length) {
-        if (feedStaleCount !== null && feedStaleCount > 0) {
-          parts.push(
-            <span key="feeds">
-              {osintFeeds.length} feeds{" "}
-              <span className="text-amber-400">({feedStaleCount} stale)</span>
-            </span>
-          );
-        } else {
-          parts.push(`${osintFeeds.length} feeds`);
-        }
       }
       if (parts.length === 0) return "No sources configured";
       // Join string parts with " · " and React elements with separators.
@@ -2478,10 +1823,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
         setWatchlist(prefs.watchlist ?? []);
         setVipSenders(prefs.vipSenders ?? []);
         setMuteSenders(prefs.muteSenders ?? []);
-        setTrackedLocations(prefs.trackedLocations ?? []);
-        setMarketsWatchlist(prefs.marketsWatchlist ?? []);
-        setOsintFeeds(prefs.osintFeeds ?? []);
-        setOsintFeedsDirty(false);
         setNewsletterSources(prefs.newsletterSources ?? []);
         setDisabledNewsSources(prefs.disabledNewsSources ?? []);
         setAiEnabled(prefs.aiEnabled !== false);
@@ -2515,17 +1856,9 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
   // collapsed headers can show stale-count and dollars-today without
   // requiring the user to expand the group. Cache means the actual HTTP
   // cost is shared with the child.
-  const [feedStaleCount, setFeedStaleCount] = useState<number | null>(null);
   const [aiSpendTodayMicros, setAiSpendTodayMicros] = useState<number | null>(null);
   useEffect(() => {
     if (!open) return;
-    fetch("/api/osint/feed")
-      .then((r) => r.json())
-      .then((d) => {
-        const feeds: { ok: boolean }[] = Array.isArray(d?.feeds) ? d.feeds : [];
-        setFeedStaleCount(feeds.filter((f) => !f.ok).length);
-      })
-      .catch(() => setFeedStaleCount(null));
     fetch("/api/ai-usage")
       .then((r) => r.json())
       .then((d) => {
@@ -2570,8 +1903,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
           // trackedLocations is deliberately NOT sent: the Track command writes it
           // while the drawer is open and the route preserves an absent list
           // (code review 2026-10-07 — Save used to delete a just-tracked place).
-          marketsWatchlist, newsletterSources,
-          ...(osintFeedsDirty ? { osintFeeds } : {}),
+          newsletterSources,
           disabledNewsSources,
           aiEnabled, aiFeatureToggles,
           localFeedKey,
@@ -2713,7 +2045,7 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               <div className="px-4 py-4 border-t border-slate-800">
                 <TrackingPanel />
                 <MissionProfileEditor />
-                <CrewStateEditor />
+                <p className="mt-4 text-[10px] text-slate-500">Crew counts (team state) are kept on <button type="button" onClick={() => { window.dispatchEvent(new CustomEvent("app:navigate", { detail: "glance" })); onClose(); }} className="text-emerald-400 hover:underline">Glance → Demand horizon → Crews</button>, next to the posture line they feed.</p>
               </div>
             )}
           </section>
@@ -2890,7 +2222,10 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
                   accent="orange"
                 />
 
-                <PushSetupCard />
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">Alerts on this device</label>
+                  <p className="text-[10px] text-slate-500">Push alerts are set up on <button type="button" onClick={() => { window.dispatchEvent(new CustomEvent("app:navigate", { detail: "glance" })); onClose(); }} className="text-emerald-400 hover:underline">Glance → Alerts on this device</button>, under the status row.</p>
+                </div>
               </div>
             )}
           </section>
@@ -3029,20 +2364,17 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
             {openGroups.sources && (
               <div className="px-4 py-4 border-t border-slate-800 space-y-5">
                 <TripsEditor />
-                <TrackedLocationsEditor
-                  value={trackedLocations}
-                  onChange={setTrackedLocations}
-                  onAddMetar={(s) => void postTrack({ kind: "airfield", icao: s.icao, label: s.label, roles: { metar: true } })}
-                />
-                <p className="text-[10px] text-slate-600 -mt-2">Force posture bases, countries and METAR stations moved to <button type="button" onClick={() => selectGroup("mission")} className="text-emerald-400 hover:underline">Mission → What you track</button> — one list, every role, and a ＋ Track… button that works from any map popup or board row.</p>
-                <MarketsWatchlistEditor value={marketsWatchlist} onChange={setMarketsWatchlist} />
+                <p className="text-[10px] text-slate-500 -mt-2">TDY is also added and ended on the <button type="button" onClick={() => { window.dispatchEvent(new CustomEvent("app:navigate", { detail: "calendar" })); onClose(); }} className="text-emerald-400 hover:underline">Calendar</button> (＋ TDY on the Today strip; the TDY chip ends it). Civil places, bases, countries and METAR stations are edited on the <button type="button" onClick={() => { window.dispatchEvent(new CustomEvent("app:navigate", { detail: "weather" })); onClose(); }} className="text-emerald-400 hover:underline">Weather tab</button> and under <button type="button" onClick={() => selectGroup("mission")} className="text-emerald-400 hover:underline">Mission → What you track</button> — one list, every role, one ＋ Track… button.</p>
                 <NewsSourcesEditor
                   value={disabledNewsSources}
                   onChange={setDisabledNewsSources}
                   currentLocalKey={localFeedKey}
                 />
                 <NewsletterSourcesEditor value={newsletterSources} onChange={setNewsletterSources} />
-                <OsintFeedsEditor value={osintFeeds} onChange={(v) => { setOsintFeeds(v); setOsintFeedsDirty(true); }} />
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">OSINT feeds</label>
+                  <p className="text-[10px] text-slate-500">RSS and Telegram feeds are edited where they are read — <button type="button" onClick={() => { window.dispatchEvent(new CustomEvent("app:navigate", { detail: "osint" })); setTimeout(() => window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "sources" })), 40); onClose(); }} className="text-emerald-400 hover:underline">OSINT → Sources</button> — with health dots, a tester and AO-aware suggestions.</p>
+                </div>
                 <AcledCredentialsEditor />
               </div>
             )}

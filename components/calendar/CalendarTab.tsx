@@ -119,13 +119,19 @@ export default function CalendarTab({ active, onEventsLoaded, tasksRefreshKey, o
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
+    const cleanups: (() => void)[] = [];
     if (status !== "authenticated") return;
     fetch("/api/family/dates").then((r) => (r.ok ? r.json() : null)).then((d) => { if (Array.isArray(d?.items)) setFamDates(d.items); }).catch(() => {});
-    fetch("/api/trips").then((r) => (r.ok ? r.json() : null)).then((d) => { if (Array.isArray(d?.trips)) setTrips(d.trips); }).catch(() => {});
+    const loadTrips = () => fetch("/api/trips").then((r) => (r.ok ? r.json() : null)).then((d) => { if (Array.isArray(d?.trips)) setTrips(d.trips); }).catch(() => {});
+    loadTrips();
+    // ＋ TDY / end / remove on this tab (and the Weather TDY card) announce this.
+    window.addEventListener("trips:changed", loadTrips);
+    cleanups.push(() => window.removeEventListener("trips:changed", loadTrips));
     fetchUiState().then((st) => {
       const v = st[UI_KEYS.mailDatesDismissed];
       if (Array.isArray(v)) setDismissed(new Set(v.filter((x): x is string => typeof x === "string")));
     }).catch(() => {});
+    return () => { for (const c of cleanups) c(); };
   }, [status, refreshKey]);
   useEffect(() => {
     const onChanged = () => setRefreshKey((k) => k + 1);

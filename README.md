@@ -85,7 +85,7 @@ boards, alerts, what changed since you looked) into every turn.
   (depth · now · rest) with newsletters as an earned queue.
 - **Calendar** — **Don't miss** (family deadlines, tasks and check-ins in one
   list, late → today → week), the agenda in the effective zone with TDY day
-  chips, **Dates in your mail** (＋ Event / ＋ Task from a date the triage
+  chips (＋ TDY and end / remove on the chip; tap the zone label to pin it), **Dates in your mail** (＋ Event / ＋ Task from a date the triage
   found — never a guessed date), keep-in-touch cadences, tasks, iCal.
 - **Email** — the sift: always grouped High → Medium → Low with per-group
   mark-read, **Keep** (held at both ends — the UI and the mark-read route),
@@ -137,7 +137,8 @@ boards, alerts, what changed since you looked) into every turn.
   24-h TAF category bar, model hazards, crosswind, a SITREP door), threats &
   disasters by command, a map that follows the selection, and space weather
   in one crew sentence. Places and airfields are added or removed on the
-  page through the one Track command; a sources strip names every feed.
+  page through the one Track command (⌂ set home the same way); a sources
+  strip names every feed.
 - **Economy** — **Economic Warfare Watch**: one tile per tracked actor
   (I&W level against its own baseline, lit instrument chips, the driver in
   words, an editor for the register), a moves-and-counter-moves timeline
