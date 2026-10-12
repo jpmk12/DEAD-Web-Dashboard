@@ -411,7 +411,7 @@ export async function POST(request: Request) {
         ...(userContext ? [{ type: "text" as const, text: userContext }] : []),
       ],
       messages: [{ role: "user", content: userContent }],
-    });
+    }, { timeout: 300_000, maxRetries: 1 });
 
     logCall({ route: "briefing", model: "claude-opus-4-7", usage: response.usage, durationMs: Date.now() - modelStart, assemblyMs, user: normEmail(session.user?.email) }).catch(() => {});
 

@@ -10,10 +10,14 @@ export function getAnthropic(): Anthropic {
   // placeholder ("No key facts extracted", "Couldn't generate a thesis").
   const apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-  // Bounded: the SDK's defaults are 10 min and two retries, which outlive the
-  // platform gateway (~20-30 s) and could spend a call three times after the
-  // client already saw a 502. Routes with a longer budget override per call.
-  return new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 });
+  // Bounded: the SDK's defaults are 10 min and two retries. One retry only —
+  // a transport failure is retried, a slow generation is not re-spent. The
+  // ceiling must clear the LONGEST honest call: Opus writing 4,096 tokens
+  // over forty articles (threads, the morning brief) takes 60–120 s, and a
+  // 60-s ceiling (code review 2026-10-07) cut those off as "Request timed
+  // out" twice in a row (bug report 2026-10-12). Three minutes here; the two
+  // Opus long-form routes pass 300 s; short on-tap reads pass less.
+  return new Anthropic({ apiKey, timeout: 180_000, maxRetries: 1 });
 }
 
 // Shape of the configured key, for the owner-only diagnostic in AI Controls.

@@ -3326,9 +3326,17 @@ patch:
   card exists. A pending Docs autosave is flushed (`keepalive`) when the
   doc changes under the editor. The situation-room mini-map memoises its
   points so a parent re-render does not re-fit over the user's pan.
-- **Performance / cost.** `lib/claude.ts`: `timeout: 60_000, maxRetries:
-  1` for every call site (the SDK default was 10 min and two retries —
-  three spends after the gateway had already answered 502). GDELT goes
+- **Performance / cost.** `lib/claude.ts`: `timeout: 180_000, maxRetries:
+  1` for every call site (the SDK default was 10 min and two retries).
+  **The first cut was 60 s and that was wrong** (2026-10-12: "Request
+  timed out" twice in a row, the Threads read failing): Opus writing 4,096
+  tokens over forty articles takes 60–120 s, so the brief and the Threads
+  analysis were cut off and retried once into the same wall. The ceiling
+  has to clear the longest HONEST call; the two Opus long-form routes
+  (`/api/threads`, `/api/briefing`) pass 300 s explicitly, short on-tap
+  reads pass less. The gateway's own ~30-s 502 is a separate matter the
+  bounded-wait / `pending` pattern handles — a server-side generation
+  keeps running past it and the next poll takes the cache. GDELT goes
   through ONE process-wide gate (`paced`, 5.2 s apart; a caller that would
   wait >20 s is answered stale with `live:false`) with a 5-min negative
   cache — eight callers, several `Promise.all` fan-outs, against a 1-per-5-s
