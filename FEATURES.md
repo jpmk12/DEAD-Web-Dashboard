@@ -96,6 +96,7 @@ All tables live in one managed MySQL instance. Creation is idempotent (`CREATE T
 | `captured_articles` | Reader-captured analysis articles (rolling) |
 | `captured_events` | Captured LiveUAMap events (14 d / newest 1000) |
 | `captured_notices` | Captured ministry notices, first source MOFCOM (180 d / newest 500) |
+| `captured_ukmto` | UKMTO recent incidents by reference, from the direct fetch or a browser capture (180 d / newest 600) |
 | `signal_daily_counts` | Trend layer: per-day term counts (180 d) |
 | `signal_pair_daily` | Trend layer: watch×topic / region×topic co-occurrence (90 d) |
 | `signal_seen` | Trend dedup ledger (14 d) |
@@ -256,7 +257,7 @@ One scrolling page of lists; every row is a door into **the room**.
 
 #### Crisis map (`CrisisMap.tsx`, inside Commands)
 - **Basemap** (`lib/basemaps.ts`): dark (Esri dark canvas → OSM-darkened) · satellite (Esri imagery + reference labels → Esri dark → OSM) · street (Esri street → OSM); a provider that fails `TILE_FAIL_LIMIT` tiles without ever loading one is judged refusing and the chain advances with a `basemap:` badge; pick persisted in `crisisMap.basemap` UI state.
-- **Layers** (grouped popover, counts, persisted): Threats — Disasters, Hub wx, Tropical + Cone, Radar (RainViewer, off), NEO, Conflict (UCDP, ReliefWeb fallback), ACLED, GPS (GPSJam H3), Outages (IODA), Launches (Launch Library 2); Anticipatory — INFORM Risk (World Bank Data360, off); Nodes — Hubs, CRF, Gateways, Tracked, Forces; Reach — Rings (airframe, Max/Light payload, planning-grade), AR, Bridges; Movement — Mil air (keyless ADS-B, mobility-only / tanker filters), Vessels (AISStream, ~300 km around home + the chokepoint boxes), Overflight (DAIP FIR NOTAMs for watched countries); Display — Labels.
+- **Layers** (grouped popover, counts, persisted): Threats — Disasters, Hub wx, Tropical + Cone, Radar (RainViewer, off), NEO, Conflict (UCDP, ReliefWeb fallback), ACLED, Maritime (UKMTO incidents — solid ⚓ reported position, hollow ⚓ placed at the named sea area), GPS (GPSJam H3), Outages (IODA), Launches (Launch Library 2); Anticipatory — INFORM Risk (World Bank Data360, off); Nodes — Hubs, CRF, Gateways, Tracked, Forces; Reach — Rings (airframe, Max/Light payload, planning-grade), AR, Bridges; Movement — Mil air (keyless ADS-B, mobility-only / tanker filters), Vessels (AISStream, ~300 km around home + the chokepoint boxes), Overflight (DAIP FIR NOTAMs for watched countries); Display — Labels.
 - **Toolbar**: View presets, AOR chips (drive dots + force rail + events list together), ⚙ Layers, Legend, search, Fit / ↻ / Full, **Demand read** (`GET /api/crisis-read`, Sonnet, 10-min cache, on tap, not feature-gated).
 - **Node popups**: flight-category ring (`/api/airfield-weather`), runway capability (`/api/airfield-capability`), lift line, Track buttons; Force posture popups carry the AI force read (`GET /api/force-read`, Sonnet, `chat` gate).
 - **Honesty**: `ErrorBoundary` names a render failure; a refused session raises a red "signed out" badge; a source-down strip names every dead feed; `GET /api/osint/map-diag` (owner) fetches every host from production.
@@ -278,7 +279,7 @@ One scrolling page of lists; every row is a door into **the room**.
 #### Sources (`SourcesPane.tsx`)
 - **Watchlist suggestions** (`/api/osint/watchlist-suggestions`): add (new / rising movers) and drop (watch terms that stopped matching), each with evidence, dismissal permanent.
 - Feed editor (`GET/PUT /api/osint/feeds`, owner writes), health dots, Test (`POST /api/osint/test-feed`), suggested feeds (`lib/osintSuggestions.ts`, AO-aware groups).
-- **Browser capture** (`XImportCard.tsx`, `CaptureStatusCard.tsx`): X posts (bookmarklet `tools/x-capture-bookmarklet.js` or the `tools/x-auto-capture/` MV3 extension on a schedule → `POST /api/osint/x-import`), analysis articles (`article.js` → `/api/capture/article`), LiveUAMap events (`liveuamap.js` → `/api/capture/events`), MOFCOM notices (`mofcom.js` → `/api/capture/notices`); pure validators in `lib/xImport.ts`, `lib/articleCapture.ts`, `lib/eventCapture.ts`, `lib/noticeCapture.ts`; the bearer token panel (`/api/settings/x-token`). No server-side X access of any kind.
+- **Browser capture** (`XImportCard.tsx`, `CaptureStatusCard.tsx`): X posts (bookmarklet `tools/x-capture-bookmarklet.js` or the `tools/x-auto-capture/` MV3 extension on a schedule → `POST /api/osint/x-import`), analysis articles (`article.js` → `/api/capture/article`), LiveUAMap events (`liveuamap.js` → `/api/capture/events`), MOFCOM notices (`mofcom.js` → `/api/capture/notices`), UKMTO incidents (`ukmto.js` → `/api/capture/ukmto`); pure validators in `lib/xImport.ts`, `lib/articleCapture.ts`, `lib/eventCapture.ts`, `lib/noticeCapture.ts`, `lib/ukmtoParse.ts`; the bearer token panel (`/api/settings/x-token`). No server-side X access of any kind.
 
 #### Track (the one command)
 - `components/TrackPicker.tsx` (opens on `track:open`): search → candidate (`GET /api/track?q=`; places geocoded client-side via `/api/osint/geocode`) → roles (posture · METAR · SITREP · ★) → one `POST /api/track {op:"track"|"restore"|"role"}` → change lines + **Undo** (the exact inverse request). `lib/trackingRegistry.ts` (pure) folds `forceLocations` / `countriesOfInterest` / `metarStations` / `sitrepBases` / `mustTrack` / `trackedLocations` into one registry; removing an AUTO row records its exclusion; a full list is a warning, never a silent drop. Buttons on every map popup, board row, Weather card and ⌘K.
@@ -293,6 +294,7 @@ One scrolling page of lists; every row is a door into **the room**.
 - **Timeline** (`lib/economicTimeline.ts`): 30 days, lanes U.S. · EU/UK · one per actor · strait incident · Brent ≥3 %; hover detail, click pins and opens the row; `retaliation` / `counter` sequences.
 - **Leverage map** (`lib/leverage.ts`): curated, dated, folded, never coloured.
 - **Chokepoints** (`ChokepointBoard.tsx` ← `GET /api/markets/chokepoints`, `lib/chokepointReads.ts` 15-min): eight tiles (hormuz · babelmandeb · suez · bosphorus · malacca · taiwan · panama · russia-ovf) with the graded read + **AIS transit** chip (`lib/chokepointAis.ts` / `lib/chokepointTransit.ts`: distinct MMSI per observed hour vs own baseline — unconfigured / unknown / learning / normal / suppressed / elevated; needs `AISSTREAM_API_KEY`) and one detail panel.
+- **UKMTO recent incidents** (`lib/ukmtoParse.ts` pure, `lib/ukmto.ts` server, `GET /api/osint/ukmto`, `?diag=1` owner-only): the Royal Navy's maritime incident log, graded by its own label (ATTACK / SUSPICIOUS APPROACH / BOARDING → reported act, WARNING → declared threat) and joined to every strait's read by distance (reported position, or placed at the named sea area and said so) — the official record behind the headlines. Direct fetch when the host answers, browser capture (`ukmto.js` → `POST /api/capture/ukmto`) when it refuses; the board header chip says which door was read, or UNKNOWN with the reason.
 - **Energy** (`GET /api/markets/energy`, `lib/energyPrices.ts`, Yahoo Finance keyless, Stooq fallback, 15-min cache, `range=1mo` series, baseline vs 90-day mean after 20 days).
 - **U.S. regulatory actions** (`RegulatoryBoard.tsx` ← `GET /api/markets/regulatory`, Federal Register, 6-h cache, `lib/regulatorySignals.ts` pure): class by agency, instrument, countries, ⚑ on the watch.
 - **EU / UK lists** (`lib/foreignSanctions.ts`, streamed CSV, 24-h cache): new-listing waves feed counter-pressure, the coercion board and the timeline; `?diag=1` on the economic-warfare route.
@@ -658,12 +660,14 @@ In-process (per server process; a deploy resets them):
 /api/capture/article                     POST / GET / DELETE — captured analysis articles
 /api/capture/events                      POST / GET / DELETE — captured map events
 /api/capture/notices                     POST / GET / DELETE — captured ministry notices
+/api/capture/ukmto                       POST / GET / DELETE — captured UKMTO recent-incidents page text
 /api/osint/geocode                       GET — Nominatim proxy
 /api/osint/aircraft                      GET — OpenSky bbox (AOR contacts strip)
 /api/osint/aircraft-mil                  GET — global military ADS-B
 /api/osint/ships                         GET — AISStream snapshot
 /api/osint/conflict                      GET — UCDP events (ReliefWeb fallback)
 /api/osint/acled                         GET — ACLED events
+/api/osint/ukmto                         GET — UKMTO incidents (fetch + capture merged); ?diag=1 owner-only
 /api/osint/gpsjam                        GET — GPS-interference H3 cells
 /api/osint/airspace                      GET ?layer=fir|gps|fuel — DAIP NOTAM groups
 /api/osint/inform                        GET — INFORM Risk scores

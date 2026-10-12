@@ -122,14 +122,15 @@ boards, alerts, what changed since you looked) into every turn.
   spectrum / history), ‹ › through the command, ⇥ pin as a right column,
   Esc / ← / →, and a `?room=` deep link. Add, remove and re-role airfields
   and countries from the board itself. Below it the **Crisis map** follows
-  whatever is open: disasters, conflict (UCDP / ACLED), weather hazards, GPS
+  whatever is open: disasters, conflict (UCDP / ACLED), UKMTO maritime
+  incidents, weather hazards, GPS
   interference, FIR / overflight NOTAMs, live military ADS-B + AIS, hubs /
   gateways with runway capability and flight categories, planning-grade
   reach rings, outages and launches, and the **Significant events** list
   with "near my airfields" and "new since look" lenses. **Feeds** merges the
   reporting list (clustering, triage, the Situation line). **Sources** is
   the ingestion control room — browser-captured X posts / analysis articles
-  / LiveUAMap events / MOFCOM notices (captured in *your* logged-in browser,
+  / LiveUAMap events / MOFCOM notices / UKMTO incidents (captured in *your* logged-in browser,
   never server-side), the live RSS / Telegram feed editor with AO-aware
   suggestions, and watchlist recommendations with their evidence.
 - **Weather** — where you are first, then your civil places (NWS + Open-Meteo,

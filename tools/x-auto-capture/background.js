@@ -10,6 +10,7 @@ import { collectXPosts } from "./collector.js";
 import { extractArticle } from "./article.js";
 import { collectLiveuamap } from "./liveuamap.js";
 import { collectMofcom } from "./mofcom.js";
+import { collectUkmto } from "./ukmto.js";
 
 const DEFAULTS = {
   dashboardUrl: "",
@@ -127,20 +128,24 @@ function waitForTabLoad(tabId, timeoutMs) {
 
 // Route a capture target by host: LiveUAMap region maps use the event collector
 // + the events ingest; MOFCOM (PRC Ministry of Commerce) pages use the notice
-// collector + the notices ingest; everything else is treated as an X list.
+// collector + the notices ingest; UKMTO's recent-incidents page uses the
+// page-text collector + the ukmto ingest; everything else is treated as an X
+// list.
 function targetKind(url) {
   try {
     const h = new URL(url).hostname;
     if (/(^|\.)liveuamap\.com$/.test(h)) return "liveuamap";
     if (/(^|\.)mofcom\.gov\.cn$/.test(h)) return "mofcom";
+    if (/(^|\.)ukmto\.org$/.test(h)) return "ukmto";
     return "x";
   } catch (e) { return "x"; }
 }
-const COLLECTORS = { liveuamap: collectLiveuamap, mofcom: collectMofcom, x: collectXPosts };
-const ENDPOINTS = { liveuamap: "/api/capture/events", mofcom: "/api/capture/notices", x: "/api/osint/x-import" };
+const COLLECTORS = { liveuamap: collectLiveuamap, mofcom: collectMofcom, ukmto: collectUkmto, x: collectXPosts };
+const ENDPOINTS = { liveuamap: "/api/capture/events", mofcom: "/api/capture/notices", ukmto: "/api/capture/ukmto", x: "/api/osint/x-import" };
 const EMPTY_MSG = {
   liveuamap: "No events collected — is this a LiveUAMap region page?",
   mofcom: "No notices collected — is this a MOFCOM announcements list or notice page?",
+  ukmto: "No page text collected — is this the UKMTO recent-incidents page?",
   x: "No posts collected — check the URL and that you're logged into X.",
 };
 

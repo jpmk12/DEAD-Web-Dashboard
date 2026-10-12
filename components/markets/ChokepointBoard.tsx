@@ -73,7 +73,7 @@ const TRANSIT_CHIP: Record<Transit["state"], { text: string; cls: string }> = {
 
 const CLASS_LABEL: Record<InterdictionClass, string> = {
   strike: "strike", seizure: "seizure", mining: "mining", closure: "closure",
-  rerouting: "rerouting", escort: "escort", airspace: "airspace",
+  rerouting: "rerouting", escort: "escort", approach: "approach", airspace: "airspace",
 };
 
 const MODALITY_CHIP: Record<Modality, { text: string; cls: string }> = {
@@ -92,6 +92,10 @@ function scoreTone(n: number): string {
 
 export default function ChokepointBoard({ active }: { active: boolean }) {
   const [signals, setSignals] = useState<Signal[] | null>(null);
+  // The UKMTO door's state: the board must say whether the official record
+  // was read, and through which door — an empty strait with a dead UKMTO
+  // fetch and no capture is UNKNOWN, not calm.
+  const [ukmto, setUkmto] = useState<{ live: boolean; count: number; reason: string | null; captured: number } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
 
@@ -100,7 +104,10 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
   const load = useCallback(() => {
     fetch("/api/markets/chokepoints")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (Array.isArray(d?.signals)) setSignals(d.signals); })
+      .then((d) => {
+        if (Array.isArray(d?.signals)) setSignals(d.signals);
+        if (d?.ukmto && typeof d.ukmto === "object") setUkmto(d.ukmto);
+      })
       .catch(() => {});
   }, []);
 
@@ -118,6 +125,16 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
         <span className="ml-auto text-[10px] text-slate-600">
           {live.length > 0 ? `${live.length} of ${signals.length} showing activity` : "nothing interdiction-shaped reported"}
         </span>
+        {ukmto && (
+          <span
+            className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border ${ukmto.count > 0 ? (ukmto.live ? "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" : "text-sky-200 border-sky-500/40 bg-sky-500/10") : "text-amber-200 border-amber-500/50 bg-amber-500/10"}`}
+            title={ukmto.count > 0
+              ? `${ukmto.count} UKMTO incidents on the board (${ukmto.live ? "fetched from ukmto.org" : `from the browser capture — direct fetch: ${ukmto.reason ?? "failed"}`})`
+              : `UKMTO unread — ${ukmto.reason ?? "no entries"}. Add https://www.ukmto.org/recent-incidents to the capture extension's targets.`}
+          >
+            UKMTO {ukmto.count > 0 ? ukmto.count : "UNKNOWN"}{ukmto.count > 0 && !ukmto.live ? " · captured" : ""}
+          </span>
+        )}
       </div>
 
       {/* One row of tiles — the strip. Detail is one click away, below. */}
@@ -225,7 +242,8 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
 
       <p className="px-3.5 py-2 border-t border-slate-800 text-[9.5px] text-slate-600 leading-snug">
         Graded, not counted: an act outscores a declared intention, which outscores commentary — and georeferenced
-        incidents from UCDP/ACLED are joined by distance, so an attack nobody wrote a headline about still registers.
+        incidents from UCDP/ACLED and UKMTO&rsquo;s own incident log are joined by distance, so an attack nobody wrote a headline about still registers.
+        A UKMTO entry is graded by its own label (ATTACK, SUSPICIOUS APPROACH, WARNING…) as the official record it is; one with no position is placed at the sea area it names and says so.
         A score of 0 means nothing interdiction-shaped was reported, not that the route is safe.
         {" "}AIS transit counts compare today&rsquo;s vessels-per-listened-hour with each strait&rsquo;s own baseline; they read UNKNOWN until the bridge has listened long enough, and the count only runs while the server is up.
       </p>

@@ -43,6 +43,14 @@ collected posts → your own dashboard, authorized by a per-user token.
        records, credited to the **China** actor on the Economy tab's economic-
        warfare board. MOFCOM has no API; this is the only way those notices
        reach the dashboard. Public site, no login.
+     - **UKMTO** recent incidents (`https://www.ukmto.org/recent-incidents`)
+       → the Royal Navy's maritime incident log (attacks, boardings,
+       suspicious approaches, advisories) for the Gulf, Red Sea and Gulf of
+       Aden. The dashboard also tries to fetch the page itself, but UKMTO is
+       reported to refuse automated access, so add it here to be sure: each
+       entry joins the Economy tab's chokepoint board, the I&W chokepoint
+       indicator and the Crisis map's **Maritime** layer, with its UKMTO
+       reference and position. Public site, no login.
    - **Capture every (hours)** — how often to run. `6` is a good cadence for
      active threat-watching; `24` = once daily. Floor is 3h (more often is
      diminishing returns and more automation footprint).

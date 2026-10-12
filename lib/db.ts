@@ -557,6 +557,32 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_capnt_time (captured_at)
   ) ENGINE=InnoDB`,
 
+  // UKMTO recent incidents (lib/ukmto.ts) — the Royal Navy's maritime
+  // incident log, keyed by its own reference ("163-26"). Rows arrive from the
+  // direct fetch when the host answers AND from a browser capture when it
+  // does not (UKMTO is reported to block automated access). An incident is a
+  // standing record: 180 days / newest 600. Positions are decimal degrees;
+  // placement says whether they were reported or placed at a named area.
+  `CREATE TABLE IF NOT EXISTS captured_ukmto (
+    ref          VARCHAR(16)  NOT NULL,
+    label        VARCHAR(40)  NOT NULL,
+    incident_on  VARCHAR(10)  NULL,
+    incident_at  VARCHAR(24)  NULL,
+    reported_by  VARCHAR(80)  NULL,
+    lat          DOUBLE       NULL,
+    lon          DOUBLE       NULL,
+    placement    VARCHAR(10)  NULL,
+    area         VARCHAR(60)  NULL,
+    body         TEXT         NOT NULL,
+    url          VARCHAR(300) NOT NULL,
+    via          VARCHAR(10)  NOT NULL DEFAULT 'fetch',
+    user_email   VARCHAR(255) NOT NULL DEFAULT '',
+    captured_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (ref),
+    INDEX idx_ukmto_day (incident_on),
+    INDEX idx_ukmto_time (captured_at)
+  ) ENGINE=InnoDB`,
+
   // Term co-occurrence (lib/trends.recordDailySignals, PLAN §7 E3): watch×topic
   // and region×topic pairs per item, so "Hormuz and tanker rising together for
   // the first time in 60 days" is answerable. Public-source items only, same

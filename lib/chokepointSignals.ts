@@ -47,6 +47,7 @@ export type InterdictionClass =
   | "closure"     // transit closed / blockaded / declared closed
   | "rerouting"   // traffic avoiding the route — the economic effect landing
   | "escort"      // convoy / naval escort established, i.e. it is contested
+  | "approach"    // suspicious approach / harassment by small craft or state forces — the earliest kinetic signal (UKMTO's own category)
   | "airspace";   // overflight denied or closed
 
 export interface InterdictionRead {
@@ -63,8 +64,16 @@ export interface InterdictionRead {
  *  response. */
 const CLASS_WEIGHT: Record<InterdictionClass, number> = {
   closure: 100, mining: 90, strike: 85, seizure: 75,
-  rerouting: 60, airspace: 55, escort: 35,
+  rerouting: 60, airspace: 55, approach: 45, escort: 35,
 };
+
+/** Build a read from a class and modality the caller has already judged —
+ *  for an OFFICIAL incident record (UKMTO) whose label is the grading, so
+ *  the weights stay in one place and a record is never re-graded by the
+ *  news grammar's mood markers ("vessels may…" is advice, not analysis). */
+export function gradedRead(cls: InterdictionClass, modality: Modality, phrase: string): InterdictionRead {
+  return { cls, modality, phrase, weight: Math.round(CLASS_WEIGHT[cls] * MODALITY_FACTOR[modality]) };
+}
 
 /** Modality multipliers. An act is the event; a threat is the earliest signal;
  *  analysis is someone thinking out loud and earns almost nothing. */
@@ -79,11 +88,30 @@ const CLASS_PHRASES: Record<InterdictionClass, string[]> = {
     "attack on a tanker", "attack on shipping", "vessel was attacked",
     "ship was attacked", "struck by a projectile", "explosion aboard",
     "limpet mine", "damaged by an explosion", "set ablaze", "sank after",
+    // UKMTO's own phrasing, which the wires quote verbatim.
+    "fired upon", "came under fire", "unknown projectile", "hit by a projectile",
+    "projectile impact", "explosion in close proximity", "impacted by a projectile",
+    "struck by an unknown projectile", "rocket-propelled grenade",
   ],
   seizure: [
     "seized a tanker", "seized a vessel", "boarded a tanker", "boarded a vessel",
     "hijacked", "detained the crew", "seized the ship", "commandeered",
     "tanker seizure", "vessel seizure",
+    "boarded by", "was boarded", "has been boarded", "forcibly boarded", "armed persons boarded",
+    "vessel was detained", "detained the vessel", "detained a vessel", "detained a tanker",
+    "diverted to iranian", "taken to iranian", "escorted the vessel to",
+  ],
+  // The earliest kinetic signal, and UKMTO's most common category: small
+  // craft or state forces closing on a merchant without (yet) firing or
+  // boarding. Weighted below a seizure, above an escort.
+  approach: [
+    "suspicious approach", "approached by small craft", "approached by a small craft",
+    "approached by skiffs", "approached by a skiff", "approached by unknown",
+    "small craft approached", "skiff approached", "skiffs approached",
+    "attempted boarding", "attempted to board", "harassed by", "shadowed by",
+    "aggressive manoeuvres", "aggressive maneuvers",
+    "involving military forces", "involving a tanker and military forces", "involving a vessel and military forces",
+    "incident involving a tanker", "incident involving a vessel", "incident involving a merchant",
   ],
   // Verb agreement matters: a plural subject ("mines were found") must match as
   // surely as a singular one, or a real event grades as something weaker.
@@ -284,6 +312,10 @@ export interface ChokepointText {
   link?: string;
   source?: string;
   pubDate?: string;
+  /** A read already made by an official record's own label (lib/ukmtoParse
+   *  gradeUkmto). When present it is used AS-IS — the news grammar's mood
+   *  markers never re-grade a primary source. */
+  read?: InterdictionRead;
 }
 
 export interface ActivityRead {
@@ -332,7 +364,7 @@ export function readActivity(
   let lead: ActivityRead["lead"] = null;
 
   for (const t of texts) {
-    const read = readInterdiction(`${t.title} ${t.summary ?? ""}`);
+    const read = t.read ?? readInterdiction(`${t.title} ${t.summary ?? ""}`);
     if (!read) continue;                       // a bare mention earns nothing
     if (read.modality === "reversal") continue;  // the measure being lifted — not an act, not a threat, not analysis
     if (read.modality === "act") acts++;

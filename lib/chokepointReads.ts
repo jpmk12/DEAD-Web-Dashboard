@@ -13,6 +13,8 @@ import { getChokepointTransits, type ChokepointTransit } from "./chokepointAis";
 import { getSensorSeries, recordSensorDay } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
 import { precedes, type LeadResult } from "./series";
+import { getUkmtoIncidents } from "./ukmto";
+import { ukmtoGeoEvents, ukmtoTextsFor } from "./ukmtoParse";
 
 export interface ChokepointRead extends Chokepoint, ActivityRead {
   totalEvents: number;
@@ -28,10 +30,16 @@ export interface ChokepointRead extends Chokepoint, ActivityRead {
 export interface ChokepointReadsBody {
   signals: ChokepointRead[];
   generatedAt: string;
-  sources: { conflictEvents: number; acledEvents: number };
+  sources: { conflictEvents: number; acledEvents: number; ukmto?: number };
+  /** The UKMTO door: live = the direct fetch parsed entries; the count is
+   *  what the board read (fetch + capture merged); reason says why a dead
+   *  fetch is dead. */
+  ukmto?: { live: boolean; count: number; reason: string | null; captured: number };
   /** AIS bridge status — so an all-UNKNOWN transit column can be explained. */
   ais?: AisStatus;
 }
+
+export function resetChokepointReadsCache(): void { cache = null; }
 
 const TTL = 15 * 60 * 1000;
 let cache: { at: number; key: string; body: ChokepointReadsBody } | null = null;
@@ -96,12 +104,20 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
   // Georeferenced events, from both conflict feeds. ACLED is the higher-fidelity
   // layer but its free tier embargoes recent data, so UCDP/ReliefWeb carries the
   // current picture — exactly the division the Crisis map already assumes.
-  const [conflict, acled] = await Promise.all([
+  const [conflict, acled, ukmto] = await Promise.all([
     getConflictPoints().catch(() => []),
     getAcledEvents().catch(() => []),
+    // UKMTO is the primary record for the Gulf / Red Sea / Gulf of Aden —
+    // the authority the headlines cite. Its placed incidents join by
+    // distance like UCDP/ACLED; its graded entries join each strait's TEXTS
+    // pre-graded (lib/ukmtoParse gradeUkmto), so a reported ATTACK is a
+    // reported act whatever the wires have written yet.
+    getUkmtoIncidents().catch(() => null),
   ]);
+  const ukmtoIncidents = ukmto?.incidents ?? [];
 
   const events: GeoEvent[] = [
+    ...ukmtoGeoEvents(ukmtoIncidents),
     ...conflict.map((c) => ({
       id: `ucdp-${c.name}-${c.lat},${c.lon}`,
       lat: c.lat, lon: c.lon,
@@ -124,15 +140,16 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
   // genuinely about that place rather than filtered out of a global pile.
   const signals: ChokepointRead[] = await Promise.all(points.map(async (cp) => {
     const { items: news, live: newsLive } = await gdeltLocalNewsLive(cp.name).catch(() => ({ items: [], live: false }));
-    const texts: ChokepointText[] = news.map((n) => ({
-      title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate,
-    }));
+    const texts: ChokepointText[] = [
+      ...ukmtoTextsFor(cp, ukmtoIncidents),
+      ...news.map((n) => ({ title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate })),
+    ];
     const read = readActivity(cp, texts, events, today);
     // The act history that did not exist before (PLAN §5 C3): 1 on a day the
     // graded read holds a reported act, 0 otherwise — an observed quiet day
     // is a fact too, but ONLY when the news feed answered: a dead sensor
     // writes nothing (code review 2026-10-07). Day-peak, fire-and-forget.
-    if (newsLive || read.acts > 0) recordSensorDay(sensorKey("cpact", cp.id), today, read.acts > 0 ? 1 : 0).catch(() => {});
+    if (newsLive || ukmto?.fetch.live || read.acts > 0) recordSensorDay(sensorKey("cpact", cp.id), today, read.acts > 0 ? 1 : 0).catch(() => {});
     return {
       ...cp,
       ...read,
@@ -149,6 +166,9 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
     generatedAt: new Date().toISOString(),
     // So an all-zero board reads as "nothing interdiction-shaped reported",
     // never as "the straits are fine".
-    sources: { conflictEvents: conflict.length, acledEvents: acled.length },
+    sources: { conflictEvents: conflict.length, acledEvents: acled.length, ukmto: ukmtoIncidents.length },
+    ukmto: ukmto
+      ? { live: ukmto.fetch.live, count: ukmtoIncidents.length, reason: ukmto.fetch.reason, captured: ukmto.store.captured }
+      : { live: false, count: 0, reason: "UKMTO read unavailable", captured: 0 },
   };
 }

@@ -151,8 +151,13 @@ const tropicalIcon = glyph(`<span style="font-size:15px">🌀</span>`, 16);
 const neoDepartIcon = glyph(`<span style="color:#fca5a5;font-size:13px">🛫</span>`);
 const neoLevel4Icon = glyph(`<span style="color:#fca5a5;font-size:12px">⛔</span>`, 13);
 const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:900">◆</span>`, 12);
+// UKMTO maritime incidents: a reported position is solid; an entry placed at a
+// named sea area's centroid is hollow — a dot that is not a fix must not look
+// like one.
+const ukmtoIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900">⚓</span>`, 13);
+const ukmtoAreaIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900;opacity:.55">⚓</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "gps" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "maritime" | "gps" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
 interface Vessel { mmsi: number; name: string; shipType: number; lat: number; lon: number; cog: number; sog: number; heading: number | null }
@@ -167,6 +172,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   neo: "U.S. State Dept Level-4 / embassy ordered-or-authorized departure advisories — potential NEO / evacuation airlift.",
   conflict: "Armed-conflict events. With a UCDP API token (UCDP_API_TOKEN): precise georeferenced events from the Uppsala Conflict Data Program — coordinates + fatalities, monthly candidate data (~1-2mo lag). Without a token, falls back to keyless ReliefWeb (UN OCHA) complex-emergency / conflict situations plotted at country level. Top events surface in the crisis list.",
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
+  maritime: "Maritime security incidents from UKMTO (UK Maritime Trade Operations, Royal Navy) — attacks, boardings, suspicious approaches, advisories and warnings in the Gulf, Red Sea, Gulf of Aden and the wider Indian Ocean, with the UKMTO reference and the reported position. A hollow anchor is an entry with no position, placed at the named sea area's centroid. The same entries feed the Economy tab's chokepoint board and the I&W chokepoint indicator. Source: ukmto.org/recent-incidents (fetched directly, or captured by the browser extension when the host refuses automated access).",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
   overflight: "Overflight / airspace NOTAMs by FIR (DoD DAIP, FIR_ARTCC) for your watched countries — enroute closures, TFRs, danger/restricted areas, MOAs. Plotted at FIR centroids; size = NOTAM count, colour = worst alert (red=warning / amber=caution). The #1 mobility-planning gap: 'can I overfly this country'. Requires the DoD CA bundle; empty when unconfigured/unreachable (UNKNOWN, never 'clear').",
   outages: "National internet connectivity outage alerts (IODA, Georgia Tech — BGP / active probing / darknet telescope, last 24 h), plotted at country centroid; red = critical, amber = warning. A national outage is the best open proxy for a state-scale cyber event or a shutdown. Passive measurement; off by default; empty when IODA is unreachable (UNKNOWN, never calm).",
@@ -193,7 +199,8 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "tropical", label: "Tropical", dot: "#38bdf8" }, { k: "cone", label: "Cone" },
     { k: "radar", label: "Radar", dot: "#22d3ee" },
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
-    { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "gps", label: "GPS", dot: "#c084fc" },
+    { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "maritime", label: "Maritime", dot: "#fb7185" },
+    { k: "gps", label: "GPS", dot: "#c084fc" },
     { k: "overflight", label: "Overflight", dot: "#fb923c" },
     { k: "outages", label: "Outages", dot: "#f472b6" },
     { k: "launches", label: "Launches", dot: "#fde047" },
@@ -219,9 +226,9 @@ const ALL_KEYS: LayerKey[] = LAYER_GROUPS.flatMap((g) => g.keys.map((x) => x.k))
 const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
   Object.fromEntries(ALL_KEYS.map((k) => [k, onKeys.includes(k)])) as Record<LayerKey, boolean>;
 const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
-  { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, UKMTO maritime incidents, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "maritime", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
-  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "gps", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, UKMTO maritime incidents, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "maritime", "gps", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
   { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
 ];
@@ -295,6 +302,8 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
   const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
+  type UkmtoPt = { id: string; ref: string; label: string; date: string | null; time: string | null; reportedBy: string | null; lat: number | null; lon: number | null; placement: "reported" | "area" | null; area: string | null; text: string; url: string };
+  const [maritime, setMaritime] = useState<UkmtoPt[]>([]);
   type InformPt = { country: string; score: number; lat: number; lon: number };
   const [informRisk, setInformRisk] = useState<InformPt[]>([]);
   type OutagePt = { country: string; level: string; sources: number; latest: number; lat: number; lon: number };
@@ -409,7 +418,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
   const reach = reachOf(AF, payload);
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, gps: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, maritime: true, gps: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -515,6 +524,16 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
     fetch("/api/osint/acled", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { events?: AcledEvent[] } | null) => { if (Array.isArray(d?.events)) setAcled(d!.events); })
+      .catch(() => {});
+    // UKMTO maritime incidents — `ok` is false only when NEITHER door
+    // (direct fetch, browser capture) has anything: that is "source down",
+    // not a quiet sea.
+    fetch("/api/osint/ukmto", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { incidents?: UkmtoPt[]; ok?: boolean } | null) => {
+        if (Array.isArray(d?.incidents)) setMaritime(d!.incidents);
+        if (d) markSrc("UKMTO", d.ok === false);
+      })
       .catch(() => {});
     fetch("/api/osint/inform?product=risk", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
@@ -704,6 +723,11 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
     () => acled.filter((e) => passAor(aorFromCoords(e.lat, e.lon))),
     [acled, aorFilter], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // UKMTO incidents with a place on the map (reported or area-placed), AOR-filtered.
+  const maritimeShown = useMemo(
+    () => maritime.filter((m): m is UkmtoPt & { lat: number; lon: number } => m.lat != null && m.lon != null && passAor(aorFromCoords(m.lat, m.lon))),
+    [maritime, aorFilter], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // Ranked list (the map's table of contents).
   const items: Item[] = useMemo(() => {
@@ -881,7 +905,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
 
   const layerCount: Partial<Record<LayerKey, number>> = {
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
-    neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, gps: gpsjam.length || undefined,
+    neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, maritime: maritimeShown.length || undefined, gps: gpsjam.length || undefined,
     overflight: (on.overflight && overflight.length) || undefined,
     outages: outages.length || undefined, launches: launches.length || undefined,
     forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined, ships: (on.ships && shipShown.length) || undefined,
@@ -1242,6 +1266,23 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
               </Marker>
             ))}
 
+            {/* UKMTO maritime incidents — the primary record for the Gulf /
+                Red Sea / Gulf of Aden. Solid anchor = reported position;
+                hollow = placed at a named area's centroid. */}
+            {on.maritime && maritimeShown.map((m) => (
+              <Marker key={`ukmto-${m.id}`} position={[m.lat, m.lon]} icon={m.placement === "area" ? ukmtoAreaIcon : ukmtoIcon} eventHandlers={{ click: () => pick(`ukmto-${m.id}`, m.lat, m.lon) }}>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[280px]">
+                  <div className="font-bold text-sm">UKMTO {m.ref} · {m.label}</div>
+                  <div className="text-slate-600">{[m.date ?? "date not stated", m.time && m.time !== "TBC" ? m.time : null, m.reportedBy ? `reported by ${m.reportedBy}` : null].filter(Boolean).join(" · ")}</div>
+                  {m.placement === "area"
+                    ? <div className="text-amber-700">Placed at {m.area} — no position in the report</div>
+                    : <div className="text-slate-600">{m.lat.toFixed(2)}, {m.lon.toFixed(2)}{m.area ? ` · ${m.area}` : ""}</div>}
+                  {m.text && <div className="text-slate-700 mt-1">{m.text.length > 360 ? `${m.text.slice(0, 357)}…` : m.text}</div>}
+                  <div className="text-slate-500 mt-1"><a href={m.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">UKMTO — ukmto.org ↗</a></div>
+                </div></Popup>
+              </Marker>
+            ))}
+
             {/* En route air-bridge corridors (great-circle) */}
             {on.bridges && AIR_BRIDGES.map((seq, bi) => seq.slice(0, -1).map((icao, li) => {
               const a = HUB_BY_ICAO.get(icao), b2 = HUB_BY_ICAO.get(seq[li + 1]);
@@ -1567,7 +1608,7 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
         })()}
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}GPS/EW: GPSJam{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}Maritime incidents: UKMTO (UK Maritime Trade Operations) — ukmto.org{" · "}GPS/EW: GPSJam{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 

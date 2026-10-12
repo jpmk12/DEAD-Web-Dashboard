@@ -249,7 +249,7 @@ const GRAMMAR: Record<Exclude<Instrument, "shipping">, ClassDef[]> = {
 // actor read grade identically. Its `airspace` class belongs to overflight.
 const SHIPPING_CLASS_LABEL: Record<Exclude<InterdictionClass, "airspace">, string> = {
   strike: "strike on shipping", seizure: "seizure", mining: "mining", closure: "closure",
-  rerouting: "rerouting", escort: "escort",
+  rerouting: "rerouting", escort: "escort", approach: "suspicious approach / harassment",
 };
 
 /** Every instrument read a text supports, strongest first (one per

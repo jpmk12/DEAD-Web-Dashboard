@@ -1966,6 +1966,85 @@ built on the existing engine rather than a new one:
   `mofcom.js`, the same capture-then-build loop as X/DAIP. Extension files
   are static under `tools/` (no esbuild).
 
+### UKMTO recent incidents (2026-10-12, by request: "add ukmto.org/recent-incidents as a data source")
+The Royal Navy's maritime incident log for the Gulf / Red Sea / Gulf of Aden
+— the primary record the wires cite. It has the standing of a Federal
+Register document or a MOFCOM notice: **a labelled entry is a REPORTED ACT
+by the authority whose job it is to record it**, never news about one.
+- **`lib/ukmtoParse.ts` (PURE, client-safe, tested in `tests/ukmtoParse.test.ts`)**:
+  `htmlToText` → `parseUkmtoText` reads entries from TEXT, never from CSS —
+  an entry is `<n>-<yy> - LABEL` followed by labelled fields (`Incident
+  Date:` in "10 OCT 2026" / dd/mm/yyyy / ISO, `Incident Time:`, `Source:`,
+  optional `Position:`) and the narrative. `parseUkmtoPosition` reads the
+  degree-minute spellings UKMTO's own tables use (`26°24'N 056°25'E`,
+  `26 ° 24'N`, `26-24N 056-25E`, `2624N 05625E`), degrees-only and a
+  decimal pair; prose and `00°00'N 000°00'E` → null. **A position is never
+  guessed**: an entry with none but a NAMED water or port (`SEA_AREAS`,
+  longest-and-first alias wins, "the Gulf of Oman" is not "the gulf") is
+  PLACED at that centroid with `placement: "area"` and every surface says so
+  (the map draws it hollow; the event title reads "placed at Gulf of Oman —
+  no position in the report"). `gradeUkmto` grades by the page's LABEL first
+  (ATTACK → strike act; HIJACK / BOARDING / SEIZURE → seizure act;
+  SUSPICIOUS APPROACH → approach act; WARNING → a declared THREAT; a release →
+  reversal), then by the narrative with a UKMTO-only vocabulary where single
+  words are allowed (official incident descriptions, not newsletters); a
+  label and narrative naming nothing interdiction-shaped → null (the entry
+  still counts as a georeferenced event). **The news grammar's mood markers
+  never re-grade a record** — `ChokepointText.read` carries the pre-graded
+  read and `readActivity` uses it as-is ("Vessels may experience…" is
+  advice, not analysis). `parseUkmtoCapture` validates a `dead-ukmto`
+  capture: host must be `ukmto.org` (`UKMTO_HOST_ALLOW`), a foreign
+  `pageUrl` is dropped, text capped at 400 kB.
+- **The shared grammar learned UKMTO's phrasing** (`lib/chokepointSignals.ts`):
+  a new `approach` class (weight 45 — the earliest kinetic signal, below
+  seizure, above escort; labelled on the ChokepointBoard and as "suspicious
+  approach / harassment" on the actor board) plus strike / seizure phrases
+  the wires quote verbatim ("struck by an unknown projectile", "boarded by",
+  "fired upon"). `gradedRead(cls, modality, phrase)` keeps the weights in one
+  place.
+- **Two doors, because the host's reachability is UNKNOWN** (`lib/ukmto.ts`,
+  server-only, 15-min cache, in-flight deduped, never throws): (1) the direct
+  fetch of `www.ukmto.org/recent-incidents` (browser UA, 12 s) — **unreachable
+  from the sandbox and the fetcher, and a third-party maritime tracker's
+  README says UKMTO blocks automated access**, so expect a 403 in production;
+  `/api/osint/ukmto?diag=1` (owner-only) runs the real fetch and returns
+  status / bytes / parsed / reason / snippet; (2) the browser capture —
+  `tools/x-auto-capture/ukmto.js` (`collectUkmto`: scrolls, clicks an obvious
+  "load more", returns the page's innerText plus best-effort per-entry
+  blocks; `background.js` routes `ukmto.org` targets to it) → `POST
+  /api/capture/ukmto` (bearer-or-session, 2 MB cap, owner-only DELETE). Both
+  land in **`captured_ukmto` (PK = the UKMTO reference, 180 d / newest 600;
+  `lib/ukmtoStore.ts`)** — the upsert never lets a later row without a
+  reported position or a date overwrite one that had them — and a read
+  merges the live parse with the store (`mergeUkmto`), so yesterday's capture
+  is on the board when today's fetch is refused. `UkmtoBody.fetch.live` is
+  the direct fetch's truth; `ok` is false only when NEITHER door has anything
+  (the map's "source down" badge keys on it).
+- **Consumers**: `lib/chokepointReads.ts` joins UKMTO on both axes — placed
+  incidents as `GeoEvent`s (source "UKMTO", by distance like UCDP/ACLED) and
+  per-strait pre-graded texts (`ukmtoTextsFor`: inside the chokepoint's
+  radius, else naming its keywords when unplaced) — so the chokepoint board
+  and the I&W chokepoint indicator (`chokepointState`) read it with no
+  further wiring; the body carries `sources.ukmto` and a `ukmto {live, count,
+  reason, captured}` block the ChokepointBoard header renders as a chip
+  (green fetched · sky captured · amber UNKNOWN with the reason and the
+  extension hint). The `cpact:` series is recorded when UKMTO's fetch was
+  live even if GDELT was not. The Crisis map's **Maritime** layer (on by
+  default, in the Standard and Contested presets, AOR-filtered via
+  `aorFromCoords`): ⚓ solid for a reported position, hollow for area-placed;
+  popup = reference · label · date/time · reported by · position or "placed
+  at X — no position in the report" · narrative · the ukmto.org link;
+  attribution in the Sources footer. `resetChokepointReadsCache` /
+  `resetUkmtoCache` run after every capture so the board follows within a
+  poll.
+- **Contract unverified against the live page** (same class as DAIP /
+  state.gov / MOFCOM): the entry shape is pinned from one verbatim copy of
+  an entry (2026-10-11) and UKMTO's own VRA overview tables; the parser is
+  text-based so a restyle does not break it, but a page rendered entirely by
+  script will parse 0 from the fetch (`reason` says so) and parse fine from
+  the capture. First real capture or diag → refine `HEADER` / `takeField` in
+  `ukmtoParse.ts`. No new npm dep (esbuild `0`).
+
 ### Cyber & space warning (BUILT 2026-09-30 from `docs/REVIEW-CYBER-SPACE.md`, steps A–G)
 Cross-cutting, no tenth tab. Three disciplines hold everywhere and are
 test-enforced: **space weather is environment, never an I&W level** — it
@@ -2140,7 +2219,9 @@ All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
 embeds; cyber/space feeds — IODA outage alerts (`api.ioda.inetintel.cc.gatech.edu`),
 CISA KEV + advisories (`www.cisa.gov`), ransomware.live (`api.ransomware.live`),
 NOAA SWPC scales (`services.swpc.noaa.gov`), Launch Library 2
-(`ll.thespacedevs.com`), CelesTrak SOCRATES (`celestrak.org`);
+(`ll.thespacedevs.com`), CelesTrak SOCRATES (`celestrak.org`); UKMTO recent
+incidents (`www.ukmto.org`, HTML — reported to refuse automated access, so the
+browser-capture extension is the reliable door);
 embeds, GDELT (DOC, local news), U.S. State Dept (`travel.state.gov` — the
 `TAsTWs.xml` advisory RSS + the per-country `destination/{slug}.html` pages),
 UCDP (`ucdpapi.pcr.uu.se`), ACLED
