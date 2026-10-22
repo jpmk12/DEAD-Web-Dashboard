@@ -268,7 +268,7 @@ One scrolling page of lists; every row is a door into **the room**.
 - `GET /api/sitrep/summary` (bounded 8 s): per-base LED rollups for the strip, Glance and the brief. `POST /api/sitrep/read`: the Commander's Read (Haiku, `chat` gate, 15-min cache). `/api/sitrep/limfac` GET / POST / DELETE: shared commander-entered LIMFACs. **⇩ Export HTML** (`lib/sitrepExport.ts`): one self-contained, script-free, escaped snapshot. ⧉ Save to Docs.
 
 #### I&W (`WarningBoard.tsx`, `lib/warning.ts` + `lib/warningTaxonomy.ts` + `lib/warningRules.ts` pure)
-- One board per primary AOI (`problemFromSeed`; CENTCOM · Iran legacy ids kept) plus economy actors; indicators carry falsifier + provenance + decision linkage; every board gets `pnt_denial` + `cyber_pressure`, `space_activity` where a space power is in the AOI; the chokepoint indicator is the graded chokepoint read.
+- One board per primary AOI (`problemFromSeed`; CENTCOM · Iran legacy ids kept) plus economy actors; indicators carry falsifier + provenance + decision linkage; every board gets `pnt_denial` + `cyber_pressure`, `space_activity` where a space power is in the AOI, and **`counterspace_activity`** where the AOI holds Russia or China (`lib/counterspace.ts`: inspector-fleet manoeuvres vs the actor's own cadence, a plane match with a declared asset of interest, an approach inside 50 km / 5 km / shadowing, reported ASAT / proximity / jamming acts, USSF / tracker corroboration — Space-Track element sets through `lib/spaceTrack.ts`, SGP4 via `satellite.js`); the cyber indicator records AGAINST whom (`cyberTargetOf`) and a posture read (preparation › sustained pressure › demonstration); the chokepoint indicator is the graded chokepoint read.
 - Score = anomaly against the board's own baseline (`warning_daily`), learning mode caps at WATCH, red only at ALERT, drivers always shown; sensors (`lib/warningSensors.ts`, `lib/spectrumSensors.ts`) bounded with `sensorHealth`; own-source corroboration (X captures, newsletters, OSINT feeds, captured articles) — own-source-only caps at WATCH.
 - `GET /api/warning` (bounded 12 s): assessments with 14-cell history, run, **lead indicators** (`lib/leadIndicators.ts`).
 - **Decision log** (`DecisionLog.tsx`, `/api/warning/decision`): call + expectation + horizon, reopened at the horizon, scored once (right / wrong / ambiguous), tally below `MIN_SCORED_FOR_RATE`; **calibration** (`lib/indicatorCalibration.ts`): downweight / forming / earning proposals per indicator — nothing re-weights automatically.
@@ -668,6 +668,7 @@ In-process (per server process; a deploy resets them):
 /api/osint/conflict                      GET — UCDP events (ReliefWeb fallback)
 /api/osint/acled                         GET — ACLED events
 /api/osint/ukmto                         GET — UKMTO incidents (fetch + capture merged); ?diag=1 owner-only
+/api/ask                                 POST — "Ask the board": one question answered from the evidence pack (boards, posture, straits, economy, counterspace/cyber posture, demand, alerts, delta, your docs); Sonnet default, Opus on request; no bare probability
 /api/osint/gpsjam                        GET — GPS-interference H3 cells
 /api/osint/airspace                      GET ?layer=fir|gps|fuel — DAIP NOTAM groups
 /api/osint/inform                        GET — INFORM Risk scores
@@ -719,6 +720,7 @@ ALLOWED_EMAILS                     (optional) comma-separated crew accounts
 AISSTREAM_API_KEY                  (optional) live AIS — Vessels layer + chokepoint transit counts
 ACLED_EMAIL / ACLED_PASSWORD       (optional) override the Preferences-stored ACLED credentials
 UCDP_API_TOKEN                     (optional) Conflict layer; without it ReliefWeb fallback
+SPACETRACK_USER / SPACETRACK_PASS  (optional) Space-Track account for the counterspace indicator's element-set history
 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT   (optional) web push; unset = feature off
 ```
 

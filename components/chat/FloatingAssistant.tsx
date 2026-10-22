@@ -21,7 +21,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
   const [open, setOpen] = useState(false);
   // A prompt to prefill the composer with, seeded from elsewhere (e.g. a Glance
   // "reschedule" click dispatches `assistant:open` with a starter sentence).
-  const [seed, setSeed] = useState<{ text: string; nonce: number } | null>(null);
+  const [seed, setSeed] = useState<{ text: string; nonce: number; askBoard?: boolean } | null>(null);
   // Fetch tasks independently so the assistant has them even if the Calendar
   // tab (and its background TasksPanel) hasn't loaded yet. Falls back to the
   // prop until the fetch lands.
@@ -31,8 +31,8 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
   //   window.dispatchEvent(new CustomEvent("assistant:open", { detail: { prompt } }))
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt ?? "";
-      setSeed({ text: prompt, nonce: Date.now() });
+      const d = (e as CustomEvent<{ prompt?: string; askBoard?: boolean }>).detail;
+      setSeed({ text: d?.prompt ?? "", nonce: Date.now(), askBoard: d?.askBoard === true });
       setOpen(true);
     };
     window.addEventListener("assistant:open", onOpen as EventListener);
@@ -101,6 +101,7 @@ export default function FloatingAssistant({ calendarEvents, tasks, articles, new
                 onEventChanged={() => window.dispatchEvent(new Event("calendar:changed"))}
                 initialInput={seed?.text}
                 initialInputNonce={seed?.nonce}
+                askBoard={seed?.askBoard}
               />
             </div>
           </div>

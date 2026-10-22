@@ -2045,6 +2045,167 @@ by the authority whose job it is to record it**, never news about one.
   the capture. First real capture or diag → refine `HEADER` / `takeField` in
   `ukmtoParse.ts`. No new npm dep (esbuild `0`).
 
+### Counterspace & cyber posture as I&W, and "Ask the board" (2026-10-22, `docs/PLAN-SPACE-CYBER-ASK.md`, all four decisions yes)
+Built from the Kosmos 2612 / ICEYE-X36 encounter read as an INDICATOR
+CHAIN: an April launch (dormant, correctly) → four of the six manoeuvring
+in May into an orbit co-planar with a commercial SAR satellite imaging for
+Ukraine (positioning — visible ONLY in element-set history, four months
+before the wire) → a ~500 m approach 15–19 Oct (active) → LeoLabs and a
+Space Force statement (confirmed). **Posture is the standing programme;
+warning is the change.** Russia's inspector fleet is years old and never
+earns colour by existing; a manoeuvre, a plane match with a DECLARED
+asset, a closing range, a corroborated report do. **Intent stays out of
+the deterministic layer** — distance, duration, plane, target class and
+who said what are recorded; what it means is for the on-tap read.
+- **`lib/counterspace.ts` (PURE, client-safe, tested in `tests/counterspace.test.ts`)**:
+  `parseGpRows` (Space-Track `gp` / `gp_history` JSON → `ElementSet`;
+  rows missing an orbital field are dropped, never guessed);
+  `semiMajorAxisKm` / `altitudeKm` / `regimeOf` (leo · meo · geo · heo);
+  `raanRateDegPerDay` (J2 node regression — a sun-synchronous orbit drifts
+  ~+1°/day); `detectManoeuvres` per regime (`MANOEUVRE_THRESHOLDS`: an
+  altitude jump beyond TLE noise + a drag allowance that grows with the
+  interval, an inclination step, or a node residual beyond J2 — GEO
+  east–west keeping of a km or two is NOT a manoeuvre); `coPlanar`
+  (`COPLANAR_LIMITS` 0.5° / 2° / 50 km); `worthSweeping` (same regime,
+  inclination within 2°, altitude within 150 km — the pairs the sweep
+  pays for); `rangeSweep` (min range over a window at a step, with the
+  hours inside 50 / 5 km; null when fewer than half the samples
+  propagated); the propagator is INJECTED — `twoBodyPropagator` is for
+  tests and a stated fallback only, SGP4 comes from the server. The
+  catalogue: `INSPECTOR_FLEET` (Nivelir 2519/2521/2523/2542/2543/2558/
+  2576, the 2026 six incl. 2612, Luch/Olymp-K 1 & 2; Shijian-17/21,
+  SY-7, TJS-3; `FLEET_AS_OF`, refresh quarterly from the SWF / CSIS annual
+  reports) with ids only where well known — **a null id is resolved by
+  EXACT satcat name, never a prefix** (COSMOS 2612's debris is not COSMOS
+  2612); `DEFAULT_ASSETS_OF_INTEREST` (ICEYE-X, WorldView, SkySat,
+  BlackSky, Capella, Umbra, USA 326, WGS, MUOS, AEHF — decision 2) matched
+  as OBJECT_NAME prefixes (`assetFor`), `sanitizeAssets` (absent → the
+  seed; an explicit empty list is a declaration — every approach then
+  caps at watching). The grammar `readCounterspace` (asat 95 › rpo 70 ›
+  jamming 55; PHRASES — "close approach", "cat-and-mouse", "same orbital
+  plane", "anti-satellite test" — never the fleet's NAMES, a bare mention
+  earns nothing), `fleetActorIn` (Kosmos/Luch/Nivelir → RUS; Shijian/
+  SJ-/TJS → CHN, for attribution when the sentence names the satellite),
+  `hasCorroborator` (LeoLabs / COMSPOC / Slingshot / USSF / USSPACECOM /
+  18 SDS / SWF / Langbroek). The ladder `counterspaceState`: nothing
+  observed → null (UNKNOWN); fleet on station → dormant; a manoeuvre (surge
+  vs the actor's own 90-d cadence noted) or a plane match with a declared
+  asset → watching; inside `RANGE_ACTIVE_KM` 50 of a DECLARED asset →
+  active (`RANGE_CLOSE_KM` 5 raises confidence; ≥24 h inside 50 km =
+  "shadowing"); an approach to an UNDECLARED asset caps at watching; a
+  wire act → active, own-source-only caps at watching; active + an
+  official statement or a named tracker (with the catalogue agreeing, or
+  two corroborated wire acts) → confirmed.
+- **`lib/spaceTrack.ts` (server)**: cookie login (`/ajaxauth/login`,
+  `SPACETRACK_USER` / `SPACETRACK_PASS`, free account, the ACLED
+  pattern), `resolveByName` (one satcat query for the whole pattern set,
+  `OBJECT_NAME/~~A,~~B`, PAYLOAD + on orbit, cached a week), `fleetHistory`
+  (`gp_history` 35 d for the fleet ids) and `currentSets` (`gp` for the
+  assets), both cached 20 h — **≤3 queries per pass against the site's
+  30/min · 300/h limits**; unreachable from the sandbox (connect refused)
+  and unverified from production — `diagnoseSpaceTrack` rides
+  `/api/spectrum?diag=1` (owner-only): `configured` / `login` / a satcat
+  probe for COSMOS 2558. Not configured → `live:false` with the reason and
+  the indicator runs on reporting alone and SAYS so.
+- **`lib/counterspaceAssemble.ts` (server, per actor RUS/CHN, cached 1 h,
+  bounded `maxWaitMs`)**: resolves the fleet and the declared assets,
+  pulls history + current sets, runs manoeuvres / plane matches / the
+  48-h SGP4 sweep (`satellite.js` 7 — pure JS plus an inlined single-file
+  wasm, NO install script; `grep -c esbuild package-lock.json` stays `0`)
+  for the pairs worth sweeping, and writes the series ONLY from a live
+  catalogue: `rpo:<actor>` (manoeuvres detected that day, peak) and
+  `prox:<actor>` (closest range to a declared asset, the new **`min`**
+  day policy — `sensorStore` keeps `LEAST`). `warmCounterspace()` runs
+  from the daily heartbeat so the series accrue on unopened days.
+- **The board**: `COUNTERSPACE_ID` = `counterspace_activity` on every board
+  whose AOI holds Russia or China (`spectrumIndicators`, weight 0.55,
+  falsifier "no inspector within 50 km of a declared asset for 30 d, no
+  fleet manoeuvre beyond station-keeping, no counterspace act reported by
+  a tracker or USSF in 14 d"). `spectrumSensors` gathers it beside the
+  other spectrum sensors: the catalogue read (12 s bound) + a GDELT query
+  (`space:<problemId>`, 7 d) + the own-source slice, attributed BY the
+  actor (`attribute(text, geo.terms)` or `fleetActorIn`), official
+  statements counted by `OFFICIAL_RX`. `lib/spectrum.ts` adds
+  `counterspace` (worst read across boards; joins the tile LED only once
+  ACTIVE — a watching manoeuvre is a row, not an amber tile) and
+  **`postures: ActorPosture[]`** (per actor: the board, the read, the
+  catalogue — fleet rows with last manoeuvre / nearest declared asset /
+  co-planar partners, `closestKm`, the `prox:` series — and the cyber
+  posture line). `lib/alerts.ts` adds `iw-<board>-counterspace-<state>`.
+- **Cyber posture** (§3, same pass): `cyberTargetOf(text, aoiCountries,
+  allCountries, {actorCountries, vendors})` → `aoi` (an AOI country, a U.S.
+  term, a declared vendor — with `DEMONYMS` for the forms a suffix cannot
+  derive: Polish, German, Dutch, Swiss…) · `elsewhere` (a named country
+  outside the AOI) · `unknown` (no place named — still counts; an act with
+  no stated target is not an act against Brazil); `cyberPostureRead` over
+  30 d of acts + advisories → `preparation` (a pre-positioning /
+  infrastructure-access phrase or a disruptive act against the AOI;
+  `isPrepositioning`) › `sustained pressure` (≥2 espionage reports) ›
+  `demonstration` (≥2 DDoS / defacement, no intrusion) › `quiet` (live,
+  nothing — "absence of reporting, not evidence of calm") / `unknown`
+  (feeds dead). `spectrumSensors` grades every attributed act's target;
+  **acts against targets outside the AOI are named on the ladder's why and
+  never ranked** (`CyberInputs.elsewhere`); the posture read is kept per
+  board (`getCyberPosture(problemId)`) for the summary.
+- **Surfaces**: `components/osint/PostureCard.tsx` in the country room's
+  spectrum section (Russia, China only — a posture card for an actor no
+  board watches would be a claim the app never observed): STANDING
+  PROGRAMME first (fleet table — object · programme · orbit · last
+  manoeuvre · nearest declared asset / co-planar), then WHAT CHANGED (the
+  board's read, the proximity rows, the plane matches), the range-trend
+  sparkline (log scale, red inside 50 km), the cyber posture line with
+  counts, and the `AssetsOfInterestInline` editor folded under "⚙ assets".
+  `components/osint/CounterspaceLine.tsx` on the SITREP Spectrum card (one
+  row per actor, "board →", ⚙ assets). `useSpectrumSummary()` shares
+  `/api/spectrum` through the client cache (5 min; a `pending` body is
+  re-asked once). Mission Profile `spectrum.assetsOfInterest` (seeded when
+  absent — `sanitizeSpectrum`), `PATCH /api/mission-profile { spectrum }`
+  as before.
+- **"Ask the board"** (§4): `POST /api/ask { question, model?: "sonnet" |
+  "opus" }`. `lib/askResolve.ts` (PURE, tested) places the question —
+  countries (names + `ACTOR_ALIASES`: Tehran / IRGC → Iran, Kremlin /
+  Putin → Russia, Houthis → Yemen…), commands (`AOR_TERMS`), straits (the
+  chokepoints' keywords), boards (by country, by command when no country
+  is named, by strait, by label), economy actor ids, the shape
+  (`warningShaped` / `wantsProbability` / `wantsIndicators` / `topics`)
+  and `unplaced` (capitalised names that matched nothing — said back,
+  never guessed); `isWarningShaped` is the client's cheap auto-route.
+  `lib/askPack.ts` (server) assembles the EVIDENCE PACK from caches the
+  app already keeps, every surface bounded (`within`) and UNAVAILABLE
+  stated, in a fixed order so bottom truncation never loses the boards:
+  the matched boards in full (every indicator's state / contribution /
+  provenance / falsifier / run, lead indicators, the decision-log hit
+  rate and open calls) → posture rows → SITREP LEDs → the economy tile +
+  the actor's moves → chokepoint reads incl. UKMTO → counterspace + cyber
+  posture + PNT + space weather → posture moves → demand horizon + skill
+  → alerts → what changed since the user's last look → the user's docs
+  (FULLTEXT) and the latest threads. `lib/askFormat.ts` (PURE, tested):
+  `renderAskPack` (surface-labelled sections, `ASK_PACK_MAX_CHARS` 60k)
+  and **`ASK_SYSTEM`, the answer contract** — BLUF in the board's
+  vocabulary · evidence by indicator with the surface in brackets · NOT
+  OBSERVED (dormant indicators and dead sensors, never calm) · what would
+  change the call (the falsifiers) · confidence (source independence,
+  own-source caps, learning mode, the hit rate) — and **no bare
+  probability**: a likelihood question gets the doctrinal framing, then
+  only if the user insists a BANDED judgement tied to named indicator
+  states, and the offer to log it as a decision-log call with a horizon
+  so the forecast is scored. The route gates on the `chat` feature, builds
+  the pack FIRST so the 15-min cache key is (model · normalised question ·
+  evidence fingerprint) — a repeat against an unchanged picture is free —
+  rate-limits the MODEL call only (8 s), calls Sonnet 4.6 by default or
+  Opus 4.7 on request (`max_tokens` 1400, 120 s, one retry), logs `ask` in
+  the ledger (`ROUTE_LABEL_OVERRIDES`), and returns the answer with the
+  `surfaces` (label + door) and `unavailable`. **UI**: the assistant's
+  header "◉ Board" toggle (remembered per browser) with a Sonnet / Opus
+  pick; a warning-shaped question auto-routes with a note saying so;
+  the answer carries SURFACE CHIPS (`runDoor`: `app:navigate` then
+  `watch:focus` etc.) and names the unplaced; ⌘K "Ask the board" opens the
+  assistant with the toggle on (`assistant:open { askBoard: true }`).
+- **Not verified from the sandbox**: Space-Track reachability from
+  production and the satcat `~~` OR form (`diag` shows a 400 if the
+  syntax differs); the 2026 fleet names resolve only once Space-Track
+  answers. No new npm dep beyond `satellite.js` (esbuild `0`).
+
 ### Cyber & space warning (BUILT 2026-09-30 from `docs/REVIEW-CYBER-SPACE.md`, steps A–G)
 Cross-cutting, no tenth tab. Three disciplines hold everywhere and are
 test-enforced: **space weather is environment, never an I&W level** — it
@@ -2219,7 +2380,9 @@ All outbound calls are HTTPS (443): Anthropic, Google APIs, RSS feeds, Twitter/X
 embeds; cyber/space feeds — IODA outage alerts (`api.ioda.inetintel.cc.gatech.edu`),
 CISA KEV + advisories (`www.cisa.gov`), ransomware.live (`api.ransomware.live`),
 NOAA SWPC scales (`services.swpc.noaa.gov`), Launch Library 2
-(`ll.thespacedevs.com`), CelesTrak SOCRATES (`celestrak.org`); UKMTO recent
+(`ll.thespacedevs.com`), CelesTrak SOCRATES (`celestrak.org`), Space-Track
+(`www.space-track.org`, cookie login with `SPACETRACK_USER` / `SPACETRACK_PASS`
+— the inspector-fleet element sets); UKMTO recent
 incidents (`www.ukmto.org`, HTML — reported to refuse automated access, so the
 browser-capture extension is the reliable door);
 embeds, GDELT (DOC, local news), U.S. State Dept (`travel.state.gov` — the

@@ -68,7 +68,12 @@ Nine tabs, a timezone-aware Morning Brief (cached once per day *per zone*;
 "today" follows the pinned zone › an active TDY › the device), a ⌘K command
 palette that reaches every surface by name, and a floating assistant that
 carries the dashboard's own computed picture (posture, SITREP LEDs, I&W
-boards, alerts, what changed since you looked) into every turn.
+boards, alerts, what changed since you looked) into every turn — and an
+**Ask the board** mode that answers a warning question ("how likely is
+conflict with Iran", "what indicators show Russia positioning") from the
+boards' own evidence under a fixed contract: the board's call, evidence by
+indicator with the surface named, what is *not* observed, what would change
+the call, confidence — and never a bare probability.
 
 - **Glance** — the landing view: world clocks west→east with the part of the
   day, **weather where you are** (home or the active TDY, with the nearest

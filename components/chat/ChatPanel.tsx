@@ -6,6 +6,29 @@ import { CalendarEvent, ChatMessage as ChatMessageType, GoogleTask, NewsItem, Ne
 import ChatMessage from "./ChatMessage";
 import { AssistantIcon } from "@/lib/icons";
 import ChatInput from "./ChatInput";
+import { isWarningShaped } from "@/lib/askResolve";
+import type { AskDoor } from "@/lib/askFormat";
+
+// "Ask the board" (docs/PLAN-SPACE-CYBER-ASK.md §4): a question answered
+// from the dashboard's own picture through /api/ask under a fixed contract,
+// never a free chat. ON by the header toggle (remembered per browser) or
+// AUTO for a warning-shaped question ("how likely…", "what indicators…");
+// the reply says which. The answer carries SURFACE CHIPS — doors to the
+// board / tile / room the evidence came from.
+interface AskMeta {
+  surfaces: { label: string; door?: AskDoor; unavailable?: boolean }[];
+  unavailable: string[];
+  model: string;
+  cached?: boolean;
+  auto: boolean;
+  entities: { boards: string[]; unplaced: string[] };
+}
+const ASK_KEY = "assistant.askBoard";
+const ASK_MODEL_KEY = "assistant.askModel";
+function runDoor(d: AskDoor) {
+  window.dispatchEvent(new CustomEvent(d.event, { detail: d.detail }));
+  if (d.then) { const t = d.then; setTimeout(() => window.dispatchEvent(new CustomEvent(t.event, { detail: t.detail })), t.delayMs ?? 100); }
+}
 
 interface ChatPanelProps {
   calendarEvents: CalendarEvent[];
@@ -18,6 +41,8 @@ interface ChatPanelProps {
   onEventChanged?: () => void;   // fired after a successful add/move/edit/delete
   initialInput?: string;         // prefill the composer (e.g. seeded from Glance)
   initialInputNonce?: number;    // bump to re-apply initialInput when already open
+  /** Open with "Ask the board" ON (the palette's entry); re-applied with initialInputNonce. */
+  askBoard?: boolean;
 }
 
 const WELCOME: ChatMessageType = {
@@ -362,11 +387,18 @@ export default function ChatPanel({
   onEventChanged,
   initialInput,
   initialInputNonce,
+  askBoard,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessageType[]>(() => loadThread());
   const [streaming, setStreaming] = useState(false);
   const [streamedIdx, setStreamedIdx] = useState(-1);
   const [actionMap, setActionMap] = useState<Map<number, PendingAction[]>>(new Map());
+  const [askMap, setAskMap] = useState<Map<number, AskMeta>>(new Map());
+  const [askMode, setAskMode] = useState<boolean>(() => { try { return localStorage.getItem(ASK_KEY) === "1"; } catch { return false; } });
+  const [askModel, setAskModel] = useState<"sonnet" | "opus">(() => { try { return localStorage.getItem(ASK_MODEL_KEY) === "opus" ? "opus" : "sonnet"; } catch { return "sonnet"; } });
+  useEffect(() => { try { localStorage.setItem(ASK_KEY, askMode ? "1" : "0"); } catch { /* ignore */ } }, [askMode]);
+  useEffect(() => { try { localStorage.setItem(ASK_MODEL_KEY, askModel); } catch { /* ignore */ } }, [askModel]);
+  useEffect(() => { if (askBoard) setAskMode(true); }, [askBoard, initialInputNonce]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const msgCountRef = useRef(messages.length);
@@ -513,7 +545,32 @@ export default function ChatPanel({
     mutateEvent(msgIdx, actionIdx, "DELETE", { eventId: a.event.eventId, calendarId: a.event.calendarId }, "Failed to delete event");
   };
 
+  // One question, answered from the board. Not streamed: the pack is built
+  // first (bounded) and the answer lands whole with its surface chips.
+  const askTheBoard = async (text: string, auto: boolean) => {
+    const userMsg: ChatMessageType = { role: "user", content: text };
+    const newMessages = [...messages, userMsg];
+    const idx = newMessages.length;
+    setMessages([...newMessages, { role: "assistant", content: "" }]);
+    setStreaming(true);
+    try {
+      const res = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: text, model: askModel }) });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d?.answer) throw new Error(d?.error ?? (res.status === 401 ? "Signed out — sign in again." : `HTTP ${res.status}`));
+      const note = auto ? "\n\n_Answered from the board (the question looked like a warning question). Turn ◉ Board off in the header to chat freely._" : "";
+      setMessages((prev) => { const u = [...prev]; u[idx] = { role: "assistant", content: `${d.answer}${note}` }; return u; });
+      setAskMap((prev) => new Map(prev).set(idx, { surfaces: d.surfaces ?? [], unavailable: d.unavailable ?? [], model: d.model ?? askModel, cached: d.cached, auto, entities: d.entities ?? { boards: [], unplaced: [] } }));
+    } catch (err) {
+      const why = err instanceof Error ? err.message : "";
+      setMessages((prev) => { const u = [...prev]; u[idx] = { role: "assistant", content: why ? `⚠ ${why}` : "Could not answer from the board." }; return u; });
+    } finally {
+      setStreaming(false);
+    }
+  };
+
   const sendMessage = async (text: string) => {
+    if (askMode) return askTheBoard(text, false);
+    if (isWarningShaped(text)) return askTheBoard(text, true);
     const userMsg: ChatMessageType = { role: "user", content: text };
     const newMessages = [...messages, userMsg];
     const assistantIdx = newMessages.length;
@@ -591,6 +648,17 @@ export default function ChatPanel({
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">AI Assistant</h2>
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            type="button" onClick={() => setAskMode((v) => !v)} aria-pressed={askMode}
+            title={askMode ? "Ask the board is ON — every question is answered from the I&W boards, posture, straits and economy under a fixed contract. Click to chat freely." : "Ask the board — answer the next question from the dashboard's own picture (warning-shaped questions route here automatically)"}
+            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border transition-colors ${askMode ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+          >◉ Board</button>
+          {askMode && (
+            <select value={askModel} onChange={(e) => setAskModel(e.target.value === "opus" ? "opus" : "sonnet")} title="Model for Ask the board (Sonnet by default; Opus on request)"
+              className="bg-slate-950 border border-slate-800 rounded px-1 py-0.5 text-[10px] text-slate-300 outline-none">
+              <option value="sonnet">Sonnet</option><option value="opus">Opus</option>
+            </select>
+          )}
           {calendarEvents.length > 0 && (
             <span className="text-[10px] text-emerald-500 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-md font-mono font-bold">
               {calendarEvents.length} ev
@@ -630,7 +698,25 @@ export default function ChatPanel({
             <div key={i}>
               <ChatMessage message={displayContent} />
               {msg.role === "assistant" && displayContent.content && !(streaming && i === messages.length - 1) && (
-                <div className="-mt-1 mb-2 pl-1">
+                <div className="-mt-1 mb-2 pl-1 space-y-1">
+                  {(() => {
+                    const meta = askMap.get(i);
+                    if (!meta) return null;
+                    const live = meta.surfaces.filter((s) => !s.unavailable);
+                    return (
+                      <div className="flex flex-wrap items-center gap-1" title={`Answered from the board · ${meta.model}${meta.cached ? " · cached" : ""}${meta.unavailable.length ? ` · unavailable this pass: ${meta.unavailable.join(", ")}` : ""}`}>
+                        <span className="text-[8px] font-bold uppercase tracking-wider text-sky-300/80 mr-0.5">◉ surfaces</span>
+                        {live.slice(0, 8).map((s) => (
+                          <button key={s.label} type="button" disabled={!s.door} onClick={() => s.door && runDoor(s.door)} title={s.door ? `Open ${s.label}` : s.label}
+                            className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-sky-500/30 text-sky-200/90 hover:bg-sky-500/10 disabled:border-slate-800 disabled:text-slate-500 disabled:hover:bg-transparent">
+                            {s.label.replace(/^OSINT › Commands › /, "").slice(0, 38)}
+                          </button>
+                        ))}
+                        {meta.unavailable.length > 0 && <span className="text-[9px] text-amber-200/70">{meta.unavailable.length} unavailable</span>}
+                        {meta.entities.unplaced.length > 0 && <span className="text-[9px] text-slate-500">not placed: {meta.entities.unplaced.join(", ")}</span>}
+                      </div>
+                    );
+                  })()}
                   <button type="button" onClick={() => openAppend({ text: displayContent.content, source: "assistant" })} className="text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-300" title="Append this answer to a running log">⧉ Append to…</button>
                 </div>
               )}

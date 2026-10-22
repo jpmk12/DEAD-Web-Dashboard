@@ -35,6 +35,7 @@ const STATIC: Command[] = [
   { id: "act:digest", group: "act", label: "Weekly digest", hint: "reading digest" },
   { id: "act:capture", group: "act", label: "Quick capture", hint: "task, event, or note", keywords: ["task", "note", "event", "add"] },
   { id: "act:assistant", group: "act", label: "Ask the assistant", hint: "AI chat with today's context", keywords: ["chat", "ai", "ask"] },
+  { id: "act:askboard", group: "act", label: "Ask the board", hint: "a question answered from the I&W boards, posture, straits, economy — no bare probability", keywords: ["ask", "board", "likely", "indicators", "warning", "iran", "russia", "china", "question"] },
   { id: "act:alerts", group: "act", label: "Alerts on this device", hint: "push notifications setup", keywords: ["push", "notifications", "install"] },
   { id: "act:oebrief", group: "act", label: "Export OE brief", hint: "one-page standalone HTML, no scripts", keywords: ["export", "brief", "download", "print", "oe"] },
   { id: "act:track", group: "act", label: "Track a country or airfield", hint: "posture · METAR · SITREP · ★ — one dialog", keywords: ["track", "watch", "add", "base", "airfield", "country", "icao", "untrack", "remove"] },
@@ -64,6 +65,7 @@ function run(cmd: Command) {
       else if (key === "digest") emit("digest:open");
       else if (key === "capture") emit("capture:open");
       else if (key === "assistant") emit("assistant:open", { prompt: "" });
+      else if (key === "askboard") emit("assistant:open", { prompt: "", askBoard: true });
       else if (key === "alerts") emit("prefs:open", "you");
       else if (key === "oebrief") { emit("app:navigate", "glance"); later(60, () => emit("oebrief:export")); }
       else if (key === "track") emit("track:open", {});

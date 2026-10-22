@@ -559,6 +559,7 @@ const ROUTE_LABEL_OVERRIDES: Record<string, string> = {
   ground_sitrep: "Country SITREP",
   sitrep_read: "Base commander's read",
   commands_read: "Command board read",
+  ask: "Ask the board",
 };
 
 const ROUTE_LABEL: Record<string, string> = {
