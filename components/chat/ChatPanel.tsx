@@ -8,6 +8,9 @@ import { AssistantIcon } from "@/lib/icons";
 import ChatInput from "./ChatInput";
 import { isWarningShaped } from "@/lib/askResolve";
 import type { AskDoor } from "@/lib/askFormat";
+import { ASSESSMENT_TAG, assessmentFileName, assessmentMarkdown, assessmentTitle, renderAssessmentHtml, stripBoardNote, type AssessmentRecord } from "@/lib/assessmentExport";
+import { downloadFile } from "@/lib/exports";
+import { toast } from "@/lib/feedback";
 
 // "Ask the board" (docs/PLAN-SPACE-CYBER-ASK.md §4): a question answered
 // from the dashboard's own picture through /api/ask under a fixed contract,
@@ -22,6 +25,10 @@ interface AskMeta {
   cached?: boolean;
   auto: boolean;
   entities: { boards: string[]; unplaced: string[] };
+  /** The record for Export / Save as doc: the question, the CLEAN answer, the pack's snapshot time. */
+  question: string;
+  answer: string;
+  atISO: string;
 }
 const ASK_KEY = "assistant.askBoard";
 const ASK_MODEL_KEY = "assistant.askModel";
@@ -394,6 +401,56 @@ export default function ChatPanel({
   const [streamedIdx, setStreamedIdx] = useState(-1);
   const [actionMap, setActionMap] = useState<Map<number, PendingAction[]>>(new Map());
   const [askMap, setAskMap] = useState<Map<number, AskMeta>>(new Map());
+  // Assessments saved as docs this session (message index → doc id), so the
+  // button becomes "open" instead of saving the same answer twice.
+  const [savedMap, setSavedMap] = useState<Map<number, string>>(new Map());
+  const [savingIdx, setSavingIdx] = useState<number | null>(null);
+
+  // The record an assistant reply exports as: a board answer carries its own
+  // question / snapshot time / surfaces; a plain chat reply takes the user
+  // turn before it as the question and the client's clock as the time.
+  const recordFor = (i: number, content: string): AssessmentRecord => {
+    const meta = askMap.get(i);
+    if (meta) {
+      return { question: meta.question, answer: meta.answer, atISO: meta.atISO, source: "board", model: meta.model, surfaces: meta.surfaces, unavailable: meta.unavailable, unplaced: meta.entities.unplaced };
+    }
+    const prev = messages[i - 1];
+    return { question: prev?.role === "user" ? prev.content : "", answer: stripBoardNote(content), atISO: new Date().toISOString(), source: "assistant" };
+  };
+  const exportAssessment = (i: number, content: string, ext: "html" | "md") => {
+    const rec = recordFor(i, content);
+    downloadFile(ext === "html" ? renderAssessmentHtml(rec) : assessmentMarkdown(rec), assessmentFileName(rec, ext), ext === "html" ? "text/html" : "text/markdown");
+  };
+  const openDoc = (id: string) => {
+    window.dispatchEvent(new CustomEvent("app:navigate", { detail: "docs" }));
+    setTimeout(() => window.dispatchEvent(new CustomEvent("docs:open", { detail: id })), 120);
+  };
+  const saveAssessment = async (i: number, content: string) => {
+    if (savingIdx !== null) return;
+    const rec = recordFor(i, content);
+    setSavingIdx(i);
+    try {
+      const r = await fetch("/api/documents", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: assessmentTitle(rec), content: assessmentMarkdown(rec), docType: "note",
+          tags: [ASSESSMENT_TAG, rec.source === "board" ? "ask-the-board" : "assistant"],
+          props: { source: rec.source === "board" ? "ask the board" : "assistant", "as of": rec.atISO.slice(0, 16).replace("T", " ") + "Z", ...(rec.model ? { model: rec.model } : {}) },
+        }),
+      });
+      const j = await r.json().catch(() => null) as { document?: { id: string }; id?: string; error?: string } | null;
+      if (!r.ok) throw new Error(j?.error ?? (r.status === 401 ? "Signed out — sign in again." : `HTTP ${r.status}`));
+      const id = j?.document?.id ?? j?.id ?? "";
+      if (!id) throw new Error("The server did not return a document id.");
+      setSavedMap((prev) => new Map(prev).set(i, id));
+      window.dispatchEvent(new CustomEvent("docs:changed"));
+      toast.ok("Saved to Docs", assessmentTitle(rec));
+    } catch (err) {
+      toast.error("Could not save the assessment", err);
+    } finally {
+      setSavingIdx(null);
+    }
+  };
   const [askMode, setAskMode] = useState<boolean>(() => { try { return localStorage.getItem(ASK_KEY) === "1"; } catch { return false; } });
   const [askModel, setAskModel] = useState<"sonnet" | "opus">(() => { try { return localStorage.getItem(ASK_MODEL_KEY) === "opus" ? "opus" : "sonnet"; } catch { return "sonnet"; } });
   useEffect(() => { try { localStorage.setItem(ASK_KEY, askMode ? "1" : "0"); } catch { /* ignore */ } }, [askMode]);
@@ -559,7 +616,10 @@ export default function ChatPanel({
       if (!res.ok || !d?.answer) throw new Error(d?.error ?? (res.status === 401 ? "Signed out — sign in again." : `HTTP ${res.status}`));
       const note = auto ? "\n\n_Answered from the board (the question looked like a warning question). Turn ◉ Board off in the header to chat freely._" : "";
       setMessages((prev) => { const u = [...prev]; u[idx] = { role: "assistant", content: `${d.answer}${note}` }; return u; });
-      setAskMap((prev) => new Map(prev).set(idx, { surfaces: d.surfaces ?? [], unavailable: d.unavailable ?? [], model: d.model ?? askModel, cached: d.cached, auto, entities: d.entities ?? { boards: [], unplaced: [] } }));
+      setAskMap((prev) => new Map(prev).set(idx, {
+        surfaces: d.surfaces ?? [], unavailable: d.unavailable ?? [], model: d.model ?? askModel, cached: d.cached, auto, entities: d.entities ?? { boards: [], unplaced: [] },
+        question: text, answer: String(d.answer), atISO: typeof d.atISO === "string" ? d.atISO : new Date().toISOString(),
+      }));
     } catch (err) {
       const why = err instanceof Error ? err.message : "";
       setMessages((prev) => { const u = [...prev]; u[idx] = { role: "assistant", content: why ? `⚠ ${why}` : "Could not answer from the board." }; return u; });
@@ -717,7 +777,21 @@ export default function ChatPanel({
                       </div>
                     );
                   })()}
-                  <button type="button" onClick={() => openAppend({ text: displayContent.content, source: "assistant" })} className="text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-300" title="Append this answer to a running log">⧉ Append to…</button>
+                  {(() => {
+                    const meta = askMap.get(i);
+                    const savedId = savedMap.get(i);
+                    const btn = "text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-300 disabled:text-slate-700 disabled:hover:text-slate-700";
+                    return (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <button type="button" onClick={() => openAppend({ text: meta ? stripBoardNote(meta.answer) : displayContent.content, source: meta ? "assistant · board" : "assistant", sourceTitle: meta?.question })} className={btn} title="Append this answer to a running log or working doc">⧉ Append to…</button>
+                        {savedId
+                          ? <button type="button" onClick={() => openDoc(savedId)} className="text-[9px] font-bold uppercase tracking-wider text-emerald-300 hover:text-emerald-200" title="Open the saved assessment in Docs">✓ saved · open</button>
+                          : <button type="button" disabled={savingIdx !== null} onClick={() => saveAssessment(i, displayContent.content)} className={btn} title="Save this assessment as its own doc (tagged assessment, with the question, time and surfaces)">{savingIdx === i ? "saving…" : "＋ Save as doc"}</button>}
+                        <button type="button" onClick={() => exportAssessment(i, displayContent.content, "html")} className={btn} title="Download a self-contained HTML snapshot (no script, no network) to share">⇩ HTML</button>
+                        <button type="button" onClick={() => exportAssessment(i, displayContent.content, "md")} className={btn} title="Download as Markdown">⇩ .md</button>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               {actions.map((action, j) => {

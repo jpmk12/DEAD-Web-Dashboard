@@ -2206,6 +2206,42 @@ who said what are recorded; what it means is for the on-tap read.
   syntax differs); the 2026 fleet names resolve only once Space-Track
   answers. No new npm dep beyond `satellite.js` (esbuild `0`).
 
+### Keeping an assessment from the chat (2026-10-22, "export assessments I like or append them to my working docs")
+Every assistant reply — a board answer or an ordinary chat reply — carries
+four doors under it (`ChatPanel.tsx`): **⧉ Append to…** (the existing
+`openAppend` → `AppendPicker`: a running log or any working doc, the entry
+shown before it lands; a board answer passes its question as the source
+title), **＋ Save as doc** (one `POST /api/documents`: `docType` note,
+tags `assessment` + `ask-the-board` | `assistant`, props `source` / `as of`
+/ `model`; fires `docs:changed`; the button becomes "✓ saved · open" →
+`app:navigate` docs + `docs:open`, so the same answer is not saved
+twice), **⇩ HTML** and **⇩ .md** (`downloadFile` in `lib/exports.ts`).
+- **`lib/assessmentExport.ts` (PURE, client-safe, tested in
+  `tests/assessmentExport.test.ts`)** builds all three from ONE
+  `AssessmentRecord` {question, answer, atISO, source board|assistant,
+  model, surfaces, unavailable, unplaced}: `assessmentTitle` ("Assessment —
+  <question> (YYYY-MM-DD)", cut on a word, a chat reply with no question
+  falls back to its first line), `assessmentFileName`,
+  `assessmentMarkdown` (provenance lines → a "Snapshot — not live" quote →
+  the answer → **Surfaces read** → **Unavailable that pass** ("UNAVAILABLE,
+  not evidence of calm", stated never dropped) → **Not placed**), and
+  `renderAssessmentHtml` — the sitrepExport / oeBriefExport discipline:
+  ZERO JavaScript, zero external resources, "SNAPSHOT AS OF …Z — NOT LIVE"
+  stamp, prints cleanly. The answer is MODEL OUTPUT over external content,
+  so the markdown → HTML step is `miniMarkdownToHtml` (escapes BEFORE
+  transforming; a `javascript:` link renders as text) and every masthead
+  string goes through `esc` (tests assert no `<script`, no http `src`/
+  `href`, markup in the question / surfaces / prepared-by escaped).
+- **The record is the answer's own provenance**: `AskMeta` now keeps the
+  question, the CLEAN answer and the pack's `atISO` (the client-side
+  "answered from the board" note is stripped by `stripBoardNote`, never
+  exported); a plain chat reply takes the user turn before it as the
+  question and the client's clock as the time, and says "the assistant
+  (chat context)". The record is not persisted with the thread — after a
+  close / reopen a board answer exports in the chat form (question from
+  the thread, note stripped), which is honest, not wrong.
+No new npm dep (esbuild `0`).
+
 ### Cyber & space warning (BUILT 2026-09-30 from `docs/REVIEW-CYBER-SPACE.md`, steps A–G)
 Cross-cutting, no tenth tab. Three disciplines hold everywhere and are
 test-enforced: **space weather is environment, never an I&W level** — it

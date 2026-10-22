@@ -182,11 +182,16 @@ export function openPrintWindow(html: string): void {
 }
 
 export function downloadHTML(html: string, baseName: string): void {
-  const blob = new Blob([html], { type: "text/html" });
+  downloadFile(html, `${baseName}-${new Date().toISOString().slice(0, 10)}.html`, "text/html");
+}
+
+/** Save `content` as a file with exactly this name (the caller names it). */
+export function downloadFile(content: string, fileName: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${baseName}-${new Date().toISOString().slice(0, 10)}.html`;
+  a.download = fileName;
   document.body.appendChild(a);
   a.click();
   a.remove();
