@@ -25,7 +25,9 @@ export async function recordSensorDay(sensorKey: string, day: string, value: num
   const pool = await getDb();
   const onDup = def.policy === "peak"
     ? "value = GREATEST(value, VALUES(value))"
-    : "value = VALUES(value)";
+    : def.policy === "min"
+      ? "value = LEAST(value, VALUES(value))"
+      : "value = VALUES(value)";
   await pool.execute(
     `INSERT INTO sensor_daily (sensor_key, day, value, updated_at) VALUES (?, ?, ?, NOW(3))
      ON DUPLICATE KEY UPDATE ${onDup}, updated_at = NOW(3)`,

@@ -28,6 +28,9 @@ const VALID_AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM"
 export const PNT_ID = "pnt_denial";
 export const CYBER_ID = "cyber_pressure";
 export const SPACE_ID = "space_activity";
+export const COUNTERSPACE_ID = "counterspace_activity";
+/** The actors whose inspector fleets the catalogue tracks (lib/counterspace). */
+const COUNTERSPACE_ACTORS = new Set(["RUS", "CHN"]);
 
 export function spectrumIndicators(problemId: string, aoiName: string, spacePowers: string[]): IndicatorDef[] {
   const out: IndicatorDef[] = [
@@ -52,10 +55,21 @@ export function spectrumIndicators(problemId: string, aoiName: string, spacePowe
     out.push({
       id: SPACE_ID, warningProblem: problemId,
       description: `Space activity by the ${aoiName} actor (${spacePowers.join("/")}): launches in the last 14 days against the actor's own 90-day cadence, and close conjunctions involving a U.S. military payload. Launch-hazard airspace closures arrive through the airspace indicator.`,
-      sourceFeed: "Launch Library 2 (The Space Devs; provider country + pad) + CelesTrak SOCRATES conjunctions",
+      sourceFeed: "Launch Library 2 (The Space Devs; provider country + pad) + CelesTrak SOCRATES conjunctions (best-effort — the host has refused this address)",
       weight: 0.45,
       falsifier: "Launch count within the actor's own cadence and no close conjunction involving a U.S. military payload in 14 days.",
       provenance: "Open launch and catalogue data (The Space Devs, CelesTrak); Secure World Foundation counterspace reporting.",
+    });
+  }
+  const counterspace = spacePowers.filter((p) => COUNTERSPACE_ACTORS.has(p));
+  if (counterspace.length) {
+    out.push({
+      id: COUNTERSPACE_ID, warningProblem: problemId,
+      description: `Counterspace posture by the ${aoiName} actor (${counterspace.join("/")}): manoeuvres by the tracked inspector fleet against its own 90-day cadence, a plane match with a DECLARED asset of interest (commercial ISR, military SATCOM), an approach inside 50 km (5 km = close; 24 h inside 50 km = shadowing), reported ASAT / proximity / jamming acts graded act › threat › analysis, and official USSF / tracking-firm corroboration. The standing inspector programme is posture; the change is the signal.`,
+      sourceFeed: "Space-Track GP history for the inspector fleet + declared assets (SGP4 sweep, 48 h); GDELT + own sources through the counterspace grammar; USSF / USSPACECOM statements",
+      weight: 0.55,
+      falsifier: "No tracked inspector within 50 km of a declared asset of interest for 30 days, no manoeuvre by the inspector fleet beyond station-keeping tolerance, and no counterspace act reported by a tracking firm or USSF in 14 days.",
+      provenance: "Public two-line element history (Space-Track / 18 SDS); Secure World Foundation 'Global Counterspace Capabilities' and CSIS 'Space Threat Assessment' (annual); Grabo 'military posture / weapons deployment' indicator class.",
     });
   }
   return out;

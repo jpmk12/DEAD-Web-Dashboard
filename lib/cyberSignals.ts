@@ -97,6 +97,109 @@ export function readCyber(text: string): CyberRead | null {
   return best;
 }
 
+// ───────────────────────────── target & posture ─────────────────────────────
+// (docs/PLAN-SPACE-CYBER-ASK.md §3.) Acts were attributed BY the actor and
+// nothing recorded AGAINST whom: pre-positioning in a host nation's grid is
+// posture against THIS AOI; ransomware in Brazil is not. `cyberTargetOf`
+// reads the target class of one text; `cyberPostureRead` turns a window of
+// acts into the posture line — demonstration / preparation / sustained
+// pressure — from class mix × recency × target, never from counts alone.
+
+export type CyberTarget = "aoi" | "elsewhere" | "unknown";
+
+// "U.S." ends in a dot, so a trailing \b would demand a word character after
+// it and miss "U.S. logistics"; each term carries its own boundaries.
+const US_TERMS = /(\bunited states\b|\bu\.s\.|\bus\b|\bamerican\b|\bpentagon\b|\bdepartment of defense\b|\bdod\b|\bnato\b)/i;
+const escRx = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Demonyms the suffix rule cannot derive ("Poland" + any suffix is never
+ *  "Polish"). Regular forms (Iranian, Iraqi, Japanese, Russian) come from
+ *  the suffix rule in `countryRx`. */
+const DEMONYMS: Record<string, string[]> = {
+  poland: ["polish"], germany: ["german"], france: ["french"], netherlands: ["dutch"], denmark: ["danish"], sweden: ["swedish"],
+  finland: ["finnish"], norway: ["norwegian"], turkey: ["turkish"], spain: ["spanish"], greece: ["greek"], ireland: ["irish"],
+  "united kingdom": ["british", "uk", "britain"], italy: ["italian"], belgium: ["belgian"], hungary: ["hungarian"], cyprus: ["cypriot"],
+  portugal: ["portuguese"], switzerland: ["swiss"], "czech republic": ["czech"], ukraine: ["ukrainian"], lebanon: ["lebanese"],
+  "saudi arabia": ["saudi"], philippines: ["filipino", "philippine"], mexico: ["mexican"], "united arab emirates": ["emirati", "uae"],
+  "south korea": ["korean"], "north korea": ["korean"], iceland: ["icelandic"], austria: ["austrian"], slovakia: ["slovak"],
+  slovenia: ["slovene", "slovenian"], croatia: ["croatian"], moldova: ["moldovan"], georgia: ["georgian"], armenia: ["armenian"],
+  azerbaijan: ["azerbaijani", "azeri"], kazakhstan: ["kazakh"], pakistan: ["pakistani"], afghanistan: ["afghan"], bangladesh: ["bangladeshi"],
+  thailand: ["thai"], malaysia: ["malaysian"], indonesia: ["indonesian"], australia: ["australian"], "new zealand": ["kiwi"], peru: ["peruvian"],
+  chile: ["chilean"], argentina: ["argentine", "argentinian"], colombia: ["colombian"], venezuela: ["venezuelan"], panama: ["panamanian"],
+  honduras: ["honduran"], guatemala: ["guatemalan"], ecuador: ["ecuadorian"], morocco: ["moroccan"], algeria: ["algerian"], tunisia: ["tunisian"],
+  libya: ["libyan"], ethiopia: ["ethiopian"], nigeria: ["nigerian"], ghana: ["ghanaian"], "south africa": ["south african"], madagascar: ["malagasy"],
+};
+const countryRx = (name: string): RegExp => {
+  const suffixes = /r$/i.test(name) ? "n|ese|i|s" : "n|ian|ese|i|s";
+  const alts = (DEMONYMS[name.toLowerCase()] ?? []).map(escRx);
+  return new RegExp(`\\b(?:${escRx(name)}(?:${suffixes})?${alts.length ? `|${alts.join("|")}` : ""})\\b`, "i");
+};
+
+/** Who the text's cyber act is against: an AOI country, the U.S. force, or
+ *  a declared vendor → `aoi`; a named country outside the AOI (and none
+ *  inside) → `elsewhere`; no place named → `unknown` (counts, at the
+ *  ladder's discretion — an act with no stated target is not an act
+ *  against Brazil). The ACTOR's own country is excluded from the target
+ *  scan ("Russian hackers hit Polish rail" is against Poland, not Russia). */
+export function cyberTargetOf(text: string, aoiCountries: string[], allCountries: string[], opts: { actorCountries?: string[]; vendors?: string[] } = {}): CyberTarget {
+  if (!text) return "unknown";
+  const actor = new Set((opts.actorCountries ?? []).map((c) => c.toLowerCase()));
+  const aoi = aoiCountries.filter((c) => c.length >= 3 && !actor.has(c.toLowerCase()));
+  if (aoi.some((c) => countryRx(c).test(text)) || US_TERMS.test(text)) return "aoi";
+  if ((opts.vendors ?? []).some((v) => v.length >= 2 && new RegExp(`\\b${escRx(v)}\\b`, "i").test(text))) return "aoi";
+  const aoiSet = new Set(aoi.map((c) => c.toLowerCase()));
+  const elsewhere = allCountries.some((c) => c.length >= 3 && !aoiSet.has(c.toLowerCase()) && !actor.has(c.toLowerCase()) && countryRx(c).test(text));
+  return elsewhere ? "elsewhere" : "unknown";
+}
+
+/** Phrases that mean preparation of the battlefield rather than collection. */
+const PREPOSITIONING = ["pre-positioning", "pre-positioned", "prepositioning", "living off the land", "volt typhoon", "critical infrastructure intrusions", "targeting critical infrastructure", "long-term access", "persistent access", "implanted malware", "backdoor in"];
+export function isPrepositioning(phrase: string): boolean { return PREPOSITIONING.includes(phrase.toLowerCase()); }
+
+export type CyberPosture = "preparation" | "sustained pressure" | "demonstration" | "quiet" | "unknown";
+
+export interface CyberPostureItem {
+  cls: CyberClass;
+  modality: Modality;
+  target: CyberTarget;
+  /** The matched phrase (for the pre-positioning test); an advisory passes its title. */
+  phrase: string;
+  ageDays: number | null;
+  /** A CISA advisory naming the actor — a record, counted as an act. */
+  advisory?: boolean;
+}
+
+export interface CyberPostureRead {
+  posture: CyberPosture;
+  why: string;
+  counts: { preparation: number; espionage: number; disruptive: number; ddos: number; ransom: number; elsewhere: number };
+}
+
+/** The posture line over a window (30 d by default). Acts and advisories
+ *  only — a threat or an analysis piece is not posture. Acts against
+ *  `elsewhere` are counted and named, never ranked. */
+export function cyberPostureRead(items: CyberPostureItem[], live: boolean, windowDays = 30): CyberPostureRead {
+  const inWindow = items.filter((x) => (x.ageDays == null || x.ageDays <= windowDays) && (x.modality === "act" || x.advisory));
+  const here = inWindow.filter((x) => x.target !== "elsewhere");
+  const counts = {
+    preparation: here.filter((x) => (x.cls === "espionage" && isPrepositioning(x.phrase)) || (x.advisory && /pre-?position|living off the land|critical infrastructure|ot\b|ics\b|industrial control/i.test(x.phrase))).length,
+    espionage: here.filter((x) => x.cls === "espionage").length,
+    disruptive: here.filter((x) => x.cls === "disruptive").length,
+    ddos: here.filter((x) => x.cls === "ddos").length,
+    ransom: here.filter((x) => x.cls === "ransom").length,
+    elsewhere: inWindow.length - here.length,
+  };
+  const tail = counts.elsewhere ? ` · ${counts.elsewhere} act${counts.elsewhere === 1 ? "" : "s"} elsewhere not counted` : "";
+  if (!live && !inWindow.length) return { posture: "unknown", why: "cyber feeds unreachable — posture UNKNOWN", counts };
+  if (counts.preparation > 0 || counts.disruptive > 0) {
+    const bits = [counts.preparation ? `${counts.preparation} pre-positioning / infrastructure-access report${counts.preparation === 1 ? "" : "s"}` : null, counts.disruptive ? `${counts.disruptive} disruptive act${counts.disruptive === 1 ? "" : "s"}` : null].filter(Boolean);
+    return { posture: "preparation", why: `${bits.join(", ")} against the AOI in ${windowDays}d — battlefield preparation, not demonstration${tail}`, counts };
+  }
+  if (counts.espionage >= 2) return { posture: "sustained pressure", why: `${counts.espionage} espionage / intrusion reports against the AOI in ${windowDays}d at a steady cadence${tail}`, counts };
+  if (counts.ddos >= 2 && counts.espionage === 0) return { posture: "demonstration", why: `${counts.ddos} DDoS / defacement acts, no intrusion reporting — public, low-cost signalling${tail}`, counts };
+  if (here.length) return { posture: "sustained pressure", why: `${here.length} attributed act${here.length === 1 ? "" : "s"} in ${windowDays}d, mixed classes${tail}`, counts };
+  return { posture: "quiet", why: `no attributed act against the AOI in ${windowDays}d — absence of reporting, not evidence of calm${tail}`, counts };
+}
+
 // ───────────────────────────── state attribution ─────────────────────────────
 
 /** The state actors the open advisories name, by the ways they are written

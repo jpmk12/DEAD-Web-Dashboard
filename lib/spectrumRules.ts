@@ -87,6 +87,9 @@ export interface CyberInputs {
   actsBy: GradedEvidence[];
   /** CISA advisories naming a state actor tied to the AOI, 14 d. */
   advisories: number;
+  /** Attributed acts whose stated target is OUTSIDE the AOI — named in the
+   *  why, never ranked (PLAN-SPACE-CYBER-ASK §3). */
+  elsewhere?: number;
 }
 
 export const CYBER_LEARNING_SAMPLES = 5;
@@ -125,6 +128,7 @@ export function cyberState(i: CyberInputs): StateRead | null {
       s = worseOf(s, { state: "watching", confidence: 0.5, why: `${i.victims} ransomware victims vs ~${mean.toFixed(0)} baseline` });
     }
   }
+  if (i.elsewhere) s = { ...s, why: `${s.why} · ${i.elsewhere} act${i.elsewhere === 1 ? "" : "s"} against targets outside the AOI not counted` };
   return s;
 }
 

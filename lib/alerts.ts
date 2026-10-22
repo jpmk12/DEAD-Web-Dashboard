@@ -140,9 +140,9 @@ async function build(): Promise<AlertCheck> {
         const imp = sp.spaceWx.impacts.find((i) => i.led === "r") ?? sp.spaceWx.impacts[0];
         alerts.push({ id: `swx-${s.scale}${s.level}`, severity: s.level >= 4 ? "red" : "amber", kind: "spectrum", title: `Space weather ${s.scale}${s.level} — ${imp?.label ?? "ops impact"}`, sub: imp?.now ?? "NOAA SWPC scale at 3 or above" });
       }
-      for (const [label, r] of [["PNT denial", sp.pnt], ["Cyber pressure", sp.cyber]] as const) {
+      for (const [label, key, r] of [["PNT denial", "pnt", sp.pnt], ["Cyber pressure", "cyber", sp.cyber], ["Counterspace", "counterspace", sp.counterspace ?? null]] as const) {
         if (r && r.live && (r.state === "active" || r.state === "confirmed")) {
-          alerts.push({ id: `iw-${r.problemId}-${label === "PNT denial" ? "pnt" : "cyber"}-${r.state}`, severity: r.state === "confirmed" ? "red" : "amber", kind: "spectrum", title: `${label} ${r.state.toUpperCase()} — ${r.board}`, sub: r.why.slice(0, 160) });
+          alerts.push({ id: `iw-${r.problemId}-${key}-${r.state}`, severity: r.state === "confirmed" ? "red" : "amber", kind: "spectrum", title: `${label} ${r.state.toUpperCase()} — ${r.board}`, sub: r.why.slice(0, 160) });
         }
       }
       for (const h of sp.edge.hits) {

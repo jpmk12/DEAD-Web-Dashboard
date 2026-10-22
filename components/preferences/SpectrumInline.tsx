@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_SPECTRUM, type SpectrumDependencies } from "@/lib/missionProfile";
+import { ASSET_CLASS_LABEL, MAX_ASSETS, type AssetClass, type AssetOfInterest } from "@/lib/counterspace";
 import { toast } from "@/lib/feedback";
 
 // The spectrum declaration, edited WHERE IT IS READ (REVIEW-2026-10 §12
@@ -161,6 +162,67 @@ export function EdgeVendorsInline({ onChanged, initial }: {
       </div>
       <p className="text-[9.5px] text-slate-600">
         The KEV feed is read against these — CISA Known Exploited Vulnerabilities × your declared vendors, never the NVD firehose. Devices on the wing&apos;s networks and at host airports.
+        {loaded && !canEdit && <span className="text-slate-500"> {TEAM_CONFIG_TITLE}.</span>}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The assets of interest — the satellites an inspector approaching MATTERS
+ * for (lib/counterspace). Chips with class, ✕ removes, an add row (name or
+ * OBJECT_NAME prefix + class). Seeded (decision 2, 2026-10-22); emptying
+ * the list is a declaration too — an approach to anything else then caps at
+ * watching. Mount it on the Posture card and the SITREP Spectrum card.
+ */
+export function AssetsOfInterestInline({ onChanged, initial }: { onChanged?: () => void; initial?: AssetOfInterest[] }) {
+  const { spectrum, canEdit, loaded, busy, patch } = useSpectrumDeclaration(onChanged);
+  const [name, setName] = useState("");
+  const [cls, setCls] = useState<AssetClass>("isr-commercial");
+  const assets = spectrum?.assetsOfInterest ?? initial ?? [];
+  const disabled = !canEdit || busy || !loaded;
+
+  const add = () => {
+    const n = name.trim().toUpperCase().slice(0, 40);
+    if (n.length < 2) { setName(""); return; }
+    if (assets.some((a) => a.name.toUpperCase() === n)) { setName(""); toast.info(`${n} is already declared`); return; }
+    if (assets.length >= MAX_ASSETS) { toast.warn(`Asset list is full (${MAX_ASSETS}) — remove one first`); return; }
+    setName("");
+    void patch({ assetsOfInterest: [...assets, { name: n, noradId: null, cls, label: n }] }, `Declared ${n} — an inspector approaching it now reads active`);
+  };
+  const remove = (a: AssetOfInterest) => {
+    void patch({ assetsOfInterest: assets.filter((x) => x.name !== a.name) }, `Removed ${a.name} — an approach to it now caps at watching`);
+  };
+
+  return (
+    <div className="mt-1 space-y-1" title={canEdit ? undefined : TEAM_CONFIG_TITLE}>
+      <div className="flex flex-wrap items-center gap-1">
+        {assets.map((a) => (
+          <span key={a.name} className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-700 text-slate-300 inline-flex items-center gap-1" title={`${a.label} · ${ASSET_CLASS_LABEL[a.cls]}${a.noradId ? ` · ${a.noradId}` : " · matched by name prefix"}`}>
+            {a.name}<span className="text-slate-600">·{ASSET_CLASS_LABEL[a.cls].split(" ")[0]}</span>
+            <button type="button" disabled={disabled} onClick={() => remove(a)} title={canEdit ? `Remove ${a.name}` : TEAM_CONFIG_TITLE}
+              aria-label={`Remove ${a.name}`} className="text-slate-600 hover:text-red-400 disabled:opacity-40 disabled:hover:text-slate-600">✕</button>
+          </span>
+        ))}
+        {assets.length === 0 && <span className="text-[10px] text-slate-600">none declared — every approach caps at watching</span>}
+      </div>
+      <div className="flex items-center gap-1 flex-wrap">
+        <input value={name} disabled={disabled} onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          placeholder={canEdit ? "ICEYE-X, WORLDVIEW, USA 326, WGS…" : "owner-set"}
+          title={canEdit ? "Catalogue name or OBJECT_NAME prefix; Enter to add" : TEAM_CONFIG_TITLE}
+          className="flex-1 min-w-0 max-w-[220px] bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded px-1.5 py-0.5 text-[10.5px] text-slate-200 placeholder-slate-700 outline-none disabled:opacity-50" />
+        <select value={cls} disabled={disabled} onChange={(e) => setCls(e.target.value as AssetClass)} title="Asset class"
+          className="bg-slate-950 border border-slate-800 rounded px-1 py-0.5 text-[10px] text-slate-300 outline-none disabled:opacity-50">
+          {(Object.keys(ASSET_CLASS_LABEL) as AssetClass[]).map((k) => <option key={k} value={k}>{ASSET_CLASS_LABEL[k]}</option>)}
+        </select>
+        <button type="button" onClick={add} disabled={disabled || name.trim().length < 2} title={canEdit ? "Add to the declared assets" : TEAM_CONFIG_TITLE}
+          className="text-[9px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/40 rounded px-1.5 py-0.5 disabled:opacity-30">
+          {busy ? "…" : "Add"}
+        </button>
+      </div>
+      <p className="text-[9.5px] text-slate-600">
+        The inspector fleets are read against these — a plane match is positioning, inside 50 km is active, inside 5 km is close. A name is matched as a catalogue prefix (ICEYE-X → every ICEYE-X*). Team config, never a prompt.
         {loaded && !canEdit && <span className="text-slate-500"> {TEAM_CONFIG_TITLE}.</span>}
       </p>
     </div>

@@ -15,12 +15,30 @@ import { getMissionProfile } from "./missionProfileApply";
 import { spaceWeatherImpacts, spaceWxLed, severeScales, type SpaceWxImpact, type ScaleDay } from "./spaceWeatherOps";
 import { kevHits } from "./cyberSignals";
 import { edgeExposureLed, stateLed, worstLed } from "./spectrumRules";
-import { PNT_ID, CYBER_ID, SPACE_ID } from "./warningTaxonomy";
+import { PNT_ID, CYBER_ID, SPACE_ID, COUNTERSPACE_ID } from "./warningTaxonomy";
 import type { Led } from "./sitrepSignals";
 import { recordSensorDay, getSensorSeries, getSensorSeriesMany } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
 import { spectrumTrend, type SpectrumTrend } from "./spectrumTrend";
 import type { SeriesPoint } from "./series";
+import { getCounterspaceCatalogue, type CounterspaceCatalogue } from "./counterspaceAssemble";
+import { getCyberPosture } from "./spectrumSensors";
+import type { CyberPostureRead } from "./cyberSignals";
+import type { SpaceActor } from "./counterspace";
+
+/** One actor's posture in space and cyber — the country room's Posture
+ *  card and the Ask evidence pack read this. Posture is the standing
+ *  programme (the fleet table); warning is the board's read beside it. */
+export interface ActorPosture {
+  actor: SpaceActor;
+  country: string;
+  /** The board whose AOI holds the actor, when one exists. */
+  board: { problemId: string; label: string } | null;
+  counterspace: SpectrumIndicatorRead | null;
+  catalogue: Pick<CounterspaceCatalogue, "live" | "configured" | "reason" | "fleet" | "unresolvedFleet" | "assets" | "manoeuvres14" | "cadencePer14" | "cadenceSamples" | "coPlanar" | "proximity" | "closestKm" | "proxSeries" | "generatedAt"> | null;
+  cyber: CyberPostureRead | null;
+}
+const ACTOR_COUNTRY: Record<SpaceActor, string> = { RUS: "Russia", CHN: "China" };
 
 export interface SpectrumIndicatorRead {
   state: ObservedState;
@@ -35,11 +53,15 @@ export interface SpectrumIndicatorRead {
 export interface SpectrumSummary {
   generatedAt: string;
   pending?: boolean;
-  boards: { problemId: string; label: string; level: string; pnt: ObservedState | null; cyber: ObservedState | null; space: ObservedState | null }[];
+  boards: { problemId: string; label: string; level: string; pnt: ObservedState | null; cyber: ObservedState | null; space: ObservedState | null; counterspace?: ObservedState | null }[];
   /** Worst read per kind across boards; null when no board carries it or every sensor was dead. */
   pnt: SpectrumIndicatorRead | null;
   cyber: SpectrumIndicatorRead | null;
   space: SpectrumIndicatorRead | null;
+  /** Counterspace posture — the worst inspector-fleet read across the Russia / China boards. */
+  counterspace?: SpectrumIndicatorRead | null;
+  /** Per-actor posture (space + cyber), for the country room and the Ask pack. */
+  postures?: ActorPosture[];
   spaceWx: { live: boolean; led: Led; now: ScaleDay | null; impacts: SpaceWxImpact[]; severe: { scale: "R" | "S" | "G"; level: number }[]; polar: boolean | null };
   edge: { declared: boolean; live: boolean; led: Led; vendors: string[]; hits: { cve: string; vendor: string; product: string; name: string; dateAdded: string; ransomware: boolean }[] };
   /** Worst of pnt / cyber / spaceWx / edge (space activity is informational on the tile). */
@@ -101,13 +123,31 @@ async function compute(): Promise<SpectrumSummary> {
   const spec = profile?.spectrum ?? { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true };
 
   const boards: SpectrumSummary["boards"] = [];
-  let pnt: SpectrumIndicatorRead | null = null, cyber: SpectrumIndicatorRead | null = null, space: SpectrumIndicatorRead | null = null;
+  let pnt: SpectrumIndicatorRead | null = null, cyber: SpectrumIndicatorRead | null = null, space: SpectrumIndicatorRead | null = null, counterspace: SpectrumIndicatorRead | null = null;
+  const actorBoards = new Map<SpaceActor, { problemId: string; label: string; read: SpectrumIndicatorRead | null }>();
   for (const p of problems) {
     const a = await withTimeout(assessWarning(p.def.id), 25_000);
     if (!a) continue;
-    const pp = pick(a, PNT_ID), cc = pick(a, CYBER_ID), ss = pick(a, SPACE_ID);
-    boards.push({ problemId: a.problemId, label: a.label, level: a.level, pnt: pp?.state ?? null, cyber: cc?.state ?? null, space: ss?.state ?? null });
-    pnt = worse(pnt, pp); cyber = worse(cyber, cc); space = worse(space, ss);
+    const pp = pick(a, PNT_ID), cc = pick(a, CYBER_ID), ss = pick(a, SPACE_ID), cs = pick(a, COUNTERSPACE_ID);
+    boards.push({ problemId: a.problemId, label: a.label, level: a.level, pnt: pp?.state ?? null, cyber: cc?.state ?? null, space: ss?.state ?? null, counterspace: cs?.state ?? null });
+    pnt = worse(pnt, pp); cyber = worse(cyber, cc); space = worse(space, ss); counterspace = worse(counterspace, cs);
+    for (const actor of ["RUS", "CHN"] as SpaceActor[]) {
+      if (p.geo.spacePowers.includes(actor) && (!actorBoards.has(actor) || cs)) actorBoards.set(actor, { problemId: a.problemId, label: a.label, read: cs });
+    }
+  }
+  // Per-actor posture: the catalogue (standing programme + what changed)
+  // beside the board's read and the cyber posture line. Only the actors a
+  // board watches — a Russia posture card with no Russia AOI would be a
+  // claim the app never observed.
+  const postures: ActorPosture[] = [];
+  for (const [actor, b] of actorBoards) {
+    const cat = await withTimeout(getCounterspaceCatalogue(actor, { maxWaitMs: 6_000 }), 7_000);
+    postures.push({
+      actor, country: ACTOR_COUNTRY[actor], board: { problemId: b.problemId, label: b.label },
+      counterspace: b.read,
+      catalogue: cat ? { live: cat.live, configured: cat.configured, reason: cat.reason, fleet: cat.fleet, unresolvedFleet: cat.unresolvedFleet, assets: cat.assets, manoeuvres14: cat.manoeuvres14, cadencePer14: cat.cadencePer14, cadenceSamples: cat.cadenceSamples, coPlanar: cat.coPlanar, proximity: cat.proximity, closestKm: cat.closestKm, proxSeries: cat.proxSeries, generatedAt: cat.generatedAt } : null,
+      cyber: getCyberPosture(b.problemId),
+    });
   }
 
   const impacts = spaceWeatherImpacts(scales, { polar: spec.polarRoutes });
@@ -137,8 +177,12 @@ async function compute(): Promise<SpectrumSummary> {
     trend = spectrumTrend(g, byVendor, today);
   } catch { trend = undefined; }
 
-  const led = worstLed(pnt?.led ?? "u", cyber?.led ?? "u", spaceWx.led, edge.led);
+  // Counterspace joins the tile's LED only once it is active — a watching
+  // manoeuvre is a row on the board, not an amber tile.
+  const csLed: Led = counterspace && counterspace.live && (counterspace.state === "active" || counterspace.state === "confirmed") ? counterspace.led : "u";
+  const led = worstLed(pnt?.led ?? "u", cyber?.led ?? "u", spaceWx.led, edge.led, csLed);
   const parts: string[] = [];
+  if (counterspace && counterspace.live && counterspace.state !== "dormant") parts.push(`counterspace ${counterspace.state} · ${counterspace.board.split(" · ").pop()}`);
   if (cyber && cyber.live && cyber.state !== "dormant") parts.push(`cyber ${cyber.state} · ${cyber.board.split(" · ").pop()}`);
   if (pnt && pnt.live && pnt.state !== "dormant") parts.push(`PNT ${pnt.state} · ${pnt.board.split(" · ").pop()}`);
   if (spaceWx.severe.length) parts.push(`space wx ${spaceWx.severe.map((s) => `${s.scale}${s.level}`).join("/")}`);
@@ -148,5 +192,5 @@ async function compute(): Promise<SpectrumSummary> {
   const unknowns = [!pnt?.live ? "PNT" : null, !cyber?.live ? "cyber" : null, !spaceWx.live ? "space wx" : null, !edge.declared ? "vendors undeclared" : !edge.live ? "KEV" : null].filter(Boolean);
   const line = parts.length ? parts.join(" · ") : unknowns.length === 4 ? "sensors unreachable — UNKNOWN" : `quiet${unknowns.length ? ` · ${unknowns.join("/")} unknown` : ""}`;
 
-  return { generatedAt: new Date().toISOString(), boards, pnt, cyber, space, spaceWx, edge, led, line, trend };
+  return { generatedAt: new Date().toISOString(), boards, pnt, cyber, space, counterspace, postures, spaceWx, edge, led, line, trend };
 }

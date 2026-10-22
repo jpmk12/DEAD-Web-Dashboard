@@ -4,6 +4,7 @@ import { isOwner } from "@/lib/allowlist";
 import { getSpectrumSummary } from "@/lib/spectrum";
 import { diagnoseCyberSources } from "@/lib/cyberSources";
 import { diagnoseSpaceSources } from "@/lib/spaceSources";
+import { diagnoseSpaceTrack } from "@/lib/spaceTrack";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,8 @@ export async function GET(req: Request) {
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (new URL(req.url).searchParams.get("diag") === "1") {
     if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
-    const [cyber, space] = await Promise.all([diagnoseCyberSources(), diagnoseSpaceSources()]);
-    return NextResponse.json({ cyber, space });
+    const [cyber, space, spaceTrack] = await Promise.all([diagnoseCyberSources(), diagnoseSpaceSources(), diagnoseSpaceTrack()]);
+    return NextResponse.json({ cyber, space, spaceTrack });
   }
   try {
     return NextResponse.json(await getSpectrumSummary({ maxWaitMs: 8_000 }));

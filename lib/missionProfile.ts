@@ -27,6 +27,7 @@ import { classifyAor, type Aor } from "./aor";
 import { ALL_AIRFIELDS, type MobilityAirfield } from "./airfields";
 import { CHOKEPOINTS, type Chokepoint } from "./chokepoints";
 import { countryCentroid, centroidCountryNames } from "./countryCentroids";
+import { DEFAULT_ASSETS_OF_INTEREST, sanitizeAssets, type AssetOfInterest } from "./counterspace";
 import type { CountryWatch, ForceLocation, MetarStation, SitrepBase } from "./types";
 
 export interface MissionAoi {
@@ -68,9 +69,14 @@ export interface SpectrumDependencies {
   /** Carry `space_activity` on the boards whose actor launches (China,
    *  Russia, Iran, North Korea). */
   spaceActivity: boolean;
+  /** The satellites an inspector approaching MATTERS for (lib/counterspace
+   *  — commercial ISR supporting Ukraine, the force's own SATCOM). Seeded
+   *  (decision 2, 2026-10-22); an approach to anything else caps at
+   *  watching. Edited inline on the SITREP Spectrum card. */
+  assetsOfInterest: AssetOfInterest[];
 }
 
-export const DEFAULT_SPECTRUM: SpectrumDependencies = { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true };
+export const DEFAULT_SPECTRUM: SpectrumDependencies = { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true, assetsOfInterest: DEFAULT_ASSETS_OF_INTEREST.map((a) => ({ ...a })) };
 
 // Must-tracks — the operator's declaration of what matters MOST (REVIEW-2026-10
 // §6, decision 4). Three flat lists keyed the way each surface keys its rows:
@@ -193,6 +199,7 @@ export function sanitizeSpectrum(raw: unknown): SpectrumDependencies {
     satcom: typeof r.satcom === "string" ? r.satcom.trim().slice(0, 120) : "",
     edgeVendors: vendors,
     spaceActivity: typeof r.spaceActivity === "boolean" ? r.spaceActivity : DEFAULT_SPECTRUM.spaceActivity,
+    assetsOfInterest: sanitizeAssets(r.assetsOfInterest),
   };
 }
 

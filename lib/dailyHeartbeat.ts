@@ -22,6 +22,7 @@ import { assembleSitrep, sitrepSummary } from "./sitrep";
 import { getEnergyQuotes, backfillEnergyCloses } from "./energyPrices";
 import { getSpectrumSummary } from "./spectrum";
 import { listCrewRows, snapshotCrewDay } from "./crewStore";
+import { warmCounterspace } from "./counterspaceAssemble";
 
 export const HEARTBEAT_INTERVAL_MS = 6 * 60 * 60_000;
 const STEP_TIMEOUT_MS = 60_000;
@@ -55,6 +56,9 @@ async function runPass(): Promise<void> {
     bounded(getEnergyQuotes().then(() => backfillEnergyCloses())),
     bounded(getSpectrumSummary({ maxWaitMs: 8_000 })),
     bounded(listCrewRows().then(snapshotCrewDay)),
+    // The counterspace catalogue: Space-Track's three queries + the SGP4
+    // sweep, so the rpo:/prox: series accrue on days nobody opens the board.
+    bounded(warmCounterspace(), 90_000),
     ...((prefs?.sitrepBases ?? []).map((b) => bounded(assembleSitrep(b).then(sitrepSummary)))),
   ]);
 }

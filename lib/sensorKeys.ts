@@ -10,7 +10,10 @@
 //   last — states and prices keep the latest value (crew availability at
 //          0900 that changes by 1500 is not "the day's peak availability").
 
-export type DayPolicy = "peak" | "last";
+//   min  — closest ranges keep the day's lowest value (an inspector that
+//          closed to 500 m at 0300Z and withdrew by noon still closed to
+//          500 m that day).
+export type DayPolicy = "peak" | "last" | "min";
 
 export interface SensorKeyDef { prefix: string; policy: DayPolicy; what: string }
 
@@ -34,6 +37,9 @@ export const SENSOR_KEYS: readonly SensorKeyDef[] = [
   { prefix: "kev",      policy: "peak", what: "KEVs added that day naming a declared vendor, per vendor slug" },
   { prefix: "outage",   policy: "peak", what: "max IODA alert level ordinal, per tracked country slug" },
   { prefix: "px",       policy: "last", what: "daily close, per symbol" },
+  // Counterspace posture (docs/PLAN-SPACE-CYBER-ASK.md §2)
+  { prefix: "rpo",      policy: "peak", what: "inspector-fleet manoeuvres detected that day, per actor ISO3" },
+  { prefix: "prox",     policy: "min",  what: "closest range (km) from any inspector to a declared asset that day, per actor ISO3" },
 ];
 
 const BY_PREFIX = new Map(SENSOR_KEYS.map((k) => [k.prefix, k]));

@@ -8,6 +8,7 @@ import { renderSitrepHtml } from "@/lib/sitrepExport";
 import { SITREP_MAX } from "@/lib/missionProfile";
 import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
 import { EdgeVendorsInline } from "@/components/preferences/SpectrumInline";
+import { CounterspaceLine } from "@/components/osint/CounterspaceLine";
 import { LED_CLASS as LED_BG, LED_GLOW } from "@/lib/levelTokens";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
@@ -1025,6 +1026,12 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                       <span className="text-slate-600"> · added {h.dateAdded}</span>
                     </Row>
                   ))}
+                </div>
+                {/* Counterspace — the inspector fleets against the declared
+                    assets (lib/counterspace), from the Spectrum summary. */}
+                <div className="mt-2 pt-2 border-t border-slate-800/60">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Counterspace <span className="font-normal normal-case tracking-normal">— inspector fleets vs your declared assets (Space-Track · SGP4 · reporting)</span></p>
+                  <CounterspaceLine />
                 </div>
                 <p className="text-[9.5px] text-slate-600 mt-2">Space weather is environment, not warning — it colours this card and the C2/Comms LIMFAC, never an I&amp;W level. Passive sources only; nothing here probes a network.</p>
               </SectionCard>

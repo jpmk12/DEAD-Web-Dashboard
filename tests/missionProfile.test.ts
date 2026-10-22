@@ -367,7 +367,12 @@ describe("missionSummaryLine", () => {
 
 describe("spectrum dependencies (team config, never a prompt)", () => {
   it("defaults: no polar routes (this wing's declaration), space activity on, nothing else declared", () => {
-    expect(sanitizeMissionProfile({}).spectrum).toEqual({ polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true });
+    const s = sanitizeMissionProfile({}).spectrum;
+    expect(s).toMatchObject({ polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true });
+    // Assets of interest are SEEDED when absent (decision 2, 2026-10-22) —
+    // an approach to anything else caps at watching.
+    expect(s.assetsOfInterest.length).toBeGreaterThan(5);
+    expect(s.assetsOfInterest.some((a) => a.name === "ICEYE-X")).toBe(true);
   });
   it("sanitizes vendors (trimmed, deduped, capped) and keeps an explicit null for polar", () => {
     const p = sanitizeMissionProfile({ spectrum: { polarRoutes: null, satcom: "WGS Ku", edgeVendors: [" Cisco ", "cisco", "Cisco", "x", 42, "Fortinet"], spaceActivity: false } });

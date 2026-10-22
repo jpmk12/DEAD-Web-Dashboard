@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { openTrackPicker } from "@/lib/trackClient";
 import dynamic from "next/dynamic";
+import PostureCard from "@/components/osint/PostureCard";
 import type { ForceAssessment, CategoryAssessment } from "@/lib/forceProtection";
 import type { CountryDossier } from "@/lib/groundTruth";
 import { SEVERITY_DOT as SEV_DOT, SEVERITY_TEXT as SEV_TEXT, type Severity } from "@/lib/severity";
@@ -336,6 +337,9 @@ export default function CountryRoom({ country, sel, base, active = true, section
         </Card>
       )}
 
+      {/* Space & cyber posture (PLAN-SPACE-CYBER-ASK §2.4 / §3) — renders only
+          for an actor a board watches (Russia, China). */}
+      {show("spectrum") && <PostureCard country={country} />}
       {show("spectrum") && !dLoading && dossier && !dossier.digital && <p className="text-[11px] text-slate-500 px-1">No digital &amp; spectrum block for {country} this pass — UNKNOWN, not clear.</p>}
       {show("spectrum") && !dLoading && dossier && dossier.digital && (() => {
         const dg = dossier.digital;
