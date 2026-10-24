@@ -2281,11 +2281,28 @@ Profile `spectrum` block is omitted from `missionSummaryLine` (tested).
   (IODA alerts 50/50 named; KEV 1,729; CISA advisories 30; ransomware.live
   100 — its date field is `attackdate`, `country` is ISO2; SWPC scales with
   the `"0"`..`"3"` day keys and string `Scale` values; LL2 previous 100 +
-  upcoming 50). **CelesTrak SOCRATES fails at the connection level**
-  (`fetch failed` after ~10 s, no HTTP status — the host refuses this
-  provider's address range, the same class as JRC/Stooq); the conjunction
-  half of `space_activity` therefore reads "SOCRATES unreachable — cadence
-  only" and the indicator runs on launch cadence. `launchCadence` divides
+  upcoming 50). **CelesTrak SOCRATES** failed at the connection level on
+  2026-09-30 (`fetch failed`, no HTTP status) but **answered 200 on
+  2026-10-24: 22.9 MB, ~201k rows, ~20 s to download whole**, and that
+  diag exposed two bugs at once. (1) The live header's range column is
+  **`TCA_RANGE`** (`NORAD_CAT_ID_1,OBJECT_NAME_1,DSE_1,NORAD_CAT_ID_2,
+  OBJECT_NAME_2,DSE_2,TCA,TCA_RANGE,TCA_RELATIVE_SPEED,MAX_PROB,DILUTION`;
+  names carry `[+]` payload / `[-]` debris markers) — the parser looked
+  for `MIN_RNG`, every row parsed a null range, and `usPayloadConjunctions`
+  let nulls THROUGH, so one completed download would have read ACTIVE on
+  every space-power board (`spaceActivityState` goes active on any count
+  > 0). Now `socratesColumns` knows `TCA_RANGE`, `[±]` markers are
+  stripped, and **a null range is UNKNOWN, never close** (tested). (2) The
+  fetch did `res.text()` on the whole file — the EU-CSV 502 class, and
+  `fetchWithTimeout` bounds only the wait for headers, so the 15-s timeout
+  never applied to the body. `streamSocrates()` now reads the body line by
+  line (own 12-s deadline, 6 MB cap): the file is SORTED BY MINIMUM RANGE,
+  so it stops after 50 consecutive rows past `SOCRATES_CLOSE_KM` = 5 — the
+  close approaches are the first few hundred KB. A header with no range
+  column reads `live:false` ("rows cannot claim closeness"). The diag's
+  SOCRATES row goes through the same reader (`parsed` = rows kept within
+  5 km, `note` = rows read and why it stopped); the sensor note names the
+  reason when it is not live. `launchCadence` divides
   by the history the LL2 page actually COVERS (oldest launch in the page,
   capped at 90 d), never by the nominal window — the page is the newest 100
   launches of everyone, so a busy quarter fits fewer days. `lib/sensorStore.ts` +

@@ -4,7 +4,7 @@ import {
   parseIodaAlerts, outageAlertsFor,
 } from "../lib/cyberSignals";
 import { parseNoaaScales, spaceWeatherImpacts, spaceWxLed, pntStormGuard, severeScales } from "../lib/spaceWeatherOps";
-import { parseLaunches, launchCadence, parseSocrates, usPayloadConjunctions, spacePowersIn } from "../lib/spaceCatalog";
+import { parseLaunches, launchCadence, parseSocrates, socratesColumns, parseSocratesRow, usPayloadConjunctions, spacePowersIn } from "../lib/spaceCatalog";
 import { pntState, cyberState, spaceActivityState, edgeExposureLed, stateLed } from "../lib/spectrumRules";
 
 const T = Date.parse("2026-09-30T12:00:00Z");
@@ -165,6 +165,28 @@ describe("space activity — cadence, not count", () => {
     const all = parseSocrates(csv);
     expect(all).toHaveLength(3);
     expect(usPayloadConjunctions(all).map((c) => c.primary)).toEqual(["USA 224"]);
+  });
+  it("SOCRATES: the 2026-10-24 live header (TCA_RANGE, [+]/[-] markers) parses the range and the names", () => {
+    const header = "NORAD_CAT_ID_1,OBJECT_NAME_1,DSE_1,NORAD_CAT_ID_2,OBJECT_NAME_2,DSE_2,TCA,TCA_RANGE,TCA_RELATIVE_SPEED,MAX_PROB,DILUTION";
+    const cols = socratesColumns(header);
+    expect(cols).not.toBeNull();
+    expect(cols!.range).toBe(7);
+    const row = parseSocratesRow(cols!, "67689,PRC TEST SPACECRAFT 4 [+],3.466,69673,CZ-2F DEB [-],3.935,2026-10-27 05:41:25.246,0.005,0.000,1.177E-01,0.001");
+    expect(row).toEqual({ primary: "PRC TEST SPACECRAFT 4", secondary: "CZ-2F DEB", tcaISO: "2026-10-27 05:41:25.246", minRangeKm: 0.005, maxProb: 0.1177 });
+    const all = parseSocrates(`${header}\r\n40258,USA 259 [+],1.0,900,SL-8 DEB [-],2.0,2026-10-27 06:00:00.000,0.420,7.1,1E-05,0.1\r\n41000,USA 300 [+],1.0,901,COSMOS 2251 DEB [-],2.0,2026-10-27 07:00:00.000,3.9,7.1,1E-06,0.1\r\n`);
+    expect(all.map((c) => c.minRangeKm)).toEqual([0.42, 3.9]);
+    expect(usPayloadConjunctions(all).map((c) => c.primary)).toEqual(["USA 259"]);
+  });
+  it("SOCRATES: a row with no readable range is UNKNOWN, never close", () => {
+    // Before 2026-10-24 the live header's range column was unrecognised, every
+    // row carried a null range, and the filter let nulls through — one
+    // completed download would have read ACTIVE on every space-power board.
+    const noRange = parseSocrates("OBJECT_NAME_1,OBJECT_NAME_2,TCA\nUSA 224,COSMOS 1408 DEB,2026-10-01 03:00:00");
+    expect(noRange).toHaveLength(1);
+    expect(noRange[0].minRangeKm).toBeNull();
+    expect(usPayloadConjunctions(noRange)).toEqual([]);
+    expect(socratesColumns("OBJECT_NAME_1,OBJECT_NAME_2,TCA")!.range).toBe(-1);
+    expect(socratesColumns("FOO,BAR")).toBeNull();
   });
 });
 

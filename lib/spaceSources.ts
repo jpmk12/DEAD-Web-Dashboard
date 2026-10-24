@@ -8,7 +8,7 @@
 
 import { fetchWithTimeout } from "./fetchTimeout";
 import { parseNoaaScales, type NoaaScales } from "./spaceWeatherOps";
-import { parseLaunches, parseSocrates, type Launch, type Conjunction } from "./spaceCatalog";
+import { parseLaunches, socratesColumns, parseSocratesRow, SOCRATES_CLOSE_KM, type Launch, type Conjunction } from "./spaceCatalog";
 
 const UA = { "User-Agent": "DEAD-Dashboard/1.0", Accept: "application/json" };
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -61,29 +61,112 @@ export async function getLaunches(): Promise<{ live: boolean; launches: Launch[]
 
 // ─── SOCRATES ─────────────────────────────────────────────────────────────────
 
-let socCache: { at: number; data: Conjunction[] } | null = null;
+let socCache: { at: number; data: Conjunction[]; note: string } | null = null;
 const SOC_TTL = 12 * 3600_000;
+// The live file (2026-10-24 production diag): 22.9 MB, ~201k rows, ~20 s to
+// download whole — never `res.text()` it on a request path (the EU-CSV 502).
+// It is SORTED BY MINIMUM RANGE, so the close approaches are the first few
+// hundred KB: stream line by line and stop once `SOC_PAST_STOP` consecutive
+// rows have passed SOCRATES_CLOSE_KM (a guard against local disorder), with a
+// byte cap and a body deadline as the outer bounds. Note that
+// `fetchWithTimeout` bounds only the wait for HEADERS; the body needs its own.
+const SOC_DEADLINE_MS = 12_000;
+const SOC_MAX_BYTES = 6 * 1024 * 1024;
+const SOC_PAST_STOP = 50;
+const SOC_MAX_KEPT = 5000;
 
-export async function getConjunctions(): Promise<{ live: boolean; conjunctions: Conjunction[] }> {
-  if (socCache && Date.now() - socCache.at < SOC_TTL) return { live: true, conjunctions: socCache.data };
+export interface ConjunctionsResult {
+  live: boolean;
+  conjunctions: Conjunction[];
+  /** Why it stopped / why it is not live — in words, for the diag and the sensor note. */
+  note: string;
+  bytes: number;
+  /** Data rows read before stopping. */
+  rows: number;
+  status: number;
+  ms: number;
+  snippet: string;
+}
+
+const dead = (note: string, partial: Partial<ConjunctionsResult> = {}): ConjunctionsResult =>
+  ({ live: false, conjunctions: [], note, bytes: 0, rows: 0, status: 0, ms: 0, snippet: "", ...partial });
+
+/** Stream the sorted SOCRATES file and keep only the rows inside
+ *  SOCRATES_CLOSE_KM. Live when the header was recognised AND it carried a
+ *  range column AND at least one row was read — a file with no range column
+ *  cannot say anything about closeness and reads UNKNOWN, never close. */
+export async function streamSocrates(): Promise<ConjunctionsResult> {
+  const t0 = Date.now();
+  let res: Response;
   try {
-    // A browser User-Agent: CelesTrak refuses bot-shaped clients. The
-    // 2026-09-30 production diag still got a connection-level "fetch failed"
-    // from this host (not an HTTP error), so the conjunction half stays
-    // best-effort — space_activity runs on cadence alone when it is dead.
-    const res = await fetchWithTimeout(SOCRATES_URL, { headers: { "User-Agent": BROWSER_UA, Accept: "text/csv,*/*" }, cache: "no-store" }, 15_000);
-    if (!res.ok) return { live: false, conjunctions: [] };
-    const conjunctions = parseSocrates(await res.text());
-    if (conjunctions.length) socCache = { at: Date.now(), data: conjunctions };
-    return { live: conjunctions.length > 0, conjunctions };
-  } catch { return { live: false, conjunctions: [] }; }
+    // A browser User-Agent: CelesTrak refuses bot-shaped clients.
+    res = await fetchWithTimeout(SOCRATES_URL, { headers: { "User-Agent": BROWSER_UA, Accept: "text/csv,*/*" }, cache: "no-store" }, SOC_DEADLINE_MS);
+  } catch (e) {
+    return dead(`fetch failed: ${e instanceof Error ? e.message : String(e)}`, { ms: Date.now() - t0 });
+  }
+  if (!res.ok || !res.body) return dead(`HTTP ${res.status}`, { status: res.status, ms: Date.now() - t0 });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const kept: Conjunction[] = [];
+  let cols: ReturnType<typeof socratesColumns> | null = null;
+  let headerSeen = false;
+  let carry = "", snippet = "", bytes = 0, rows = 0, past = 0;
+  let note = "";
+  const stop = async (why: string) => { note = why; await reader.cancel().catch(() => {}); };
+
+  try {
+    outer: for (;;) {
+      if (Date.now() - t0 > SOC_DEADLINE_MS) { await stop(`body deadline after ${rows} rows`); break; }
+      const { done, value } = await reader.read();
+      if (done) { note = note || `end of file after ${rows} rows`; break; }
+      if (!value) continue;
+      bytes += value.byteLength;
+      if (bytes > SOC_MAX_BYTES) { await stop(`byte cap after ${rows} rows`); break; }
+      const text = carry + decoder.decode(value, { stream: true });
+      if (snippet.length < 240) snippet = (snippet + text).slice(0, 240);
+      const parts = text.split(/\r?\n/);
+      carry = parts.pop() ?? "";
+      for (const line of parts) {
+        if (!line.trim()) continue;
+        if (!headerSeen) {
+          headerSeen = true;
+          cols = socratesColumns(line);
+          if (!cols) { await stop(`header unrecognised: ${line.slice(0, 120)}`); break outer; }
+          if (cols.range < 0) { await stop("no range column in header — rows cannot claim closeness"); break outer; }
+          continue;
+        }
+        const c = parseSocratesRow(cols!, line);
+        if (!c) continue;
+        rows++;
+        if (c.minRangeKm == null) continue;                      // an unparseable range is unknown, not close
+        if (c.minRangeKm <= SOCRATES_CLOSE_KM) { past = 0; if (kept.length < SOC_MAX_KEPT) kept.push(c); }
+        else if (++past >= SOC_PAST_STOP) { await stop(`stopped at ${SOCRATES_CLOSE_KM} km after ${rows} rows (sorted by range)`); break outer; }
+      }
+    }
+  } catch (e) {
+    await reader.cancel().catch(() => {});
+    return dead(`read failed: ${e instanceof Error ? e.message : String(e)}`, { status: res.status, bytes, rows, ms: Date.now() - t0, snippet });
+  }
+
+  const usable = !!cols && cols.range >= 0 && rows > 0;
+  return { live: usable, conjunctions: usable ? kept : [], note: usable ? `${kept.length} within ${SOCRATES_CLOSE_KM} km · ${note}` : note || "no rows", bytes, rows, status: res.status, ms: Date.now() - t0, snippet };
+}
+
+export async function getConjunctions(): Promise<{ live: boolean; conjunctions: Conjunction[]; note?: string }> {
+  if (socCache && Date.now() - socCache.at < SOC_TTL) return { live: true, conjunctions: socCache.data, note: socCache.note };
+  try {
+    const r = await streamSocrates();
+    if (r.live) socCache = { at: Date.now(), data: r.conjunctions, note: r.note };
+    return { live: r.live, conjunctions: r.conjunctions, note: r.note };
+  } catch (e) { return { live: false, conjunctions: [], note: e instanceof Error ? e.message : String(e) }; }
 }
 
 export function resetSpaceSourceCaches(): void { scalesCache = null; launchCache = null; socCache = null; }
 
 // ─── diagnostics ──────────────────────────────────────────────────────────────
 
-export interface SpaceSourceDiag { source: string; url: string; status: number; ms: number; bytes: number; parsed: number; snippet: string; error?: string }
+export interface SpaceSourceDiag { source: string; url: string; status: number; ms: number; bytes: number; parsed: number; snippet: string; error?: string; note?: string }
 
 export async function diagnoseSpaceSources(): Promise<SpaceSourceDiag[]> {
   const probe = async (source: string, url: string, parse: (text: string) => number, ua = UA["User-Agent"]): Promise<SpaceSourceDiag> => {
@@ -102,6 +185,12 @@ export async function diagnoseSpaceSources(): Promise<SpaceSourceDiag[]> {
     probe("SWPC scales", SWPC_SCALES_URL, (t) => (parseNoaaScales(JSON.parse(t)).live ? 1 : 0)),
     probe("Launch Library 2 (previous)", LL2_PREVIOUS_URL, (t) => parseLaunches(JSON.parse(t)).length),
     probe("Launch Library 2 (upcoming)", LL2_UPCOMING_URL, (t) => parseLaunches(JSON.parse(t)).length),
-    probe("CelesTrak SOCRATES", SOCRATES_URL, (t) => parseSocrates(t).length, BROWSER_UA),
+    // SOCRATES goes through the SAME streaming reader the sensor uses — the
+    // generic probe would pull the whole 20+ MB file into memory. `parsed` is
+    // the rows kept inside SOCRATES_CLOSE_KM; `note` says why the read stopped.
+    streamSocrates().then((r): SpaceSourceDiag => ({
+      source: "CelesTrak SOCRATES", url: SOCRATES_URL, status: r.status, ms: r.ms, bytes: r.bytes, parsed: r.conjunctions.length, snippet: r.snippet,
+      note: `${r.rows} rows read · ${r.note}`, ...(r.live ? {} : { error: r.note }),
+    })),
   ]);
 }

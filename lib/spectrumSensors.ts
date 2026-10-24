@@ -189,7 +189,7 @@ export async function gatherSpectrumObservations(
     const s = spaceActivityState({ live: !!launches?.live, last14: cadence?.last14 ?? 0, per14: cadence?.per14 ?? null, next14: cadence?.next14 ?? 0, conjunctions });
     if (s) {
       observations.push(obs(SPACE_ID, "spaceCatalog", s, `Launch Library 2 (${geo.spacePowers.join("/")})${conj?.live ? " + SOCRATES" : " · SOCRATES unreachable"}`, (cadence?.last14 ?? 0) + conjunctions));
-      health.push({ indicatorId: SPACE_ID, live: true, note: !conj?.live ? "SOCRATES unreachable — cadence only" : undefined });
+      health.push({ indicatorId: SPACE_ID, live: true, note: !conj?.live ? `SOCRATES unavailable — cadence only${conj?.note ? ` (${conj.note})` : ""}` : undefined });
     } else {
       health.push({ indicatorId: SPACE_ID, live: false, note: "Launch Library unreachable" });
     }

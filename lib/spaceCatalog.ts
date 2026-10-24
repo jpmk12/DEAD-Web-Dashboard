@@ -111,33 +111,69 @@ export interface Conjunction {
 const US_MIL_PAYLOAD = /\b(USA \d+|WGS(?: |-)?\d*|MUOS|AEHF|SBIRS|NAVSTAR|GPS (?:II|III)|NROL|MILSTAR|DSCS|GSSAP|X-37B|OTV-\d|DMSP|WSF-M|TDRS)\b/i;
 
 const splitLine = (line: string): string[] => line.split(",").map((s) => s.trim().replace(/^"|"$/g, ""));
+// SOCRATES marks objects "[+]" (payload) / "[-]" (debris/rocket body) after
+// the name; the marker is not part of the name.
+const cleanName = (s: string): string => s.replace(/\s*\[[+-]\]\s*$/, "").trim();
 
-/** CelesTrak SOCRATES CSV → conjunctions. Header-keyed (the export has
- *  changed column order before). Empty when the header is unrecognised. */
+/** The streaming reader stops once rows pass this range — the file is sorted
+ *  by minimum range, so everything that can ever count as "close" comes first.
+ *  Wider than `usPayloadConjunctions`' default so the margin is visible. */
+export const SOCRATES_CLOSE_KM = 5;
+
+export interface SocratesColumns { name1: number; name2: number; tca: number; range: number; prob: number }
+
+/** Header-keyed column lookup (the export has changed column order and names
+ *  before — the 2026-10-24 live header is `NORAD_CAT_ID_1,OBJECT_NAME_1,DSE_1,
+ *  NORAD_CAT_ID_2,OBJECT_NAME_2,DSE_2,TCA,TCA_RANGE,TCA_RELATIVE_SPEED,
+ *  MAX_PROB,DILUTION`). null when the two object names cannot be found;
+ *  `range` is -1 when no range column exists — a caller must then treat the
+ *  rows as UNUSABLE for closeness, never as close. */
+export function socratesColumns(headerLine: string): SocratesColumns | null {
+  const h = splitLine(headerLine).map((x) => x.toUpperCase());
+  const col = (...names: string[]) => { for (const n of names) { const i = h.indexOf(n); if (i >= 0) return i; } return -1; };
+  const name1 = col("OBJECT_NAME_1", "PRIMARY_NAME", "OBJECT_NAME"), name2 = col("OBJECT_NAME_2", "SECONDARY_NAME");
+  if (name1 < 0 || name2 < 0) return null;
+  return {
+    name1, name2,
+    tca: col("TCA", "TCA_TIME"),
+    range: col("TCA_RANGE", "MIN_RNG", "MIN_RANGE", "MIN_RNG_KM", "RANGE_KM"),
+    prob: col("MAX_PROB", "PC", "PROBABILITY"),
+  };
+}
+
+/** One data row → a conjunction, or null for a row with no two names. */
+export function parseSocratesRow(cols: SocratesColumns, line: string): Conjunction | null {
+  const f = splitLine(line);
+  const primary = cleanName(f[cols.name1] ?? ""), secondary = cleanName(f[cols.name2] ?? "");
+  if (!primary || !secondary) return null;
+  return {
+    primary, secondary,
+    tcaISO: cols.tca >= 0 ? (f[cols.tca] ?? "") : "",
+    minRangeKm: cols.range >= 0 ? num(f[cols.range]) : null,
+    maxProb: cols.prob >= 0 ? num(f[cols.prob]) : null,
+  };
+}
+
+/** CelesTrak SOCRATES CSV → conjunctions (whole-text form, for tests and
+ *  small captures; the server streams the 20+ MB live file through
+ *  `socratesColumns` / `parseSocratesRow` with an early stop). Empty when the
+ *  header is unrecognised. */
 export function parseSocrates(csv: string): Conjunction[] {
   const lines = csv.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return [];
-  const h = splitLine(lines[0]).map((x) => x.toUpperCase());
-  const col = (...names: string[]) => { for (const n of names) { const i = h.indexOf(n); if (i >= 0) return i; } return -1; };
-  const c1 = col("OBJECT_NAME_1", "PRIMARY_NAME", "OBJECT_NAME"), c2 = col("OBJECT_NAME_2", "SECONDARY_NAME");
-  const cT = col("TCA", "TCA_TIME"), cR = col("MIN_RNG", "MIN_RANGE", "MIN_RNG_KM"), cP = col("MAX_PROB", "PC", "PROBABILITY");
-  if (c1 < 0 || c2 < 0) return [];
+  const cols = socratesColumns(lines[0]);
+  if (!cols) return [];
   const out: Conjunction[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const f = splitLine(lines[i]);
-    const primary = f[c1] ?? "", secondary = f[c2] ?? "";
-    if (!primary || !secondary) continue;
-    out.push({
-      primary, secondary,
-      tcaISO: cT >= 0 ? (f[cT] ?? "") : "",
-      minRangeKm: cR >= 0 ? num(f[cR]) : null,
-      maxProb: cP >= 0 ? num(f[cP]) : null,
-    });
-  }
+  for (let i = 1; i < lines.length; i++) { const c = parseSocratesRow(cols, lines[i]); if (c) out.push(c); }
   return out;
 }
 
-/** Conjunctions involving a U.S. military payload inside `maxRangeKm`. */
+/** Conjunctions involving a U.S. military payload inside `maxRangeKm`. A row
+ *  with NO range is not close — it is unknown, and an unknown range must not
+ *  light the space-activity ladder (the 2026-10-24 diag: the live header's
+ *  range column was unrecognised, every row parsed null, and this filter
+ *  used to let nulls through — one completed download would have read
+ *  ACTIVE on every board with a space power). */
 export function usPayloadConjunctions(all: Conjunction[], maxRangeKm = 1): Conjunction[] {
-  return all.filter((c) => (US_MIL_PAYLOAD.test(c.primary) || US_MIL_PAYLOAD.test(c.secondary)) && (c.minRangeKm == null || c.minRangeKm <= maxRangeKm));
+  return all.filter((c) => (US_MIL_PAYLOAD.test(c.primary) || US_MIL_PAYLOAD.test(c.secondary)) && c.minRangeKm != null && c.minRangeKm <= maxRangeKm);
 }
