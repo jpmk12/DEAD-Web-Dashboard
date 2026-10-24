@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>moon illumination — options</title><link rel="stylesheet" href="shot.css">
+<style>
+  .pane{max-width:1240px;margin:22px auto;padding:0 20px}
+  .opt{margin-bottom:30px}
+  .optlbl{display:flex;align-items:baseline;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  .optlbl b{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+  .optlbl span{font-size:11px;color:var(--mut)}
+  .mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .card{border:1px solid var(--bd);border-radius:12px;background:rgba(15,23,42,.6);overflow:hidden}
+  .chead{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd);background:rgba(30,41,59,.35);flex-wrap:wrap}
+  .chead .k{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#e2e8f0;display:flex;align-items:center;gap:8px}
+  .chead .s{font-size:10px;color:var(--mut)}
+  .chead .r{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .cbody{padding:12px 14px}
+  .pill{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:2px 7px;white-space:nowrap}
+  .pill.hi{color:#fde68a;background:rgba(253,230,138,.14);border:1px solid rgba(253,230,138,.35)}
+  .pill.lo{color:#a5b4fc;background:rgba(99,102,241,.16);border:1px solid rgba(129,140,248,.4)}
+  .pill.mid{color:#cbd5e1;background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.3)}
+  .pill.dim{color:#94a3b8;background:rgba(148,163,184,.08);border:1px solid var(--bd2)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:var(--mut);align-items:center}
+  .legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .sw-dark{background:#1e293b}.sw-moon{background:linear-gradient(90deg,rgba(253,230,138,.25),#fde68a)}.sw-day{background:#334155;opacity:.5}
+  table.ld{width:100%;border-collapse:collapse;font-size:11.5px}
+  table.ld th{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd)}
+  table.ld td{padding:6px 8px;border-bottom:1px solid rgba(30,41,59,.6);color:var(--txt2);white-space:nowrap}
+  table.ld td.d{color:#f1f5f9;font-weight:700}
+  table.ld tr.today td{background:rgba(56,189,248,.06)}
+  .win{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .wbox{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:rgba(2,6,23,.5)}
+  .wbox.lo{border-color:rgba(129,140,248,.45);background:rgba(99,102,241,.07)}
+  .wbox.hi{border-color:rgba(253,230,138,.4);background:rgba(253,230,138,.05)}
+  .wbox .k{font-size:9px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;display:flex;justify-content:space-between;align-items:center}
+  .wbox.lo .k{color:#a5b4fc}.wbox.hi .k{color:#fde68a}
+  .wbox .big{font-size:18px;font-weight:800;color:#f1f5f9;margin:4px 0 2px}
+  .wbox .m{font-size:11px;color:var(--txt2);line-height:1.45}
+  .wbox .m b{color:#f1f5f9}
+  .door{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+  .thr{display:inline-flex;gap:4px;align-items:center;font-size:10px;color:var(--mut)}
+  .thr .v{border:1px solid var(--bd2);border-radius:4px;padding:0 6px;color:#e2e8f0;font-family:ui-monospace,Menlo,monospace}
+  .notes{border:1px dashed rgba(244,63,94,.5);border-radius:12px;padding:12px 16px;margin-top:8px;background:rgba(244,63,94,.04)}
+  .notes h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fda4af;margin:0 0 8px}
+  .notes ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 22px}
+  .notes li{font-size:11.5px;color:var(--txt2);display:flex;gap:8px;line-height:1.45}
+  .n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#f43f5e;color:#fff;font-size:10px;font-weight:800;font-family:ui-monospace,Menlo,monospace;flex-shrink:0;margin-top:2px}
+  .ctx{border:1px solid rgba(56,189,248,.35);background:rgba(56,189,248,.05);border-radius:10px;padding:8px 12px;margin-bottom:18px;font-size:11.5px;color:#cbd5e1;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .ctx b{color:#f1f5f9}.ctx .k{font-size:9px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#7dd3fc}
+  /* B ribbons */
+  .rib{display:grid;grid-template-columns:172px 1fr 220px;gap:0 12px;align-items:center;padding:5px 0;border-bottom:1px solid rgba(30,41,59,.6)}
+  .rib:last-child{border-bottom:0}
+  .rib.today{background:rgba(56,189,248,.05);margin:0 -14px;padding-left:14px;padding-right:14px}
+  .rib .dt{display:flex;align-items:center;gap:8px}
+  .rib .dt .d{font-size:12px;font-weight:700;color:#f1f5f9;width:84px;white-space:nowrap}
+  .rib .dt .p{font-size:12px;font-weight:800;color:#fde68a;font-family:ui-monospace,Menlo,monospace;width:36px;text-align:right}
+  .rib .dt .p.lo{color:#a5b4fc}
+  .rib .tags{display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+  .rib .tags .h{font-size:10.5px;color:var(--txt2);font-family:ui-monospace,Menlo,monospace}
+  .axis{display:grid;grid-template-columns:172px 1fr 220px;gap:0 12px;font-size:9px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;margin-bottom:2px}
+  .axis .ticks{display:flex;justify-content:space-between}
+  /* C heat strip */
+  .heat{display:grid;grid-template-columns:repeat(60,1fr);gap:2px;margin-top:6px}
+  .heat div{height:22px;border-radius:2px;position:relative}
+  .heat div.today{outline:2px solid #38bdf8;outline-offset:1px}
+  .heatlbl{display:grid;grid-template-columns:repeat(60,1fr);gap:2px;font-size:8px;color:var(--mut2);font-family:ui-monospace,Menlo,monospace;margin-top:3px}
+  .heatlbl div{text-align:left;overflow:hidden;white-space:nowrap}
+  .today-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  .ts{border:1px solid var(--bd);border-radius:8px;padding:7px 9px;background:rgba(2,6,23,.5)}
+  .ts .k{font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8}
+  .ts .v{font-size:17px;font-weight:800;color:#f1f5f9;font-family:ui-monospace,Menlo,monospace;letter-spacing:-.01em}
+  .ts .v small{font-size:10px;color:var(--mut);font-weight:600;margin-left:2px}
+  .ts.moon .v{color:#fde68a}
+</style></head>
+<body><div class="pane">
+
+<div class="ctx"><span class="k">Where · when</span><span><b>KWRI · Joint Base McGuire-Dix-Lakehurst</b> — the Weather tab's selected place (TDY › home › a tapped airfield), the same rule the Places cards use</span><span class="mono" style="color:var(--mut)">40.02N 074.59W · local (ET) · night = EENT → BMNT (nautical twilight)</span><span class="k" style="margin-left:auto">starts 24 Oct 2026</span></div>
+
+<!-- ───────────── A ───────────── -->
+<div class="opt">
+  <div class="optlbl"><b>A · The lunar month</b><span>one 30-night chart: illumination curve with phase glyphs · HIGH / LOW windows banded · a night column per date showing EENT→BMNT darkness and the part of it the moon is UP · windows list + a 7-night light-data table beneath</span></div>
+  <div class="card">
+    <div class="chead"><span class="k">☾ Moon illumination · next 30 nights</span><span class="s">planning-grade · rise/set computed at the selected place</span>
+      <div class="r"><span class="thr">LOW &lt; <span class="v">25%</span></span><span class="thr">HIGH ≥ <span class="v">60%</span></span><span class="pill dim">▾ thresholds</span><span class="door">⇩ light data</span></div></div>
+    <div class="cbody">
+      <div id="chartA"></div>
+      <div class="legend" style="margin-top:8px"><span><i class="sw-day"></i>daylight / twilight</span><span><i class="sw-dark"></i>darkness (EENT→BMNT)</span><span><i class="sw-moon"></i>moon above the horizon during darkness — brighter = more illuminated</span><span>▲ moonrise · ▼ moonset</span><span style="margin-left:auto">● new ◐ first quarter ○ full ◑ last quarter</span></div>
+      <div class="win" id="winA"></div>
+      <div style="margin-top:14px" class="lbl">Light data · next 7 nights</div>
+      <table class="ld" id="tableA"></table>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── B ───────────── -->
+<div class="opt">
+  <div class="optlbl"><b>B · Night ribbons</b><span>the OPORD light-data card drawn as a timeline: one row per night, 1700→0700 local · the dark period in slate, the moon-up part lit by its illumination · moonrise ▲ / moonset ▼ ticks · each night labelled by what it gives you (HIGH ILLUM · LOW ILLUM · dark after …)</span></div>
+  <div class="card">
+    <div class="chead"><span class="k">☾ Nights · 24 Oct – 06 Nov</span><span class="s">14 nights · scroll for more</span><div class="r"><span class="pill hi">HIGH ≥ 60%</span><span class="pill mid">MODERATE</span><span class="pill lo">LOW &lt; 25%</span><span class="door">⇩ export</span></div></div>
+    <div class="cbody">
+      <div class="axis"><div></div><div class="ticks"><span>1700</span><span>1900</span><span>2100</span><span>2300</span><span>0100</span><span>0300</span><span>0500</span><span>0700</span></div><div style="text-align:right">moon-free darkness</div></div>
+      <div id="ribbons"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── C ───────────── -->
+<div class="opt">
+  <div class="optlbl"><b>C · Window finder</b><span>the compact form for the top of the tab (or Glance): tonight's light data as a strip · the next LOW-illum and HIGH-illum windows as two cards with their best night · a 60-day heat strip (two lunations) with today marked · A or B opens beneath on tap</span></div>
+  <div class="card">
+    <div class="chead"><span class="k">☾ Lunar windows · KWRI</span><span class="s">tonight 24 Oct</span><div class="r"><span class="pill dim">▾ 30-night detail</span></div></div>
+    <div class="cbody">
+      <div class="today-strip" id="todayC"></div>
+      <div class="win" id="winC"></div>
+      <div class="lbl" style="margin-top:14px">Illumination · 60 days</div>
+      <div class="heat" id="heatC"></div>
+      <div class="heatlbl" id="heatL"></div>
+      <div class="legend" style="margin-top:8px"><span>cell = % illumination at local midnight</span><span style="color:#a5b4fc">■ LOW window</span><span style="color:#fde68a">■ HIGH window</span><span style="margin-left:auto;color:#7dd3fc">▢ today</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h3>Decisions to take before building</h3>
+  <ol>
+    <li><span class="n">1</span><span><b>Which layout</b> — A (month chart + table), B (night ribbons), C (window finder), or C on top with A or B folding open beneath it (recommended: C + A).</span></li>
+    <li><span class="n">2</span><span><b>Thresholds</b> — LOW &lt; 25% / HIGH ≥ 60% are planning defaults (Army aviation NVG training minimums sit near 23% with the moon ≥ 30° up). Editable on the card and kept per browser, or declared once in the Mission Profile for the whole crew?</span></li>
+    <li><span class="n">3</span><span><b>Night definition</b> — nautical twilight (EENT→BMNT, the OPORD standard) as drawn, or civil / astronomical as a switch. The astro module today computes sunrise/sunset and civil twilight; nautical is one more zenith angle.</span></li>
+    <li><span class="n">4</span><span><b>Moonrise / moonset are NEW maths</b> — the app has synodic illumination only (good to a few hours); rise/set and moon altitude need a low-precision lunar position (Meeus) + an iterative horizon crossing. Pure, tested, no dependency; minute-grade is planning-grade, not almanac-grade, and the card will say so.</span></li>
+    <li><span class="n">5</span><span><b>Moon altitude</b> — add "moon ≥ 30° above the horizon" as the second condition (a 90% moon on the horizon lights nothing), shown as a dimmer segment near rise/set?</span></li>
+    <li><span class="n">6</span><span><b>Where it lives</b> — a card under Places on the Weather tab (follows the selected place), plus a "Lunar" line on each airfield card and a one-line "tonight: 96% · moon up all night · HIGH" on Glance's Where-you-are. SITREP already has sun/moon; it would read the same module.</span></li>
+    <li><span class="n">7</span><span><b>Export</b> — a zero-JS light-data table (BMNT · SR · SS · EENT · MR · MS · % · moon-free dark h) for 30 nights, the same discipline as the SITREP export, for the OPORD annex.</span></li>
+    <li><span class="n">8</span><span><b>Cloud cover</b> — overlay the Open-Meteo cloud forecast on the next 7 nights (a full moon under overcast is a dark night)? The tab already fetches it.</span></li>
+  </ol>
+</div>
+
+<div class="mockcap">mockup · illustrative render · moonrise/set approximated here, computed in production</div>
+</div>
+
+<script>
+// ─── planning maths for the mock (sun: NOAA equations, same as lib/astro.ts;
+// moon: synodic phase, same as lib/astro.ts; rise/set APPROXIMATED here) ───
+const RAD = Math.PI/180;
+const LAT = 40.016, LON = -74.592;
+const TODAY = Date.UTC(2026, 9, 24);
+const DAY = 86400000;
+const SYN = 29.530588853, NM_EPOCH = Date.UTC(2000,0,6,18,14);
+const LOW = 25, HIGH = 60;
+
+function tzOff(ms){ return ms >= Date.UTC(2026,10,1,6) ? -5 : -4; }  // ET: DST ends 1 Nov 2026
+function sunUtc(ms, rising, zenith){
+  const d = new Date(ms), y = d.getUTCFullYear();
+  const doy = Math.floor((Date.UTC(y,d.getUTCMonth(),d.getUTCDate()) - Date.UTC(y,0,1))/DAY)+1;
+  const lngHour = LON/15, t = doy + ((rising?6:18) - lngHour)/24;
+  const M = 0.9856*t - 3.289;
+  let L = M + 1.916*Math.sin(M*RAD) + 0.02*Math.sin(2*M*RAD) + 282.634; L = ((L%360)+360)%360;
+  let RA = Math.atan(0.91764*Math.tan(L*RAD))/RAD; RA = ((RA%360)+360)%360;
+  RA += Math.floor(L/90)*90 - Math.floor(RA/90)*90; RA /= 15;
+  const sinDec = 0.39782*Math.sin(L*RAD), cosDec = Math.cos(Math.asin(sinDec));
+  const cosH = (Math.cos(zenith*RAD) - sinDec*Math.sin(LAT*RAD))/(cosDec*Math.cos(LAT*RAD));
+  if (cosH>1||cosH<-1) return null;
+  let H = rising ? 360 - Math.acos(cosH)/RAD : Math.acos(cosH)/RAD; H/=15;
+  const T = H + RA - 0.06571*t - 6.622; return (((T - lngHour)%24)+24)%24;
+}
+const loc = (ms, h) => (((h + tzOff(ms))%24)+24)%24;   // UTC hours → local hours
+function moon(ms){ const age = (((ms-NM_EPOCH)/DAY)%SYN+SYN)%SYN; const f = age/SYN; return { age, f, illum: Math.round((1-Math.cos(2*Math.PI*f))/2*100), waxing: f<0.5 }; }
+
+// One civil day: sun events in local hours; the moon's rise/set ASSIGNED to
+// that day by phase (new → rises with the sun, full → rises at sunset).
+function dayData(ms){
+  const sr = loc(ms, sunUtc(ms,true,90.833)), ss = loc(ms, sunUtc(ms,false,90.833));
+  const bmnt = loc(ms, sunUtc(ms,true,102)), eent = loc(ms, sunUtc(ms,false,102));
+  const m = moon(ms + 12*3600000);
+  const f = m.f;
+  const mr = f < 0.5 ? sr + f/0.5*(ss-sr) : ss + (f-0.5)/0.5*(sr+24-ss);
+  const ms_ = f < 0.5 ? ss + f/0.5*(sr+24-ss) : sr + 24 + (f-0.5)/0.5*(ss-sr);
+  return { ms, sr, ss, bmnt, eent, mr, mset: ms_, illum: m.illum, f: m.f, waxing: m.waxing };
+}
+const days = []; for (let i=-1;i<62;i++) days.push(dayData(TODAY + i*DAY));
+const D = (i) => days[i+1];
+
+// Night i = EENT of day i → BMNT of day i+1 (hours since local midnight of day i).
+function night(i){
+  const a = D(i), b = D(i+1);
+  const start = a.eent, end = b.bmnt + 24;
+  // moon-up intervals from days i-1, i, i+1 intersected with the night
+  const ups = [];
+  for (const k of [i-1,i,i+1]) { const d = D(k), off = (k-i)*24; const s = d.mr+off, e = d.mset+off; const s2 = Math.max(s,start), e2 = Math.min(e,end); if (e2>s2) ups.push([s2,e2]); }
+  ups.sort((x,y)=>x[0]-y[0]);
+  const upH = ups.reduce((n,[s,e])=>n+(e-s),0), darkH = end-start;
+  const band = a.illum < LOW ? "lo" : a.illum >= HIGH ? "hi" : "mid";
+  return { i, d:a, next:b, start, end, ups, upH, darkH, freeH: darkH-upH, band, illum: a.illum, mr: a.mr, mset: a.mset };
+}
+const nights = []; for (let i=0;i<60;i++) nights.push(night(i));
+
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const dlabel = (ms) => { const d = new Date(ms); return `${DOW[d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2,"0")} ${MON[d.getUTCMonth()]}`; };
+const dshort = (ms) => { const d = new Date(ms); return `${String(d.getUTCDate()).padStart(2,"0")} ${MON[d.getUTCMonth()]}`; };
+const hhmm = (h) => { const mins = ((Math.round(h*60) % 1440) + 1440) % 1440; return `${String(Math.floor(mins/60)).padStart(2,"0")}${String(mins%60).padStart(2,"0")}`; };
+const hrs = (h) => `${h.toFixed(1)} h`;
+const moonCol = (p) => { const t = p/100; const r = Math.round(30 + (253-30)*t), g = Math.round(41 + (230-41)*t), b = Math.round(59 + (138-59)*t); return `rgb(${r},${g},${b})`; };
+// One glyph per phase event: the night whose phase is nearest the event (half a day's tolerance).
+const HALF_DAY = 0.5/SYN;
+const phaseGlyph = (f) => { const d = (t) => Math.min(Math.abs(f-t), Math.abs(f-t-1), Math.abs(f-t+1)); return d(0) <= HALF_DAY ? "●" : d(0.5) <= HALF_DAY ? "○" : d(0.25) <= HALF_DAY ? "◐" : d(0.75) <= HALF_DAY ? "◑" : ""; };
+function moonSvg(f, r){ // lit disc, waxing lit on the right
+  const k = Math.cos(2*Math.PI*f), rx = Math.abs(k)*r;
+  const sw1 = f < 0.5 ? 1 : 0, sw2 = (f < 0.25 || f > 0.75) ? (f<0.5?0:1) : (f<0.5?1:0);
+  const x = r+1;
+  return `<svg width="${2*r+2}" height="${2*r+2}" viewBox="0 0 ${2*r+2} ${2*r+2}"><circle cx="${x}" cy="${x}" r="${r}" fill="#1e293b" stroke="#334155" stroke-width=".8"/><path d="M${x},${1} A${r},${r} 0 0 ${sw1} ${x},${2*r+1} A${rx},${r} 0 0 ${sw2} ${x},${1} Z" fill="#fde68a"/></svg>`;
+}
+// Windows = consecutive nights in one band (night 0..29 only).
+function windows(ns){ const out=[]; let cur=null; for (const n of ns){ if (cur && cur.band===n.band) { cur.nights.push(n); } else { cur = {band:n.band, nights:[n]}; out.push(cur); } } return out; }
+
+// ─── A ───
+(function(){
+  const W = 1180, H = 330, padL = 44, padR = 16, top = 46, chartH = 120, gap = 14, nightH = 120;
+  const N = 30, colW = (W-padL-padR)/N;
+  const x = (i) => padL + i*colW;
+  const ns = nights.slice(0,30);
+  let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%">`;
+  let bandLabels = "";   // drawn last, over the night columns
+  // window bands
+  for (const w of windows(ns)) { if (w.band==="mid") continue; const a = w.nights[0].i, b = w.nights[w.nights.length-1].i; s += `<rect x="${x(a)}" y="${top-6}" width="${(b-a+1)*colW}" height="${chartH+gap+nightH+10}" fill="${w.band==="hi"?"rgba(253,230,138,.06)":"rgba(99,102,241,.10)"}"/>`;
+    bandLabels += `<text x="${x(a)+(b-a+1)*colW/2}" y="${top+chartH+gap+12}" font-size="9" font-weight="800" letter-spacing="1.2" text-anchor="middle" fill="${w.band==="hi"?"#fde68a":"#a5b4fc"}" style="paint-order:stroke;stroke:#0b1220;stroke-width:3px">${w.band==="hi"?"HIGH ILLUM":"LOW ILLUM"} · ${w.nights.length} nights</text>`; }
+  // threshold lines + illum curve
+  const yI = (p) => top + chartH - (p/100)*chartH;
+  for (const [p,c] of [[HIGH,"rgba(253,230,138,.35)"],[LOW,"rgba(165,180,252,.45)"]]) { s += `<line x1="${padL}" x2="${W-padR}" y1="${yI(p)}" y2="${yI(p)}" stroke="${c}" stroke-dasharray="3 3"/><text x="${padL-6}" y="${yI(p)+3}" font-size="9" text-anchor="end" fill="${c}">${p}%</text>`; }
+  for (const p of [0,100]) s += `<text x="${padL-6}" y="${yI(p)+3}" font-size="9" text-anchor="end" fill="#475569">${p}%</text>`;
+  let path = "", area = `M${x(0)+colW/2},${yI(0)} `;
+  ns.forEach((n,i)=>{ const px = x(i)+colW/2, py = yI(n.illum); path += (i?"L":"M")+px+","+py+" "; area += `L${px},${py} `; });
+  area += `L${x(29)+colW/2},${yI(0)} Z`;
+  s += `<defs><linearGradient id="ga" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fde68a" stop-opacity=".35"/><stop offset="1" stop-color="#fde68a" stop-opacity="0"/></linearGradient></defs>`;
+  s += `<path d="${area}" fill="url(#ga)"/><path d="${path}" fill="none" stroke="#fde68a" stroke-width="2"/>`;
+  ns.forEach((n,i)=>{ const px = x(i)+colW/2; s += `<circle cx="${px}" cy="${yI(n.illum)}" r="2.2" fill="${moonCol(n.illum)}" stroke="#0b1220"/>`; const g = phaseGlyph(n.d.f); if (g) s += `<text x="${px}" y="${top-14}" font-size="12" text-anchor="middle" fill="#e2e8f0">${g}</text><text x="${px}" y="${yI(n.illum)-8}" font-size="9" text-anchor="middle" fill="#fde68a" font-weight="700">${n.illum}%</text>`; });
+  // night columns: y = local hour 17..31
+  const ny0 = top + chartH + gap, yT = (h) => ny0 + ((h-17)/14)*nightH;
+  for (const [h,l] of [[18,"1800"],[21,"2100"],[24,"0000"],[27,"0300"],[30,"0600"]]) { s += `<line x1="${padL}" x2="${W-padR}" y1="${yT(h)}" y2="${yT(h)}" stroke="rgba(51,65,85,.35)"/><text x="${padL-6}" y="${yT(h)+3}" font-size="9" text-anchor="end" fill="#475569" font-family="ui-monospace,Menlo,monospace">${l}</text>`; }
+  ns.forEach((n,i)=>{ const cx = x(i)+2, cw = colW-4;
+    s += `<rect x="${cx}" y="${yT(17)}" width="${cw}" height="${nightH}" fill="rgba(51,65,85,.25)"/>`;             // day/twilight
+    s += `<rect x="${cx}" y="${yT(n.start)}" width="${cw}" height="${yT(n.end)-yT(n.start)}" fill="#1e293b"/>`;      // darkness
+    for (const [a,b] of n.ups) s += `<rect x="${cx}" y="${yT(a)}" width="${cw}" height="${Math.max(1,yT(b)-yT(a))}" fill="${moonCol(n.illum)}" opacity="${0.35+0.65*n.illum/100}"/>`;
+    const mr = n.mr, mset = n.mset; if (mr>17 && mr<31) s += `<text x="${cx+cw/2}" y="${yT(mr)+3}" font-size="7" text-anchor="middle" fill="#fde68a">▲</text>`; if (mset>17 && mset<31) s += `<text x="${cx+cw/2}" y="${yT(mset)+3}" font-size="7" text-anchor="middle" fill="#fde68a">▼</text>`;
+    const d = new Date(n.d.ms); if (i%3===0) s += `<text x="${cx+cw/2}" y="${H-4}" font-size="9" text-anchor="middle" fill="#64748b" font-family="ui-monospace,Menlo,monospace">${String(d.getUTCDate()).padStart(2,"0")} ${MON[d.getUTCMonth()]}</text>`;
+    if (i===0) s += `<rect x="${cx-1}" y="${top-8}" width="${cw+2}" height="${chartH+gap+nightH+14}" fill="none" stroke="#38bdf8" stroke-width="1.2" rx="2"/><text x="${cx+cw/2}" y="${top-26}" font-size="8" text-anchor="middle" fill="#7dd3fc" font-weight="800" letter-spacing="1">TONIGHT</text>`;
+  });
+  s += bandLabels + `</svg>`;
+  document.getElementById("chartA").innerHTML = s;
+  // windows beneath
+  const ws = windows(nights.slice(0,45)).filter(w=>w.band!=="mid");
+  const lo = ws.find(w=>w.band==="lo"), hi = ws.find(w=>w.band==="hi");
+  const box = (w) => { if (!w) return ""; const a = w.nights[0], b = w.nights[w.nights.length-1]; const best = w.band==="lo" ? w.nights.reduce((m,n)=>n.freeH>m.freeH?n:m) : w.nights.reduce((m,n)=>n.upH*n.illum>m.upH*m.illum?n:m);
+    return `<div class="wbox ${w.band}"><div class="k"><span>${w.band==="lo"?"Next LOW-illumination window":"HIGH-illumination window"}</span><span class="door">${a.i===0?"now":`in ${a.i} nights`}</span></div><div class="big">${dshort(a.d.ms)} – ${dshort(b.d.ms)} <span style="font-size:12px;color:#94a3b8;font-weight:600">· ${w.nights.length} nights</span></div><div class="m">${w.band==="lo" ? `Illumination ${Math.min(...w.nights.map(n=>n.illum))}–${Math.max(...w.nights.map(n=>n.illum))}%. Best night <b>${dlabel(best.d.ms)}</b>: ${best.illum}% · <b>${hrs(best.freeH)}</b> moon-free darkness of ${hrs(best.darkH)}${best.ups.length?` · moon up ${hhmm(best.ups[0][0])}–${hhmm(best.ups[best.ups.length-1][1])}`:" · moon below the horizon all night"}.` : `Illumination ${Math.min(...w.nights.map(n=>n.illum))}–${Math.max(...w.nights.map(n=>n.illum))}%. Best night <b>${dlabel(best.d.ms)}</b>: ${best.illum}% · moon up <b>${hrs(best.upH)}</b> of ${hrs(best.darkH)} darkness${best.ups.length?` (${hhmm(best.ups[0][0])}–${hhmm(best.ups[best.ups.length-1][1])})`:""}.`}</div></div>`; };
+  document.getElementById("winA").innerHTML = box(hi) + box(lo);
+  // table
+  let t = `<tr><th>Night</th><th>BMNT</th><th>Sunrise</th><th>Sunset</th><th>EENT</th><th>Moonrise</th><th>Moonset</th><th>Illum</th><th>Moon up in dark</th><th>Moon-free dark</th><th>Window</th></tr>`;
+  nights.slice(0,7).forEach((n,i)=>{ t += `<tr class="${i===0?"today":""}"><td class="d">${dlabel(n.d.ms)}</td><td class="mono">${hhmm(n.next.bmnt)}</td><td class="mono">${hhmm(n.next.sr)}</td><td class="mono">${hhmm(n.d.ss)}</td><td class="mono">${hhmm(n.d.eent)}</td><td class="mono">${hhmm(n.mr)}</td><td class="mono">${hhmm(n.mset)}${n.mset>=24?"<small style='color:#64748b'>+1</small>":""}</td><td class="mono" style="color:${n.band==="lo"?"#a5b4fc":"#fde68a"};font-weight:700">${n.illum}%</td><td class="mono">${hrs(n.upH)}</td><td class="mono">${hrs(n.freeH)}</td><td><span class="pill ${n.band}">${n.band==="hi"?"HIGH":n.band==="lo"?"LOW":"MOD"}</span></td></tr>`; });
+  document.getElementById("tableA").innerHTML = t;
+})();
+
+// ─── B ───
+(function(){
+  let h = "";
+  nights.slice(0,14).forEach((n,i)=>{
+    const W = 100, px = (hr) => ((hr-17)/14)*W;
+    let bar = `<svg viewBox="0 0 100 18" preserveAspectRatio="none" style="width:100%;height:26px;display:block">`;
+    bar += `<rect x="0" y="4" width="100" height="10" fill="rgba(51,65,85,.3)"/>`;
+    bar += `<rect x="${px(n.start)}" y="4" width="${px(n.end)-px(n.start)}" height="10" fill="#1e293b"/>`;
+    for (const [a,b] of n.ups) bar += `<rect x="${px(a)}" y="4" width="${Math.max(.3,px(b)-px(a))}" height="10" fill="${moonCol(n.illum)}" opacity="${0.35+0.65*n.illum/100}"/>`;
+    for (const t of [18,21,24,27,30]) bar += `<line x1="${px(t)}" x2="${px(t)}" y1="2" y2="16" stroke="rgba(71,85,105,.5)" stroke-width=".3"/>`;
+    if (n.mr>17&&n.mr<31) bar += `<path d="M${px(n.mr)-1.2},3 L${px(n.mr)+1.2},3 L${px(n.mr)},0.5 Z" fill="#fde68a"/>`;
+    if (n.mset>17&&n.mset<31) bar += `<path d="M${px(n.mset)-1.2},15 L${px(n.mset)+1.2},15 L${px(n.mset)},17.5 Z" fill="#fde68a"/>`;
+    bar += `</svg>`;
+    const risesInDark = n.mr>n.start && n.mr<n.end, setsInDark = n.mset>n.start && n.mset<n.end;
+    const note = n.ups.length===0 ? "moon down all night" : setsInDark && !risesInDark ? `dark after ${hhmm(n.mset)}` : risesInDark && !setsInDark ? `dark until ${hhmm(n.mr)}` : risesInDark && setsInDark ? `moon ${hhmm(n.mr)}–${hhmm(n.mset)}` : "moon up all night";
+    h += `<div class="rib ${i===0?"today":""}"><div class="dt"><span>${moonSvg(n.d.f, 9)}</span><span class="d">${dlabel(n.d.ms)}</span><span class="p ${n.band==="lo"?"lo":""}">${n.illum}%</span></div><div>${bar}</div><div class="tags"><span class="h">${note}</span><span class="pill ${n.band}">${n.band==="hi"?"HIGH ILLUM":n.band==="lo"?"LOW ILLUM":"MODERATE"}</span><span class="h" style="min-width:44px;text-align:right">${hrs(n.freeH)}</span></div></div>`;
+  });
+  document.getElementById("ribbons").innerHTML = h;
+})();
+
+// ─── C ───
+(function(){
+  const n = nights[0];
+  const cells = [["BMNT", hhmm(n.next.bmnt), ""],["Sunrise", hhmm(n.next.sr), ""],["Sunset", hhmm(n.d.ss), ""],["EENT", hhmm(n.d.eent), ""],["Moonrise", hhmm(n.mr), ""],["Moonset", hhmm(n.mset), n.mset>=24?"+1":""],["Illum", `${n.illum}%`, "moon"]];
+  document.getElementById("todayC").innerHTML = cells.map(([k,v,x])=>`<div class="ts ${x==="moon"?"moon":""}"><div class="k">${k}</div><div class="v">${v}${x&&x!=="moon"?`<small>${x}</small>`:""}</div></div>`).join("");
+  const ws = windows(nights.slice(0,45)).filter(w=>w.band!=="mid");
+  const lo = ws.find(w=>w.band==="lo"), hi = ws.find(w=>w.band==="hi");
+  const box = (w) => { if (!w) return ""; const a = w.nights[0], b = w.nights[w.nights.length-1]; const best = w.band==="lo" ? w.nights.reduce((m,x)=>x.freeH>m.freeH?x:m) : w.nights.reduce((m,x)=>x.upH*x.illum>m.upH*m.illum?x:m);
+    return `<div class="wbox ${w.band}"><div class="k"><span>${w.band==="lo"?"Next LOW-illum window":"HIGH-illum window"}</span><span class="door">${a.i===0?"now":`in ${a.i} nights`} · ${w.nights.length} nights</span></div><div class="big">${dshort(a.d.ms)} – ${dshort(b.d.ms)}</div><div class="m">best <b>${dlabel(best.d.ms)}</b> · ${best.illum}% · ${w.band==="lo"?`<b>${hrs(best.freeH)}</b> moon-free dark`:`moon up <b>${hrs(best.upH)}</b> of the dark`}</div></div>`; };
+  document.getElementById("winC").innerHTML = box(hi) + box(lo);
+  let heat = "", lbl = "";
+  nights.slice(0,60).forEach((x,i)=>{ const bg = moonCol(x.illum); const ring = x.band==="lo" ? "box-shadow:inset 0 -3px 0 #818cf8" : x.band==="hi" ? "box-shadow:inset 0 -3px 0 #fde68a" : ""; heat += `<div class="${i===0?"today":""}" style="background:${bg};${ring}" title="${dlabel(x.d.ms)} ${x.illum}%"></div>`; const d = new Date(x.d.ms); lbl += `<div>${d.getUTCDate()===1||i===0||i%7===0?`${d.getUTCDate()} ${MON[d.getUTCMonth()]}`:""}</div>`; });
+  document.getElementById("heatC").innerHTML = heat; document.getElementById("heatL").innerHTML = lbl;
+})();
+</script>
+</body></html>

@@ -36,3 +36,4 @@ shot osint-room-prototype.html'#room=country:Germany'   osint-room-proto-country
 shot osint-room-prototype.html'#room=field:ETAR'        osint-room-proto-airfield.png 1280,1400 2   # the airfield page (SITREP)
 shot osint-room-prototype.html'#room=country:Russia;pin' osint-room-proto-pinned.png  1600,1400 2   # pinned as a column
 shot osint-room-prototype.html'#room=country:Germany'   osint-room-proto-phone.png    500,1500  2   # phone (Chromium's minimum window is 500)
+shot moon-options.html       moon-options.png       1280,2720 1.5   # lunar illumination options A/B/C
