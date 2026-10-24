@@ -96,6 +96,13 @@ export default function WhereYouAre({ onOpen }: { onOpen: () => void }) {
           </span>
         </>
       )}
+      {d.lunar && (
+        <span className="basis-full flex items-center gap-1.5 text-[10.5px] text-slate-300 min-w-0" title={`${d.lunar.line} · times ${d.lunar.zone}`}>
+          <span className="text-amber-200/90">☾ {d.lunar.illumPct}%</span>
+          <span className="truncate">{d.lunar.darkH == null ? d.lunar.line : <>{d.lunar.darkH} h dark · <span className="text-slate-100">{d.lunar.moonlitDarkH} h moonlit</span> · <span className="text-indigo-200">{d.lunar.moonFreeDarkH} h moon-free</span></>}</span>
+          <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded border ${d.lunar.band === "hi" ? "text-amber-200 border-amber-200/40" : d.lunar.band === "lo" ? "text-indigo-200 border-indigo-400/40" : "text-slate-400 border-slate-600"}`}>{d.lunar.band === "hi" ? "HIGH ILLUM" : d.lunar.band === "lo" ? "LOW ILLUM" : "MODERATE"}</span>
+        </span>
+      )}
       <span className="ml-auto text-[9px] font-bold uppercase tracking-wider text-slate-500">Weather →</span>
     </button>
   );

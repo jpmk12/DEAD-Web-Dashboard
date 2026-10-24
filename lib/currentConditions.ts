@@ -24,6 +24,9 @@ export interface CurrentConditions {
   precipChancePct: number | null;
   sunrise: string | null;       // local ISO ("2026-06-17T05:42")
   sunset: string | null;
+  /** The place's IANA zone as Open-Meteo resolved it (`timezone=auto`) —
+   *  what the lunar card renders its clock times in. null when absent. */
+  timezone: string | null;
   /** The 7-day outlook (today first) — global, so OCONUS cards get a week
    *  ahead where NWS has no periods. Empty when Open-Meteo sent no daily. */
   daily: DailyOutlook[];
@@ -72,6 +75,7 @@ export function parseCurrent(json: unknown): CurrentConditions | null {
     precipChancePct: d0("precipitation_probability_max") != null ? round(d0("precipitation_probability_max")) : null,
     sunrise: typeof d0("sunrise") === "string" ? (d0("sunrise") as string) : null,
     sunset: typeof d0("sunset") === "string" ? (d0("sunset") as string) : null,
+    timezone: typeof (json as { timezone?: unknown })?.timezone === "string" && /^[A-Za-z_]+\/[A-Za-z_\-+0-9/]+$|^UTC$|^GMT$/.test((json as { timezone: string }).timezone) ? (json as { timezone: string }).timezone : null,
     daily: outlook,
   };
 }

@@ -2206,6 +2206,65 @@ who said what are recorded; what it means is for the on-tap read.
   syntax differs); the 2026 fleet names resolve only once Space-Track
   answers. No new npm dep beyond `satellite.js` (esbuild `0`).
 
+### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
+The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to
+BMNT (nautical twilight, the OPORD light-data convention), the part of it
+the moon is UP for, the part it is USEFULLY up for (≥ `MOON_USEFUL_ALT_DEG`
+= 30° — a moon on the horizon lights nothing), and the moon-free rest. A
+97% moon up past BMNT leaves 0 h moon-free; a 20% moon rising at 0227
+leaves nine. The mockup's approximated rise/set said "dark after 0550"
+for tonight — the real maths says the moon is up all night. That is why
+the maths exists.
+- **`lib/moon.ts` (PURE, client-safe, dependency-free, tested in
+  `tests/moon.test.ts`)**: Schlyter's low-precision Sun + Moon (the 12
+  main lunar perturbations), `crossings` (10-min scan + bisection to a
+  minute), `moonPhase` from the Sun–Moon elongation (full 26 Oct 2026 and
+  new 9 Nov 2026 pin it), `lunarNight(lat, lon, zone, date)` → `LunarNight`
+  (sunset / EENT / BMNT / sunrise, moonrise / moonset between local noons,
+  `moonUp` + `moonHigh` intervals inside the dark, `darkH` /
+  `moonlitDarkH` / `usefulMoonH` / `moonFreeDarkH`, `daylightH`, band,
+  `polar`), `lunarNights`, `lunarWindows` (consecutive nights in one band;
+  the best LOW night has the most moon-free dark, the best HIGH night the
+  most useful moonlight), `lunarTonightLine`, `hhmmIn(ms, zone)`.
+  Disciplines: **polar → nulls and `polar:true`, never invented times**
+  (tested on Longyearbyen in June); the day's zone comes from
+  `zoneDayStartMs` so the 1 Nov clock change shows in the times and not in
+  the budget (tested); sun times agree with `lib/astro.ts` within 4 min
+  (tested) — astro.ts stays the SITREP's source. Planning-grade (a minute
+  or two), stated on every surface; **cloud cover is not included**.
+- **Thresholds** `LunarThresholds {low, high}` default 25 / 60 (Army
+  aviation NVG training minimums sit near 23% with the moon ≥ 30° up),
+  `sanitizeThresholds` (malformed → defaults), **per browser**
+  (`localStorage weather.lunar.thresholds`) — a planning default, not a
+  declaration. Night = nautical, fixed.
+- **`components/weather/LunarCard.tsx`** under Places on the Weather tab,
+  **follows the selected place or airfield** (the map's own rule,
+  `mapSel`): tonight's light-data strip (BMNT · sunrise · sunset · EENT ·
+  moonrise · moonset · illum · moon-free dark) + one sentence; the next
+  HIGH and LOW windows with their best night; a 60-night heat strip
+  (underline = window, outline = tonight); "▾ 30-night detail" (remembered)
+  opens the month chart (`MonthChart`, exported for the static render
+  check: the illumination curve with phase glyphs, HIGH / LOW bands, a
+  night column per date — darkness, the moon-up part lit by illumination,
+  the ≥30° part solid, ▲ ▼ rise / set, hours LOCAL to the place) and the
+  light-data table (7 or all 30). All PURE client-side maths; the only
+  network call is one `/api/weather/current` read for the place's IANA
+  zone — `CurrentConditions.timezone` is new (Open-Meteo `timezone=auto`,
+  kept only when it looks like an IANA id, tested); a dead read falls back
+  to the device zone AND SAYS SO on the card.
+- **⇩ light data** = `lib/lunarExport.ts` `renderLunarHtml` (PURE, tested
+  in `tests/lunarExport.test.ts`): the 30-night table as ONE self-contained
+  HTML file for the OPORD annex — zero JavaScript, zero external resources,
+  "SNAPSHOT AS OF …Z — COMPUTED, NOT AN ALMANAC", the place label escaped,
+  polar rows say POLAR with dashes.
+- **Glance**: `/api/weather/here` carries `lunar` (tonight at the effective
+  place; zone = Open-Meteo's › the trip's › the device's) and
+  `WhereYouAre` renders "☾ 99% · 11.3 h dark · 11.3 h moonlit · 0 h
+  moon-free · HIGH ILLUM" with the full line as the tooltip. No model
+  call anywhere. NOT built: a lunar line per airfield row and the cloud
+  overlay on the next 7 nights (decisions 6 and 8 of the mockup) — add
+  them on request. No new npm dep (esbuild `0`).
+
 ### Keeping an assessment from the chat (2026-10-22, "export assessments I like or append them to my working docs")
 Every assistant reply — a board answer or an ordinary chat reply — carries
 four doors under it (`ChatPanel.tsx`): **⧉ Append to…** (the existing

@@ -11,6 +11,8 @@ import { getFlightCategories, getTafOutlook, type TafOutlook } from "@/lib/aviat
 import { fetchLocationHazards } from "@/lib/severeWeather";
 import { getTrackingRegistry } from "@/lib/trackingOps";
 import type { FlightCategory } from "@/lib/types";
+import { lunarNight, lunarTonightLine } from "@/lib/moon";
+import { ymdInZone } from "@/lib/effectiveZone";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,8 @@ export interface HereWeather {
     hazard: { severity: "severe" | "elevated"; flags: string[] } | null;
   } | null;
   home: { label: string; current: CurrentConditions | null; icao: string | null; cat: FlightCategory | null } | null;
+  /** Tonight's lunar budget where you are (lib/moon.ts, pure maths — no feed). */
+  lunar: { illumPct: number; phaseName: string; band: "lo" | "mid" | "hi"; moonFreeDarkH: number | null; moonlitDarkH: number | null; darkH: number | null; line: string; zone: string } | null;
   live: { openMeteo: boolean; awc: boolean };
   asOf: string;
 }
@@ -104,6 +108,17 @@ export async function GET(request: Request) {
     nearHere ? fetchLocationHazards([{ label: nearHere.icao, lat: nearHere.lat, lon: nearHere.lon }]).catch(() => []) : Promise.resolve([]),
   ]);
 
+  // Tonight's moon where you are: the place's own zone (Open-Meteo's, else the
+  // trip's, else the device's) so "dark 1905–0620" is local to the place.
+  let lunar: HereWeather["lunar"] = null;
+  if (herePt) {
+    try {
+      const zone = cur?.timezone ?? (trip?.tz && isValidTz(trip.tz) ? trip.tz : null) ?? deviceOk ?? prefs?.timezone ?? DEFAULT_ZONE;
+      const n = lunarNight(herePt.lat, herePt.lon, zone, ymdInZone(Date.now(), zone));
+      lunar = { illumPct: n.illumPct, phaseName: n.phaseName, band: n.band, moonFreeDarkH: n.moonFreeDarkH, moonlitDarkH: n.moonlitDarkH, darkH: n.darkH, line: lunarTonightLine(n), zone };
+    } catch { lunar = null; }
+  }
+
   const data: HereWeather = {
     here: herePt ? {
       label: herePt.label,
@@ -121,6 +136,7 @@ export async function GET(request: Request) {
       icao: nearHome?.icao ?? null,
       cat: nearHome ? cats.byIcao[nearHome.icao]?.flightCategory ?? "UNKNOWN" : null,
     } : null,
+    lunar,
     live: { openMeteo: !herePt || cur != null, awc: cats.live },
     asOf: new Date().toISOString(),
   };

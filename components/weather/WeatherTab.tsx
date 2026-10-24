@@ -9,6 +9,7 @@ import SpaceWeatherCard from "./SpaceWeatherCard";
 import SpaceWxThreatRow from "./SpaceWxThreatRow";
 import AirfieldsByCommand, { type RegAirfield } from "./AirfieldsByCommand";
 import WeatherSources, { type SourceStatuses } from "./WeatherSources";
+import LunarCard from "./LunarCard";
 import { CloudSun } from "@/lib/icons";
 import { openTrackPicker, postTrack } from "@/lib/trackClient";
 import { toast } from "@/lib/feedback";
@@ -238,6 +239,9 @@ export default function WeatherTab() {
           </p>
         )}
       </div>
+
+      {/* Lunar windows — follows the selected place or airfield (the map's rule) */}
+      {mapSel && <LunarCard lat={mapSel.lat} lon={mapSel.lon} label={mapSel.label} />}
 
       {/* My airfields, by combatant command */}
       <AirfieldsByCommand airfields={airfields} stations={stations} awcDown={awcDown} loading={metarLoading} hazards={hazards}
