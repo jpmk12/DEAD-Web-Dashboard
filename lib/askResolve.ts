@@ -30,9 +30,18 @@ export interface AskResolution {
   wantsIndicators: boolean;
   /** Domains the question leans on, for pack ordering. */
   topics: ("space" | "cyber" | "economy" | "posture" | "weather" | "demand")[];
+  /** Functional combatant commands the question names (USTRANSCOM / USSPACECOM / USCYBERCOM). */
+  functional: FunctionalCommand[];
   /** What the question named that the app could not place. */
   unplaced: string[];
 }
+
+export type FunctionalCommand = "TRANSCOM" | "SPACECOM" | "CYBERCOM";
+const FUNCTIONAL_TERMS: [RegExp, FunctionalCommand][] = [
+  [/\b(us)?transcom\b|\btransportation command\b|\bair mobility command\b|\bamc\b|\bmobility enterprise\b|\bairlift system\b|\ben route system\b/i, "TRANSCOM"],
+  [/\b(us)?spacecom\b|\bspace command\b|\bspace force\b|\bussf\b|\bspace domain\b/i, "SPACECOM"],
+  [/\b(us)?cybercom\b|\bcyber command\b|\bcyberspace\b/i, "CYBERCOM"],
+];
 
 const escRx = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -118,6 +127,10 @@ export function resolveAsk(question: string, cat: AskCatalogue): AskResolution {
 
   const topics: AskResolution["topics"] = [];
   for (const [rx, t] of TOPIC_RX) if (rx.test(q) && !topics.includes(t)) topics.push(t);
+  const functional: FunctionalCommand[] = [];
+  for (const [rx, f] of FUNCTIONAL_TERMS) if (rx.test(q) && !functional.includes(f)) functional.push(f);
+  const FUNC_TOPIC: Record<FunctionalCommand, AskResolution["topics"][number]> = { TRANSCOM: "demand", SPACECOM: "space", CYBERCOM: "cyber" };
+  for (const f of functional) if (!topics.includes(FUNC_TOPIC[f])) topics.push(FUNC_TOPIC[f]);
 
   // Proper nouns the app could not place (capitalised words that are not a
   // sentence start and matched nothing) — said back, never guessed.
@@ -128,13 +141,14 @@ export function resolveAsk(question: string, cat: AskCatalogue): AskResolution {
     const lw = w.toLowerCase();
     if ([...countries].some((c) => c.toLowerCase().includes(lw)) || ACTOR_ALIASES[lw] || /^(What|How|Which|When|Where|Should|Could|Would|Does|Is|Are|Will|Can|Tell|Show|Give|The|And|For)$/i.test(w)) continue;
     if (AOR_TERMS.some(([rx]) => rx.test(w))) continue;
+    if (FUNCTIONAL_TERMS.some(([rx]) => rx.test(w))) continue;
     if (!unplaced.includes(w)) unplaced.push(w);
   }
 
   return {
     countries: [...countries], aors: [...aors], boardIds: [...boardIds], chokepointIds: [...chokepointIds], actorIds: [...actorIds],
     warningShaped: WARNING_VERBS.test(q), wantsProbability: PROBABILITY.test(q), wantsIndicators: INDICATORS.test(q),
-    topics, unplaced: unplaced.slice(0, 5),
+    topics, functional, unplaced: unplaced.slice(0, 5),
   };
 }
 

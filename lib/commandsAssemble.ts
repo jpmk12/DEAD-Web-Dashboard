@@ -40,6 +40,9 @@ import {
   type CbEvent, type CbDelta, type CbAlert, type CbOwnField,
 } from "./commandBoard";
 import { primer, type Primer, type PrimerConvergence, type PrimerDecision } from "./primer";
+import { functionalRows, type FcRow, type FcCrew, type FcStrait } from "./functionalCommands";
+import { getSpectrumSummary } from "./spectrum";
+import { getChokepointReads } from "./chokepointReads";
 
 export interface CommandsBody {
   generatedAt: string;
@@ -47,6 +50,8 @@ export interface CommandsBody {
   sinceMs: number;
   board: CommandBoard;
   primer: Primer;
+  /** USTRANSCOM · USSPACECOM · USCYBERCOM — domain rows over the same gather (lib/functionalCommands). null on a stub. */
+  functional: FcRow[] | null;
   mustTrack: MustTrack;
   ownFields: CbOwnField[];
   pending?: boolean;
@@ -65,6 +70,7 @@ interface Shared {
   decisionsDue: PrimerDecision[] | null;
   sourcesDown: string[];
   alertsRaw: CbAlert[] | null;
+  functional: FcRow[];
 }
 
 let cache: Shared | null = null;
@@ -198,14 +204,28 @@ async function gatherShared(): Promise<Shared> {
     return { id: a.id, severity: a.severity, kind: a.kind, title: a.title, sub: a.sub, aor: aor === "UNKNOWN" ? null : aor };
   })));
 
-  // Crew mismatch per command.
+  // Crew mismatch per command — and the crew picture for the TRANSCOM row.
   const crewMismatchAors: Aor[] = [];
+  let crew: FcCrew | null = null;
   try {
     const rows = await listCrewRows();
     const summary = deriveAvailability(rows);
     const p = postureAgainstDemand(summary, (demand ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })), AOR_LABELS as Record<string, string>);
     for (const l of p.lines) if (l.mismatch && isAor(l.aor)) crewMismatchAors.push(l.aor);
+    crew = { declared: rows.length > 0, line: summary.line, stale: summary.stale, staleHours: summary.staleHours, lines: p.lines.map((l) => ({ aor: l.aor, direction: l.direction, posture: l.posture, mismatch: l.mismatch, line: l.line })) };
   } catch { /* no crew state → no mismatch claim */ }
+
+  // The functional commands' domain picture — the spectrum summary and the
+  // strait reads, both bounded (each keeps its own cache and assembles in
+  // the background past the wait; the row says "assembling" meanwhile).
+  const [spectrum, cpBody] = await Promise.all([
+    within(getSpectrumSummary({ maxWaitMs: 8_000 }), 9_000),
+    within(getChokepointReads(), 12_000).catch(() => null),
+  ]);
+  const straits: FcStrait[] | null = cpBody
+    ? cpBody.signals.filter((s) => s.id !== "russia-ovf").map((s) => ({ id: s.id, name: s.name, aor: classifyAor({ lat: s.lat, lon: s.lon, name: s.name }), score: s.score, acts: s.acts, threats: s.threats, line: s.line, transit: s.transit?.state ?? null }))
+    : null;
+  const functional = functionalRows({ spectrum, demand, crew, straits, sitreps, ownFields, alerts: alertsRaw });
 
   const countryAors: Record<string, Aor> = {};
   for (const c of mt.countries) countryAors[c.trim().toLowerCase()] = classifyAor({ name: c });
@@ -221,8 +241,16 @@ async function gatherShared(): Promise<Shared> {
     at: Date.now(),
     profile: profile ?? ({ mustTrack: mt } as MissionProfile),
     input: { nowMs: Date.now(), mustTrack: mt, ownFields, posture, boards, sitreps, demand, events, alerts: alertsRaw, crewMismatchAors, countryAors },
-    convergence: conv, decisionsDue: dueRows, sourcesDown, alertsRaw,
+    convergence: conv, decisionsDue: dueRows, sourcesDown, alertsRaw, functional,
   };
+}
+
+/** The functional rows from the shared cache, bounded — for the Ask pack.
+ *  null when nothing has assembled within the wait. */
+export async function getFunctionalRowsBounded(maxWaitMs = 6_000): Promise<FcRow[] | null> {
+  if (cache && Date.now() - cache.at < TTL) return cache.functional;
+  const shared = await within(getShared(), maxWaitMs);
+  return shared?.functional ?? cache?.functional ?? null;
 }
 
 function getShared(): Promise<Shared> {
@@ -278,14 +306,14 @@ function bodyFrom(shared: Shared, sinceMs: number, delta: CbDelta[] | null, pend
   const input: CommandInput = { ...shared.input, nowMs: Date.now(), sinceMs, delta: placed };
   const board = commandBoard(input);
   const pr = primer({ ...input, convergence: shared.convergence, decisionsDue: shared.decisionsDue, sourcesDown: shared.sourcesDown });
-  return { generatedAt: new Date(shared.at).toISOString(), sinceMs, board, primer: pr, mustTrack: shared.input.mustTrack, ownFields: shared.input.ownFields, ...(pending ? { pending: true } : {}) };
+  return { generatedAt: new Date(shared.at).toISOString(), sinceMs, board, primer: pr, functional: shared.functional, mustTrack: shared.input.mustTrack, ownFields: shared.input.ownFields, ...(pending ? { pending: true } : {}) };
 }
 
 function stub(sinceMs: number, note: string, error?: string): CommandsBody {
   const input: CommandInput = { nowMs: Date.now(), sinceMs, mustTrack: EMPTY_MUST_TRACK, ownFields: [], posture: null, boards: null, sitreps: null, demand: null, events: null, delta: null, alerts: null, crewMismatchAors: [] };
   const board = commandBoard(input);
   const pr = primer({ ...input, convergence: null, decisionsDue: null, sourcesDown: [note] });
-  return { generatedAt: new Date().toISOString(), sinceMs, board, primer: pr, mustTrack: EMPTY_MUST_TRACK, ownFields: [], pending: !error, ...(error ? { error } : {}) };
+  return { generatedAt: new Date().toISOString(), sinceMs, board, primer: pr, functional: null, mustTrack: EMPTY_MUST_TRACK, ownFields: [], pending: !error, ...(error ? { error } : {}) };
 }
 
 /** Bounded: a warm shared cache + this user's delta instantly; a cold shared

@@ -29,6 +29,8 @@ import { getLatestSession } from "./threadHistory";
 import { CHOKEPOINTS } from "./chokepoints";
 import { knownCountryNames, sameCountry } from "./countryNames";
 import { AOR_LABELS } from "./aor";
+import { getFunctionalRowsBounded } from "./commandsAssemble";
+import { functionalText } from "./functionalCommands";
 
 export interface AskPack {
   resolution: AskResolution;
@@ -71,6 +73,16 @@ export async function buildAskPack(question: string, email: string, opts: { maxW
   const matchCountry = (c: string | null | undefined) => res.countries.some((x) => sameCountry(x, c));
   const matchAor = (a: string | null | undefined) => !!a && res.aors.includes(a as never);
   const broad = res.countries.length === 0 && res.aors.length === 0 && res.boardIds.length === 0;
+
+  // 0. A functional command the question names — its domain rows, first,
+  //    because the question is ABOUT that command (lib/functionalCommands).
+  if (res.functional.length) {
+    const rows = await within(getFunctionalRowsBounded(wait), wait);
+    const surface = `OSINT › Commands › Functional commands · ${res.functional.map((f) => `US${f}`).join(" / ")}`;
+    const door = { event: "app:navigate", detail: "osint", then: { event: "osint:set-pane", detail: "commands", delayMs: 120 } };
+    if (!rows) sections.push({ surface, text: "", unavailable: true, door });
+    else sections.push({ surface, text: functionalText(rows, res.functional), door });
+  }
 
   // 1. The boards, in full.
   const boardsToRead = problems.filter((p) => res.boardIds.includes(p.def.id) || (broad && problems.length <= 3));

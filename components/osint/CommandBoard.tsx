@@ -16,6 +16,8 @@ import type { PrimerDoor, PrimerItem } from "@/lib/primer";
 import { toggleMustTrack, type MustTrack } from "@/lib/missionProfile";
 import { AOR_LABELS, type Aor } from "@/lib/aor";
 import { parseRoomParam, roomParam, roomAor, doorRoom, findField, findCountry, sameRoom, type RoomRef } from "@/lib/room";
+import FunctionalCommands from "./FunctionalCommands";
+import type { FcDoor, FunctionalCommand } from "@/lib/functionalCommands";
 import { noteOpen } from "@/lib/noteOpenClient";
 import { toast } from "@/lib/feedback";
 
@@ -90,6 +92,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
   const [room, setRoom] = useState<RoomRef | null>(null);
   const [pinned, setPinned] = useState(false);
   const [othersOpen, setOthersOpen] = useState(false);
+  const [openFc, setOpenFc] = useState<FunctionalCommand | null>(null);
   const [mtPanel, setMtPanel] = useState(false);
   const [primerOpen, setPrimerOpen] = useState(true);
   const [mineOpen, setMineOpen] = useState(true);
@@ -498,13 +501,22 @@ export default function CommandBoard({ active }: { active: boolean }) {
         )}
       </section>
 
+      {/* ── Functional commands — a domain, not a place ── */}
+      {data && (
+        <FunctionalCommands rows={data.functional} open={openFc} onOpen={setOpenFc}
+          onDoor={(d: FcDoor) => {
+            if (d.kind === "board" || d.kind === "field" || d.kind === "country") openRoom({ kind: d.kind, id: d.id });
+            else window.dispatchEvent(new CustomEvent("app:navigate", { detail: d.tab }));
+          }} />
+      )}
+
       {/* ── Airfields by command — the full register (A′) ── */}
       {data && <CommandAirfields board={data.board} room={room} onOpen={openRoom} star={star} mtBusy={mtBusy} edit={editOps} canEdit={canEdit} />}
 
       {/* ── The picture — follows whatever is open ── */}
-      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture{mapAor ? ` — following ${room ? "the room" : "the board"} · ${short(mapAor)}` : ""}</p>
+      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture{mapAor ? ` — following ${room ? "the room" : "the board"} · ${short(mapAor)}` : openFc ? ` — ${openFc} layers on` : ""}</p>
       <ErrorBoundary label="Crisis map" minHeight="420px">
-        <CrisisMap boardAor={mapAor} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} active={active} />
+        <CrisisMap boardAor={mapAor} domain={openFc} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} active={active} />
       </ErrorBoundary>
     </div>
 

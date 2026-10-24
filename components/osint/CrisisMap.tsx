@@ -18,6 +18,7 @@ import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
 import ForceWatchBoard from "./ForceWatchBoard";
 import { aorFromCoords, type Aor } from "@/lib/aor";
+import { FC_MAP_LAYERS, type FunctionalCommand } from "@/lib/functionalCommands";
 import { isMobilityType, isTankerType } from "@/lib/aircraftTypes";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { AcledEvent } from "@/lib/acled";
@@ -244,6 +245,9 @@ export interface CrisisMapProps {
   /** The command the board has open; the map FOLLOWS it (REVIEW-2026-10 §6)
    *  until an AOR chip overrides. null = no command open. */
   boardAor?: Aor | null;
+  /** The functional command the board has open — its domain layers are
+   *  turned ON (never off) when it opens (lib/functionalCommands FC_MAP_LAYERS). */
+  domain?: FunctionalCommand | null;
   /** ★ commands — always get a chip, quiet or not. */
   starAors?: Aor[];
   /** The operator's own + ★ airfields, for the "near my airfields" lens. */
@@ -285,7 +289,7 @@ function Fitter({ points, fitKey }: { points: [number, number][]; fitKey: number
   return null;
 }
 
-export default function CrisisMap({ boardAor = null, starAors = [], myFields = [], sinceMs = 0, active = true }: CrisisMapProps = {}) {
+export default function CrisisMap({ boardAor = null, domain = null, starAors = [], myFields = [], sinceMs = 0, active = true }: CrisisMapProps = {}) {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
@@ -422,6 +426,13 @@ export default function CrisisMap({ boardAor = null, starAors = [], myFields = [
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
+  // A functional command opening on the board turns its domain layers ON
+  // (never off — the user's other toggles stand).
+  useEffect(() => {
+    if (!domain) return;
+    const keys = (FC_MAP_LAYERS[domain] ?? []).filter((k): k is LayerKey => (ALL_KEYS as string[]).includes(k));
+    if (keys.length) setOn((p) => ({ ...p, ...Object.fromEntries(keys.map((k) => [k, true])) }));
+  }, [domain]);
   // Server-sync the layer toggles so the map config follows the user across
   // devices. `didHydrate` keeps the initial (local-only) render from POSTing
   // before we've read the server copy; localStorage still saves immediately.

@@ -2206,6 +2206,53 @@ who said what are recorded; what it means is for the on-tap read.
   syntax differs); the 2026 fleet names resolve only once Space-Track
   answers. No new npm dep beyond `satellite.js` (esbuild `0`).
 
+### Functional combatant commands on the command board (2026-10-24, "I see the geographic commands but not SPACECOM, CYBERCOM and TRANSCOM")
+A geographic row is a WHERE (posture rows, bases, events hang off an
+`Aor`); a functional command's AOR is a WHAT — a domain — so it cannot
+share the row shape (it would show no bases and read "quiet" forever).
+**`lib/functionalCommands.ts` (PURE, client-safe, tested in
+`tests/functionalCommands.test.ts`)** builds three rows of DOMAIN-NATIVE
+cells from a structural subset of what the commands assembler already
+holds (`FcInput`: the spectrum summary, demand outlooks, the crew picture,
+the strait reads, SITREP summaries, own fields, alerts):
+- **USTRANSCOM** — Demand 7 d (any RISE → amber, the commands named) ·
+  Crews (demand rising against thin / critical crews → RED; undeclared
+  counts → UNKNOWN "do not assume crews are available"; a stale
+  declaration says "last updated Nd ago, confirm") · Straits (a reported
+  act → RED, a declared threat → amber, AIS transit named when not
+  normal; the overflight pseudo-chokepoint is excluded) · En route (the
+  worst LED across the own hub / spokes' SITREP axes with its driver; no
+  SITREP slot → UNKNOWN "★ a field to get one").
+- **USSPACECOM** — PNT · Space wx (SWPC scales ≥ 3 in effect, else
+  "quiet") · Counterspace (the catalogue's "Space-Track not configured"
+  reason leads the detail) · Launch — each the worst `ObservedState`
+  across boards, naming its board, with the per-board states as detail.
+- **USCYBERCOM** — Cyber pressure · Edge (KEV hits on the declared
+  vendors + the ransomware count; no vendors → UNKNOWN "not clear") ·
+  Outages (an `outage-` alert → RED; none → green ONLY when the cyber
+  sensors answered) · Actor posture (preparation / sustained pressure →
+  amber; the worst actor's country room is the door).
+- Disciplines: **a cell is UNKNOWN when its sensor is dead, pending or
+  undeclared — never green**; a pending spectrum summary reads
+  "assembling"; the row's `worst` ranks g < u < a < r and `why` names the
+  driving cell; **the I&W boards are not duplicated** — a cell reports the
+  WORST across boards and names it. USSTRATCOM (no honest open sensor)
+  and USSOCOM (a customer of mobility) are deliberately absent and the
+  footer says so. MARAD advisories (sealift) and Cloudflare Radar (cyber)
+  are the next sources worth adding; not built.
+- **Server**: `commandsAssemble.gatherShared` gathers `getSpectrumSummary`
+  (8 s) and `getChokepointReads` (12 s) beside the rest and keeps the crew
+  summary; `Shared.functional` → `CommandsBody.functional` (null on a
+  stub); `getFunctionalRowsBounded` serves the Ask pack. **UI**
+  `components/osint/FunctionalCommands.tsx` under the geographic section
+  (`CommandBoard.openFc`): a row opens in place; cell doors → `openRoom`
+  (board / field / country) or `app:navigate` (glance / weather /
+  economy); `CrisisMap.domain` turns the row's `FC_MAP_LAYERS` ON (never
+  off). **Ask**: `askResolve` gains `functional` (`FUNCTIONAL_TERMS`:
+  transcom / AMC / mobility enterprise; spacecom / Space Force; cybercom /
+  cyber command) and the pack leads with the named command's rows
+  (`functionalText`). No new npm dep (esbuild `0`).
+
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to
 BMNT (nautical twilight, the OPORD light-data convention), the part of it
