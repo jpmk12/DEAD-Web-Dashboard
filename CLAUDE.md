@@ -1549,6 +1549,33 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   WITHDRAWN); "GS UNMONITORED" and a RAIM prediction are advisory. Tests pin
   all of it (`tests/limfac.test.ts`, `tests/notams.test.ts`,
   `tests/closureWindows.test.ts`).
+  **"Field: CLOSED" is a statement about NOW (2026-10-25, OJAQ read "Field:
+  CLOSED (NOTAM)" all day).** `fieldClosed` was a text match — any "AD
+  CLSD" NOTAM in the active set painted the field closed for its whole
+  validity span, the same mistake the closure timeline fixed for bars: a
+  night-hours or construction-schedule closure is in effect for its D)
+  hours, not for the two months the notice is valid. `fieldClosureState
+  (notams, nowMs)` in `sitrepSignals.ts` (PURE, tested) runs each AD-CLSD
+  NOTAM through `closureWindows` and returns `{ now, next, indeterminate }`:
+  `now` only when a window covers nowMs or the NOTAM carries NO time at all
+  (a standing closure); `next` = the earliest future window as a range
+  label; `indeterminate` when a schedule is present but unreadable (reads
+  LIMITED, never CLOSED, never clear). `groupNotams(notams, nowMs)` →
+  `fieldClosed = closure.now`, `limiting` also true for a scheduled or
+  indeterminate closure, and `SitrepPayload.ops.closure` carries the
+  object (`ops.runwayCount` from OurAirports beside it). Surfaces say
+  "OPEN now — closure scheduled Sun 14:00Z–18:00Z" (summary row, tiles,
+  export, Commander's Read). **Same rule in `deriveMissionImpact`**: a
+  runway / airfield closure window drives capability only while IN EFFECT;
+  a future occurrence inside the 48-h horizon is named on the FMC driver
+  ("runway open — RWY closure scheduled –1400Z") and is never today's PMC
+  (the old `windows.find` took the first bar, so a closure 20 h out read as
+  single-runway ops now). And **the SOLE runway closed is NMC, not
+  "single-runway operations"**: "RWY CLSD" with no designator (`windowLabel`
+  → "RWY", `parseRunwayClosure` → `["ALL"]`, `categorizeNotam` rank 0) or a
+  designated closure where `runwayCount === 1` → Launch & Recovery NMC with
+  a `runway_closed` CCIR for the window — OJAQ's A0467/26 reads NMC 1400–
+  1800Z Sun/Tue/Wed and FMC with the schedule named the rest of the day.
 - **⇩ Export HTML (standalone shareable SITREP)**: `lib/sitrepExport.ts` →
   `renderSitrepHtml(payload, read)` — PURE client-safe string builder
   (tested) that renders the pane's current payload + BLUF into ONE

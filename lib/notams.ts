@@ -82,18 +82,20 @@ const CATEGORY_RULES: { category: NotamCategory; rank: number; re: RegExp }[] = 
 // outage (lib/notamSubject). An explicit "RWY nn CLSD" still wins first.
 export function categorizeNotam(text: string): { category: NotamCategory; rank: number } {
   const t = text.toUpperCase();
-  if (/\bRWY\s+[0-9LRC/]+\s+(?:CLSD|CLOSED)/.test(t)) return { category: "runway", rank: 0 };
+  if (/\bRWY\s+(?:[0-9LRC/]+\s+)?(?:CLSD|CLOSED)\b/.test(t)) return { category: "runway", rank: 0 };
   if (isTaxiwayNotam(t)) return { category: "taxiway", rank: 8 };
   for (const r of CATEGORY_RULES) if (r.re.test(t)) return { category: r.category, rank: r.rank };
   return { category: "other", rank: 11 };
 }
 
 // Runway designators in a closure NOTAM, e.g. "RWY 09/27 CLSD" → ["09/27"].
+// "RWY CLSD" with no designator is THE runway — a single-runway field's only
+// one — and is reported as "ALL" so it is never mistaken for no closure.
 export function parseRunwayClosure(text: string): string[] {
   const out: string[] = [];
-  const re = /\bRWY\s+([0-9LRC/]+)\s+(?:CLSD|CLOSED)/gi;
+  const re = /\bRWY\s+(?:([0-9LRC/]+)\s+)?(?:CLSD|CLOSED)\b/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) out.push(m[1]);
+  while ((m = re.exec(text))) out.push(m[1] ?? "ALL");
   return out;
 }
 

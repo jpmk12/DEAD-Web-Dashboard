@@ -27,6 +27,31 @@ describe("groupNotams", () => {
     expect(limiting).toBe(true);
   });
 
+  it("an AD CLSD NOTAM closes the field only while its window is IN EFFECT", () => {
+    const NOON = Date.UTC(2026, 9, 25, 12, 0);        // Sunday 12:00Z
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const span = { start: iso(NOON - 10 * 86_400_000), end: iso(NOON + 20 * 86_400_000) };
+    // Night-hours closure: valid for a month, in effect 2100–0400 daily.
+    const night = [{ category: "other", rank: 1, text: "AD CLSD DAILY 2100-0400 DUE TO WIP", ...span }];
+    const day = groupNotams(night, NOON);
+    expect(day.fieldClosed).toBe(false);
+    expect(day.limiting).toBe(true);                  // scheduled → LIMITED, never clear
+    expect(day.closure.next).toMatch(/^21:00Z–/);
+    const late = groupNotams(night, Date.UTC(2026, 9, 25, 22, 30));
+    expect(late.fieldClosed).toBe(true);
+    // A plain span (no schedule): closed inside it, scheduled before it.
+    const soon = [{ category: "other", rank: 1, text: "AD CLSD FOR RUNWAY WORK", start: iso(NOON + 3 * 3600_000), end: iso(NOON + 6 * 3600_000) }];
+    expect(groupNotams(soon, NOON).fieldClosed).toBe(false);
+    expect(groupNotams(soon, NOON).closure.next).toBe("15:00Z–18:00Z");
+    expect(groupNotams(soon, NOON + 4 * 3600_000).fieldClosed).toBe(true);
+    // A schedule the parser cannot read: not closed, not clear — indeterminate.
+    const odd = [{ category: "other", rank: 1, text: "AD CLSD MON-FRI H24 EXC EMERG", ...span }];
+    const o = groupNotams(odd, NOON);
+    expect(o.fieldClosed).toBe(false);
+    expect(o.closure.indeterminate).toBe(true);
+    expect(o.limiting).toBe(true);
+  });
+
   it("a taxiway lettered AD is a taxiway, not the aerodrome", () => {
     const { fieldClosed, limiting } = groupNotams([{ category: "taxiway", rank: 8, text: "TWY AD CLSD BTN TWY A AND RWY 06" }]);
     expect(fieldClosed).toBe(false);

@@ -486,7 +486,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
           {show("sitrep") && <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
             {([
               ["Weather", payload.status.wx, payload.weather.now ? `${payload.weather.now.flightCategory} now${payload.weather.tafWorst && payload.weather.tafWorst.worst !== payload.weather.now.flightCategory ? ` → ${payload.weather.tafWorst.worst} fcst` : ""}` : "no METAR"],
-              ["Ops / Airfield", payload.status.ops, payload.ops.fieldClosed ? "FIELD CLOSED (NOTAM)" : payload.ops.limiting ? "limiting NOTAM active" : payload.ops.configured && payload.ops.live ? `${payload.ops.notamCount} NOTAMs, none limiting` : "DAIP unavailable — UNKNOWN"],
+              ["Ops / Airfield", payload.status.ops, payload.ops.fieldClosed ? "FIELD CLOSED (NOTAM)" : payload.ops.closure?.next ? `open now · closure scheduled ${payload.ops.closure.next}` : payload.ops.closure?.indeterminate ? "closure NOTAM — schedule not parsed" : payload.ops.limiting ? "limiting NOTAM active" : payload.ops.configured && payload.ops.live ? `${payload.ops.notamCount} NOTAMs, none limiting` : "DAIP unavailable — UNKNOWN"],
               ["Threat", payload.status.threat, payload.threats.fp ? payload.threats.fp.topDriver : "assessment unavailable"],
               ["Infrastructure", payload.status.infra, infraSummary(payload)],
               ["Spectrum", payload.status.spectrum ?? "u", spectrumShort(payload.spectrum)],
@@ -623,6 +623,8 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
             {show("ops") && <SectionCard led={payload.status.ops} title="Ops Summary" sources="DAIP NOTAMs · OurAirports">
               <Row sev={payload.ops.fieldClosed ? "r" : payload.ops.limiting ? "a" : payload.ops.configured && payload.ops.live ? "g" : "u"} src="DAIP·OA">
                 <b>Field: {payload.ops.fieldClosed ? "CLOSED (NOTAM)" : payload.ops.limiting ? "LIMITED" : payload.ops.configured && payload.ops.live ? "OPEN" : "UNKNOWN"}</b>
+                {!payload.ops.fieldClosed && payload.ops.closure?.next && <span className="text-amber-300"> · open now — closure scheduled {payload.ops.closure.next}</span>}
+                {!payload.ops.fieldClosed && payload.ops.closure?.indeterminate && <span className="text-amber-300"> · AD closure NOTAM with a schedule the board could not read — see the NOTAM</span>}
                 {payload.ops.capability && <span className="text-slate-400"> · longest open rwy {payload.ops.capability.lengthFt.toLocaleString()} ft {payload.ops.capability.surface} · {payload.ops.capability.cls} capable</span>}
                 {!payload.ops.configured && <span className="text-slate-500"> — DAIP CA not configured; NOTAM picture unavailable</span>}
                 {payload.ops.configured && !payload.ops.live && <span className="text-slate-500"> — DAIP unreachable this cycle</span>}

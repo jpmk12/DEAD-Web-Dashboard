@@ -104,16 +104,66 @@ describe("deriveMissionImpact — capability", () => {
     expect(m.state).toBe("pmc");
   });
 
-  it("taxiway closure → Throughput PMC; runway closure → single-runway CCIR", () => {
+  it("taxiway closure → Throughput PMC; a runway closure IN EFFECT at a multi-runway field → single-runway CCIR", () => {
     const p = payload();
+    p.ops.runwayCount = 2;
     p.ops.groups = [group("runway", "Runway / surface", [
       notam("taxiway", "TWY A CLSD BTN TWY B AND APRON 1", true, NOW - H, NOW + 2 * H),
-      notam("runway", "RWY 06/24 CLSD", true, NOW + 1 * H, NOW + 8 * H),
+      notam("runway", "RWY 06/24 CLSD", true, NOW - 1 * H, NOW + 8 * H),
     ])];
     const m = deriveMissionImpact(p);
     expect(m.functions.find((f) => f.key === "throughput")!.capability).toBe("pmc");
     expect(m.functions.find((f) => f.key === "launch_recovery")!.capability).toBe("pmc");
     expect(m.ccir.some((c) => c.key === "single_runway")).toBe(true);
+  });
+
+  it("a runway closure LATER in the horizon is FMC now, named on the driver — never today's capability", () => {
+    const p = payload();
+    p.ops.runwayCount = 2;
+    p.ops.groups = [group("runway", "Runway / surface", [notam("runway", "RWY 06/24 CLSD", true, NOW + 1 * H, NOW + 8 * H)])];
+    const m = deriveMissionImpact(p);
+    const lr = m.functions.find((f) => f.key === "launch_recovery")!;
+    expect(lr.capability).toBe("fmc");
+    expect(lr.driver).toContain("closure scheduled");
+    expect(m.ccir).toHaveLength(0);
+    expect(m.state).toBe("fmc");
+  });
+
+  it("the SOLE runway closed for its window → Launch/Recovery NMC + CCIR; outside the window FMC with the schedule named", () => {
+    // OJAQ's A0467/26: one runway, closed SUN TUE WED 1400-1800 / MON 1400-1700.
+    const REAL = "A0467/26 RWY CLSD DUE TO CONST WORK EXC EMERG AND SPECIAL FLT. SUN TUE WED 1400 - 1800, MON 1400 - 1700, 20 SEP 14:00 2026 UNTIL 18 NOV 18:00 2026.";
+    const SUN_1500 = Date.UTC(2026, 9, 25, 15, 0);
+    const SUN_0900 = Date.UTC(2026, 9, 25, 9, 0);
+    const mk = (nowMs: number) => {
+      const p = payload({ generatedAt: iso(nowMs) });
+      p.ops.runwayCount = 1;
+      p.ops.groups = [group("runway", "Runway / surface", [{
+        category: "runway", rank: 0, text: REAL, amber: true, runwaysClosed: ["ALL"],
+        start: iso(Date.UTC(2026, 8, 20, 14, 0)), end: iso(Date.UTC(2026, 10, 18, 18, 0)),
+      } as ReturnType<typeof notam>])];
+      return deriveMissionImpact(p);
+    };
+    const inWindow = mk(SUN_1500);
+    expect(inWindow.functions.find((f) => f.key === "launch_recovery")!.capability).toBe("nmc");
+    expect(inWindow.ccir.some((c) => c.key === "runway_closed")).toBe(true);
+    expect(inWindow.state).toBe("nmc");
+    const morning = mk(SUN_0900);
+    const lr = morning.functions.find((f) => f.key === "launch_recovery")!;
+    expect(lr.capability).toBe("fmc");
+    expect(lr.driver).toContain("RWY closure scheduled");
+    expect(morning.ccir).toHaveLength(0);
+  });
+
+  it("the airfield closed NOW is NMC; a field closure scheduled later is FMC with the window named", () => {
+    const p = payload();
+    p.ops.closure = { now: false, next: "Mon 21:00Z–04:00Z", indeterminate: false };
+    const m = deriveMissionImpact(p);
+    const lr = m.functions.find((f) => f.key === "launch_recovery")!;
+    expect(lr.capability).toBe("fmc");
+    expect(lr.driver).toContain("airfield closure scheduled Mon 21:00Z–04:00Z");
+    const q = payload();
+    q.ops.closure = { now: false, next: null, indeterminate: true };
+    expect(deriveMissionImpact(q).functions.find((f) => f.key === "launch_recovery")!.capability).toBe("pmc");
   });
 
   it("a closed taxiway is PMC (throughput) and never NMC — even when it names a runway and an ILS and the TAF is IFR", () => {

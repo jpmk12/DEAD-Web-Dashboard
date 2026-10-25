@@ -44,23 +44,69 @@ const GROUP_LABELS: Record<NotamGroupKey, string> = {
 
 const FUEL_UNAVBL_RE = /FUEL\s+(NOT\s+|UN)AVBL/i;
 
+/**
+ * Is the AIRFIELD closed — now, later, or on a schedule the app could not
+ * read? An "AD CLSD" NOTAM is a notice whose B)/C) times bound how long the
+ * NOTICE is valid; a D) schedule ("DAILY 2100-0400", "SUN TUE WED 1400-1800")
+ * says when the closure is IN EFFECT. Reading the text alone painted the
+ * field CLOSED for the whole validity span — a night-hours closure or a
+ * construction schedule read as a shut airfield all day, which is the
+ * "colour is earned" rule broken in the direction that teaches the
+ * commander to stop believing the board. Same rule as `closureWindows`.
+ * - `now`: a closure window covers nowMs, or the NOTAM carries NO time at
+ *   all (a standing closure — nothing says when it ends).
+ * - `next`: the earliest FUTURE window inside the horizon, as a range label,
+ *   when the field is not closed now.
+ * - `indeterminate`: a schedule is present but unreadable — an extent the
+ *   app cannot claim either way (reads LIMITED, never CLOSED, never clear).
+ */
+export interface FieldClosure {
+  now: boolean;
+  next: string | null;
+  indeterminate: boolean;
+}
+
+export function fieldClosureState(notams: SitrepNotam[], nowMs: number, horizonH = 48): FieldClosure {
+  let now = false;
+  let indeterminate = false;
+  let next: ClosureWindow | null = null;
+  for (const n of notams) {
+    if (!AD_CLSD_RE.test(n.text)) continue;
+    const hasStart = Boolean(n.start && Number.isFinite(Date.parse(n.start)));
+    const hasEnd = Boolean(n.end && Number.isFinite(Date.parse(n.end)));
+    if (!hasStart && !hasEnd) { now = true; continue; }          // standing closure, no window given
+    const endMs = hasEnd ? Date.parse(n.end!) : NaN;
+    if (hasEnd && endMs <= nowMs) continue;                      // expired — not a closure
+    for (const w of closureWindows([n], nowMs, horizonH)) {
+      if (w.kind !== "closure") continue;
+      if (w.indeterminate) { indeterminate = true; continue; }
+      // closureWindows clips a window already in effect to start AT nowMs.
+      if (w.fromMs <= nowMs && w.toMs > nowMs) now = true;
+      else if (w.fromMs > nowMs && (!next || w.fromMs < next.fromMs)) next = w;
+    }
+  }
+  return { now, next: now || !next ? null : windowRangeLabel(next, nowMs), indeterminate };
+}
+
 // Group NOTAMs into the SITREP display buckets, items ranked most-significant
 // first, empty groups omitted. `amber` marks the operationally limiting ones
-// (runway closures, aerodrome closed, fuel unavailable).
-export function groupNotams(notams: SitrepNotam[]): { groups: NotamGroup[]; limiting: boolean; fieldClosed: boolean } {
+// (runway closures, aerodrome closed, fuel unavailable). `fieldClosed` is
+// the airfield closed NOW (`fieldClosureState`); a closure scheduled later
+// or with an unreadable extent is `limiting`, never `fieldClosed`.
+export function groupNotams(notams: SitrepNotam[], nowMs: number = Date.now()): { groups: NotamGroup[]; limiting: boolean; fieldClosed: boolean; closure: FieldClosure } {
   const buckets = new Map<NotamGroupKey, NotamGroup["items"]>();
   let limiting = false;
-  let fieldClosed = false;
   for (const n of notams) {
     const key = GROUP_OF[n.category] ?? "other";
     const adClosed = AD_CLSD_RE.test(n.text);
     const amber = (n.runwaysClosed?.length ?? 0) > 0 || adClosed || FUEL_UNAVBL_RE.test(n.text);
     if (amber && key === "runway") limiting = true;
-    if (adClosed) { fieldClosed = true; limiting = true; }
+    if (adClosed) limiting = true;
     const arr = buckets.get(key) ?? [];
     arr.push({ ...n, amber });
     buckets.set(key, arr);
   }
+  const closure = fieldClosureState(notams, nowMs);
   const order: NotamGroupKey[] = ["runway", "navaid", "hours", "airspace", "bird", "other"];
   const groups = order
     .filter((k) => buckets.has(k))
@@ -69,7 +115,7 @@ export function groupNotams(notams: SitrepNotam[]): { groups: NotamGroup[]; limi
       label: GROUP_LABELS[k],
       items: buckets.get(k)!.sort((a, b) => Number(b.amber) - Number(a.amber) || a.rank - b.rank),
     }));
-  return { groups, limiting, fieldClosed };
+  return { groups, limiting, fieldClosed: closure.now, closure };
 }
 
 // ─── Impact-filtered local news ──────────────────────────────────────────────
@@ -357,6 +403,8 @@ export function windowLabel(text: string, category: string): string {
   if (subject === "apron") return "Ramp / apron";
   if (navaid) return rwy ? `${navaid[1]} RWY ${rwy[1]}` : navaid[1];
   if (rwy) return `RWY ${rwy[1]}`;
+  // "RWY CLSD" with no designator — THE runway (a single-runway field).
+  if (subject === "runway") return "RWY";
   if (twy) return `TWY ${twy[1]}`;
   if (/\bFUEL\b/.test(up)) return "Fuel";
   if (/\bAPRON|RAMP\b/.test(up)) return "Ramp / apron";

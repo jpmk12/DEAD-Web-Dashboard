@@ -38,7 +38,7 @@ import { kevHits } from "./cyberSignals";
 import { edgeExposureLed } from "./spectrumRules";
 import { spectrumLed, spectrumShort } from "./sitrepSignals";
 import { recordSensorDay, getSensorSeries, getSensorSeriesMany } from "./sensorStore";
-import { closureWindows } from "./sitrepSignals";
+import { closureWindows, type FieldClosure } from "./sitrepSignals";
 import { baseTempo, type BaseTempo } from "./baseTempo";
 import { functionChronicity, timeToResolve } from "./limfacTrend";
 import { kevCadence, type KevCadence } from "./spectrumTrend";
@@ -112,7 +112,12 @@ export interface SitrepPayload {
     notamCount: number;
     groups: NotamGroup[];
     limiting: boolean;
+    /** The airfield is closed NOW (an AD-CLSD NOTAM in effect at generation). */
     fieldClosed: boolean;
+    /** Airfield closure — now / next scheduled window / unreadable schedule (`fieldClosureState`). */
+    closure: FieldClosure;
+    /** Runways at the field per OurAirports (0 = unknown) — a closure of the only one is NMC, not single-runway ops. */
+    runwayCount: number;
     capability: RunwayCap | null;
     // Enroute/center NOTAM picture for the owning ARTCC (base.artcc), when set.
     center: { code: string; live: boolean; count: number; items: { text: string; amber: boolean }[] } | null;
@@ -183,6 +188,7 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
     : "no METAR";
   const limitingNotam = p.ops.groups.flatMap((g) => g.items).find((n) => n.amber);
   const opsShort = p.ops.fieldClosed ? "FIELD CLOSED (NOTAM)"
+    : p.ops.closure?.next ? `field closure scheduled ${p.ops.closure.next}`
     : p.ops.limiting ? (limitingNotam ? limitingNotam.text.slice(0, 48) : "limiting NOTAM active")
     : (!p.ops.configured || !p.ops.live) ? "DAIP unreachable — OPS UNKNOWN"
     : `${p.ops.notamCount} NOTAMs, none limiting`;
@@ -207,6 +213,7 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
 
   // Brief sentence: field state, weather trajectory, infra — the day's read.
   const fieldClause = p.ops.fieldClosed ? "Field CLOSED by NOTAM"
+    : p.ops.closure?.next ? `Field open now, closure scheduled ${p.ops.closure.next}`
     : p.ops.limiting ? `Field open with a limiting NOTAM${limitingNotam ? ` — ${limitingNotam.text.slice(0, 60)}` : ""}`
     : p.ops.configured && p.ops.live ? `Field open, ${p.ops.notamCount} NOTAMs (none limiting)`
     : "Airfield status UNKNOWN (DAIP unreachable)";
@@ -397,7 +404,7 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
 
   // Ops: only NOTAMs that are active or upcoming — expired ones are noise.
   const baseNotams = (notams.byIcao[icao] ?? []).filter((n) => notamTimeState(n, now) !== "expired");
-  const { groups, limiting, fieldClosed } = groupNotams(baseNotams);
+  const { groups, limiting, fieldClosed, closure } = groupNotams(baseNotams, now);
 
   const assessment = fpResult?.assessments?.[0] ?? null;
   const fp = assessment
@@ -472,6 +479,8 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       groups,
       limiting,
       fieldClosed,
+      closure,
+      runwayCount: new Set(runways.map((r) => r.pair)).size,
       capability: caps[icao] ?? null,
       center,
       runwayWinds: runwayWinds(runways, obs?.windDir ?? null, Boolean(obs?.windVariable), obs?.windSpeedKt ?? nowWx?.windKt ?? null, obs?.windGustKt ?? nowWx?.gustKt ?? null),

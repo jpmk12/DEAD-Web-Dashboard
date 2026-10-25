@@ -93,6 +93,8 @@ describe("windowLabel", () => {
     expect(windowLabel("TWY A CLSD BTN TWY B AND RWY 06/24", "taxiway")).toBe("TWY A");
     expect(windowLabel("TWY A CLSD BTN TWY B AND ILS HOLD LINE RWY 24", "taxiway")).toBe("TWY A");
     expect(windowLabel("TAXIWAY CHARLIE CLSD APPROACH END RWY 06", "taxiway")).toBe("Taxiway");
+    // "RWY CLSD" with no designator is the runway, not a text snippet.
+    expect(windowLabel("RWY CLSD DUE TO CONST WORK EXC EMERG", "runway")).toBe("RWY");
     // A taxiway lettered AD is not the aerodrome.
     expect(windowLabel("TWY AD CLSD", "taxiway")).toBe("TWY AD");
     expect(windowLabel("AD CLSD EXC EMERG", "services")).toBe("Airfield");

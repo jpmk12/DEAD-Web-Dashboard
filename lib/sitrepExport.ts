@@ -79,6 +79,7 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
     ? `${p.weather.now.flightCategory}${p.weather.tafWorst && p.weather.tafWorst.worst !== p.weather.now.flightCategory ? ` → ${p.weather.tafWorst.worst} fcst` : ""}`
     : "no METAR";
   const opsText = p.ops.fieldClosed ? "FIELD CLOSED (NOTAM)"
+    : p.ops.closure?.next ? `open now — closure scheduled ${p.ops.closure.next}`
     : p.ops.limiting ? "limiting NOTAM active"
     : p.ops.configured && p.ops.live ? `${p.ops.notamCount} NOTAMs, none limiting`
     : "DAIP unavailable — UNKNOWN";
@@ -137,7 +138,7 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
     opsRows.push(row("u", "<b>DAIP NOTAM feed unreachable</b> — airfield status UNKNOWN, not clear", "DAIP"));
   } else {
     opsRows.push(row(p.ops.fieldClosed ? "r" : p.ops.limiting ? "a" : "g",
-      `<b>Field ${p.ops.fieldClosed ? "CLOSED (NOTAM)" : p.ops.limiting ? "OPEN — limiting NOTAM active" : "OPEN"}</b> · ${p.ops.notamCount} active NOTAMs${p.ops.capability ? ` · longest runway ${p.ops.capability.lengthFt.toLocaleString()} ft ${esc(p.ops.capability.surface)} (${esc(p.ops.capability.cls)})` : ""}`,
+      `<b>Field ${p.ops.fieldClosed ? "CLOSED (NOTAM)" : p.ops.closure?.next ? `OPEN now — closure scheduled ${esc(p.ops.closure.next)}` : p.ops.closure?.indeterminate ? "OPEN? — AD closure NOTAM, schedule not parsed" : p.ops.limiting ? "OPEN — limiting NOTAM active" : "OPEN"}</b> · ${p.ops.notamCount} active NOTAMs${p.ops.capability ? ` · longest runway ${p.ops.capability.lengthFt.toLocaleString()} ft ${esc(p.ops.capability.surface)} (${esc(p.ops.capability.cls)})` : ""}`,
       "DAIP"));
   }
   for (const g of p.ops.groups) {

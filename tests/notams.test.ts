@@ -37,6 +37,10 @@ describe("parseRunwayClosure", () => {
   it("none → []", () => {
     expect(parseRunwayClosure("TWY A CLSD")).toEqual([]);
   });
+  it("'RWY CLSD' with no designator is THE runway — reported as ALL, ranked as a closure", () => {
+    expect(parseRunwayClosure("RWY CLSD DUE TO CONST WORK EXC EMERG AND SPECIAL FLT")).toEqual(["ALL"]);
+    expect(categorizeNotam("RWY CLSD DUE TO CONST WORK")).toEqual({ category: "runway", rank: 0 });
+  });
 });
 
 describe("parseRaimWindows", () => {

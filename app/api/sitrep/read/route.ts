@@ -88,7 +88,7 @@ export async function POST(req: Request) {
   for (const a of w.alerts) lines.push(`WX ALERT: [${a.severity}${a.lifeThreatening ? "/LIFE-THREAT" : ""}] ${a.event} — ${a.headline.slice(0, 140)}`);
   for (const d of w.outlook) lines.push(`OUTLOOK ${d.date}: ${d.hiF ?? "?"}/${d.loF ?? "?"}F, precip ${d.precipPct ?? "?"}%, wind ${d.windMph ?? "?"}mph`);
   const o = s.ops;
-  lines.push(`AIRFIELD: ${o.fieldClosed ? "CLOSED (NOTAM)" : o.limiting ? "LIMITED" : o.configured && o.live ? "OPEN" : "STATUS UNKNOWN"} · ${o.notamCount} active NOTAMs${o.capability ? ` · longest rwy ${o.capability.lengthFt}ft ${o.capability.surface} (${o.capability.cls})` : ""}`);
+  lines.push(`AIRFIELD: ${o.fieldClosed ? "CLOSED NOW (NOTAM)" : o.closure?.next ? `OPEN NOW — closure scheduled ${o.closure.next}` : o.closure?.indeterminate ? "OPEN? — AD closure NOTAM with an unparsed schedule" : o.limiting ? "LIMITED" : o.configured && o.live ? "OPEN" : "STATUS UNKNOWN"} · ${o.notamCount} active NOTAMs${o.capability ? ` · longest rwy ${o.capability.lengthFt}ft ${o.capability.surface} (${o.capability.cls})` : ""}`);
   for (const g of o.groups) for (const n of g.items.slice(0, 3)) lines.push(`NOTAM [${g.label}${n.amber ? "/LIMITING" : ""}]: ${n.text.slice(0, 160)}`);
   const xw = o.runwayWinds.filter((r) => r.flag !== "g");
   if (xw.length > 0) lines.push(`CROSSWIND (advisory): ${xw.map((r) => `RWY ${r.ident} cross ${r.crossKt}kt${r.gustCrossKt ? ` gust ${r.gustCrossKt}` : ""}`).join("; ")}`);

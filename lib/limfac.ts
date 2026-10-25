@@ -161,20 +161,43 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
 
   // 1. Launch & Recovery ─────────────────────────────────────────────────────
   {
-    const rwyClose = windows.find((w) => /^RWY|^Airfield/.test(w.label) && w.kind === "closure" && !isSurfaceOnly(w.text));
+    // Runway / airfield closure windows (a scheduled NOTAM yields one per
+    // occurrence). A window IN EFFECT at nowMs drives capability; the next
+    // future one is named on the driver, never painted as the state now — a
+    // closure at 1400Z is not single-runway ops at 0900Z. An unreadable
+    // schedule is excluded (an extent the app cannot claim).
+    const rwyWindows = windows.filter((w) => /^RWY|^Airfield/.test(w.label) && w.kind === "closure" && !w.indeterminate && !isSurfaceOnly(w.text));
+    const rwyClose = rwyWindows.find((w) => w.fromMs <= nowMs && w.toMs > nowMs) ?? null;
+    const rwyNext = rwyClose ? null : rwyWindows.filter((w) => w.fromMs > nowMs).sort((a, b) => a.fromMs - b.fromMs)[0] ?? null;
+    // "RWY CLSD" with no designator is THE runway; so is a designated one at a
+    // field OurAirports says has exactly one. Either way nothing can launch or
+    // recover for the window — that is NMC, not "single-runway operations".
+    const soleRunway = Boolean(rwyClose && !/^Airfield/.test(rwyClose.label) && (rwyClose.label === "RWY" || p.ops.runwayCount === 1));
     const xwRed = p.ops.runwayWinds.find((r) => r.flag === "r");
     const lifr = p.weather.now?.flightCategory === "LIFR";
+    const closure = p.ops.closure ?? { now: p.ops.fieldClosed, next: null, indeterminate: false };
     if (!daipUp) {
       addFn("launch_recovery", "unknown", "DAIP unreachable — runway/airfield status UNKNOWN", null, []);
     } else if (p.ops.fieldClosed) {
-      const id = push({ fn: "launch_recovery", capability: "nmc", window: windowFromClose(windows, nowMs), driver: "Airfield closed (NOTAM)", impact: "Airfield cannot support launch or recovery.", status: "new", ccir: true });
-      addFn("launch_recovery", "nmc", "Airfield closed (NOTAM)", windowFromClose(windows, nowMs), [id]);
-      ccir.push({ key: "field_closed", text: "Airfield closed (NOTAM)" });
+      const win = windowFromClose(windows, nowMs);
+      const id = push({ fn: "launch_recovery", capability: "nmc", window: win, driver: "Airfield closed (NOTAM)", impact: "Airfield cannot support launch or recovery.", status: "new", ccir: true });
+      addFn("launch_recovery", "nmc", `Airfield closed (NOTAM)${win ? ` ${win}` : ""}`, win, [id]);
+      ccir.push({ key: "field_closed", text: `Airfield closed (NOTAM)${win ? ` ${win}` : ""}` });
+    } else if (rwyClose && soleRunway) {
+      const win = windowLabelFor(rwyClose, nowMs);
+      const id = push({ fn: "launch_recovery", capability: "nmc", window: win, driver: `Sole runway closed (NOTAM${rwyClose.recurring ? ", scheduled" : ""})`, impact: "The only runway is closed for this window; no launch or recovery except as the NOTAM permits.", mitigation: "Plan arrivals/departures outside the window; confirm the EXC EMERG / special-flight clause with tower.", status: "new", ccir: true });
+      addFn("launch_recovery", "nmc", `Sole runway closed ${win}`, win, [id]);
+      ccir.push({ key: "runway_closed", text: `Sole runway closed (NOTAM) ${win}` });
     } else if (rwyClose) {
       const win = windowLabelFor(rwyClose, nowMs);
       const id = push({ fn: "launch_recovery", capability: "pmc", window: win, driver: `Runway closure (${rwyClose.label})`, impact: "Single-runway operations; reduced surge capacity, no simultaneous ops.", mitigation: "Slot deconfliction with tower; brief crews on active-runway change." });
       addFn("launch_recovery", "pmc", `Single-runway ops — ${rwyClose.label} closed`, win, [id]);
       ccir.push({ key: "single_runway", text: `Single-runway operations (${rwyClose.label} closed ${win})` });
+    } else if (closure.indeterminate) {
+      // A closure NOTAM whose schedule the app could not read: not CLOSED (a
+      // guess), not FMC (a dead certainty it lacks) — PMC with the NOTAM named.
+      const id = push({ fn: "launch_recovery", capability: "pmc", window: null, driver: "Airfield closure NOTAM — schedule not parsed", impact: "An AD CLSD NOTAM carries a day/hour schedule the board could not read; the closure extent is UNKNOWN. Read the NOTAM.", mitigation: "Confirm the closure hours with the airfield before planning." });
+      addFn("launch_recovery", "pmc", "AD closure NOTAM — schedule not parsed, see NOTAM", null, [id]);
     } else if (xwRed) {
       const id = push({ fn: "launch_recovery", capability: "pmc", window: null, driver: `Crosswind exceedance RWY ${xwRed.ident} (${xwRed.crossKt}kt${xwRed.gustCrossKt ? `G${xwRed.gustCrossKt}` : ""})`, impact: "Crosswind above advisory threshold; recovery limited to favourable runway ends." });
       addFn("launch_recovery", "pmc", `Crosswind exceedance RWY ${xwRed.ident}`, null, [id]);
@@ -182,7 +205,12 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
       const id = push({ fn: "launch_recovery", capability: "pmc", window: null, driver: "LIFR conditions", impact: "Ceiling/visibility at LIFR; launch/recovery restricted to lowest-minima aircraft/crews." });
       addFn("launch_recovery", "pmc", "LIFR conditions", null, [id]);
     } else {
-      addFn("launch_recovery", "fmc", `${p.weather.now?.flightCategory ?? "VFR"}; runway open`, null, []);
+      // Open now. A closure later in the horizon is said, with its window —
+      // the capability is FMC until it starts.
+      const sched = closure.next ? `airfield closure scheduled ${closure.next}`
+        : rwyNext ? `${rwyNext.label} closure scheduled ${windowLabelFor(rwyNext, nowMs)}`
+        : null;
+      addFn("launch_recovery", "fmc", `${p.weather.now?.flightCategory ?? "VFR"}; runway open${sched ? ` — ${sched}` : ""}`, rwyNext ? windowLabelFor(rwyNext, nowMs) : closure.next, []);
     }
   }
 
@@ -335,9 +363,11 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
   return { state, functions: funcs, limfacs, ccir };
 }
 
-// Helper: earliest airfield/runway closure window label (for the closed case).
+// Helper: the airfield closure window IN EFFECT now (for the closed case) —
+// a future occurrence is not the window the field is closed for right now.
 function windowFromClose(windows: ClosureWindow[], nowMs: number): string | null {
-  const w = windows.find((x) => /^Airfield|^RWY/.test(x.label) && x.kind === "closure");
+  const w = windows.find((x) => /^Airfield/.test(x.label) && x.kind === "closure" && !x.indeterminate && x.fromMs <= nowMs && x.toMs > nowMs)
+    ?? windows.find((x) => /^Airfield/.test(x.label) && x.kind === "closure" && !x.indeterminate);
   return w ? windowLabelFor(w, nowMs) : null;
 }
 
