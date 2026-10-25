@@ -1529,6 +1529,26 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   is flagged `indeterminate`, renders as a dashed "SCHED — see NOTAM" outline
   in BOTH the pane and the HTML export, and is excluded from
   `windowConflicts` — an unknown extent cannot assert a weather overlap.
+  **A NOTAM is about the asset it names FIRST (2026-10-25, "a closed taxiway
+  should not make the airfield NMC — the runway is the primary driver").**
+  `lib/notamSubject.ts` (PURE, dependency-free, imported by BOTH the
+  server-only categoriser and the client-safe signals, which must not import
+  each other): `notamSubject(text)` = airfield (`AD_CLSD_RE`, which refuses a
+  taxiway lettered AD) › the earliest of RWY / TWY / NAVAID / APRON tokens.
+  ICAO item E) leads with the subject; the runways, aids and hold lines that
+  follow PLACE the closed segment. Keyword-first matching read "TWY A CLSD BTN
+  TWY B AND ILS HOLD LINE RWY 24" as an APPROACH NOTAM labelled "ILS RWY 24",
+  and under forecast IFR `deriveMissionImpact` derived NMC "no usable
+  precision approach" from a shut taxiway. Now `categorizeNotam` files a
+  taxiway-subject text as `taxiway` (after the explicit "RWY nn CLSD" rank-0
+  rule, which still wins), `windowLabel` labels it "TWY A", and in
+  `limfac.ts` a taxiway / apron text can never be the `rwyClose` or a NAVAID
+  outage — a closed taxiway caps THROUGHPUT at PMC and touches no other
+  function. Also tightened: a NAVAID-group item counts as an outage only when
+  it says so (`OUTAGE_RE` — U/S, OTS, INOP, CLSD, NOT AUTH, NA, UNUSABLE,
+  WITHDRAWN); "GS UNMONITORED" and a RAIM prediction are advisory. Tests pin
+  all of it (`tests/limfac.test.ts`, `tests/notams.test.ts`,
+  `tests/closureWindows.test.ts`).
 - **⇩ Export HTML (standalone shareable SITREP)**: `lib/sitrepExport.ts` →
   `renderSitrepHtml(payload, read)` — PURE client-safe string builder
   (tested) that renders the pane's current payload + BLUF into ONE

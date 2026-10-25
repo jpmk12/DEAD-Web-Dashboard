@@ -27,6 +27,12 @@ describe("groupNotams", () => {
     expect(limiting).toBe(true);
   });
 
+  it("a taxiway lettered AD is a taxiway, not the aerodrome", () => {
+    const { fieldClosed, limiting } = groupNotams([{ category: "taxiway", rank: 8, text: "TWY AD CLSD BTN TWY A AND RWY 06" }]);
+    expect(fieldClosed).toBe(false);
+    expect(limiting).toBe(false);
+  });
+
   it("no notams → no groups, not limiting", () => {
     const r = groupNotams([]);
     expect(r.groups).toEqual([]);

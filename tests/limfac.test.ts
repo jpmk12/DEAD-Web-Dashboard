@@ -115,6 +115,48 @@ describe("deriveMissionImpact — capability", () => {
     expect(m.functions.find((f) => f.key === "launch_recovery")!.capability).toBe("pmc");
     expect(m.ccir.some((c) => c.key === "single_runway")).toBe(true);
   });
+
+  it("a closed taxiway is PMC (throughput) and never NMC — even when it names a runway and an ILS and the TAF is IFR", () => {
+    const p = payload();
+    p.weather.tafWorst = { worst: "IFR", fromISO: iso(NOW + 3 * H) } as SitrepPayload["weather"]["tafWorst"];
+    // The categoriser used to file this under approach (the ILS token) and the
+    // label used to read "ILS RWY 24"; under forecast IFR the airfield derived
+    // NMC "no usable precision approach" from a shut taxiway.
+    p.ops.groups = [group("navaid", "NAVAID / approach", [
+      notam("approach", "TWY A CLSD BTN TWY B AND ILS HOLD LINE RWY 24", false, NOW - H, NOW + 10 * H),
+    ])];
+    const m = deriveMissionImpact(p);
+    expect(m.functions.find((f) => f.key === "throughput")!.capability).toBe("pmc");
+    expect(m.functions.find((f) => f.key === "launch_recovery")!.capability).toBe("fmc");
+    expect(m.functions.find((f) => f.key === "all_weather_night")!.capability).toBe("fmc");
+    expect(m.ccir).toHaveLength(0);
+    expect(m.state).toBe("pmc");
+    const lf = m.limfacs.find((l) => l.fn === "throughput")!;
+    expect(lf.driver).toBe("TWY A closed");
+  });
+
+  it("a taxiway closure placed by a runway does not read as a runway closure", () => {
+    const p = payload();
+    p.ops.groups = [group("runway", "Runway / surface", [
+      notam("runway", "TWY A CLSD BTN TWY B AND RWY 06/24", false, NOW - H, NOW + 4 * H),
+    ])];
+    const m = deriveMissionImpact(p);
+    expect(m.functions.find((f) => f.key === "launch_recovery")!.capability).toBe("fmc");
+    expect(m.ccir.some((c) => c.key === "single_runway")).toBe(false);
+    expect(m.functions.find((f) => f.key === "throughput")!.capability).toBe("pmc");
+  });
+
+  it("an advisory NAVAID NOTAM (unmonitored / RAIM prediction) is not an outage — no NMC under IFR", () => {
+    const p = payload();
+    p.weather.tafWorst = { worst: "IFR", fromISO: iso(NOW + 3 * H) } as SitrepPayload["weather"]["tafWorst"];
+    p.ops.groups = [group("navaid", "NAVAID / approach", [
+      notam("approach", "ILS RWY 24 GS UNMONITORED", false),
+      notam("gps_raim", "GPS RAIM OUTAGE PREDICTED 1200-1400", false),
+    ])];
+    const m = deriveMissionImpact(p);
+    expect(m.functions.find((f) => f.key === "all_weather_night")!.capability).toBe("fmc");
+    expect(m.state).toBe("fmc");
+  });
 });
 
 describe("deriveMissionImpact — UNKNOWN discipline", () => {

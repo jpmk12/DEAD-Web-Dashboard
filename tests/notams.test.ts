@@ -19,6 +19,14 @@ describe("categorizeNotam", () => {
   it("unrecognized → other", () => {
     expect(categorizeNotam("ROUTINE ADMIN MESSAGE").category).toBe("other");
   });
+  it("a taxiway closure that names a runway or an ILS to place the segment is a TAXIWAY NOTAM", () => {
+    expect(categorizeNotam("TWY A CLSD BTN RWY 06/24 AND TWY B").category).toBe("taxiway");
+    expect(categorizeNotam("TWY B CLSD BTN TWY A AND ILS HOLD LINE RWY 24").category).toBe("taxiway");
+    expect(categorizeNotam("TAXIWAY C CLSD APPROACH END RWY 06").category).toBe("taxiway");
+    // The runway is still the subject when it is named first; an explicit closure keeps rank 0.
+    expect(categorizeNotam("RWY 06/24 CLSD EXC TWY A CROSSING")).toEqual({ category: "runway", rank: 0 });
+    expect(categorizeNotam("ILS RWY 24 U/S DUE TWY A WORK").category).toBe("approach");
+  });
 });
 
 describe("parseRunwayClosure", () => {

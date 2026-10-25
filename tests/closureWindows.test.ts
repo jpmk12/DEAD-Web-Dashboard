@@ -89,6 +89,18 @@ describe("windowLabel", () => {
     expect(windowLabel("VOR U/S", "navaid")).toBe("VOR");
   });
 
+  it("the asset is the SUBJECT — a taxiway closure placed by a runway or an ILS is still the taxiway", () => {
+    expect(windowLabel("TWY A CLSD BTN TWY B AND RWY 06/24", "taxiway")).toBe("TWY A");
+    expect(windowLabel("TWY A CLSD BTN TWY B AND ILS HOLD LINE RWY 24", "taxiway")).toBe("TWY A");
+    expect(windowLabel("TAXIWAY CHARLIE CLSD APPROACH END RWY 06", "taxiway")).toBe("Taxiway");
+    // A taxiway lettered AD is not the aerodrome.
+    expect(windowLabel("TWY AD CLSD", "taxiway")).toBe("TWY AD");
+    expect(windowLabel("AD CLSD EXC EMERG", "services")).toBe("Airfield");
+    // Named first, the runway and the aid keep their labels.
+    expect(windowLabel("RWY 06/24 CLSD EXC TWY A CROSSING", "runway")).toBe("RWY 06/24");
+    expect(windowLabel("ILS RWY 24 U/S DUE TWY A WORK", "approach")).toBe("ILS RWY 24");
+  });
+
   it("labels common non-runway subjects instead of the bucket name", () => {
     expect(windowLabel("GPS RAIM OUTAGE PREDICTED", "other")).toBe("GPS / RAIM");
     expect(windowLabel("OBST CRANE ERECTED 1.2NM SW", "other")).toBe("Obstacle");

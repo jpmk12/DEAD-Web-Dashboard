@@ -12,6 +12,7 @@
 
 import type { SitrepPayload } from "./sitrep";
 import { closureWindows, type ClosureWindow } from "./sitrepSignals";
+import { notamSubject } from "./notamSubject";
 
 export type Capability = "fmc" | "pmc" | "nmc" | "unknown";
 
@@ -126,6 +127,15 @@ function isoWindow(fromISO?: string | null, toISO?: string | null): string | nul
 }
 
 const NAVAID_RE = /\bILS|LOC|VOR|TACAN|RNAV|GLIDESLOPE|\bGS\b|PAPI|VASI|APCH|APPROACH/i;
+// A NAVAID / approach NOTAM is an OUTAGE only when it says so. "ILS RWY 24 GS
+// UNMONITORED" or a RAIM prediction is advisory and must not, under forecast
+// IFR, read as "no usable precision approach".
+const OUTAGE_RE = /\bU\/S\b|\bUNSERVICEABLE\b|\bOTS\b|\bOUT OF SERVICE\b|\bINOP(?:ERATIVE)?\b|\bCLSD\b|\bCLOSED\b|\bNOT\s+AUTH(?:ORIZED)?\b|\bNA\b|\bUNUSABLE\b|\bWITHDRAWN\b|\bSUSPENDED\b/i;
+// The runway is the primary driver of airfield capability. A taxiway or apron
+// closure caps THROUGHPUT at PMC and may never drive launch/recovery or the
+// approach picture, whatever runways and aids its text names to place the
+// closed segment (lib/notamSubject).
+const isSurfaceOnly = (text: string) => { const s = notamSubject(text); return s === "taxiway" || s === "apron"; };
 
 // ── Core derivation ──────────────────────────────────────────────────────────
 
@@ -151,7 +161,7 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
 
   // 1. Launch & Recovery ─────────────────────────────────────────────────────
   {
-    const rwyClose = windows.find((w) => /^RWY|^Airfield/.test(w.label) && w.kind === "closure");
+    const rwyClose = windows.find((w) => /^RWY|^Airfield/.test(w.label) && w.kind === "closure" && !isSurfaceOnly(w.text));
     const xwRed = p.ops.runwayWinds.find((r) => r.flag === "r");
     const lifr = p.weather.now?.flightCategory === "LIFR";
     if (!daipUp) {
@@ -179,15 +189,16 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
   // 2. All-Weather / Night — the NAVAID × forecast-weather fusion ─────────────
   {
     const navaidGroup = p.ops.groups.find((g) => g.key === "navaid");
-    const navaidWin = windows.find((w) => NAVAID_RE.test(w.label));
-    const navaidOut = Boolean(navaidWin) || Boolean(navaidGroup && navaidGroup.items.length > 0);
+    const navaidWin = windows.find((w) => NAVAID_RE.test(w.label) && !isSurfaceOnly(w.text));
+    const navaidItems = (navaidGroup?.items ?? []).filter((it) => OUTAGE_RE.test(it.text) && !isSurfaceOnly(it.text));
+    const navaidOut = Boolean(navaidWin) || navaidItems.length > 0;
     const tafBad = p.weather.tafWorst?.worst === "IFR" || p.weather.tafWorst?.worst === "LIFR"
       || p.weather.now?.flightCategory === "IFR" || p.weather.now?.flightCategory === "LIFR";
     const win = navaidWin ? windowLabelFor(navaidWin, nowMs) : null;
     if (!daipUp) {
       addFn("all_weather_night", "unknown", "DAIP unreachable — approach/NAVAID status UNKNOWN", null, []);
     } else if (navaidOut && tafBad) {
-      const drv = navaidWin ? `${navaidWin.label} U/S` : (navaidGroup?.items[0]?.text.slice(0, 60) ?? "NAVAID/approach U/S");
+      const drv = navaidWin ? `${navaidWin.label} U/S` : (navaidItems[0]?.text.slice(0, 60) ?? "NAVAID/approach U/S");
       const id = push({ fn: "all_weather_night", capability: "nmc", window: win, driver: `${drv} × TAF ${p.weather.tafWorst?.worst ?? p.weather.now?.flightCategory}`, impact: "No usable precision approach in forecast instrument conditions; night/IFR arrivals at divert risk.", mitigation: "Request ASR/GCA from approach control; pre-coordinate an alternate.", status: "new", ccir: true });
       addFn("all_weather_night", "nmc", `${drv} × forecast IFR — no usable approach`, win, [id], true);
       ccir.push({ key: "no_approach", text: `No usable precision approach in forecast conditions${win ? ` (${win})` : ""}` });

@@ -5,6 +5,7 @@
 
 import type { TafPeriod, FlightCategory } from "./types";
 import { CAT_RANK } from "./aviationWx";
+import { AD_CLSD_RE, notamSubject } from "./notamSubject";
 
 // Minimal structural NOTAM shape (matches lib/notams Notam without importing it).
 export interface SitrepNotam {
@@ -41,7 +42,7 @@ const GROUP_LABELS: Record<NotamGroupKey, string> = {
   other: "Other",
 };
 
-const AMBER_RE = /\bAD\s+CLSD|AERODROME\s+CLSD|FUEL\s+(NOT\s+|UN)AVBL/i;
+const FUEL_UNAVBL_RE = /FUEL\s+(NOT\s+|UN)AVBL/i;
 
 // Group NOTAMs into the SITREP display buckets, items ranked most-significant
 // first, empty groups omitted. `amber` marks the operationally limiting ones
@@ -52,9 +53,10 @@ export function groupNotams(notams: SitrepNotam[]): { groups: NotamGroup[]; limi
   let fieldClosed = false;
   for (const n of notams) {
     const key = GROUP_OF[n.category] ?? "other";
-    const amber = (n.runwaysClosed?.length ?? 0) > 0 || AMBER_RE.test(n.text);
+    const adClosed = AD_CLSD_RE.test(n.text);
+    const amber = (n.runwaysClosed?.length ?? 0) > 0 || adClosed || FUEL_UNAVBL_RE.test(n.text);
     if (amber && key === "runway") limiting = true;
-    if (/\bAD\s+CLSD|AERODROME\s+CLSD/i.test(n.text)) { fieldClosed = true; limiting = true; }
+    if (adClosed) { fieldClosed = true; limiting = true; }
     const arr = buckets.get(key) ?? [];
     arr.push({ ...n, amber });
     buckets.set(key, arr);
@@ -341,12 +343,20 @@ function windowKind(text: string): WindowKind | null {
 
 export function windowLabel(text: string, category: string): string {
   const up = text.toUpperCase();
-  if (/\bAD\s+CLSD|AERODROME\s+CLSD/.test(up)) return "Airfield";
+  // The asset is the SUBJECT — what the text names first — not the first
+  // keyword found. "TWY A CLSD BTN RWY 06/24 AND ILS HOLD LINE" is about
+  // taxiway A; the runway and the ILS only place the closed segment. Reading
+  // it as "ILS RWY 06/24" is how a shut taxiway became a lost approach and,
+  // under forecast IFR, an NMC airfield (lib/notamSubject).
+  const subject = notamSubject(up);
+  if (subject === "airfield") return "Airfield";
   const rwy = up.match(/RWY\s*([0-9]{2}[LRC]?(?:\/[0-9]{2}[LRC]?)?)/);
   const navaid = up.match(/\b(ILS|LOC|VOR|TACAN|NDB|RNAV|PAPI|VASI|ALS|GLIDESLOPE|GS|DME)\b/);
+  const twy = up.match(/TWY\s*([A-Z]{1,2}\d{0,2}\b)/);
+  if (subject === "taxiway") return twy ? `TWY ${twy[1]}` : "Taxiway";
+  if (subject === "apron") return "Ramp / apron";
   if (navaid) return rwy ? `${navaid[1]} RWY ${rwy[1]}` : navaid[1];
   if (rwy) return `RWY ${rwy[1]}`;
-  const twy = up.match(/TWY\s*([A-Z]{1,2}\d{0,2}\b)/);
   if (twy) return `TWY ${twy[1]}`;
   if (/\bFUEL\b/.test(up)) return "Fuel";
   if (/\bAPRON|RAMP\b/.test(up)) return "Ramp / apron";

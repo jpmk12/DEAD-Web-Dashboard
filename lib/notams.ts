@@ -18,6 +18,7 @@
 import https from "node:https";
 import { readFileSync } from "node:fs";
 import { DOD_CA_PEM_BUNDLED } from "./certs/dodCa";
+import { isTaxiwayNotam } from "./notamSubject";
 
 export type NotamCategory =
   | "runway" | "approach" | "gps_raim" | "lighting" | "obstacle"
@@ -75,9 +76,14 @@ const CATEGORY_RULES: { category: NotamCategory; rank: number; re: RegExp }[] = 
 ];
 
 // Categorize a NOTAM by its text. A runway *closure* outranks everything.
+// A NOTAM whose SUBJECT is a taxiway ("TWY A CLSD BTN RWY 06/24 AND ILS HOLD
+// LINE") is a taxiway NOTAM however many runways and aids it names to place
+// the closed segment — keyword-first matching used to read it as an approach
+// outage (lib/notamSubject). An explicit "RWY nn CLSD" still wins first.
 export function categorizeNotam(text: string): { category: NotamCategory; rank: number } {
   const t = text.toUpperCase();
   if (/\bRWY\s+[0-9LRC/]+\s+(?:CLSD|CLOSED)/.test(t)) return { category: "runway", rank: 0 };
+  if (isTaxiwayNotam(t)) return { category: "taxiway", rank: 8 };
   for (const r of CATEGORY_RULES) if (r.re.test(t)) return { category: r.category, rank: r.rank };
   return { category: "other", rank: 11 };
 }
