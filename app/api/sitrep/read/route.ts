@@ -7,7 +7,7 @@ import { getUserPrefs } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { assembleSitrep } from "@/lib/sitrep";
 import { fallbackCommanderRead } from "@/lib/limfac";
-import { extractJsonObject } from "@/lib/aiJson";
+import { parseModelJson } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
 
@@ -147,7 +147,7 @@ export async function POST(req: Request) {
     let watch: string[] = [];
     let asks: string[] = [];
     try {
-      const p = JSON.parse(extractJsonObject(raw)) as { bluf?: unknown[]; watch?: unknown[]; asks?: unknown[] };
+      const p = parseModelJson(raw).value as { bluf?: unknown[]; watch?: unknown[]; asks?: unknown[] };
       bluf = Array.isArray(p.bluf) ? p.bluf.map((x) => String(x).slice(0, 300)).slice(0, 3) : [];
       watch = Array.isArray(p.watch) ? p.watch.map((x) => String(x).slice(0, 200)).slice(0, 3) : [];
       asks = Array.isArray(p.asks) ? p.asks.map((x) => String(x).slice(0, 250)).slice(0, 3) : [];

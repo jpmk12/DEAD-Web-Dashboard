@@ -18,7 +18,7 @@ import { anthropic } from "./claude";
 import { fetchNewsletterEmails, markAsRead } from "./gmail";
 import { messagesToMarkRead } from "./familyMarkRead";
 import { logCall } from "./anthropicLog";
-import { extractJsonObject } from "./aiJson";
+import { parseModelJson } from "./aiJson";
 import { isFeatureEnabled } from "./aiFeatures";
 import { getFamilyProfile } from "./familyStore";
 import { recordSightings, getSightings } from "./householdStore";
@@ -331,7 +331,7 @@ async function extractFacts(
     logCall({ route: "household_digest", model: "claude-sonnet-4-6", usage: res.usage, durationMs: Date.now() - started, user: userEmail }).catch(() => {});
 
     const raw = res.content[0]?.type === "text" ? res.content[0].text : "{}";
-    const parsed = JSON.parse(extractJsonObject(raw)) as Record<string, unknown>;
+    const parsed = parseModelJson(raw).value;
 
     const bills: Record<string, RawBill> = {};
     for (const b of Array.isArray(parsed.bills) ? parsed.bills : []) {

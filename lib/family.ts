@@ -21,7 +21,7 @@ import { anthropic } from "./claude";
 import { fetchNewsletterEmails, listMessageIds, markAsRead } from "./gmail";
 import { messagesToMarkRead } from "./familyMarkRead";
 import { logCall } from "./anthropicLog";
-import { extractJsonObject } from "./aiJson";
+import { parseModelJson } from "./aiJson";
 import { isFeatureEnabled } from "./aiFeatures";
 import { getFamilyProfile } from "./familyStore";
 import { gmailQueryFor, familyContextLine, senderFor, type FamilyProfile } from "./familyProfile";
@@ -229,7 +229,7 @@ export async function assembleFamilyDigest(
     logCall({ route: "family_digest", model: "claude-sonnet-4-6", usage: res.usage, durationMs: Date.now() - started, user: userEmail }).catch(() => {});
 
     const raw = res.content[0]?.type === "text" ? res.content[0].text : "{}";
-    const parsed = JSON.parse(extractJsonObject(raw)) as Record<string, unknown>;
+    const parsed = parseModelJson(raw).value;
     const validIds = new Set(profile.people.map((p) => p.id));
 
     const deadlines: FamilyDeadline[] = (Array.isArray(parsed.deadlines) ? parsed.deadlines : [])

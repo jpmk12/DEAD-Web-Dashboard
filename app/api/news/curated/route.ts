@@ -12,7 +12,7 @@ import {
   CRITICAL_COUNT, MIN_CANDIDATES_TO_FREEZE,
   hashCtx, sanitiseCandidates, deterministicSplit, pickCritical, topAffinity,
 } from "@/lib/overviewCurate";
-import { extractJsonObject } from "@/lib/aiJson";
+import { parseModelJson } from "@/lib/aiJson";
 import { todayInTz } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
@@ -118,7 +118,7 @@ export async function POST(request: Request) {
 
       const textBlock = response.content.find((b) => b.type === "text");
       const raw = textBlock?.type === "text" ? textBlock.text : "{}";
-      const picked = pickCritical(JSON.parse(extractJsonObject(raw)) as { critical?: unknown }, sorted);
+      const picked = pickCritical(parseModelJson(raw).value as { critical?: unknown }, sorted);
       if (picked) { result = picked; aiSucceeded = true; }
     } catch (err) {
       console.error("News curation failed:", err);

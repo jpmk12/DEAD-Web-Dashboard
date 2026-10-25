@@ -7,7 +7,7 @@ import { readPrefs as readNewsletterPrefs } from "@/lib/newsletterPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { normEmail } from "@/lib/allowlist";
-import { extractJsonObject } from "@/lib/aiJson";
+import { parseModelJson } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
 
@@ -113,8 +113,7 @@ export async function GET() {
 
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text : "{}";
-    const parsed = JSON.parse(extractJsonObject(raw));
-    const p = parsed as Record<string, unknown>;
+    const p = parseModelJson(raw).value;
     // Field caps generous enough to fit the prompt's "2-4 sentence" target
     // without truncation. The earlier 500/400/200 numbers were leftover from
     // when the prompt asked for a single sentence — they were silently

@@ -93,6 +93,30 @@ function lastCutPoint(s: string): number {
   return last;
 }
 
+/**
+ * THE door for a model reply that should be one JSON object. Repairs a
+ * cut-off reply (`salvageJsonObject`) and THROWS when nothing object-shaped
+ * survives — so a caller that gates success on a parsed reply (the Family
+ * digest marks mail read only after one) keeps that guarantee, while a
+ * reply that merely overran `max_tokens` yields what it finished. Every
+ * route that parses a model object must come through here, never bare
+ * `JSON.parse(extractJsonObject(...))` — `tests/modelJsonDiscipline.test.ts`
+ * scans the tree and fails on the bare form.
+ */
+export class ModelJsonError extends Error {
+  constructor(public readonly reason: "empty" | "not-json") {
+    super(reason === "empty" ? "the model returned no text" : "the model reply was not JSON");
+    this.name = "ModelJsonError";
+  }
+}
+
+export function parseModelJson(raw: string): { value: Record<string, unknown>; truncated: boolean } {
+  if (!raw || !raw.trim()) throw new ModelJsonError("empty");
+  const { value, truncated } = salvageJsonObject(raw);
+  if (!value) throw new ModelJsonError("not-json");
+  return { value, truncated };
+}
+
 /** Slice to the outermost [...]. Returns "[]" when no array is present. */
 export function extractJsonArray(raw: string): string {
   let s = stripFences(raw);

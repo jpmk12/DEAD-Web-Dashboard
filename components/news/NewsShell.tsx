@@ -39,7 +39,20 @@ interface NewsShellProps {
 }
 
 type ViewMode = "threads" | "read";
-type ThreadsBody = ThreadsResult & { previous?: StoredSession | null; capped?: boolean; generations?: number; generatedAt?: string; cached?: boolean };
+type ThreadsBody = ThreadsResult & {
+  previous?: StoredSession | null; capped?: boolean; generations?: number; generatedAt?: string; cached?: boolean;
+  /** The reply overran the output cap and was repaired — a thread or two may be missing. */
+  truncated?: boolean;
+  /** The last GOOD read, served because the fresh one failed (`fallbackReason` says why). */
+  fallback?: boolean; fallbackReason?: string; fallbackDate?: string;
+};
+
+// The route answers 202 `pending` while the Opus read runs in the background
+// (60–120 s) and serves it from the day's cache once saved; the view polls.
+const THREADS_POLL_MS = 8_000;
+const THREADS_MAX_POLLS = 20;
+/** After a fallback (a failed read), ONE automatic retry past the server's 60-s failure hold. */
+const THREADS_RETRY_AFTER_MS = 65_000;
 
 const formatUpdated = (d: Date): string => updatedAgo(d);
 
@@ -102,25 +115,51 @@ export default function NewsShell({
 
   useEffect(() => { onThreadsChange?.(threads); }, [threads, onThreadsChange]);
 
+  const [threadsNote, setThreadsNote] = useState<string | null>(null);
+  const fallbackRetried = useRef(false);
+
   const fetchThreads = async (arts: NewsItem[], news: NewsletterSummary[], refresh = false) => {
     if (fetchingRef.current || (threads && !refresh)) return;
     fetchingRef.current = true;
     setThreadsLoading(true);
     setThreadsError(null);
+    setThreadsNote(null);
     try {
-      const res = await fetch(`/api/threads${refresh ? "?refresh=1" : ""}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ articles: arts, newsletters: news }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(j.error || "Failed to analyse threads");
+      let polls = 0;
+      let useRefresh = refresh;
+      for (;;) {
+        const res = await fetch(`/api/threads${useRefresh ? "?refresh=1" : ""}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ articles: arts, newsletters: news }),
+        });
+        useRefresh = false; // a poll joins the running generation; it never forces another
+        if (res.status === 202) {
+          const j = await res.json().catch(() => ({})) as { note?: string };
+          setThreadsNote(j.note ?? "The model is running — this takes a minute or two.");
+          if (++polls > THREADS_MAX_POLLS) throw new Error("The analysis is taking longer than expected. Retry in a moment — the read keeps running on the server.");
+          await new Promise((r) => setTimeout(r, THREADS_POLL_MS));
+          continue;
+        }
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({})) as { error?: string };
+          // A non-JSON reply is the platform gateway, not the route — name the status.
+          throw new Error(j.error || `Failed to analyse threads (HTTP ${res.status})`);
+        }
+        const data: ThreadsBody = await res.json();
+        setThreads(data);
+        setThreadsNote(null);
+        // A fallback is yesterday's read standing in for a failed one; the
+        // server holds the failure for a minute, so retry ONCE past it.
+        if (data.fallback && !fallbackRetried.current) {
+          fallbackRetried.current = true;
+          setTimeout(() => { void fetchThreads(arts, news, true); }, THREADS_RETRY_AFTER_MS);
+        }
+        return;
       }
-      const data: ThreadsBody = await res.json();
-      setThreads(data);
     } catch (e) {
       setThreadsError(e instanceof Error ? e.message : "Thread analysis failed. Try again.");
+      setThreadsNote(null);
     } finally {
       fetchingRef.current = false;
       setThreadsLoading(false);
@@ -286,6 +325,7 @@ export default function NewsShell({
                   </div>
                 ))}
                 <p className="text-center text-xs text-slate-600 font-mono uppercase tracking-wider animate-pulse">Analysing threads…</p>
+                {threadsNote && <p className="text-center text-[11px] text-slate-500">{threadsNote}</p>}
               </div>
             )}
 

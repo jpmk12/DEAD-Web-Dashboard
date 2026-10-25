@@ -13,7 +13,7 @@ import { gmailMessageUrl } from "@/lib/gmailLink";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { extractJsonObject } from "@/lib/aiJson";
+import { parseModelJson } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
 
@@ -152,7 +152,7 @@ async function handle(request: Request) {
 
     const text = response.content[0]?.type === "text" ? response.content[0].text : "{}";
     let plan: Record<string, unknown> = {};
-    try { plan = JSON.parse(extractJsonObject(text)); } catch { /* leave empty */ }
+    try { plan = parseModelJson(text).value; } catch { /* leave empty */ }
     if ((kind === "task" && !plan.title) || (kind === "event" && !plan.summary)) {
       return NextResponse.json({ error: "Couldn't extract a clear plan from that email" }, { status: 422 });
     }

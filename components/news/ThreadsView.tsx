@@ -18,7 +18,7 @@ import { CHOKEPOINTS } from "@/lib/chokepoints";
 interface Board { problemId: string; label: string; level: string; trajectory: string }
 
 interface ThreadsViewProps {
-  result: ThreadsResult & { capped?: boolean; generations?: number; generatedAt?: string };
+  result: ThreadsResult & { capped?: boolean; generations?: number; generatedAt?: string; truncated?: boolean; fallback?: boolean; fallbackReason?: string; fallbackDate?: string };
   articles: NewsItem[];
   watchlist?: string[];
   previous: StoredSession | null;
@@ -190,7 +190,17 @@ export default function ThreadsView(props: ThreadsViewProps) {
           <span className="text-[10px] font-bold uppercase tracking-widest text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">Past day · {pastDate} — stored read, not live</span>
         ) : (
           <>
-            {result.capped && (
+            {result.fallback && (
+              <span title={`The fresh read failed (${result.fallbackReason ?? "unknown"}); this is the last good one. The view retries once by itself; ↻ Regenerate retries now.`} className="text-[10px] font-bold uppercase tracking-widest text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">
+                last good read{result.fallbackDate ? ` · ${result.fallbackDate}` : result.generatedAt ? ` · ${new Date(result.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""} — fresh read failed: {result.fallbackReason ?? "unknown"}
+              </span>
+            )}
+            {result.truncated && !result.fallback && (
+              <span title="The model's reply overran the output cap and was repaired — the threads it finished are shown; a thread or two may be missing. ↻ Regenerate for a full read." className="text-[10px] font-bold uppercase tracking-widest text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">
+                partial read — a thread or two may be missing
+              </span>
+            )}
+            {result.capped && !result.fallback && (
               <span title={`${result.generations ?? 3} analyses today — the daily cap; ↻ Regenerate forces one more`} className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-800 border border-slate-700 rounded px-2 py-0.5">
                 day&apos;s last read{result.generatedAt ? ` · ${new Date(result.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
               </span>

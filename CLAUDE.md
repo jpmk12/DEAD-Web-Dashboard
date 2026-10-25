@@ -3014,6 +3014,67 @@ Built from the operator's first-startup user story. The load-bearing pieces:
   `getLatestSession()` (today or yesterday); Glance's Breaking & critical
   panel leads with a "🧵 Rising threads" row (sessions, 2 d).
 
+### "Thread analysis failed" (2026-10-25) — the Threads read is background + fallback, and model-JSON parsing is one enforced door
+The News landing view showed "Thread analysis failed" from time to time.
+Analysis of `/api/threads` found four ways the same box appeared, all
+of which collapsed into one catch-all that logged the detail where nobody
+reads it:
+1. **The reply was cut off.** `max_tokens` was 4,096; eight threads with a
+   600-char summary, a 300-char headline and an AMC line run 2,500–3,500
+   tokens and a verbose day overran it. The route parsed with bare
+   `JSON.parse(extractJsonObject(raw))`, which THREW on the missing tail —
+   the exact failure `salvageJsonObject` was written for three weeks
+   earlier, applied to one route while the rule lived only in prose.
+2. **A transient API failure** (529 overloaded, 429, a connection reset, the
+   300-s SDK timeout) after its one retry.
+3. **The handler awaited a 60–120 s Opus call on the request path** — the
+   pattern every other long read had already been moved off (the bounded-
+   wait / `pending` contract) — so any gateway or connection limit turned
+   a running read into an error the browser could only call "failed".
+4. **No fallback**: the day's earlier read and yesterday's session were in
+   the database and the view showed a red box instead of either.
+What changed — keep all of it:
+- **`lib/aiJson.ts` `parseModelJson(raw)` is THE door** for a model reply
+  that should be one JSON object: fences stripped, a cut-off reply repaired
+  (`salvageJsonObject`) with `truncated: true`, and `ModelJsonError`
+  (`empty` / `not-json`) THROWN when nothing object-shaped survives — so a
+  caller that gates success on a parsed reply (the Family digest marks mail
+  read only after one) keeps that guarantee. All seven call sites use it
+  (threads, digest, news/curated, sitrep/read, gmail/convert, family,
+  household). **`tests/modelJsonDiscipline.test.ts` scans `app/`, `lib/`
+  and `components/` and FAILS the suite on any bare
+  `JSON.parse(extractJsonObject(`** — the rule is a build failure now, not
+  advice.
+- **`lib/modelFailure.ts` `classifyModelFailure(err)`** (PURE, tested) names
+  the CLASS of a failed model call — timeout · overloaded · rate-limited ·
+  api-error · network · cut-off · not-json · empty — in one sentence safe
+  to show (never the raw message, which carries request ids and hosts), with
+  `transient`. Use it in every model route's catch so "it happens from time
+  to time" is attributable.
+- **`lib/threadsParse.ts` `parseThreadsReply(raw, validIds)`** (PURE,
+  tested in `tests/threadsParse.test.ts`): the shape rules out of the route
+  (labels upper-cased, unknown trend → stable, foreign ids dropped, id-less
+  threads removed) over `parseModelJson`; a reply cut mid-array keeps the
+  threads it finished. `MAX_OUTPUT_TOKENS` = 6000.
+- **`/api/threads` follows the latency rule**: the generation runs in the
+  BACKGROUND keyed by the article hash and coalesced (`inflight`), the
+  request waits `WAIT_MS` = 20 s and otherwise answers **202 `{ pending }`**;
+  `saveSession` persists the result when it lands so the next poll takes it
+  from the day's cache even if the browser that started it is gone. A thrown
+  generation is held in `lastFailure` for 60 s (polls get the reason, not a
+  re-spend; ↻ Regenerate retries at once). **The read never blanks**: a
+  failure answers the day's last read, else yesterday's, flagged
+  `fallback` + `fallbackReason` (+ `fallbackDate`), 200 — only with no read
+  at all does it answer 500, and then with the reason. A reply that parsed
+  to zero threads is treated as a failure (never cached as an empty day).
+  `truncated: true` rides a repaired read.
+- **`NewsShell.fetchThreads` polls** (8 s, ≤20) on 202 showing the server's
+  note under the skeleton, names the HTTP status when a reply is not JSON
+  (the gateway), and after a fallback retries ONCE past the 60-s hold.
+  `ThreadsView` shows amber "last good read · <date> — fresh read failed:
+  <reason>" and "partial read — a thread or two may be missing" badges.
+No new npm dep (esbuild `0`).
+
 ### Calendar tab rebuilt (2026-10-05, `docs/REVIEW-2026-10.md` §3 C1–C9, all three decisions yes)
 The tab is a container, `components/calendar/CalendarTab.tsx`, that OWNS
 tasks, contacts, family dates, trips, dismissals and the mail-dates feed,
