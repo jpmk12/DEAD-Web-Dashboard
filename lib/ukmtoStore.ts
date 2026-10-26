@@ -7,7 +7,7 @@
 
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { sortUkmto, type UkmtoIncident } from "./ukmtoParse";
+import { fitUkmtoRow, sortUkmto, type UkmtoIncident } from "./ukmtoParse";
 
 const READ_TTL = 60_000;
 let cache: { at: number; items: UkmtoIncident[] } | null = null;
@@ -16,7 +16,13 @@ export async function upsertUkmto(incidents: UkmtoIncident[], via: "fetch" | "ca
   if (!incidents.length) return { imported: 0 };
   const pool = await getDb();
   const now = new Date();
-  for (const i of incidents) {
+  // Every value is fitted to its column before the INSERT (`fitUkmtoRow`):
+  // the parser caps fields at PAGE widths, and a value longer than the
+  // VARCHAR makes MySQL refuse the row — which the first real capture
+  // (2026-10-26) did on `incident_at`, taking the whole upload with it.
+  for (const raw of incidents) {
+    const i = fitUkmtoRow(raw);
+    if (!i.ref) continue;
     await pool.execute(
       `INSERT INTO captured_ukmto (ref, label, incident_on, incident_at, reported_by, lat, lon, placement, area, body, url, via, user_email, captured_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

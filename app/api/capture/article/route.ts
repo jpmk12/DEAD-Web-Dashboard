@@ -4,6 +4,7 @@ import { normEmail, isOwner } from "@/lib/allowlist";
 import { verifyXUploadToken } from "@/lib/xUploadToken";
 import { parseArticleCapture } from "@/lib/articleCapture";
 import { upsertArticle, getArticleStatus, clearArticles } from "@/lib/articleStore";
+import { describeDbError } from "@/lib/dbError";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, title: parsed.article.title, source: parsed.article.source, total: status.count });
   } catch (err) {
     console.error("article capture failed:", err);
-    return NextResponse.json({ error: "Capture failed — database unavailable." }, { status: 500 });
+    const f = describeDbError(err);
+    return NextResponse.json({ error: `Capture failed — ${f.text}.`, code: f.code }, { status: f.kind === "unavailable" ? 503 : 500 });
   }
 }
 

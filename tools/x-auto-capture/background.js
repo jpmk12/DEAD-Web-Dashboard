@@ -149,6 +149,42 @@ const EMPTY_MSG = {
   x: "No posts collected — check the URL and that you're logged into X.",
 };
 
+// What the tab actually showed when a collector found nothing — injected AFTER
+// an empty collection so the run log can say WHY instead of "no items": a
+// login wall, a bot challenge, a redirect to another page, a page that never
+// rendered (0 characters), or a page that rendered but whose markup the
+// collector no longer recognises (plenty of text and links, 0 items — that
+// one needs the saved HTML). Self-contained for executeScript func injection.
+function pageDiag() {
+  const text = (document.body && document.body.innerText) || "";
+  const title = (document.title || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const low = (title + " " + text.slice(0, 2000)).toLowerCase();
+  let wall = "";
+  if (/just a moment|checking your browser|verify you are human|attention required|cloudflare/.test(low)) wall = "bot challenge";
+  else if (/\blog in\b|\bsign in\b|\blogin\b/.test(low) && (/password/.test(low) || location.pathname.includes("login") || location.pathname.includes("/i/flow/"))) wall = "login wall";
+  else if (/access denied|403 forbidden|blocked|rate limit/.test(low)) wall = "access refused";
+  else if (/this page doesn.t exist|page not found|404|something went wrong|try again/.test(low) && text.length < 1500) wall = "not found / error page";
+  return {
+    title,
+    href: location.href.slice(0, 200),
+    chars: text.length,
+    links: document.querySelectorAll("a[href]").length,
+    wall,
+  };
+}
+function diagLine(d, requested) {
+  if (!d) return "";
+  const parts = [];
+  if (d.wall) parts.push(d.wall);
+  try {
+    const want = new URL(requested), got = new URL(d.href);
+    if (want.hostname !== got.hostname || want.pathname.replace(/\/+$/, "") !== got.pathname.replace(/\/+$/, "")) parts.push("landed on " + got.hostname + got.pathname.slice(0, 60));
+  } catch (e) { /* no comparison */ }
+  parts.push(d.chars === 0 ? "page rendered no text" : d.chars + " chars · " + d.links + " links");
+  if (d.title) parts.push("“" + d.title + "”");
+  return " [page: " + parts.join(" · ") + "]";
+}
+
 // Capture + upload ONE target URL. Returns a per-target result.
 async function captureOne(url, c) {
   const kind = targetKind(url);
@@ -167,7 +203,12 @@ async function captureOne(url, c) {
     });
     const capture = results && results[0] && results[0].result;
     if (!capture || !capture.items || capture.items.length === 0) {
-      return { ok: false, error: EMPTY_MSG[kind], url };
+      let diag = null;
+      try {
+        const d = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: pageDiag });
+        diag = d && d[0] && d[0].result;
+      } catch (e) { /* the diagnostic is best-effort */ }
+      return { ok: false, error: EMPTY_MSG[kind] + diagLine(diag, url), diag, url };
     }
 
     const endpoint = c.dashboardUrl.replace(/\/+$/, "") + ENDPOINTS[kind];

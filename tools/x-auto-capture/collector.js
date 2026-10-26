@@ -59,6 +59,10 @@ export async function collectXPosts(durationMs, maxPosts) {
   // Auto-scroll loop: grab, scroll ~85% viewport, wait for the next batch to
   // render. Stops at the time budget, the post cap, or a stuck scroll position.
   const end = Date.now() + (durationMs || 25000);
+  // A timeline that has not rendered yet has nothing to scroll, so a stuck
+  // scroll position with ZERO posts is "still loading", not "done" — keep
+  // trying until this much has passed (a list page can take 5–10 s).
+  const minEnd = Date.now() + Math.min(12000, durationMs || 25000);
   let lastY = -1, still = 0;
   window.scrollTo(0, 0);
   await sleep(400);
@@ -67,7 +71,7 @@ export async function collectXPosts(durationMs, maxPosts) {
     window.scrollBy(0, Math.round(window.innerHeight * 0.85));
     await sleep(700);
     const y = window.scrollY;
-    if (y === lastY) { still++; if (still >= 6) break; } else { still = 0; lastY = y; }
+    if (y === lastY) { still++; if (still >= 6 && (store.size > 0 || Date.now() >= minEnd)) break; } else { still = 0; lastY = y; }
   }
   grab();
 

@@ -27,7 +27,7 @@ export async function collectMofcom(durationMs, maxItems) {
   };
 
   // 1. The list view: every article permalink on the page.
-  document.querySelectorAll('a[href*="/article/"], a[href$=".shtml"], a[href$=".html"]').forEach((a) => {
+  const take = (a) => {
     try {
       if (store.size >= MAX) return;
       const href = a.href;
@@ -39,7 +39,8 @@ export async function collectMofcom(durationMs, maxItems) {
       const date = dateFrom(row ? row.innerText : "", href);
       store.set(href, { url: href, title: title.slice(0, 300), date });
     } catch (e) { /* one bad node never kills the capture */ }
-  });
+  };
+  document.querySelectorAll('a[href*="/article/"], a[href$=".shtml"], a[href$=".html"]').forEach(take);
 
   // 2. A single notice page: title + body, so the parser sees the controlled
   //    items. Detected by an article-shaped location plus a heading.
@@ -54,9 +55,13 @@ export async function collectMofcom(durationMs, maxItems) {
     } catch (e) { /* fall through with the list */ }
   }
 
-  // Give a slow CMS a moment to finish rendering a paginated list.
-  const end = Date.now() + Math.min(durationMs || 5000, 8000);
-  while (Date.now() < end && store.size === 0) await new Promise((r) => setTimeout(r, 500));
+  // Give a slow CMS a moment to finish rendering a paginated list — and look
+  // AGAIN once it has (the first pass ran on whatever had rendered).
+  const end = Date.now() + Math.min(durationMs || 12000, 15000);
+  while (Date.now() < end && store.size === 0) {
+    await new Promise((r) => setTimeout(r, 700));
+    try { document.querySelectorAll("a[href]").forEach((a) => take(a)); } catch (e) { /* retry on the next tick */ }
+  }
 
   return {
     format: "dead-notices",

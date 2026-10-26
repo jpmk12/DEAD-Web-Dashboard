@@ -4,6 +4,7 @@ import { normEmail, isOwner } from "@/lib/allowlist";
 import { verifyXUploadToken, setXTokenCadence } from "@/lib/xUploadToken";
 import { parseNoticesCapture } from "@/lib/noticeCapture";
 import { upsertNotices, getNoticeStatus, clearNotices } from "@/lib/noticeStore";
+import { describeDbError } from "@/lib/dbError";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, imported, skipped: parsed.skipped, source: parsed.source, total: status.count });
   } catch (err) {
     console.error("notice capture failed:", err);
-    return NextResponse.json({ error: "Capture failed — database unavailable." }, { status: 500 });
+    const f = describeDbError(err);
+    return NextResponse.json({ error: `Capture failed — ${f.text}.`, code: f.code }, { status: f.kind === "unavailable" ? 503 : 500 });
   }
 }
 

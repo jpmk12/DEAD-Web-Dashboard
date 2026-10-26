@@ -6,6 +6,7 @@ import { parseUkmtoCapture } from "@/lib/ukmtoParse";
 import { upsertUkmto, getUkmtoStoreStatus, clearUkmto } from "@/lib/ukmtoStore";
 import { resetUkmtoCache } from "@/lib/ukmto";
 import { resetChokepointReadsCache } from "@/lib/chokepointReads";
+import { describeDbError } from "@/lib/dbError";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,12 @@ export async function POST(req: Request) {
     const status = await getUkmtoStoreStatus();
     return NextResponse.json({ ok: true, imported, total: status.count, source: "UKMTO" });
   } catch (err) {
+    // The CLASS of failure is the reply ("the database refused the row — a
+    // value is too long for column 'incident_at'" is actionable; "database
+    // unavailable" for that was not). The full error stays in the log.
     console.error("ukmto capture failed:", err);
-    return NextResponse.json({ error: "Capture failed — database unavailable." }, { status: 500 });
+    const f = describeDbError(err);
+    return NextResponse.json({ error: `Capture failed — ${f.text}.`, code: f.code }, { status: f.kind === "unavailable" ? 503 : 500 });
   }
 }
 

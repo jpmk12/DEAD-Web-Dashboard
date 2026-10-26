@@ -101,10 +101,19 @@ so you can tell at a glance whether the pipeline is healthy.
 
 ## When captures come back empty
 
-X changes its DOM periodically. If posts arrive with missing authors/text, the
-selectors need a refresh — they live at the top of `collector.js` (same suspects
-as `tools/x-capture-bookmarklet.js`). Save the x.com page (Ctrl/Cmd-S, HTML only)
-and hand it to Claude to fix the selectors against the real markup.
+An empty target line now says what the tab actually showed, in brackets:
+`[page: login wall · 1,204 chars · 31 links · “Log in to X”]`,
+`[page: bot challenge · …]`, `[page: landed on x.com/i/flow/login …]`,
+`[page: page rendered no text]`, or — the one that needs a fix — plenty of
+chars and links with **0 items**, which means the page rendered and the
+collector no longer recognises its markup. For that case save the page
+(Ctrl/Cmd-S, "Webpage, HTML only") and hand it to Claude: the selectors live
+at the top of `collector.js` (X), `liveuamap.js`, `mofcom.js` and `ukmto.js`.
+Every collector waits at least ~12 s for a slow page before calling it empty.
+
+A `Capture failed — the database refused the row — a value is too long for
+column '…'` line is the dashboard's, not the page's: the capture worked and the
+server rejected one field. Report it as is; the column name is the fix.
 
 ## Security notes
 

@@ -448,6 +448,50 @@ export function parseUkmtoCapture(raw: string): ParseUkmtoCaptureResult {
   return { ok: true, incidents, host, pageUrl };
 }
 
+/** The `captured_ukmto` column widths (lib/db.ts) — the store clips every
+ *  value to them before the INSERT. The parser's own caps are PAGE caps
+ *  (a field value runs to 80 characters so a long "Source:" survives), and
+ *  the first real capture (2026-10-26) carried an "Incident Time" longer
+ *  than the 24-character column: MySQL refused the row with
+ *  ER_DATA_TOO_LONG and the whole capture read "database unavailable". A
+ *  row the parser produced must always fit the table. */
+export const UKMTO_COLUMN_WIDTHS = {
+  ref: 16, label: 40, date: 10, time: 24, reportedBy: 80, placement: 10, area: 60, url: 300,
+} as const;
+
+/** Fit an incident to the table: strings clipped to their column width
+ *  (an empty clip reads null where the column allows it), a non-finite
+ *  coordinate stored as null with its placement dropped (a position the
+ *  row cannot carry is no position), the body kept whole (TEXT). PURE. */
+export function fitUkmtoRow(i: UkmtoIncident): UkmtoIncident {
+  const W = UKMTO_COLUMN_WIDTHS;
+  const clip = (v: string | null | undefined, n: number): string | null => {
+    if (typeof v !== "string") return null;
+    const s = v.trim().slice(0, n).trim();
+    return s.length ? s : null;
+  };
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const lat = num(i.lat);
+  const lon = num(i.lon);
+  const placed = lat !== null && lon !== null;
+  const placement = placed && (i.placement === "reported" || i.placement === "area") ? i.placement : null;
+  const ref = clip(i.ref, W.ref) ?? "";
+  return {
+    id: `ukmto-${ref}`,
+    ref,
+    label: clip(i.label, W.label) ?? "ENTRY",
+    date: clip(i.date, W.date),
+    time: clip(i.time, W.time),
+    reportedBy: clip(i.reportedBy, W.reportedBy),
+    lat: placed ? lat : null,
+    lon: placed ? lon : null,
+    placement,
+    area: clip(i.area, W.area),
+    text: typeof i.text === "string" ? i.text : "",
+    url: clip(i.url, W.url) ?? UKMTO_URL,
+  };
+}
+
 /** Newest first by incident date, undated last, then by reference number
  *  descending (the page's own order). */
 export function sortUkmto(list: UkmtoIncident[]): UkmtoIncident[] {

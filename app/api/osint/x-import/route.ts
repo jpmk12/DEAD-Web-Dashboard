@@ -4,6 +4,7 @@ import { normEmail, isOwner } from "@/lib/allowlist";
 import { parseXCapture } from "@/lib/xImport";
 import { importXCapture, getXStatus, clearXItems } from "@/lib/xStore";
 import { verifyXUploadToken, setXTokenCadence } from "@/lib/xUploadToken";
+import { describeDbError } from "@/lib/dbError";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,8 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("x-import failed:", err);
-    return NextResponse.json({ error: "Import failed — database unavailable." }, { status: 500 });
+    const f = describeDbError(err);
+    return NextResponse.json({ error: `Import failed — ${f.text}.`, code: f.code }, { status: f.kind === "unavailable" ? 503 : 500 });
   }
 }
 

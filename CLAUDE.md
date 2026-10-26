@@ -2091,6 +2091,38 @@ by the authority whose job it is to record it**, never news about one.
   script will parse 0 from the fetch (`reason` says so) and parse fine from
   the capture. First real capture or diag → refine `HEADER` / `takeField` in
   `ukmtoParse.ts`. No new npm dep (esbuild `0`).
+- **The first real capture (2026-10-26) was refused by the DATABASE, not the
+  parser** — "Capture failed — database unavailable." The collector and
+  `parseUkmtoCapture` succeeded on the live page; `upsertUkmto` threw
+  `ER_DATA_TOO_LONG`: `takeField` caps every field value at 80 (a PAGE
+  cap) while `captured_ukmto.incident_at` is `VARCHAR(24)`, and the page's
+  "Incident Time" ran longer. Two rules, keep both: **(1) a parsed row is
+  fitted to the table before the INSERT** — `fitUkmtoRow` in `ukmtoParse.ts`
+  (PURE, tested) clips every string to `UKMTO_COLUMN_WIDTHS` (the DDL widths,
+  stated once), stores a non-finite coordinate as null with its placement
+  dropped, keeps the TEXT body whole; the store calls it on every row. Any
+  new capture store must do the same against its own DDL (events / notices /
+  articles already cap at their widths). **(2) The reply names the CLASS of
+  failure** — `lib/dbError.ts` `describeDbError(err)` (PURE, tested):
+  `unavailable` (connection refused / lost / access denied → 503) vs
+  `rejected` (`ER_DATA_TOO_LONG` / `ER_BAD_NULL_ERROR` / `ER_NO_SUCH_TABLE`…
+  with the column or table MySQL named → 500) vs `unknown` (code only). Only
+  the code and that subject are repeated — the raw driver message (hosts,
+  request ids) stays in the log. All five bearer-ingest routes (ukmto, events,
+  notices, article, x-import) answer through it; the extension prints
+  `d.error` as-is, so the run log now reads "the database refused the row — a
+  value is too long for column 'incident_at'" instead of blaming the host.
+- **Extension 1.2.1 — an empty capture says what the tab showed.** When a
+  collector returns 0 items `background.js` injects `pageDiag` and appends
+  `[page: login wall · N chars · M links · “title”]` (also `bot challenge`,
+  `access refused`, `landed on <host/path>` for a redirect, `page rendered no
+  text`). Plenty of text and links with 0 items = the markup changed and the
+  saved HTML is needed; anything else is the session or the host. The X,
+  LiveUAMap and MOFCOM collectors also keep looking for ~12 s before calling a
+  page empty (a stuck scroll with ZERO items is "still loading", not "done";
+  MOFCOM's list is re-scanned on each wait tick) — the 2026-10-26 run hit
+  three empties (an X list, two LiveUAMap regions, MOFCOM) with no way to tell
+  a slow render from a dead selector.
 
 ### Counterspace & cyber posture as I&W, and "Ask the board" (2026-10-22, `docs/PLAN-SPACE-CYBER-ASK.md`, all four decisions yes)
 Built from the Kosmos 2612 / ICEYE-X36 encounter read as an INDICATOR

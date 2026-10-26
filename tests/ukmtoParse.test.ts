@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   htmlToText, parseUkmtoDate, parseUkmtoPosition, seaAreaIn, parseUkmtoText, parseUkmtoHtml,
   gradeUkmto, ukmtoGeoEvents, ukmtoTextsFor, parseUkmtoCapture, mergeUkmto, UKMTO_URL,
+  fitUkmtoRow, UKMTO_COLUMN_WIDTHS,
 } from "../lib/ukmtoParse";
 import { readActivity, readInterdiction } from "../lib/chokepointSignals";
 
@@ -235,5 +236,32 @@ describe("mergeUkmto", () => {
     expect(m.map((i) => i.ref)).toEqual(["163-26", "162-26"]);
     expect(m[1].placement).toBe("reported");
     expect(m[1].text).toContain("Crew safe");
+  });
+});
+
+describe("fitUkmtoRow — a parsed row always fits the table", () => {
+  it("clips every string to its column width (the 2026-10-26 incident_at refusal)", () => {
+    const [inc] = parseUkmtoText("171-26 - SUSPICIOUS APPROACH\nIncident Date: 25 OCT 2026\nIncident Time: 0415 UTC (0815 local, as reported by the Master to UKMTO watchkeeper)\nSource: Master\nPosition: 12°40'N 043°20'E\nA vessel reported a small craft approaching.\n");
+    expect(inc.time!.length).toBeGreaterThan(UKMTO_COLUMN_WIDTHS.time); // the PAGE cap is wider than the column
+    const row = fitUkmtoRow(inc);
+    expect(row.time!.length).toBeLessThanOrEqual(UKMTO_COLUMN_WIDTHS.time);
+    expect(row.time!.startsWith("0415 UTC")).toBe(true);
+    expect(row.ref).toBe("171-26");
+    expect(row.placement).toBe("reported");
+    expect(row.text).toBe(inc.text); // body is TEXT — kept whole
+    for (const k of ["ref", "label", "date", "reportedBy", "area", "url"] as const) {
+      const v = row[k];
+      if (typeof v === "string") expect(v.length).toBeLessThanOrEqual(UKMTO_COLUMN_WIDTHS[k]);
+    }
+  });
+  it("a non-finite coordinate is stored as null and its placement dropped; an empty clip reads null", () => {
+    const row = fitUkmtoRow({
+      id: "ukmto-1-26", ref: "1-26", label: "ATTACK", date: null, time: "   ", reportedBy: null,
+      lat: Number.NaN, lon: 56.2, placement: "reported", area: null, text: "x", url: "https://www.ukmto.org/recent-incidents",
+    });
+    expect(row.lat).toBeNull();
+    expect(row.lon).toBeNull();
+    expect(row.placement).toBeNull();
+    expect(row.time).toBeNull();
   });
 });

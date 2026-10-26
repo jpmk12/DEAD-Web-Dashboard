@@ -39,6 +39,9 @@ export async function collectLiveuamap(durationMs, maxItems) {
   };
 
   const end = Date.now() + (durationMs || 20000);
+  // A region map renders its feed well after the tab reports "complete";
+  // nothing found yet is not "nothing to find" until this much has passed.
+  const minEnd = Date.now() + Math.min(12000, durationMs || 20000);
   grab();
   let last = 0, still = 0;
   while (Date.now() < end && store.size < MAX) {
@@ -49,7 +52,7 @@ export async function collectLiveuamap(durationMs, maxItems) {
     });
     await sleep(800);
     grab();
-    if (store.size === last) { still++; if (still >= 5) break; } else { still = 0; last = store.size; }
+    if (store.size === last) { still++; if (still >= 5 && (store.size > 0 || Date.now() >= minEnd)) break; } else { still = 0; last = store.size; }
   }
   grab();
 

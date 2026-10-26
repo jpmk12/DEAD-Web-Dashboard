@@ -4,6 +4,7 @@ import { normEmail, isOwner } from "@/lib/allowlist";
 import { verifyXUploadToken, setXTokenCadence } from "@/lib/xUploadToken";
 import { parseEventsCapture } from "@/lib/eventCapture";
 import { upsertEvents, getEventStatus, clearEvents } from "@/lib/eventStore";
+import { describeDbError } from "@/lib/dbError";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, imported, skipped: parsed.skipped, source: parsed.source, total: status.count });
   } catch (err) {
     console.error("event capture failed:", err);
-    return NextResponse.json({ error: "Capture failed — database unavailable." }, { status: 500 });
+    const f = describeDbError(err);
+    return NextResponse.json({ error: `Capture failed — ${f.text}.`, code: f.code }, { status: f.kind === "unavailable" ? 503 : 500 });
   }
 }
 
