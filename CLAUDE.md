@@ -2451,10 +2451,20 @@ diag and their contracts are pinned from the published feed / API reference.
   carries `expires` / `expirySource` (`page` | `proxy`), the strait text
   says "expires <date>", `MaradBody.pages {read, of}` and the diag's
   `advisories[]` / `skipped[].note` say which rule decided each row. The
-  page layout is UNVERIFIED from the sandbox (same host block as the feed):
-  if the next diag shows `pages.read` > 0 but every row `expirySource:
-  "proxy"`, the Cancellation wording differs — read the diag's advisory
-  URL in a browser and refine `EXPIRE_RX` / `ISSUED_RX`.
+  page layout is UNVERIFIED from the sandbox (same host block as the feed).
+  **Fifth diag (same day): `pages.read` 8 of 8; the parser found a stated
+  expiry on two OLDER pages ("2025-012: expires 2026-03-26", "2025-006:
+  expires 2025-10-06") and an issue date on every page — but the two
+  advisories in effect and 2026-001A gave NO expiry, so the proxy decided
+  them** (2026-001A: page issued 2026-02-28, 240 d — either genuinely
+  expired under MARAD's own six-month rule, or the newer pages phrase the
+  expiry in words `EXPIRE_RX` does not know, e.g. "six months from the
+  date of issue" with no date). `?diag=1&page=2026-001A` →
+  `diagnoseMaradPage` fetches THAT page and returns `maradPageExcerpts`
+  (PURE: ±160 chars around expire / cancel / in effect / supersede /
+  issued / valid until / remain, overlaps merged) plus `info` — paste it
+  and pin the wording in `EXPIRE_RX`; a relative expiry ("N months from
+  issue") would be computed from the page's issue date, never guessed.
 - **The Radar diag read "HTTP 400" on both endpoints and nothing else
   (2026-10-26, third diag)** — and a bare status cannot tell the two
   likely causes apart: Cloudflare answers a MALFORMED Authorization header

@@ -20,7 +20,7 @@
 import { fetchFeed } from "./rss";
 import { fetchWithTimeout } from "./fetchTimeout";
 import { htmlToText } from "./ukmtoParse";
-import { parseMaradItems, parseMaradPage, maradInEffect, MARAD_FEED_URL, type MaradAdvisory, type MaradSkipped, type MaradPageInfo, type MaradFeedItem } from "./maradParse";
+import { parseMaradItems, parseMaradTitle, parseMaradPage, maradInEffect, maradPageExcerpts, MARAD_FEED_URL, type MaradAdvisory, type MaradSkipped, type MaradPageInfo, type MaradFeedItem } from "./maradParse";
 
 export interface MaradBody {
   advisories: MaradAdvisory[];
@@ -101,6 +101,40 @@ async function load(): Promise<MaradBody> {
     return { advisories, live: true, reason: null, fetchedAt, pages };
   } catch (e) {
     return { advisories: cache?.body.advisories ?? [], live: false, reason: e instanceof Error ? e.message : String(e), fetchedAt, pages: { read: 0, of: 0 } };
+  }
+}
+
+export interface MaradPageDiag {
+  number: string; url: string | null; status: number; ms: number; chars: number;
+  info: MaradPageInfo | null;
+  /** The page's own sentences around expire / cancel / in effect / supersede / issued. */
+  excerpts: string[];
+  error?: string;
+}
+
+/** Owner-only: ONE advisory's page, as text excerpts around the words that
+ *  decide "in effect" — the capture-then-build door for a page the sandbox
+ *  cannot reach. `number` is matched against the feed's titles
+ *  (`2026-001A`, case-insensitive); the page is fetched fresh. */
+export async function diagnoseMaradPage(number: string): Promise<MaradPageDiag> {
+  const t0 = Date.now();
+  const want = number.trim().toUpperCase();
+  try {
+    const r = await fetchFeed(MARAD_FEED_URL, "MARAD", "maritime");
+    if (!r.ok) return { number: want, url: null, status: 0, ms: Date.now() - t0, chars: 0, info: null, excerpts: [], error: r.error ?? "feed unreachable" };
+    const all = parseMaradItems(r.items.map((n) => ({ title: n.title, link: n.link, pubDate: n.pubDate })), new Date().toISOString().slice(0, 10), Infinity);
+    // parseMaradItems keeps one per region; search the raw titles too so a
+    // superseded number can still be inspected.
+    const hit = all.find((a) => a.number.toUpperCase() === want)
+      ?? r.items.map((n) => ({ p: parseMaradTitle(String(n.title ?? "")), link: String(n.link ?? "") })).find((x) => x.p?.number.toUpperCase() === want);
+    const url = hit ? ("url" in hit ? hit.url : hit.link) : null;
+    if (!url) return { number: want, url: null, status: 0, ms: Date.now() - t0, chars: 0, info: null, excerpts: [], error: `no feed item numbered ${want} (feed has ${r.items.length} items)` };
+    const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "text/html,*/*" }, cache: "no-store" }, 12_000);
+    const html = (await res.text()).slice(0, 600_000);
+    const text = htmlToText(html);
+    return { number: want, url, status: res.status, ms: Date.now() - t0, chars: text.length, info: res.ok ? parseMaradPage(text) : null, excerpts: maradPageExcerpts(text) };
+  } catch (e) {
+    return { number: want, url: null, status: 0, ms: Date.now() - t0, chars: 0, info: null, excerpts: [], error: e instanceof Error ? e.message : String(e) };
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMaradTitle, regionChokepoints, gradeMarad, parseMaradItems, maradTextsFor, parseMaradPage, maradInEffect, MARAD_MAX_AGE_DAYS } from "../lib/maradParse";
+import { parseMaradTitle, regionChokepoints, gradeMarad, parseMaradItems, maradTextsFor, parseMaradPage, maradInEffect, maradPageExcerpts, MARAD_MAX_AGE_DAYS } from "../lib/maradParse";
 import { htmlToText } from "../lib/ukmtoParse";
 import { readActivity } from "../lib/chokepointSignals";
 import { CHOKEPOINTS } from "../lib/chokepoints";
@@ -110,6 +110,17 @@ describe("parseMaradPage / maradInEffect — the page decides 'in effect', the f
     expect(parseMaradPage("This advisory supersedes and cancels U.S. Maritime Advisory 2025-012.").cancelled).toBe(false);
     expect(parseMaradPage("This advisory has been superseded by 2026-013.").cancelled).toBe(true);
     expect(parseMaradPage("This message was cancelled on 1 October 2026.").cancelled).toBe(true);
+  });
+  it("excerpts for the diag surround the deciding words and merge overlapping hits", () => {
+    const text = "Date Issued: September 23, 2026. 2. Issue: threats persist. 5. Cancellation: This message will automatically expire on 23 March 2027.";
+    const wide = maradPageExcerpts(text, 30);
+    expect(wide.length).toBe(1);                                 // Issued · Cancellation · expire all overlap at ±30 → one excerpt
+    expect(wide[0]).toMatch(/Issued.*Cancellation.*expire on 23 March 2027/);
+    const tight = maradPageExcerpts(text, 6);
+    expect(tight.length).toBeGreaterThanOrEqual(2);              // far enough apart to stay separate
+    expect(tight[0]).toMatch(/Issued/);
+    expect(tight[tight.length - 1]).toMatch(/expire/);
+    expect(maradPageExcerpts("nothing here")).toEqual([]);
   });
   it("the 2026-001A case: an old feed date with a future expiry on the page is IN EFFECT", () => {
     const d = maradInEffect({ date: "2026-01-14" }, { issued: "2026-09-23", expires: "2027-03-23", cancelled: false }, TODAY);

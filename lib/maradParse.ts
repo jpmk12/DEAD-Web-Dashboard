@@ -261,6 +261,23 @@ export function parseMaradPage(text: string): MaradPageInfo {
   return { issued, expires, cancelled: CANCELLED_RX.test(s) };
 }
 
+/** The page's own sentences around the words that decide "in effect" —
+ *  for the production diag, so the Cancellation wording of a page the
+ *  sandbox cannot reach can be read and pinned. ±`radius` chars around each
+ *  hit, merged when they overlap, capped at `max` excerpts. */
+export function maradPageExcerpts(text: string, radius = 160, max = 12): string[] {
+  const s = (text || "").replace(/\s+/g, " ");
+  const rx = /\b(?:expir\w*|cancel\w*|in effect|supersed\w*|rescind\w*|issued|valid until|remain\w*)\b/gi;
+  const spans: [number, number][] = [];
+  for (let m = rx.exec(s); m; m = rx.exec(s)) {
+    const a = Math.max(0, m.index - radius), b = Math.min(s.length, m.index + m[0].length + radius);
+    const last = spans[spans.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b); else spans.push([a, b]);
+    if (spans.length > max * 3) break;
+  }
+  return spans.slice(0, max).map(([a, b]) => `${a > 0 ? "…" : ""}${s.slice(a, b)}${b < s.length ? "…" : ""}`);
+}
+
 export interface MaradEffect {
   keep: boolean;
   reason?: "expired" | "cancelled";

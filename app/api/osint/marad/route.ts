@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { isOwner } from "@/lib/allowlist";
-import { getMaradAdvisories, diagnoseMarad } from "@/lib/marad";
+import { getMaradAdvisories, diagnoseMarad, diagnoseMaradPage } from "@/lib/marad";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +15,14 @@ export async function GET(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ advisories: [], live: false }, { status: 401 });
 
-  if (new URL(req.url).searchParams.get("diag") === "1") {
+  const q = new URL(req.url).searchParams;
+  if (q.get("diag") === "1") {
     if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
+    // `?diag=1&page=2026-001A` → that advisory's page as text excerpts around
+    // the words that decide "in effect" (the Cancellation wording cannot be
+    // read from the sandbox; this is how it gets pinned).
+    const page = q.get("page");
+    if (page) return NextResponse.json(await diagnoseMaradPage(page));
     return NextResponse.json(await diagnoseMarad());
   }
 
