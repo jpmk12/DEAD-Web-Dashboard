@@ -40,9 +40,11 @@ import {
   type CbEvent, type CbDelta, type CbAlert, type CbOwnField,
 } from "./commandBoard";
 import { primer, type Primer, type PrimerConvergence, type PrimerDecision } from "./primer";
-import { functionalRows, type FcRow, type FcCrew, type FcStrait } from "./functionalCommands";
+import { functionalRows, type FcRow, type FcCrew, type FcStrait, type FcOutageSources } from "./functionalCommands";
 import { getSpectrumSummary } from "./spectrum";
 import { getChokepointReads } from "./chokepointReads";
+import { getIodaOutageAlerts } from "./cyberSources";
+import { getRadar } from "./cloudflareRadar";
 
 export interface CommandsBody {
   generatedAt: string;
@@ -200,7 +202,7 @@ async function gatherShared(): Promise<Shared> {
     if (a.id.startsWith("force-")) aor = posture?.find((p) => a.id === `force-${p.label}-red`)?.aor ?? null;
     else if (a.id.startsWith("neo-")) { const c = a.id.slice(4).replace(/-ordered$/, ""); aor = classifyAor({ name: c }); }
     else if (a.id.startsWith("iw-")) aor = boards?.find((b) => a.id.startsWith(`iw-${b.problemId}-`))?.aor ?? null;
-    else if (a.id.startsWith("outage-")) aor = classifyAor({ name: a.id.slice(7) });
+    else if (a.id.startsWith("outage-")) aor = classifyAor({ name: a.id.slice(7).replace(/^cf-/, "") });
     return { id: a.id, severity: a.severity, kind: a.kind, title: a.title, sub: a.sub, aor: aor === "UNKNOWN" ? null : aor };
   })));
 
@@ -218,14 +220,23 @@ async function gatherShared(): Promise<Shared> {
   // The functional commands' domain picture — the spectrum summary and the
   // strait reads, both bounded (each keeps its own cache and assembles in
   // the background past the wait; the row says "assembling" meanwhile).
-  const [spectrum, cpBody] = await Promise.all([
+  const [spectrum, cpBody, ioda, radar] = await Promise.all([
     within(getSpectrumSummary({ maxWaitMs: 8_000 }), 9_000),
     within(getChokepointReads(), 12_000).catch(() => null),
+    // The two outage sources, so the USCYBERCOM Outages cell can say which
+    // answered (both are cached in their libs; the alerts pass already
+    // asked them, so these are usually cache hits).
+    within(getIodaOutageAlerts(24), 6_000),
+    within(getRadar(), 6_000),
   ]);
+  const outages: FcOutageSources = {
+    ioda: !!ioda?.live,
+    radar: radar ? { configured: radar.configured, live: radar.live, reason: radar.reason } : { configured: false, live: false, reason: "Radar read unavailable" },
+  };
   const straits: FcStrait[] | null = cpBody
     ? cpBody.signals.filter((s) => s.id !== "russia-ovf").map((s) => ({ id: s.id, name: s.name, aor: classifyAor({ lat: s.lat, lon: s.lon, name: s.name }), score: s.score, acts: s.acts, threats: s.threats, line: s.line, transit: s.transit?.state ?? null }))
     : null;
-  const functional = functionalRows({ spectrum, demand, crew, straits, sitreps, ownFields, alerts: alertsRaw });
+  const functional = functionalRows({ spectrum, demand, crew, straits, sitreps, ownFields, alerts: alertsRaw, outages });
 
   const countryAors: Record<string, Aor> = {};
   for (const c of mt.countries) countryAors[c.trim().toLowerCase()] = classifyAor({ name: c });

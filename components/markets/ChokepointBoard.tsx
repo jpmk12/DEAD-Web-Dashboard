@@ -96,6 +96,9 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
   // was read, and through which door — an empty strait with a dead UKMTO
   // fetch and no capture is UNKNOWN, not calm.
   const [ukmto, setUkmto] = useState<{ live: boolean; count: number; reason: string | null; captured: number } | null>(null);
+  // The MARAD door: the U.S. government's standing advisories by region — a
+  // declared threat on every strait the region names. A dead feed is UNKNOWN.
+  const [marad, setMarad] = useState<{ live: boolean; count: number; reason: string | null } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
 
@@ -107,6 +110,7 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
       .then((d) => {
         if (Array.isArray(d?.signals)) setSignals(d.signals);
         if (d?.ukmto && typeof d.ukmto === "object") setUkmto(d.ukmto);
+        if (d?.marad && typeof d.marad === "object") setMarad(d.marad);
       })
       .catch(() => {});
   }, []);
@@ -133,6 +137,16 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
               : `UKMTO unread — ${ukmto.reason ?? "no entries"}. Add https://www.ukmto.org/recent-incidents to the capture extension's targets.`}
           >
             UKMTO {ukmto.count > 0 ? ukmto.count : "UNKNOWN"}{ukmto.count > 0 && !ukmto.live ? " · captured" : ""}
+          </span>
+        )}
+        {marad && (
+          <span
+            className={`text-[8px] font-bold uppercase tracking-wider px-1 rounded border ${marad.live ? "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" : "text-amber-200 border-amber-500/50 bg-amber-500/10"}`}
+            title={marad.live
+              ? `${marad.count} MARAD advisor${marad.count === 1 ? "y" : "ies"} in effect (maritime.dot.gov/msci-advisories) — each is a declared THREAT on the straits its region names, never an act`
+              : `MARAD advisories unread — ${marad.reason ?? "feed unreachable"}. UNKNOWN, not "no advisory in effect".`}
+          >
+            MARAD {marad.live ? marad.count : "UNKNOWN"}
           </span>
         )}
       </div>

@@ -5,6 +5,7 @@ import { getSpectrumSummary } from "@/lib/spectrum";
 import { diagnoseCyberSources } from "@/lib/cyberSources";
 import { diagnoseSpaceSources } from "@/lib/spaceSources";
 import { diagnoseSpaceTrack } from "@/lib/spaceTrack";
+import { diagnoseRadar } from "@/lib/cloudflareRadar";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +20,8 @@ export async function GET(req: Request) {
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (new URL(req.url).searchParams.get("diag") === "1") {
     if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
-    const [cyber, space, spaceTrack] = await Promise.all([diagnoseCyberSources(), diagnoseSpaceSources(), diagnoseSpaceTrack()]);
-    return NextResponse.json({ cyber, space, spaceTrack });
+    const [cyber, space, spaceTrack, radar] = await Promise.all([diagnoseCyberSources(), diagnoseSpaceSources(), diagnoseSpaceTrack(), diagnoseRadar()]);
+    return NextResponse.json({ cyber, space, spaceTrack, radar });
   }
   try {
     return NextResponse.json(await getSpectrumSummary({ maxWaitMs: 8_000 }));

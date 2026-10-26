@@ -21,6 +21,9 @@ import { assessWarning } from "./warningAssess";
 import { getSpectrumSummary } from "./spectrum";
 import { getIodaOutageAlerts } from "./cyberSources";
 import { outageAlertsFor } from "./cyberSignals";
+import { getRadar } from "./cloudflareRadar";
+import { radarReadsFor, RADAR_LEVEL_ORDINAL } from "./radarSignals";
+import { countryIso2 } from "./holidays";
 import { recordSensorDay } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
 
@@ -167,6 +170,29 @@ async function build(): Promise<AlertCheck> {
         for (const c of new Set(tracked)) {
           const worst = hits.filter((h) => h.country.toLowerCase() === c.toLowerCase()).reduce((m, h) => Math.max(m, LEVEL[h.level] ?? 1), 0);
           recordSensorDay(sensorKey("outage", c), day, worst).catch(() => {});
+        }
+      }
+      // Cloudflare Radar — the second, independent outage source. An ONGOING
+      // NATIONWIDE outage from a hostile or governmental cause in a tracked
+      // country is RED; any other ongoing nationwide annotation is amber;
+      // regional / network reads stay on the country room. Not configured or
+      // dead → nothing here (the Outages cell says UNKNOWN), never a fake
+      // quiet day in the series.
+      const radar = await getRadar();
+      if (radar.configured && radar.live) {
+        const byCode = new Map<string, string>();
+        for (const c of new Set(tracked)) { const code = countryIso2(c); if (code) byCode.set(code, c); }
+        const reads = radarReadsFor(radar.outages, radar.anomalies, [...byCode.keys()], Date.now());
+        const day = new Date().toISOString().slice(0, 10);
+        for (const code of byCode.keys()) {
+          const r = reads.find((x) => x.code === code);
+          recordSensorDay(sensorKey("cfout", code), day, r ? RADAR_LEVEL_ORDINAL[r.level] : 0).catch(() => {});
+        }
+        for (const r of reads) {
+          const name = byCode.get(r.code) ?? r.name;
+          const nationwide = r.outages.some((o) => o.scope === "NATIONWIDE" && (o.endMs == null || o.endMs > Date.now()));
+          if (r.level === "red") alerts.push({ id: `outage-cf-${name}`, severity: "red", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
+          else if (r.level === "amber" && nationwide) alerts.push({ id: `outage-cf-${name}`, severity: "amber", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
         }
       }
     }

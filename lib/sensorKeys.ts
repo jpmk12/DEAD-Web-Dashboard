@@ -36,6 +36,7 @@ export const SENSOR_KEYS: readonly SensorKeyDef[] = [
   { prefix: "swx",      policy: "peak", what: "NOAA scale ordinal observed that day, G | R | S" },
   { prefix: "kev",      policy: "peak", what: "KEVs added that day naming a declared vendor, per vendor slug" },
   { prefix: "outage",   policy: "peak", what: "max IODA alert level ordinal, per tracked country slug" },
+  { prefix: "cfout",    policy: "peak", what: "Cloudflare Radar outage level ordinal (3 red · 2 amber · 1 ended note · 0 nothing), per tracked country ISO2" },
   { prefix: "px",       policy: "last", what: "daily close, per symbol" },
   // Counterspace posture (docs/PLAN-SPACE-CYBER-ASK.md §2)
   { prefix: "rpo",      policy: "peak", what: "inspector-fleet manoeuvres detected that day, per actor ISO3" },

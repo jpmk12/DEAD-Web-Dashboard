@@ -349,13 +349,26 @@ export default function CountryRoom({ country, sel, base, active = true, section
         const rows: { led: string; text: React.ReactNode; src: string }[] = [
           { led: led(dg.internet.live, worstAlert ? (worstAlert.level === "critical" ? "r" : "a") : "g"), src: "IODA",
             text: dg.internet.live ? (worstAlert ? `Connectivity outage alert — ${worstAlert.level} (${worstAlert.sources} source${worstAlert.sources === 1 ? "" : "s"}, 24 h)` : "No national connectivity outage alert (24 h)") : "IODA unreachable — connectivity UNKNOWN" },
+          // Cloudflare Radar — the second outage source. Not configured is
+          // UNKNOWN (never "no outage"); an ended annotation is a note that
+          // does not colour.
+          ...(dg.radar
+            ? dg.radar.configured && dg.radar.live
+              ? dg.radar.reads.length
+                ? dg.radar.reads.slice(0, 3).map((r) => ({
+                    led: r.level === "red" ? "r" : r.level === "amber" ? "a" : "g", src: "Cloudflare Radar",
+                    text: r.url ? <>{r.why}{" "}<a href={r.url} target="_blank" rel="noopener noreferrer" className="text-sky-300/80 hover:text-sky-200 text-[10px]">write-up ↗</a></> : r.why,
+                  }))
+                : [{ led: "g", src: "Cloudflare Radar", text: "No outage annotation or verified traffic anomaly (7 d)" }]
+              : [{ led: "u", src: "Cloudflare Radar", text: dg.radar.configured ? `Cloudflare Radar unreachable (${dg.radar.reason ?? "unknown"}) — UNKNOWN` : "Cloudflare Radar not configured — UNKNOWN, not clear (CLOUDFLARE_RADAR_TOKEN)" }]
+            : []),
           { led: led(dg.gps.live, dg.gps.cells >= 10 ? "a" : "g"), src: "GPSJam",
             text: dg.gps.live ? `${dg.gps.cells} elevated GPS-interference cell${dg.gps.cells === 1 ? "" : "s"} within 500 km${dg.gps.date ? ` (${dg.gps.date})` : ""}` : "GPSJam unreachable — interference UNKNOWN" },
           { led: led(dg.ransomware.live, dg.ransomware.victims30 >= 5 ? "a" : "g"), src: "ransomware.live",
             text: dg.ransomware.live ? `${dg.ransomware.victims30} ransomware victim${dg.ransomware.victims30 === 1 ? "" : "s"} in-country (30 d)` : "ransomware.live unreachable — UNKNOWN" },
         ];
         return (
-          <Card title="⌁ Digital & spectrum" meta="IODA · GPSJam · CISA · ransomware.live">
+          <Card title="⌁ Digital & spectrum" meta="IODA · Cloudflare Radar (CC BY-NC 4.0) · GPSJam · CISA · ransomware.live">
             <ul className="space-y-1">
               {rows.map((r, i) => (
                 <li key={i} className="text-[11.5px] text-slate-300 flex items-start gap-1.5">

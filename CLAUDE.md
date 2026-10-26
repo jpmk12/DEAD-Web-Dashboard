@@ -2335,7 +2335,7 @@ the strait reads, SITREP summaries, own fields, alerts):
   WORST across boards and names it. USSTRATCOM (no honest open sensor)
   and USSOCOM (a customer of mobility) are deliberately absent and the
   footer says so. MARAD advisories (sealift) and Cloudflare Radar (cyber)
-  are the next sources worth adding; not built.
+  were built 2026-10-26 — see "MARAD advisories and Cloudflare Radar" below.
 - **Server**: `commandsAssemble.gatherShared` gathers `getSpectrumSummary`
   (8 s) and `getChokepointReads` (12 s) beside the rest and keeps the crew
   summary; `Shared.functional` → `CommandsBody.functional` (null on a
@@ -2348,6 +2348,72 @@ the strait reads, SITREP summaries, own fields, alerts):
   transcom / AMC / mobility enterprise; spacecom / Space Force; cybercom /
   cyber command) and the pack leads with the named command's rows
   (`functionalText`). No new npm dep (esbuild `0`).
+
+### MARAD advisories and Cloudflare Radar (2026-10-26, "let's explore adding the MARAD and Cloudflare sensor" → "I have an api token")
+Two more official-record doors, both the UKMTO pattern (a PURE parser that
+pre-grades, a server fetcher that is fail-safe and diag-able, consumers
+that already existed). Neither host is reachable from the sandbox
+(`maritime.dot.gov`, `api.cloudflare.com`), so both ship with a production
+diag and their contracts are pinned from the published feed / API reference.
+- **MARAD MSCI advisories** (`lib/maradParse.ts` PURE, tested in
+  `tests/maradParse.test.ts`; `lib/marad.ts` server, 1-h cache; `GET
+  /api/osint/marad`, `?diag=1` owner-only): the U.S. Maritime
+  Administration's standing statement of threat to shipping by region, from
+  the site's first-party RSS (`/taxonomy/term/441/feed`, title / link /
+  pubDate only). `parseMaradTitle` reads `YYYY-NNN[a-z]?-<Region>-<Topic>`;
+  `regionChokepoints` places the region clause on chokepoint ids with
+  MARAD's own spellings ("Bab el Mandeb", "Persian Gulf"); `gradeMarad`
+  classes the TOPIC (mines › attacks › piracy / seizure › closure ›
+  harassment; the generic "Threats to Commercial Vessels by Iran and its
+  Proxies" is the `approach` class) and **always as a declared THREAT by
+  the authority — never an act**: MARAD records the environment, UKMTO and
+  the wires record the incidents. `parseMaradItems` keeps the NEWEST
+  advisory per region (a reissue supersedes), validates the permalink
+  (`https://www.maritime.dot.gov/msci/…` only), and drops anything older
+  than `MARAD_MAX_AGE_DAYS` = 185 (MARAD's own ~6-month auto-expiry is not
+  in the feed, so age is the honest proxy). `maradTextsFor(cpId,
+  advisories)` hands the strait pre-graded texts (source "MARAD") beside
+  `ukmtoTextsFor` in `lib/chokepointReads.ts`, so the ChokepointBoard, the
+  I&W chokepoint indicator and the USTRANSCOM Straits cell (a declared
+  threat → amber) read it with no further wiring; the body carries
+  `sources.marad` and a `marad {live, count, reason}` block the
+  ChokepointBoard header renders as a chip (green with the count · amber
+  UNKNOWN with the reason). A feed that answers but parses zero titles
+  reads `live:false` "check the title shape", never "nothing in effect".
+- **Cloudflare Radar** (`lib/radarSignals.ts` PURE, tested in
+  `tests/radarSignals.test.ts`; `lib/cloudflareRadar.ts` server, 15-min
+  cache, two requests per pass): the second, INDEPENDENT internet-outage
+  source beside IODA. Needs **`CLOUDFLARE_RADAR_TOKEN`** (a free account's
+  Custom API Token, Account › Radar › Read) sent as a Bearer header — the
+  token is read from the env only, never logged, never in a reply or a
+  prompt; a 401/403 reads "token refused — check the Radar › Read
+  permission". `parseRadarOutages` reads `result.annotations[]`
+  (`outage.outageType` scope NATIONWIDE / REGIONAL / NETWORK / PLATFORM,
+  `outage.outageCause`, `locationsDetails`, start / null-while-ongoing end,
+  https `linkedUrl` only); `parseRadarAnomalies` reads
+  `result.trafficAnomalies[]` (LOCATION | AS, VERIFIED | UNVERIFIED).
+  **The level rule** (`radarOutageLevel`): an ONGOING NATIONWIDE outage
+  whose cause is MILITARY_ACTION / GOVERNMENT_DIRECTED / CYBERATTACK → red;
+  any other ongoing annotation or a VERIFIED anomaly → amber; ended inside
+  the 7-d window → a note that never colours; an UNVERIFIED anomaly never
+  colours. `radarReadsFor(outages, anomalies, iso2[], nowMs)` returns one
+  read per country that has anything — ABSENT means nothing, and the CALLER
+  decides green (the feed answered) vs UNKNOWN (it did not). Consumers:
+  `lib/alerts.ts` adds `outage-cf-<country>` (red for a red read, amber for
+  an ongoing nationwide amber; regional / network reads stay on the country
+  room) and records `cfout:<iso2>` (day-peak, 3/2/1/0 — registered in
+  `sensorKeys.ts`; nothing written when not configured or dead); the
+  USCYBERCOM **Outages** cell takes `FcInput.outages` (`FcOutageSources`:
+  which of IODA / Radar answered — gathered in `commandsAssemble` beside the
+  spectrum summary) and is green only when at least one answered, naming
+  the missing one ("Cloudflare Radar not configured" is a detail line,
+  never "no outage"); the country room's Digital card
+  (`CountryDigital.radar`) lists the country's reads with the write-up link
+  or says not configured / unreachable; `/api/spectrum?diag=1` carries a
+  `radar` list (configured / status / parsed / sample lines, no token).
+  Data is CC BY-NC 4.0 — the card's meta line attributes it. Not built:
+  BGP hijack / leak events and the netflows timeseries (the API has them).
+No new npm dep (esbuild `0`).
 
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to
@@ -2660,7 +2726,10 @@ NOAA SWPC scales (`services.swpc.noaa.gov`), Launch Library 2
 (`www.space-track.org`, cookie login with `SPACETRACK_USER` / `SPACETRACK_PASS`
 — the inspector-fleet element sets); UKMTO recent
 incidents (`www.ukmto.org`, HTML — reported to refuse automated access, so the
-browser-capture extension is the reliable door);
+browser-capture extension is the reliable door); MARAD MSCI advisories
+(`www.maritime.dot.gov`, the taxonomy-term RSS); Cloudflare Radar
+(`api.cloudflare.com/client/v4/radar`, Bearer `CLOUDFLARE_RADAR_TOKEN` —
+outage annotations + traffic anomalies);
 embeds, GDELT (DOC, local news), U.S. State Dept (`travel.state.gov` — the
 `TAsTWs.xml` advisory RSS + the per-country `destination/{slug}.html` pages),
 UCDP (`ucdpapi.pcr.uu.se`), ACLED

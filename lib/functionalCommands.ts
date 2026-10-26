@@ -100,6 +100,10 @@ export interface FcCrew {
   lines: { aor: string; direction: "rise" | "hold" | "fall"; posture: CrewPosture; mismatch: boolean; line: string }[];
 }
 export interface FcStrait { id: string; name: string; aor: Aor; score: number; acts: number; threats: number; line: string | null; transit?: string | null }
+/** Which outage sources answered this pass — IODA (Georgia Tech) and
+ *  Cloudflare Radar are independent; the Outages cell is green only when at
+ *  least one answered, and names what it is missing. */
+export interface FcOutageSources { ioda: boolean; radar: { configured: boolean; live: boolean; reason: string | null } }
 export interface FcInput {
   spectrum: FcSpectrum | null;
   demand: CbDemand[] | null;
@@ -108,6 +112,8 @@ export interface FcInput {
   sitreps: CbSitrep[] | null;
   ownFields: CbOwnField[];
   alerts: CbAlert[] | null;
+  /** Absent (older callers) → the cell falls back to the cyber sensors' liveness. */
+  outages?: FcOutageSources | null;
 }
 
 const LED_RANK: Record<Led, number> = { g: 0, u: 1, a: 2, r: 3 };
@@ -225,10 +231,25 @@ function cybercom(i: FcInput): FcRow {
     cells.push({ key: "edge", label: "Edge", led: sp.edge.led, text: sp.edge.hits.length ? `${sp.edge.hits.length} KEV hit${sp.edge.hits.length === 1 ? "" : "s"} on ${sp.edge.vendors.join(", ")}${ransom ? ` · ${ransom} in ransomware use` : ""}` : `no KEV hit on ${sp.edge.vendors.join(", ")}`, live: true, detail: sp.edge.hits.map((h) => `${h.cve} — ${h.vendor} ${h.product}${h.ransomware ? " (ransomware)" : ""}`) });
   }
   // Outages.
+  // Two independent sources: IODA (Georgia Tech) and Cloudflare Radar. An
+  // alert from either is RED here (the alert itself already carries its own
+  // severity); with no alert the cell is green only when at least one
+  // source ANSWERED, and the detail names the one that did not — a Radar
+  // token that is not set is "not configured", never "no outage".
   const outages = (i.alerts ?? []).filter((a) => a.id.startsWith("outage-"));
-  if (outages.length) cells.push({ key: "outages", label: "Outages", led: "r", text: outages.map((a) => a.title).join(" · "), live: true, detail: outages.map((a) => `${a.title} — ${a.sub}`) });
-  else if (!i.alerts) cells.push({ key: "outages", label: "Outages", led: "u", text: "UNKNOWN — alerts unavailable", live: false, detail: [] });
-  else cells.push({ key: "outages", label: "Outages", led: sp?.cyber?.live ? "g" : "u", text: sp?.cyber?.live ? "no critical IODA outage alert in a tracked country" : "no outage alert — but the cyber sensors did not answer, so UNKNOWN", live: !!sp?.cyber?.live, detail: [] });
+  const src = i.outages;
+  const srcLines: string[] = src
+    ? [
+        src.ioda ? "IODA answered" : "IODA did not answer — UNKNOWN on that source",
+        !src.radar.configured ? `Cloudflare Radar not configured (${src.radar.reason ?? "set CLOUDFLARE_RADAR_TOKEN"})` : src.radar.live ? "Cloudflare Radar answered" : `Cloudflare Radar did not answer (${src.radar.reason ?? "unknown"}) — UNKNOWN on that source`,
+      ]
+    : [];
+  const answered = src ? src.ioda || src.radar.live : !!sp?.cyber?.live;
+  const answeredBy = src ? [src.ioda ? "IODA" : null, src.radar.live ? "Cloudflare Radar" : null].filter(Boolean).join(" + ") : "IODA";
+  if (outages.length) cells.push({ key: "outages", label: "Outages", led: "r", text: outages.map((a) => a.title).join(" · "), live: true, detail: [...outages.map((a) => `${a.title} — ${a.sub}`), ...srcLines] });
+  else if (!i.alerts) cells.push({ key: "outages", label: "Outages", led: "u", text: "UNKNOWN — alerts unavailable", live: false, detail: srcLines });
+  else if (answered) cells.push({ key: "outages", label: "Outages", led: "g", text: `no nationwide outage alert in a tracked country (${answeredBy})`, live: true, detail: srcLines });
+  else cells.push({ key: "outages", label: "Outages", led: "u", text: src ? "no outage alert — but neither outage source answered, so UNKNOWN" : "no outage alert — but the cyber sensors did not answer, so UNKNOWN", live: false, detail: srcLines });
   // Actor posture.
   const posts = (sp?.postures ?? []).filter((p) => p.cyber);
   if (!sp) cells.push({ key: "actors", label: "Actor posture", led: "u", text: pend ?? "UNKNOWN", live: false, detail: [] });

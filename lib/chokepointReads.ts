@@ -15,6 +15,8 @@ import { sensorKey } from "./sensorKeys";
 import { precedes, type LeadResult } from "./series";
 import { getUkmtoIncidents } from "./ukmto";
 import { ukmtoGeoEvents, ukmtoTextsFor } from "./ukmtoParse";
+import { getMaradAdvisories } from "./marad";
+import { maradTextsFor } from "./maradParse";
 
 export interface ChokepointRead extends Chokepoint, ActivityRead {
   totalEvents: number;
@@ -30,11 +32,15 @@ export interface ChokepointRead extends Chokepoint, ActivityRead {
 export interface ChokepointReadsBody {
   signals: ChokepointRead[];
   generatedAt: string;
-  sources: { conflictEvents: number; acledEvents: number; ukmto?: number };
+  sources: { conflictEvents: number; acledEvents: number; ukmto?: number; marad?: number };
   /** The UKMTO door: live = the direct fetch parsed entries; the count is
    *  what the board read (fetch + capture merged); reason says why a dead
    *  fetch is dead. */
   ukmto?: { live: boolean; count: number; reason: string | null; captured: number };
+  /** The MARAD door: the U.S. government's standing advisories by region —
+   *  declared THREATS on the straits they name. `count` is advisories in
+   *  effect (all regions); a dead feed reads live:false with the reason. */
+  marad?: { live: boolean; count: number; reason: string | null };
   /** AIS bridge status — so an all-UNKNOWN transit column can be explained. */
   ais?: AisStatus;
 }
@@ -104,7 +110,7 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
   // Georeferenced events, from both conflict feeds. ACLED is the higher-fidelity
   // layer but its free tier embargoes recent data, so UCDP/ReliefWeb carries the
   // current picture — exactly the division the Crisis map already assumes.
-  const [conflict, acled, ukmto] = await Promise.all([
+  const [conflict, acled, ukmto, marad] = await Promise.all([
     getConflictPoints().catch(() => []),
     getAcledEvents().catch(() => []),
     // UKMTO is the primary record for the Gulf / Red Sea / Gulf of Aden —
@@ -113,8 +119,13 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
     // pre-graded (lib/ukmtoParse gradeUkmto), so a reported ATTACK is a
     // reported act whatever the wires have written yet.
     getUkmtoIncidents().catch(() => null),
+    // MARAD advisories are the U.S. government's standing statement of
+    // threat by region — a DECLARED THREAT on every strait the region names
+    // (lib/maradParse gradeMarad), never an act. Pre-graded like UKMTO.
+    getMaradAdvisories().catch(() => null),
   ]);
   const ukmtoIncidents = ukmto?.incidents ?? [];
+  const maradAdvisories = marad?.advisories ?? [];
 
   const events: GeoEvent[] = [
     ...ukmtoGeoEvents(ukmtoIncidents),
@@ -142,6 +153,7 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
     const { items: news, live: newsLive } = await gdeltLocalNewsLive(cp.name).catch(() => ({ items: [], live: false }));
     const texts: ChokepointText[] = [
       ...ukmtoTextsFor(cp, ukmtoIncidents),
+      ...maradTextsFor(cp.id, maradAdvisories),
       ...news.map((n) => ({ title: n.title, summary: n.summary, link: n.link, source: n.source, pubDate: n.pubDate })),
     ];
     const read = readActivity(cp, texts, events, today);
@@ -166,9 +178,12 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
     generatedAt: new Date().toISOString(),
     // So an all-zero board reads as "nothing interdiction-shaped reported",
     // never as "the straits are fine".
-    sources: { conflictEvents: conflict.length, acledEvents: acled.length, ukmto: ukmtoIncidents.length },
+    sources: { conflictEvents: conflict.length, acledEvents: acled.length, ukmto: ukmtoIncidents.length, marad: maradAdvisories.length },
     ukmto: ukmto
       ? { live: ukmto.fetch.live, count: ukmtoIncidents.length, reason: ukmto.fetch.reason, captured: ukmto.store.captured }
       : { live: false, count: 0, reason: "UKMTO read unavailable", captured: 0 },
+    marad: marad
+      ? { live: marad.live, count: maradAdvisories.length, reason: marad.reason }
+      : { live: false, count: 0, reason: "MARAD read unavailable" },
   };
 }
