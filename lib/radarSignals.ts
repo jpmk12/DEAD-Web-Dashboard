@@ -211,3 +211,71 @@ export function radarReadsFor(outages: RadarOutage[], anomalies: RadarAnomaly[],
 
 /** Ordinal for the daily series (`cfout:<iso2>`, day-peak): 3 red · 2 amber · 1 note · 0 nothing. */
 export const RADAR_LEVEL_ORDINAL: Record<RadarLevel, number> = { red: 3, amber: 2, note: 1 };
+
+// ---------------------------------------------------------------------------
+// Error bodies. The Cloudflare API answers every refusal as
+// `{ success:false, errors:[{ code, message, error_chain?:[{code,message}] }] }`
+// — and the HTTP status alone misleads: a MALFORMED Authorization header
+// (a Global API Key pasted where a token belongs, a stray character) is
+// HTTP 400 code 6003 "Invalid request headers" › 6111 "Invalid format for
+// Authorization header", not a 401. The first production diag (2026-10-26)
+// showed exactly "HTTP 400" on both endpoints with nothing else, which could
+// have been the token OR an over-limit query. So the body is read, the codes
+// and messages are kept (they never carry the token), and the class is named.
+
+export type RadarErrorClass = "token" | "query" | "rate" | "other";
+
+export interface RadarErrorInfo {
+  cls: RadarErrorClass;
+  /** `HTTP 400 — 6003 Invalid request headers › 6111 Invalid format for Authorization header`. */
+  detail: string;
+  /** One sentence the operator can act on. */
+  hint: string;
+}
+
+/** Cloudflare error codes that mean the credential itself. 6003/6111 =
+ *  malformed Authorization header (a Global API Key or a stray character);
+ *  10000 = authentication error; 9109 / 9106 = token invalid or expired;
+ *  9103 / 10001 = the token lacks the permission. */
+const TOKEN_CODES = new Set([6003, 6111, 6103, 9103, 9106, 9109, 10000, 10001]);
+
+/**
+ * Describe a non-OK reply (PURE): the status plus the error chain from the
+ * body when it parses, classed as `token` (fix the credential), `query` (a
+ * parameter the API refused — the message names it), `rate` (429) or
+ * `other`. The body text is external content: only codes and messages are
+ * kept, capped, and never the token (Cloudflare never echoes it anyway).
+ */
+export function describeRadarError(status: number, bodyText: string | null | undefined): RadarErrorInfo {
+  const parts: string[] = [];
+  const codes: number[] = [];
+  try {
+    const j = bodyText ? JSON.parse(bodyText) as { errors?: unknown } : null;
+    const errs = Array.isArray(j?.errors) ? (j!.errors as Record<string, unknown>[]) : [];
+    for (const e of errs.slice(0, 3)) {
+      if (!e || typeof e !== "object") continue;
+      const code = Number(e.code);
+      if (Number.isInteger(code)) codes.push(code);
+      const line = [Number.isInteger(code) ? String(code) : "", str(e.message).slice(0, 160)].filter(Boolean).join(" ");
+      const chain = Array.isArray(e.error_chain) ? (e.error_chain as Record<string, unknown>[]).slice(0, 2).map((c) => {
+        const cc = Number(c?.code); if (Number.isInteger(cc)) codes.push(cc);
+        return [Number.isInteger(cc) ? String(cc) : "", str(c?.message).slice(0, 160)].filter(Boolean).join(" ");
+      }).filter(Boolean) : [];
+      parts.push([line, ...chain].filter(Boolean).join(" › "));
+    }
+  } catch { /* not JSON — the status is all we have */ }
+  const text = parts.filter(Boolean).join("; ");
+  const detail = `HTTP ${status}${text ? ` — ${text}` : ""}`.slice(0, 400);
+  const lower = text.toLowerCase();
+  let cls: RadarErrorClass = "other";
+  if (status === 429) cls = "rate";
+  else if (status === 401 || status === 403 || codes.some((c) => TOKEN_CODES.has(c)) || /authoriz|authenticat|token/.test(lower)) cls = "token";
+  else if (status === 400 && (/limit|daterange|date_range|datestart|dateend|offset|format|param|invalid|must be/.test(lower))) cls = "query";
+  const hint =
+    cls === "token" ? "the credential — use a Custom API Token with Account › Radar › Read (not the Global API Key), pasted with no stray characters" :
+    cls === "query" ? "a query parameter the API refused — the message names it" :
+    cls === "rate" ? "rate-limited — the pass is retried after the cache window" :
+    status === 400 ? "HTTP 400 with no error body — the request shape or the credential; see the diag" :
+    "the host did not answer usefully";
+  return { cls, detail, hint };
+}

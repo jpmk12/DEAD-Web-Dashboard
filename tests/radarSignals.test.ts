@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRadarOutages, parseRadarAnomalies, radarOutageLevel, radarReadsFor, RADAR_LEVEL_ORDINAL } from "../lib/radarSignals";
+import { parseRadarOutages, parseRadarAnomalies, radarOutageLevel, radarReadsFor, RADAR_LEVEL_ORDINAL, describeRadarError } from "../lib/radarSignals";
 import { functionalRows, type FcInput } from "../lib/functionalCommands";
 
 // The host is unreachable from the sandbox; these bodies follow the published
@@ -76,6 +76,36 @@ describe("radarOutageLevel / radarReadsFor — the level is earned", () => {
   it("a window excludes outages that ended before it", () => {
     const old = parseRadarOutages({ result: { annotations: [{ id: "9", description: "old", startDate: "2026-09-01T00:00:00Z", endDate: "2026-09-02T00:00:00Z", locations: ["IR"], outage: { outageType: "NATIONWIDE", outageCause: "MILITARY_ACTION" } }] } });
     expect(radarReadsFor(old, [], ["IR"], NOW)).toEqual([]);
+  });
+});
+
+describe("describeRadarError — the error body names the class, the token never rides along", () => {
+  it("a malformed Authorization header is HTTP 400 code 6003, and reads as the TOKEN, not the query", () => {
+    const body = JSON.stringify({ success: false, errors: [{ code: 6003, message: "Invalid request headers", error_chain: [{ code: 6111, message: "Invalid format for Authorization header" }] }], messages: [], result: null });
+    const e = describeRadarError(400, body);
+    expect(e.cls).toBe("token");
+    expect(e.detail).toBe("HTTP 400 — 6003 Invalid request headers › 6111 Invalid format for Authorization header");
+    expect(e.hint).toMatch(/Custom API Token/);
+    expect(e.hint).toMatch(/not the Global API Key/);
+  });
+  it("a refused parameter reads as the QUERY and keeps the message", () => {
+    const e = describeRadarError(400, JSON.stringify({ success: false, errors: [{ code: 1000, message: "limit must be at most 100" }] }));
+    expect(e.cls).toBe("query");
+    expect(e.detail).toBe("HTTP 400 — 1000 limit must be at most 100");
+  });
+  it("401 / 403 / 9109 are the token; 429 is the rate; a bodiless 400 is named as such", () => {
+    expect(describeRadarError(403, JSON.stringify({ errors: [{ code: 9109, message: "Invalid access token" }] })).cls).toBe("token");
+    expect(describeRadarError(401, "").cls).toBe("token");
+    expect(describeRadarError(429, "<html>").cls).toBe("rate");
+    const bare = describeRadarError(400, null);
+    expect(bare.cls).toBe("other");
+    expect(bare.detail).toBe("HTTP 400");
+    expect(bare.hint).toMatch(/no error body/);
+  });
+  it("a hostile body is capped and only codes + messages survive", () => {
+    const e = describeRadarError(400, JSON.stringify({ errors: [{ code: 1, message: "x".repeat(2000), secret: "Bearer abc" }] }));
+    expect(e.detail.length).toBeLessThanOrEqual(400);
+    expect(e.detail).not.toMatch(/Bearer/);
   });
 });
 

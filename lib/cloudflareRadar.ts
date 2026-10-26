@@ -16,11 +16,16 @@
 // Data © Cloudflare, CC BY-NC 4.0 — attribution rendered wherever shown.
 
 import { fetchWithTimeout } from "./fetchTimeout";
-import { parseRadarOutages, parseRadarAnomalies, type RadarOutage, type RadarAnomaly } from "./radarSignals";
+import { parseRadarOutages, parseRadarAnomalies, describeRadarError, type RadarOutage, type RadarAnomaly, type RadarErrorClass } from "./radarSignals";
 
 export const RADAR_BASE = "https://api.cloudflare.com/client/v4/radar";
-export const RADAR_OUTAGES_URL = `${RADAR_BASE}/annotations/outages?dateRange=7d&limit=200&format=json`;
-export const RADAR_ANOMALIES_URL = `${RADAR_BASE}/traffic_anomalies?dateRange=7d&limit=200&format=json`;
+// The query is the shape of the Outages doc's own example
+// (`limit=5&offset=0&dateRange=7d&format=json`). The maximum `limit` is not
+// published and could not be read from the sandbox; 100 is a common cap and
+// seven days of annotations are far fewer. If a 400 names `limit`, lower it.
+export const RADAR_QUERY = "limit=100&offset=0&dateRange=7d&format=json";
+export const RADAR_OUTAGES_URL = `${RADAR_BASE}/annotations/outages?${RADAR_QUERY}`;
+export const RADAR_ANOMALIES_URL = `${RADAR_BASE}/traffic_anomalies?${RADAR_QUERY}`;
 export const RADAR_ATTRIBUTION = "Cloudflare Radar — radar.cloudflare.com (CC BY-NC 4.0)";
 
 export interface RadarBody {
@@ -51,13 +56,23 @@ export async function getRadar(): Promise<RadarBody> {
   return inflight;
 }
 
-async function fetchJson(url: string, token: string, timeoutMs = 10_000): Promise<{ status: number; json: unknown | null; error?: string }> {
+interface FetchResult { status: number; json: unknown | null; error?: string; errorClass?: RadarErrorClass; hint?: string }
+
+async function fetchJson(url: string, token: string, timeoutMs = 10_000): Promise<FetchResult> {
   try {
     const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "User-Agent": "DEAD-Dashboard/1.0" }, cache: "no-store" }, timeoutMs);
-    if (!res.ok) return { status: res.status, json: null, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      // Keep the error body: Cloudflare says WHY in `errors[]`, and the
+      // status alone cannot tell a malformed credential (HTTP 400 code
+      // 6003) from an over-limit query (also HTTP 400). Capped; codes and
+      // messages only — never the token.
+      const text = await res.text().then((t) => t.slice(0, 4_000)).catch(() => "");
+      const e = describeRadarError(res.status, text);
+      return { status: res.status, json: null, error: e.detail, errorClass: e.cls, hint: e.hint };
+    }
     return { status: res.status, json: await res.json() };
   } catch (e) {
-    return { status: 0, json: null, error: e instanceof Error ? e.message : String(e) };
+    return { status: 0, json: null, error: e instanceof Error ? e.message : String(e), errorClass: "other", hint: "the host did not answer — network or timeout" };
   }
 }
 
@@ -71,10 +86,17 @@ async function load(): Promise<RadarBody> {
   const failed: string[] = [];
   if (!o.json) failed.push(`outages: ${o.error ?? "no body"}`);
   if (!a.json) failed.push(`anomalies: ${a.error ?? "no body"}`);
-  const authProblem = o.status === 401 || o.status === 403 || a.status === 401 || a.status === 403;
-  // A 401/403 is the token, not the internet — say so, in words the
+  // The credential is the token, not the internet — say so, in words the
   // operator can act on, without echoing anything about the token itself.
-  const reason = failed.length ? (authProblem ? `token refused (${failed.join("; ")}) — check the token's Radar › Read permission` : failed.join("; ")) : null;
+  // (`describeRadarError` classes a 400 with Cloudflare's 6003/6111 codes
+  // as the token too — a Global API Key or a stray character in the value.)
+  const tokenProblem = o.errorClass === "token" || a.errorClass === "token";
+  const queryProblem = o.errorClass === "query" || a.errorClass === "query";
+  const reason = failed.length
+    ? tokenProblem ? `token refused (${failed.join("; ")}) — ${o.hint ?? a.hint}`
+    : queryProblem ? `query refused (${failed.join("; ")}) — ${o.hint ?? a.hint}`
+    : failed.join("; ")
+    : null;
   return {
     configured: true,
     live: failed.length === 0,
@@ -84,7 +106,7 @@ async function load(): Promise<RadarBody> {
   };
 }
 
-export interface RadarDiag { source: string; url: string; configured: boolean; status: number; ms: number; parsed: number; error?: string; sample: string[] }
+export interface RadarDiag { source: string; url: string; configured: boolean; status: number; ms: number; parsed: number; error?: string; errorClass?: RadarErrorClass; hint?: string; sample: string[] }
 
 /** Owner-only: the real fetches from production. Reports status + parsed +
  *  a few description lines; the token is never in the reply. */
@@ -95,7 +117,7 @@ export async function diagnoseRadar(): Promise<RadarDiag[]> {
     if (!token) return { source, url, configured: false, status: 0, ms: 0, parsed: 0, error: "CLOUDFLARE_RADAR_TOKEN not set", sample: [] };
     const r = await fetchJson(url, token, 15_000);
     const p = r.json ? parse(r.json) : { n: 0, sample: [] };
-    return { source, url, configured: true, status: r.status, ms: Date.now() - t0, parsed: p.n, ...(r.error ? { error: r.error } : {}), sample: p.sample };
+    return { source, url, configured: true, status: r.status, ms: Date.now() - t0, parsed: p.n, ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}), sample: p.sample };
   };
   return Promise.all([
     probe("Radar outages", RADAR_OUTAGES_URL, (j) => { const xs = parseRadarOutages(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.scope} · ${x.cause || "—"} · ${x.countries.map((c) => c.code).join("/") || "—"} · ${x.description.slice(0, 80)}`) }; }),

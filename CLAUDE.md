@@ -2429,6 +2429,30 @@ diag and their contracts are pinned from the published feed / API reference.
   are not two declared threats. `/api/spectrum?diag=radar` is the SHORT
   diag (only the Radar rows) — the full body was long enough that a
   paste of it was cut off before the radar list twice.
+- **The Radar diag read "HTTP 400" on both endpoints and nothing else
+  (2026-10-26, third diag)** — and a bare status cannot tell the two
+  likely causes apart: Cloudflare answers a MALFORMED Authorization header
+  (a Global API Key pasted where a token belongs, a stray character) as
+  **HTTP 400 code 6003 "Invalid request headers" › 6111 "Invalid format
+  for Authorization header"**, not as a 401; an over-limit or misspelt
+  query is HTTP 400 too, with the parameter named in the message. So
+  `fetchJson` now KEEPS the error body (`{success:false, errors:[{code,
+  message, error_chain}]}`, capped 4 kB) and `describeRadarError(status,
+  text)` in `radarSignals.ts` (PURE, tested) renders `HTTP 400 — 6003 …
+  › 6111 …` and classes it `token` (6003/6111/9109/10000… or 401/403 —
+  hint: a Custom API Token with Account › Radar › Read, not the Global API
+  Key) · `query` (a 400 naming limit / dateRange / offset / format) ·
+  `rate` (429) · `other`. Only codes and messages are kept — never the
+  token (Cloudflare never echoes it). `RadarBody.reason` leads with
+  "token refused" / "query refused" + the hint; `RadarDiag` carries
+  `errorClass` + `hint`. The query was also brought to the shape of the
+  Outages doc's own example (`RADAR_QUERY` = `limit=100&offset=0&
+  dateRange=7d&format=json`; `format=json` IS in the example, so it was
+  never the cause); the `limit` maximum is unpublished and unverifiable
+  from the sandbox (developers.cloudflare.com, the Stainless mirror and
+  the api-schemas repo are all blocked) — if the next diag's message
+  names `limit`, lower it. Re-run `/api/spectrum?diag=radar` after a
+  deploy: the `error` line now says which it is.
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")
