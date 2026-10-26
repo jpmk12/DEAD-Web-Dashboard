@@ -169,7 +169,7 @@ function ActorTile({ b, selected, onSelect, canEdit, onExclude }: { b: ActorBoar
         {/* Why it is on the board (§10 E6) */}
         <p className="mt-1.5 text-[9px] text-slate-600 truncate" title={b.actor.reason}>on the board: {b.actor.reason}</p>
         {a.learning && (
-          <p className="text-[9px] text-amber-200/70">baseline forming — day {Math.min(b.baselineSamples + 1, BASELINE_DAYS)} of {BASELINE_DAYS}, held at Watch</p>
+          <p className="text-[9px] text-amber-200/70" title="Learning mode: until the actor's own baseline has formed the level can never read above Watch, whatever the anomaly — the pill shows the level actually earned.">baseline forming — day {Math.min(b.baselineSamples + 1, BASELINE_DAYS)} of {BASELINE_DAYS} · level capped at Watch</p>
         )}
         {drv ? (
           <p className="mt-1.5 text-[10px] text-slate-300 leading-snug line-clamp-2" title={drv.text}>{drv.text}</p>

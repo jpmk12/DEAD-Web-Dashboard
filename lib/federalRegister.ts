@@ -34,8 +34,12 @@ function queries(sinceYmd: string): Query[] {
   return [
     { key: "ofac", params: { ...base, "conditions[agencies][]": "foreign-assets-control-office" } },
     { key: "bis", params: { ...base, "conditions[agencies][]": "industry-and-security-bureau" } },
-    { key: "trade", params: { ...base, "conditions[agencies][]": ["trade-representative-office-of-united-states", "international-trade-commission", "u-s-customs-and-border-protection"], "conditions[term]": "tariff OR duties OR \"section 232\" OR \"section 301\" OR antidumping OR countervailing" } },
-    { key: "presidential", params: { ...base, "conditions[type][]": "PRESDOCU", "conditions[term]": "sanctions OR tariff OR \"national emergency\" OR \"Section 232\" OR \"export controls\"" } },
+    // `conditions[term]` is an Elasticsearch simple_query_string with AND as
+    // the default operator: `|` is OR, a bare `OR` is just a word (dropped as
+    // a stopword), so "tariff OR duties" silently meant "tariff AND duties"
+    // and both keyword queries answered 0 for 45 days (2026-10-26 diag).
+    { key: "trade", params: { ...base, "conditions[agencies][]": ["trade-representative-office-of-united-states", "international-trade-commission", "u-s-customs-and-border-protection"], "conditions[term]": "tariff | duties | \"section 232\" | \"section 301\" | antidumping | countervailing" } },
+    { key: "presidential", params: { ...base, "conditions[type][]": "PRESDOCU", "conditions[term]": "sanctions | tariff | \"national emergency\" | \"Section 232\" | \"export controls\"" } },
   ];
 }
 

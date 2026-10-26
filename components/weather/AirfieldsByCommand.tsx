@@ -9,6 +9,8 @@ import { openTrackPicker } from "@/lib/trackClient";
 import { ExternalLinkIcon } from "@/lib/icons";
 import { LED_CLASS, FLIGHT_CAT_HEX } from "@/lib/levelTokens";
 import { relTime } from "@/lib/relTime";
+import { lunarNight, lunarTonightLine, hhmmZ, zoneForLongitude, MOON_USEFUL_ALT_DEG, type LunarNight } from "@/lib/moon";
+import { ymdInZone } from "@/lib/effectiveZone";
 
 // My airfields, by combatant command (REVIEW-2026-10 W5, W7, W9): the
 // registry's airfields — hub › ★ › spokes › rest, the OSINT board's order —
@@ -43,6 +45,15 @@ const worstLed = (a: Led, b: Led): Led => (["r", "a", "g", "u"] as Led[]).find((
 interface Read {
   a: RegAirfield; wx: StationWx | undefined; cat: FlightCategory; segs: TafSegment[];
   worstAhead: { cat: FlightCategory; from: number; to: number } | null; hazard: LocationHazard | null; led: Led; why: string;
+  /** Tonight's light data at the field — PURE maths, no fetch. The night
+   *  window is placed by the field's longitude zone; times print in Zulu
+   *  beside the METAR / TAF times, which are Zulu too. */
+  lunar: LunarNight;
+}
+
+function lunarAt(a: RegAirfield, now: number): LunarNight {
+  const zone = zoneForLongitude(a.lon);
+  return lunarNight(a.lat, a.lon, zone, ymdInZone(now, zone));
 }
 
 function readOf(a: RegAirfield, wx: StationWx | undefined, hazards: LocationHazard[], now: number, awcDown: boolean): Read {
@@ -57,7 +68,27 @@ function readOf(a: RegAirfield, wx: StationWx | undefined, hazards: LocationHaza
   const why = worstAhead && CAT_RANK[worstAhead.cat] >= 1 && worstAhead.cat !== cat
     ? `${worstAhead.cat} forecast ${zHour(worstAhead.from)}–${zHour(worstAhead.to)}`
     : rank >= 1 ? `${cat} now` : hazard ? hazard.flags[0] : cat === "UNKNOWN" ? (awcDown ? "AWC unreachable" : "no observation") : "VFR";
-  return { a, wx, cat, segs, worstAhead, hazard, led, why };
+  return { a, wx, cat, segs, worstAhead, hazard, led, why, lunar: lunarAt(a, now) };
+}
+
+/** The card's lunar line: illumination, the dark window in Zulu, when the
+ *  moon is up, the moon-free share. Compact on the card; the full sentence
+ *  is the tooltip. Cloud is deliberately NOT here — the lunar card carries
+ *  the model overlay for the SELECTED place; this is the almanac fact. */
+function LunarLine({ n }: { n: LunarNight }) {
+  const full = lunarTonightLine(n, hhmmZ);
+  if (n.polar) return <p className="mt-1.5 text-[10px] text-slate-500" title={full}>☾ {n.illumPct}% · no nautical darkness tonight (polar)</p>;
+  const first = n.moonUp[0], last = n.moonUp[n.moonUp.length - 1];
+  const up = n.moonUp.length === 0 ? "moon down all night"
+    : first[0] <= (n.eent ?? 0) && last[1] >= (n.bmnt ?? Infinity) ? "moon up all night"
+    : first[0] > (n.eent ?? 0) ? `moon-free until ${hhmmZ(first[0])}`
+    : `moon-free after ${hhmmZ(last[1])}`;
+  const tone = n.band === "lo" ? "text-indigo-200" : n.band === "hi" ? "text-amber-200" : "text-slate-300";
+  return (
+    <p className="mt-1.5 text-[10px] text-slate-500 truncate" title={`${full} · moon useful ≥${MOON_USEFUL_ALT_DEG}° · planning-grade, not an almanac`}>
+      ☾ <b className={`font-semibold ${tone}`}>{n.illumPct}%</b> · dark <span className="font-mono text-slate-400">{hhmmZ(n.eent)}–{hhmmZ(n.bmnt)}</span> · {up} · <b className="font-semibold text-indigo-200">{n.moonFreeDarkH} h</b> moon-free
+    </p>
+  );
 }
 
 const ownRank = (a: RegAirfield) => (a.own === "hub" ? 0 : a.roles.star ? 1 : a.own === "spoke" ? 2 : 3);
@@ -127,6 +158,8 @@ function FieldCard({ r, now, selected, onSelect, canEdit }: { r: Read; now: numb
 
       {r.hazard && <p className={`mt-1.5 text-[10px] ${r.hazard.severity === "severe" ? "text-red-300" : "text-amber-300"}`}>⚠ {r.hazard.flags.join(" · ")} <span className="text-slate-600">· model (Open-Meteo)</span></p>}
 
+      <LunarLine n={r.lunar} />
+
       <div className="mt-2 flex items-center gap-3">
         {r.a.roles.sitrep ? <button type="button" onClick={() => openSitrep(r.a.icao)} className="text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-300">SITREP →</button>
           : <button type="button" disabled={!canEdit} onClick={() => openTrackPicker({ kind: "airfield", icao: r.a.icao })} className="text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-300 disabled:opacity-50" title="★ gives this field a SITREP slot">no SITREP · ★ to add</button>}
@@ -145,6 +178,9 @@ export default function AirfieldsByCommand({ airfields, stations, awcDown, loadi
 }) {
   const [hideGreen, setHideGreen] = useState(false);
   const now = Date.now();
+  // Memoised on the hour as well: the lunar line per card is a 10-min scan
+  // over 24 h of sun and moon positions — cheap, but not per keystroke.
+  const hourKey = Math.floor(now / 3_600_000);
   const groups = useMemo(() => {
     const reads = airfields.filter((a) => a.icao).map((a) => readOf(a, stations[a.icao], hazards, now, awcDown));
     const by = new Map<Aor, Read[]>();
@@ -156,14 +192,14 @@ export default function AirfieldsByCommand({ airfields, stations, awcDown, loadi
       return { aor, rows, led, worst };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [airfields, stations, hazards, awcDown]);
+  }, [airfields, stations, hazards, awcDown, hourKey]);
   const quiet = AOR_ORDER.filter((a) => a !== "UNKNOWN" && !groups.some((g) => g.aor === a));
 
   return (
     <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
       <div className="flex items-center gap-2 flex-wrap px-4 py-2.5 border-b border-slate-800">
         <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">✈ My airfields</h3>
-        <span className="text-[10px] text-slate-600">METAR · TAF · 30-h hazards — by combatant command, hub › ★ › spokes › rest</span>
+        <span className="text-[10px] text-slate-600">METAR · TAF · 30-h hazards · tonight's moon — by combatant command, hub › ★ › spokes › rest</span>
         <span className="ml-auto flex items-center gap-2">
           {awcDown && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/40" title="aviationweather.gov unreachable — blank cards are missing data, not clear weather">⚠ AWC down</span>}
           {loading && <span className="text-[9px] text-slate-600 font-mono animate-pulse">loading…</span>}

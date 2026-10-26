@@ -65,7 +65,23 @@ describe("parseUkCsv", () => {
     'ACME,,,Russia,,Entity,Russia,02/09/2026,02/09/2026,9002',
     'X,,,,,Entity,Cyber,03/09/2026,03/09/2026,9003',
   ].join("\n");
-  it("parses dd/mm/yyyy, dedupes by Group ID, maps regimes", () => {
+  it("the FCDO UK Sanctions List layout (the single UK list since 28 Jan 2026): BOM, metadata line, one row per NAME joined on Unique ID", () => {
+    const uksl = [
+      "﻿Report Date:,26/10/2026",
+      'Last Updated,Unique ID,OFSI Group ID,UN Reference Number,Name 6,Name 1,Name 2,Name 3,Name 4,Name 5,Name type,Alias strength,Title,Name non-latin script,Non-latin script type,Non-latin script language,Regime Name,Designation Type,Designation source,Sanctions Imposed,Other Information,UK Statement of Reasons,Date Designated',
+      '20/10/2026,IRN0412,,,DOE,John,,,,,Primary Name,,,,,,Iran (Nuclear),Individual,UK,Asset freeze,"Note, with comma",reasons,20/10/2026',
+      '20/10/2026,IRN0412,,,DOE,Jon,,,,,Alias,Good,,,,,Iran (Nuclear),Individual,UK,Asset freeze,,reasons,20/10/2026',
+      '02/09/2026,RUS9811,15001,,ACME,,,,,,Primary Name,,,,,,Russia,Entity,UK,Asset freeze,,reasons,02/09/2026',
+      '03/09/2026,CYB0031,,,X,,,,,,Primary Name,,,,,,Cyber,Entity,UK,Asset freeze,,reasons,03/09/2026',
+    ].join("\n");
+    const rows = parseUkCsv(uksl);
+    expect(rows.length).toBe(3);                                   // the alias row joins IRN0412
+    expect(rows[0]).toMatchObject({ source: "UK", programme: "Iran (Nuclear)", country: "Iran", listedOn: "2026-10-20", entityId: "IRN0412" });
+    expect(rows[1]).toMatchObject({ country: "Russia", entityId: "RUS9811" });
+    expect(rows[2].country).toBeNull();                             // a thematic regime names no country
+    expect(parseUkCsv(uksl, "2026-10-01").map((r) => r.entityId)).toEqual(["IRN0412"]);
+  });
+  it("parses dd/mm/yyyy, dedupes by Group ID, maps regimes (the retired OFSI layout still parses)", () => {
     const rows = parseUkCsv(csv);
     expect(rows.length).toBe(3);
     expect(rows[0]).toMatchObject({ source: "UK", programme: "Iran (Nuclear)", country: "Iran", listedOn: "2026-09-15", entityId: "9001" });

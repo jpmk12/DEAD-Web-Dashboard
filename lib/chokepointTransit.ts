@@ -18,6 +18,12 @@
 //   (days with enough coverage), never calendar days.
 // • The ratio compares like with like: today's distinct vessels per observed
 //   hour against the baseline's distinct vessels per observed hour.
+// • ZERO is a dead feed, not an empty strait (2026-10-26: the China tile read
+//   "Taiwan Strait: traffic SUPPRESSED — 0.0 vessels/h" and lifted Shipping to
+//   watching). Where the strait's own normal says several vessels should have
+//   passed in the time listened, not one position report means the bridge
+//   was not delivering for that box — UNKNOWN, never a suppression, never a
+//   step up the ladder. The same holds when no box anywhere saw a vessel.
 
 export type TransitState = "unconfigured" | "unknown" | "learning" | "normal" | "suppressed" | "elevated";
 
@@ -29,6 +35,10 @@ export interface TransitInput {
   /** Baseline: mean distinct-per-observed-hour over prior qualifying days, and how many such days. */
   baselinePerHour: number | null;
   baselineDays: number;
+  /** No position report reached ANY chokepoint box in the trailing hour —
+   *  the bridge is connected but silent (a feed-level fact, so every box
+   *  reads UNKNOWN rather than one strait "suppressed"). */
+  feedSilent?: boolean;
 }
 
 export interface TransitSignal {
@@ -43,13 +53,27 @@ export const MIN_OBSERVED_MINUTES = 45;
 export const MIN_BASELINE_DAYS = 5;
 export const SUPPRESSED_BELOW = 0.6;
 export const ELEVATED_ABOVE = 1.6;
+/** Expected vessels (normal rate × hours listened) above which ZERO seen is
+ *  a silent feed rather than a quiet strait: at 3 expected, P(0) under a
+ *  Poisson normal is ~5%. Below it the count is simply too small to say. */
+export const SILENT_AT_EXPECTED = 3;
 
 export function transitSignal(i: TransitInput): TransitSignal {
   if (!i.configured) return { state: "unconfigured", ratio: null, perHourToday: null, line: "AIS not configured" };
   if (i.observedMinutesToday < MIN_OBSERVED_MINUTES) {
     return { state: "unknown", ratio: null, perHourToday: null, line: `AIS listening ${Math.round(i.observedMinutesToday)} min today — not enough to judge traffic` };
   }
-  const perHourToday = i.distinctToday / (i.observedMinutesToday / 60);
+  if (i.feedSilent) {
+    return { state: "unknown", ratio: null, perHourToday: null, line: `AIS silent — no position report in any strait box in the last hour (listening ${Math.round(i.observedMinutesToday)} min today); the feed, not the strait` };
+  }
+  const hoursListened = i.observedMinutesToday / 60;
+  if (i.distinctToday === 0 && i.baselinePerHour != null && i.baselinePerHour * hoursListened >= SILENT_AT_EXPECTED) {
+    return {
+      state: "unknown", ratio: null, perHourToday: null,
+      line: `AIS silent for this box — 0 vessels in ${Math.round(i.observedMinutesToday)} min where ~${Math.round(i.baselinePerHour * hoursListened)} were expected (normal ${i.baselinePerHour.toFixed(1)}/h); a dead feed, not suppressed traffic`,
+    };
+  }
+  const perHourToday = i.distinctToday / hoursListened;
   if (i.baselinePerHour === null || i.baselineDays < MIN_BASELINE_DAYS) {
     return {
       state: "learning", ratio: null, perHourToday,

@@ -9,6 +9,7 @@ import { renderLunarHtml } from "@/lib/lunarExport";
 import { downloadFile } from "@/lib/exports";
 import { ymdInZone } from "@/lib/effectiveZone";
 import { clientCache } from "@/lib/clientCache";
+import { nightCloud, nightCloudClause, type HourlyCloud, type NightCloud } from "@/lib/lunarCloud";
 
 // Lunar windows — the Weather tab's "☾" card (mockup docs/mockups/
 // moon-options.html, option C on top with A folding open beneath). All of
@@ -26,6 +27,15 @@ import { clientCache } from "@/lib/clientCache";
 const THRESH_KEY = "weather.lunar.thresholds";
 const OPEN_KEY = "weather.lunar.detailOpen";
 const NIGHTS = 60;
+/** Nights the cloud overlay covers — the model's horizon, never the moon's. */
+const CLOUD_NIGHTS = 7;
+const COVER_CLS: Record<NightCloud["cover"], string> = {
+  CLR: "text-sky-200 border-sky-400/40 bg-sky-500/10",
+  FEW: "text-sky-200 border-sky-400/30 bg-sky-500/[0.06]",
+  SCT: "text-slate-200 border-slate-500/40 bg-slate-500/10",
+  BKN: "text-slate-300 border-slate-500/50 bg-slate-600/30",
+  OVC: "text-slate-400 border-slate-500/60 bg-slate-700/60",
+};
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -61,6 +71,9 @@ function loadThresholds(): LunarThresholds {
 
 export default function LunarCard({ lat, lon, label }: { lat: number; lon: number; label: string }) {
   const [zone, setZone] = useState<{ zone: string; source: "place" | "device" } | null>(null);
+  // The model's hourly cloud for the place (the same Open-Meteo read that
+  // gives the zone); null = no forecast → the overlay says UNKNOWN, never clear.
+  const [cloud, setCloud] = useState<HourlyCloud[] | null>(null);
   const [thresholds, setThresholds] = useState<LunarThresholds>(DEFAULT_LUNAR_THRESHOLDS);
   const [editThr, setEditThr] = useState(false);
   const [open, setOpen] = useState(false);
@@ -77,18 +90,24 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
   useEffect(() => {
     let alive = true;
     setZone(null);
+    setCloud(null);
     const key = `weather:zone:${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const cloudKey = `weather:cloud:${lat.toFixed(2)},${lon.toFixed(2)}`;
     const cached = clientCache.get<string>(key);
-    if (cached) { setZone({ zone: cached, source: "place" }); return; }
+    const cachedCloud = clientCache.get<HourlyCloud[]>(cloudKey);
+    if (cached && cachedCloud) { setZone({ zone: cached, source: "place" }); setCloud(cachedCloud); return; }
     fetch(`/api/weather/current?lat=${lat}&lon=${lon}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { current?: { timezone?: string | null } } | null) => {
+      .then((j: { current?: { timezone?: string | null; hourlyCloud?: HourlyCloud[] } } | null) => {
         if (!alive) return;
         const tz = j?.current?.timezone;
         if (tz) { clientCache.set(key, tz, 24 * 3_600_000); setZone({ zone: tz, source: "place" }); }
         else setZone({ zone: deviceZone, source: "device" });
+        const hc = Array.isArray(j?.current?.hourlyCloud) ? j!.current!.hourlyCloud! : [];
+        if (hc.length) clientCache.set(cloudKey, hc, 60 * 60_000);
+        setCloud(hc);
       })
-      .catch(() => { if (alive) setZone({ zone: deviceZone, source: "device" }); });
+      .catch(() => { if (alive) { setZone({ zone: deviceZone, source: "device" }); setCloud([]); } });
     return () => { alive = false; };
   }, [lat, lon, deviceZone]);
 
@@ -99,6 +118,12 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
   }, [lat, lon, zone, thresholds]);
   const windows = useMemo(() => lunarWindows(nights), [nights]);
   const tonight = nights[0];
+  // Cloud over the dark hours, the next CLOUD_NIGHTS nights — read in the
+  // zone the hourly stamps are written in (the place's, when it answered).
+  const cloudNights = useMemo<(NightCloud | null)[]>(() => {
+    if (!zone || !cloud) return [];
+    return nights.slice(0, CLOUD_NIGHTS).map((n) => nightCloud(n, cloud, zone.zone));
+  }, [nights, cloud, zone]);
   const nextLow = windows.find((w) => w.band === "lo");
   const nextHigh = windows.find((w) => w.band === "hi");
 
@@ -162,6 +187,34 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
               {" · "}{tonight.daylightH} h daylight today
             </>}
           </p>
+          {!tonight.polar && cloud !== null && (
+            <p className="text-[11px] text-slate-400 -mt-1.5">
+              <span className="font-semibold text-slate-300">Tonight&apos;s sky:</span> {nightCloudClause(cloudNights[0] ?? null)}
+            </p>
+          )}
+
+          {/* Cloud overlay — the model's horizon, 7 nights, never re-banding the moon */}
+          {cloud !== null && (
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1">Cloud over the dark hours · next {CLOUD_NIGHTS} nights <span className="font-normal normal-case tracking-normal text-slate-600">· Open-Meteo model, mean EENT→BMNT · a night keeps its illumination band — cloud says how much of that light reaches the ground</span></div>
+              <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                {nights.slice(0, CLOUD_NIGHTS).map((n, i) => {
+                  const c = cloudNights[i] ?? null;
+                  return (
+                    <div key={n.date} className={`rounded-lg border px-2 py-1.5 min-w-0 ${c ? COVER_CLS[c.cover] : "text-slate-500 border-slate-800 bg-slate-950/50"}`}
+                      title={c ? `${dayLabel(n.date)} · ${nightCloudClause(c)} · ${c.overcastH} h overcast · ${c.clearH} h ≤FEW · ${c.samples} model hours` : `${dayLabel(n.date)} · no forecast for the dark hours`}>
+                      <div className="flex items-baseline justify-between gap-1">
+                        <span className="text-[8px] font-bold uppercase tracking-wider truncate">{i === 0 ? "tonight" : dayShort(n.date)}</span>
+                        <span className="text-[8px] font-mono" style={{ color: moonCol(n.illumPct) }}>☾{n.illumPct}%</span>
+                      </div>
+                      <div className="text-[14px] font-extrabold font-mono leading-tight">{c ? `${c.meanPct}%` : n.polar ? "polar" : "—"}</div>
+                      <div className="text-[9px] font-bold tracking-wider">{c ? c.cover : n.polar ? "" : "UNKNOWN"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Windows */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -226,7 +279,7 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
                   </table>
                 </div>
               </div>
-              <p className="text-[10px] text-slate-600">Planning-grade: rise and set from a low-precision lunar model, to a minute or two — not an almanac. Night = nautical twilight (sun −12°). Cloud cover not included.</p>
+              <p className="text-[10px] text-slate-600">Planning-grade: rise and set from a low-precision lunar model, to a minute or two — not an almanac. Night = nautical twilight (sun −12°). Cloud is a 7-night model overlay above and is not part of the budget or the bands.</p>
             </div>
           )}
         </div>

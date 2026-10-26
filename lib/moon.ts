@@ -315,18 +315,34 @@ export function hhmmIn(ms: number | null, zone: string): string {
   } catch { return new Date(ms).toISOString().slice(11, 16).replace(":", "") + "Z"; }
 }
 
-/** One sentence for the Glance strip / an airfield row. */
-export function lunarTonightLine(n: LunarNight): string {
+/** HHMM in Zulu with the Z suffix — the airfield cards' own clock (METAR /
+ *  TAF times there are Zulu, so the lunar line beside them must be too). */
+export const hhmmZ = (ms: number | null): string => (ms == null ? "—" : `${hhmmIn(ms, "UTC")}Z`);
+
+/** One sentence for the Glance strip / an airfield row. `fmt` formats each
+ *  instant — the night's own zone by default, Zulu on an airfield card. */
+export function lunarTonightLine(n: LunarNight, fmt: (ms: number | null) => string = (ms) => hhmmIn(ms, n.zone)): string {
   const pct = `${n.illumPct}% ${n.phaseName}`;
   if (n.polar) return `${pct} · no nautical darkness tonight (polar)`;
-  const z = n.zone;
-  const dark = `${n.darkH} h dark ${hhmmIn(n.eent, z)}–${hhmmIn(n.bmnt, z)}`;
+  const dark = `${n.darkH} h dark ${fmt(n.eent)}–${fmt(n.bmnt)}`;
   if (n.moonUp.length === 0) return `${pct} · ${dark} · moon down all night`;
   const first = n.moonUp[0], last = n.moonUp[n.moonUp.length - 1];
   const risesInDark = first[0] > (n.eent ?? 0), setsInDark = last[1] < (n.bmnt ?? Infinity);
   const when = !risesInDark && !setsInDark ? "moon up all night"
-    : risesInDark && !setsInDark ? `moon-free until ${hhmmIn(first[0], z)}`
-    : !risesInDark && setsInDark ? `moon-free after ${hhmmIn(last[1], z)}`
-    : `moon up ${hhmmIn(first[0], z)}–${hhmmIn(last[1], z)}`;
+    : risesInDark && !setsInDark ? `moon-free until ${fmt(first[0])}`
+    : !risesInDark && setsInDark ? `moon-free after ${fmt(last[1])}`
+    : `moon up ${fmt(first[0])}–${fmt(last[1])}`;
   return `${pct} · ${dark} · ${when} · ${n.moonlitDarkH} h moonlit (${n.usefulMoonH} h ≥${MOON_USEFUL_ALT_DEG}°) · ${n.moonFreeDarkH} h moon-free`;
+}
+
+/** A fixed-offset IANA zone from longitude (15° per hour), e.g. 139°E →
+ *  "Etc/GMT-9" (the Etc sign is INVERTED by convention). Used where a
+ *  place's real zone is not known and no network call is wanted — an
+ *  airfield card — so the night's local-noon-to-noon window lands on the
+ *  right night. It sets only the WINDOW; times are shown in Zulu. Never
+ *  use it for a civil clock: it knows nothing of DST or borders. */
+export function zoneForLongitude(lon: number): string {
+  const h = Math.max(-12, Math.min(14, Math.round(lon / 15)));
+  if (h === 0) return "Etc/GMT";
+  return `Etc/GMT${h > 0 ? "-" : "+"}${Math.abs(h)}`;
 }

@@ -117,7 +117,10 @@ export interface CsvLineParser {
   headerFound(): boolean;
 }
 
-type ColumnSpec = { id: string; programme: string; date: string };
+/** Each column is named by one or more header NAMES (the first present
+ *  wins) — a list that renames a column between releases, or a successor
+ *  list with a new layout, is matched by name, never by position. */
+type ColumnSpec = { id: string | string[]; programme: string | string[]; date: string | string[] };
 
 function lineParser(
   source: ForeignSource,
@@ -137,8 +140,12 @@ function lineParser(
       if (!header) {
         if (!headerSeen && isHeader(line)) {
           headerSeen = true;
-          const h = splitCsvLine(line, delim).map((x) => x.trim().toLowerCase());
-          const col = (name: string) => h.indexOf(name.toLowerCase());
+          // A leading BOM rides on the first header cell of a UTF-8 file.
+          const h = splitCsvLine(line.replace(/^﻿/, ""), delim).map((x) => x.trim().toLowerCase());
+          const col = (names: string | string[]) => {
+            for (const n of Array.isArray(names) ? names : [names]) { const i = h.indexOf(n.toLowerCase()); if (i >= 0) return i; }
+            return -1;
+          };
           const spec = { id: col(cols.id), programme: col(cols.programme), date: col(cols.date) };
           if (spec.id >= 0 && spec.programme >= 0 && spec.date >= 0) header = spec;
         }
@@ -179,14 +186,24 @@ export function euLineParser(keepSince?: string): CsvLineParser {
   );
 }
 
-/** UK OFSI consolidated list CSV: a "Last Updated" line, then a header row,
- *  comma-delimited with quoted fields; one row per alias, `Group ID` is the
- *  entity. `Listed On` is dd/mm/yyyy. */
+/** The UK list CSV. Two layouts, matched by header name:
+ *  - the FCDO **UK Sanctions List** (`sanctionslist.fcdo.gov.uk/docs/
+ *    UK-Sanctions-List.csv`) — the single UK list since the OFSI
+ *    Consolidated List closed on 28 Jan 2026: a metadata/report-date line,
+ *    then a header row; comma-delimited with quoted fields; ONE ROW PER
+ *    NAME, so a designation spans several rows joined on `Unique ID` (per
+ *    designation, not per person — one person under two regimes is two
+ *    IDs, which is the right unit for a wave count); `Regime Name`; `Date
+ *    Designated` dd/mm/yyyy. `OFSI Group ID` is only filled for pre-2026
+ *    designations and is not used.
+ *  - the retired OFSI ConList (`Group ID` / `Regime` / `Listed On`), kept
+ *    so an archived copy still parses. */
 export function ukLineParser(keepSince?: string): CsvLineParser {
   return lineParser(
     "UK", ",",
-    (l) => /\bRegime\b/.test(l) && /Group ID/i.test(l) && /Listed On/i.test(l),
-    { id: "Group ID", programme: "Regime", date: "Listed On" },
+    (l) => (/Unique ID/i.test(l) && /Regime Name/i.test(l) && /Date Designated/i.test(l))
+      || (/\bRegime\b/.test(l) && /Group ID/i.test(l) && /Listed On/i.test(l)),
+    { id: ["Unique ID", "Group ID"], programme: ["Regime Name", "Regime"], date: ["Date Designated", "Listed On"] },
     (id, regime, date) => ({ source: "UK", programme: regime, country: ukRegimeCountry(regime), listedOn: date, entityId: id }),
     (id) => id,
     keepSince,

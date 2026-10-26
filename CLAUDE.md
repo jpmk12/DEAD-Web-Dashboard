@@ -1885,8 +1885,16 @@ built on the existing engine rather than a new one:
   / `Entity_Regulation_Programme` / `Entity_Regulation_PublicationDate`,
   alias rows deduped per entity+programme, `EU_PROGRAMME_COUNTRY` maps codes
   → the targeted country, UKR → Russia, thematic regimes → null) and the UK
-  OFSI ConList CSV (`,`-delimited with quotes, `Group ID` / `Regime` /
-  `Listed On` dd/mm/yyyy, `ukRegimeCountry`). `designationWaves` reduces to
+  list (`,`-delimited with quotes; **the FCDO UK Sanctions List** at
+  `sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv` since 2026-10-26 —
+  `Unique ID` / `Regime Name` / `Date Designated` dd/mm/yyyy, one row per
+  NAME joined on the id, a BOM and a report-date line before the header; the
+  OFSI ConList layout `Group ID` / `Regime` / `Listed On` still parses —
+  `ColumnSpec` takes alternate header names; `ukRegimeCountry`). **The OFSI
+  Consolidated List CLOSED on 28 Jan 2026** (the UK Sanctions List is the
+  single UK list); its blob answered HTTP 409 with no body in the 2026-10-26
+  production diag — Azure's "public access not permitted", gone for good,
+  not stale. `designationWaves` reduces to
   NEW listings per (source, programme) in 45 days; waves naming an actor's
   country join the `counter_pressure` ages, become `against` rows on the
   coercion board (source "EU consolidated list" / "UK sanctions list") and
@@ -2396,9 +2404,30 @@ the maths exists.
   place; zone = Open-Meteo's › the trip's › the device's) and
   `WhereYouAre` renders "☾ 99% · 11.3 h dark · 11.3 h moonlit · 0 h
   moon-free · HIGH ILLUM" with the full line as the tooltip. No model
-  call anywhere. NOT built: a lunar line per airfield row and the cloud
-  overlay on the next 7 nights (decisions 6 and 8 of the mockup) — add
-  them on request. No new npm dep (esbuild `0`).
+  call anywhere. No new npm dep (esbuild `0`).
+- **Decisions 6 and 8, built 2026-10-26.** (6) **A lunar line on every
+  airfield card** (`AirfieldsByCommand` `LunarLine`): "☾ 97% · dark
+  1742Z–0441Z · moon up all night · 0 h moon-free", the full sentence as
+  the tooltip. PURE, no fetch: the night WINDOW is placed by
+  `zoneForLongitude(lon)` (a fixed-offset `Etc/GMT±N` zone — the Etc sign
+  is inverted; it knows no DST or borders and is never used for a civil
+  clock) so a Japanese field's night is its own night and not polar, and
+  every time prints in **Zulu** (`hhmmZ`; `lunarTonightLine(n, fmt)` takes
+  the formatter) beside the METAR / TAF times, which are Zulu too. The
+  per-card scan is memoised on the hour. (8) **Cloud over the dark hours**
+  (`lib/lunarCloud.ts`, PURE, tested in `tests/lunarCloud.test.ts`): the
+  same Open-Meteo read that gives the lunar card its zone now carries
+  `hourly=cloud_cover` (`CurrentConditions.hourlyCloud`, 7 days of local
+  stamps); `nightCloud(night, hourly, zone)` = the mean over the hours
+  overlapping EENT→BMNT, classed on the aviation ladder (CLR < 6 · FEW < 31
+  · SCT < 56 · BKN < 88 · OVC), with overcast / ≤FEW hours. The card shows
+  "Tonight's sky: cloud 85% OVC over the dark hours (model) — moonlight
+  attenuated, plan darker than the budget" and a 7-night strip (mean %,
+  class, the night's illumination beside it). **A night is never
+  re-banded by cloud** — the budget is astronomy (good for a month), cloud
+  is a model (good for a week); the overlay says how much of the light
+  reaches the ground and the planner decides. No forecast for a night →
+  UNKNOWN, never clear. The airfield line deliberately carries no cloud.
 
 ### Keeping an assessment from the chat (2026-10-22, "export assessments I like or append them to my working docs")
 Every assistant reply — a board answer or an ordinary chat reply — carries
@@ -2756,6 +2785,18 @@ only while the server process is up (a deploy resets the in-memory sets; the
 DB row keeps the day's high-water mark). Vessels seen in chokepoint boxes
 also enter the shared `vessels` map, so the Crisis map's Vessels layer shows
 them too. Requires `AISSTREAM_API_KEY` (confirmed set in prod).
+**ZERO is a dead feed, not an empty strait (2026-10-26)**: the China tile
+read "Taiwan Strait: traffic SUPPRESSED — 0.0 vessels/h vs …" and that
+lifted its Shipping instrument to watching — a dead sensor producing a
+signal, the inversion of UNKNOWN ≠ clear. Two rules in `transitSignal`,
+both tested: (1) `feedSilent` (set by `getChokepointTransits` when the
+bridge listened ≥60 min and NO box saw a position in the trailing hour —
+a feed-level fact) → every box reads `unknown` "AIS silent … the feed, not
+the strait"; (2) a single box with 0 distinct vessels where its own normal
+× hours listened ≥ `SILENT_AT_EXPECTED` = 3 (Poisson P(0) ≈ 5 %) → `unknown`
+"a dead feed, not suppressed traffic". Below that expectation a zero is
+ordinary variance and the ratio rule still applies. `chokepointState`
+treats `unknown` as no AIS corroboration, so the ladder is untouched.
 
 ### I&W chokepoint indicator = the graded read (Economy D)
 The chokepoint indicator on every AOI board (`chokepoint_interdiction`;
@@ -2793,11 +2834,19 @@ withheld after a final "r" (Niger ≠ Nigerian); `enrich`/`summarize`/
 "touches watch" chips, ⚑ on rows naming a watched country) and a
 `U.S. REGULATORY ACTIONS` block in the Economic Warfare Read prompt.
 **U.S. side ONLY, by construction** — the panel and the prompt both say so;
-foreign counter-measures still arrive via news. **Contract unverified from
-the sandbox** (egress blocks the host): agency slugs are pinned from the
-public API docs; `/api/markets/regulatory?diag=1` (owner-only) runs the
-real queries from production and returns status + snippet per query — a
-renamed slug shows there as a 400. No new dep (esbuild `0`).
+foreign counter-measures still arrive via news. **Verified from production
+2026-10-26**: all four queries 200; OFAC 48 and BIS 8 documents in 45 days,
+but the two KEYWORD queries (trade, presidential) answered **0** — the
+`conditions[term]` field is an Elasticsearch `simple_query_string` with AND
+as the default operator, where **`|` is OR and a bare `OR` is just a word**
+(a stopword, dropped), so "tariff OR duties OR …" meant every term at once.
+Both terms now use `|`. The site's own search help documents the grammar:
+`|` OR, `&` AND, `-`/`!` NOT, `"…"` phrase, `( )` groups, `=word` exact; the
+API applies the same `TermPreprocessor`. `/api/markets/regulatory?diag=1`
+(owner-only) runs the real queries from production and returns status +
+count + snippet per query — a renamed agency slug shows there as a 400, a
+broken term as a 0 beside non-zero agency-only queries. No new dep
+(esbuild `0`).
 
 ### Preferences: sectioned + URL-addressable (`?prefs=<section>`)
 `PreferencesDrawer` shows ONE section at a time — `activeGroup` ∈ mission /

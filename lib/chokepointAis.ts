@@ -145,18 +145,28 @@ export async function getChokepointTransits(opts: { configured: boolean; connect
   accrue(nowMs);
   const day = dayOf(nowMs);
   const observedMinutesToday = Math.round((observedMs.get(day) ?? 0) / 60_000);
+  const cutoff = nowMs - HOUR;
+  const lastHourOf = (id: string): number => {
+    const c = counters.get(id);
+    let n = 0;
+    if (c && c.day === day) for (const t of c.recent.values()) if (t >= cutoff) n++;
+    return n;
+  };
+  // A feed-level fact: with the bridge listening for an hour and not one
+  // position in ANY strait box, the bridge is silent — every box reads
+  // UNKNOWN (lib/chokepointTransit), never one strait "suppressed".
+  const feedSilent = observedMinutesToday >= 60 && BOXES.every(({ id }) => lastHourOf(id) === 0);
   const out: Record<string, ChokepointTransit> = {};
   for (const { id } of BOXES) {
     const c = counters.get(id);
-    const cutoff = nowMs - HOUR;
-    let lastHour = 0;
-    if (c && c.day === day) for (const t of c.recent.values()) if (t >= cutoff) lastHour++;
+    const lastHour = lastHourOf(id);
     const distinctToday = c && c.day === day ? c.today.size : 0;
     const b = await baselineFor(id, day);
     const sig = transitSignal({
       configured: opts.configured && (opts.connected || listening),
       distinctToday, observedMinutesToday, lastHour,
       baselinePerHour: b.perHour, baselineDays: b.days,
+      feedSilent,
     });
     out[id] = { ...sig, distinctToday, lastHour, observedMinutesToday, baselinePerHour: b.perHour, baselineDays: b.days, history: b.history, direction: direction(b.history, 14), suppressedDays: b.suppressed };
   }

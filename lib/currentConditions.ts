@@ -9,6 +9,7 @@
 // the enrichment, never shows a fake value).
 
 import { fetchWithTimeout } from "./fetchTimeout";
+import { parseHourlyCloud, type HourlyCloud } from "./lunarCloud";
 
 export interface CurrentConditions {
   tempF: number | null;
@@ -30,6 +31,9 @@ export interface CurrentConditions {
   /** The 7-day outlook (today first) — global, so OCONUS cards get a week
    *  ahead where NWS has no periods. Empty when Open-Meteo sent no daily. */
   daily: DailyOutlook[];
+  /** Hourly total cloud cover for the 7 forecast days (local times in the
+   *  place's zone) — the lunar card's cloud overlay. Empty when absent. */
+  hourlyCloud: HourlyCloud[];
 }
 
 export interface DailyOutlook {
@@ -77,6 +81,7 @@ export function parseCurrent(json: unknown): CurrentConditions | null {
     sunset: typeof d0("sunset") === "string" ? (d0("sunset") as string) : null,
     timezone: typeof (json as { timezone?: unknown })?.timezone === "string" && /^[A-Za-z_]+\/[A-Za-z_\-+0-9/]+$|^UTC$|^GMT$/.test((json as { timezone: string }).timezone) ? (json as { timezone: string }).timezone : null,
     daily: outlook,
+    hourlyCloud: parseHourlyCloud(json),
   };
 }
 
@@ -86,6 +91,7 @@ export async function getCurrentConditions(lat: number, lon: number): Promise<Cu
       `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
       `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
       `&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code` +
+      `&hourly=cloud_cover` +
       `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
     const res = await fetchWithTimeout(url, { headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" } }, 8_000);
     if (!res.ok) return null;

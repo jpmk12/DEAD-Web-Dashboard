@@ -27,8 +27,15 @@ import { euLineParser, ukLineParser, parseEuCsv, parseUkCsv, type CsvLineParser,
 // EU FSF "full" CSV (the public download token is a fixed public string, not
 // a credential — it is embedded in the Commission's own download links).
 export const EU_FSF_CSV_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw";
-// UK OFSI consolidated list, 2022 CSV format.
-export const UK_CONLIST_CSV_URL = "https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv";
+// The FCDO UK Sanctions List — the single UK list since the OFSI
+// Consolidated List closed on 28 Jan 2026 (its blob now answers 409 with no
+// body; seen in the 2026-10-26 diag). A fixed path gov.uk says "will stay
+// the same no matter how many times the list is updated"; ~50 MB, one row
+// per NAME (6k+ designations), Open Government Licence v3. Streamed, like
+// the EU list — never res.text().
+export const UK_SANCTIONS_LIST_CSV_URL = "https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv";
+/** @deprecated the OFSI Consolidated List closed 28 Jan 2026 — kept as the name the diag history used. */
+export const UK_CONLIST_CSV_URL = UK_SANCTIONS_LIST_CSV_URL;
 
 export interface ForeignSanctionsResult {
   rows: ForeignDesignation[];
@@ -131,7 +138,7 @@ async function fetchAll(): Promise<ForeignSanctionsResult> {
   const since = keepSinceDay();
   const eu = euLineParser(since);
   const uk = ukLineParser(since);
-  const [euOut, ukOut] = await Promise.all([streamCsv(EU_FSF_CSV_URL, eu), streamCsv(UK_CONLIST_CSV_URL, uk)]);
+  const [euOut, ukOut] = await Promise.all([streamCsv(EU_FSF_CSV_URL, eu), streamCsv(UK_SANCTIONS_LIST_CSV_URL, uk)]);
   // "Live" means the body was read to the end AND the header was recognised.
   // A truncated stream may simply have missed this week's rows.
   const euLive = euOut.complete && eu.headerFound();
@@ -173,7 +180,7 @@ export async function diagnoseForeignSanctions(): Promise<ForeignSanctionsDiag[]
       snippet: o.snippet, ...(o.error ? { error: o.error } : {}),
     };
   };
-  return Promise.all([probe("EU", EU_FSF_CSV_URL), probe("UK", UK_CONLIST_CSV_URL)]);
+  return Promise.all([probe("EU", EU_FSF_CSV_URL), probe("UK", UK_SANCTIONS_LIST_CSV_URL)]);
 }
 
 // Kept for callers that hold a whole file (tests / fixtures).

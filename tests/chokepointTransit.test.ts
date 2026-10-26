@@ -34,6 +34,30 @@ describe("transitSignal — unknown before normal, learning before judged", () =
   });
 });
 
+describe("transitSignal — zero is a dead feed, not an empty strait (2026-10-26 China tile)", () => {
+  it("0 vessels where the normal says several were expected reads UNKNOWN, never suppressed", () => {
+    // 10/h normal × 4 h listened = 40 expected; none seen → the feed, not the strait.
+    const r = transitSignal({ ...base, distinctToday: 0, lastHour: 0 });
+    expect(r.state).toBe("unknown");
+    expect(r.ratio).toBeNull();
+    expect(r.line).toMatch(/dead feed|silent/i);
+    expect(r.line).not.toMatch(/SUPPRESSED/);
+  });
+  it("0 vessels in a short listen against a thin normal is still judged (too few expected to call the feed dead)", () => {
+    // 1/h normal × 1 h = 1 expected; 0 seen is ordinary variance → suppressed by the ratio rule.
+    const r = transitSignal({ ...base, distinctToday: 0, lastHour: 0, observedMinutesToday: 60, baselinePerHour: 1 });
+    expect(r.state).toBe("suppressed");
+  });
+  it("a silent feed (no box saw a vessel) reads UNKNOWN even with a count from earlier today", () => {
+    const r = transitSignal({ ...base, feedSilent: true });
+    expect(r.state).toBe("unknown");
+    expect(r.line).toMatch(/AIS silent/);
+  });
+  it("0 vessels while still learning is learning, not a verdict", () => {
+    expect(transitSignal({ ...base, distinctToday: 0, baselinePerHour: null, baselineDays: 0 }).state).toBe("learning");
+  });
+});
+
 describe("transitBaseline", () => {
   it("excludes thin-coverage days from the denominator", () => {
     const b = transitBaseline([
