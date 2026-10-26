@@ -2007,10 +2007,19 @@ built on the existing engine rather than a new one:
   notice", wire-grade evidence, so it can confirm) and a per-actor sensor
   row ("MOFCOM notices" — live if any capture ≤30 d, else "capture the
   announcements page with the extension"). Target list entry:
-  `https://www.mofcom.gov.cn/zwgk/gkzcfb/` (or the English policy-release
-  list, or a single notice's permalink). **Selectors are unverified against
-  the live site from the sandbox** — the first real capture fixes them in
-  `mofcom.js`, the same capture-then-build loop as X/DAIP. Extension files
+  `https://bgt.mofcom.gov.cn/wg/` — the official 中国对外经济贸易文告
+  bulletin, which republishes every MOFCOM announcement — and/or the main
+  site's list (or the English policy-release list, or a single notice's
+  permalink). **The first real run (2026-10-26) found `/zwgk/gkzcfb/` is
+  404** on the redesigned site, and the collector's only permalink shape
+  was the OLD CMS's `/article/…/2YYYMMDD….shtml`; the current CMS (main
+  site and bulletin alike) publishes `…/art/20YY/art_<hex>.html`, with
+  only the year in the path. `mofcom.js` now matches both shapes
+  (`NEW_ARTICLE` / `OLD_ARTICLE`); the date comes from the nearby
+  `YYYY-MM-DD` label on the new shape and is left blank when none is near
+  — never guessed. The main site's current announcements path is still
+  unverified from the sandbox (egress blocks every mofcom host); the
+  extension's page diagnostic names a 404 in the run log. Extension files
   are static under `tools/` (no esbuild).
 
 ### UKMTO recent incidents (2026-10-12, by request: "add ukmto.org/recent-incidents as a data source")

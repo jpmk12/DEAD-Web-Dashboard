@@ -7,21 +7,30 @@
 // for executeScript func injection — page globals only. Nothing is sent to
 // MOFCOM; no login exists.
 //
-// Robustness: it keys off the ARTICLE PERMALINK shape MOFCOM's CMS has used
-// for years (/article/…/2YYYMM/2YYYMMDD….shtml — the date is in the path) and
-// on a nearby YYYY-MM-DD label, never on CSS classes. On a single notice page
-// it also captures the body text so the parser can read what the notice
-// controls (gallium, graphite, dual-use items…), not just its title.
+// Robustness: it keys off the ARTICLE PERMALINK shapes, never CSS classes:
+//   - the CURRENT CMS (www.mofcom.gov.cn since the 2023 redesign, and the
+//     official bulletin mirror bgt.mofcom.gov.cn, which republishes every
+//     announcement): …/art/20YY/art_<hex>.html — only the YEAR is in the
+//     path, so the date comes from the nearby YYYY-MM-DD label and is left
+//     blank when none is near (never guessed);
+//   - the OLD CMS (english.mofcom.gov.cn still): /article/…/2YYYMMDD….shtml
+//     — the full date is in the path.
+// The first real run (2026-10-26) found the old listing path 404 and the
+// old shape alone would have matched nothing on the new one. On a single
+// notice page it also captures the body text so the parser can read what
+// the notice controls (gallium, graphite, dual-use items…), not its title only.
 export async function collectMofcom(durationMs, maxItems) {
   const MAX = maxItems || 200;
   const store = new Map();
-  const ARTICLE = /\/article\/.*\/(20\d{6})\d*\.s?html?(\?|$)|\/(20\d{6})[^/]*\.s?html?(\?|$)/i;
+  const OLD_ARTICLE = /\/article\/.*\/(20\d{6})\d*\.s?html?(\?|$)|\/(20\d{6})[^/]*\.s?html?(\?|$)/i;
+  const NEW_ARTICLE = /\/art\/(20\d\d)\/art_[0-9a-f]{8,}\.s?html?(\?|#|$)/i;
+  const ARTICLE = { test: (h) => OLD_ARTICLE.test(h) || NEW_ARTICLE.test(h) };
   const DATE_RX = /(20\d\d)[-./年](\d{1,2})[-./月](\d{1,2})/;
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const dateFrom = (text, href) => {
     const m = DATE_RX.exec(text || "");
     if (m) return m[1] + "-" + m[2].padStart(2, "0") + "-" + m[3].padStart(2, "0");
-    const p = ARTICLE.exec(href || "");
+    const p = OLD_ARTICLE.exec(href || "");
     const d = p && (p[1] || p[3]);
     return d ? d.slice(0, 4) + "-" + d.slice(4, 6) + "-" + d.slice(6, 8) : "";
   };
@@ -40,7 +49,7 @@ export async function collectMofcom(durationMs, maxItems) {
       store.set(href, { url: href, title: title.slice(0, 300), date });
     } catch (e) { /* one bad node never kills the capture */ }
   };
-  document.querySelectorAll('a[href*="/article/"], a[href$=".shtml"], a[href$=".html"]').forEach(take);
+  document.querySelectorAll('a[href*="/article/"], a[href*="/art/"], a[href$=".shtml"], a[href$=".html"]').forEach(take);
 
   // 2. A single notice page: title + body, so the parser sees the controlled
   //    items. Detected by an article-shaped location plus a heading.

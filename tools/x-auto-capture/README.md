@@ -37,10 +37,16 @@ collected posts → your own dashboard, authorized by a per-user token.
        datacenter IPs, so it can only be captured from your own browser — no
        login needed, it's a public site.
      - **MOFCOM** (PRC Ministry of Commerce) announcement lists or single
-       notices (`https://www.mofcom.gov.cn/zwgk/gkzcfb/`, the English
-       `https://english.mofcom.gov.cn/…` policy-release pages, or one notice's
-       permalink) → official export-control / unreliable-entity / anti-dumping
-       records, credited to the **China** actor on the Economy tab's economic-
+       notices → official export-control / unreliable-entity / anti-dumping
+       records. The old `/zwgk/gkzcfb/` path is **404** on the redesigned
+       site (seen 2026-10-26). Use the official bulletin mirror, which
+       republishes every announcement and whose article shape the collector
+       knows: `https://bgt.mofcom.gov.cn/wg/` — and/or the main site's
+       announcements list `https://www.mofcom.gov.cn/zwgk/zcfb/` (unverified;
+       if the run log says `404 Not Found`, open mofcom.gov.cn → 政务公开 →
+       公告 and paste the URL the browser shows). The English
+       `https://english.mofcom.gov.cn/…` policy-release pages and any single
+       notice's permalink also work. Credited to the **China** actor on the Economy tab's economic-
        warfare board. MOFCOM has no API; this is the only way those notices
        reach the dashboard. Public site, no login.
      - **UKMTO** recent incidents (`https://www.ukmto.org/recent-incidents`)
