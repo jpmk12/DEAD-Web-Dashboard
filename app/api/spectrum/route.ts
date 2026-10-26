@@ -18,7 +18,14 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (new URL(req.url).searchParams.get("diag") === "1") {
+  const diag = new URL(req.url).searchParams.get("diag");
+  if (diag === "radar") {
+    // The short form: only the Cloudflare Radar rows — the full diag body is
+    // long enough that a paste of it was cut off before the radar list twice.
+    if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
+    return NextResponse.json({ radar: await diagnoseRadar() });
+  }
+  if (diag === "1") {
     if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
     const [cyber, space, spaceTrack, radar] = await Promise.all([diagnoseCyberSources(), diagnoseSpaceSources(), diagnoseSpaceTrack(), diagnoseRadar()]);
     return NextResponse.json({ cyber, space, spaceTrack, radar });

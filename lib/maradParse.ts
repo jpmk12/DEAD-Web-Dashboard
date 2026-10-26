@@ -52,7 +52,9 @@ export interface MaradAdvisory {
 // Only https links on the MSCI path survive — the feed is external content
 // rendered as hrefs.
 const PERMALINK = /^https:\/\/(www\.)?maritime\.dot\.gov\/msci\/20\d{2}-\d{3}[a-z]?-[a-z0-9-]{3,240}\/?$/i;
-const TITLE = /^\s*(20\d{2})-(\d{3})([a-z])?\s*[-–—]\s*(.+?)\s*[-–—]\s*(.+?)\s*$/;
+// The reissue suffix is UPPER-case on the live feed ("2026-001A" — the
+// 2026-10-26 diag skipped every Hormuz advisory as "title shape" for it).
+const TITLE = /^\s*(20\d{2})-(\d{3})([a-zA-Z])?\s*[-–—]\s*(.+?)\s*[-–—]\s*(.+?)\s*$/;
 
 /** Region vocabulary → chokepoint id. Phrase-matched (word-bounded) against
  *  the region clause; several may match ("Red Sea, Bab el Mandeb … Arabian
@@ -98,7 +100,7 @@ const ymd = (s: string | undefined): string | null => {
 export function parseMaradTitle(title: string): { number: string; year: number; seq: number; region: string; topic: string } | null {
   const m = TITLE.exec(title.replace(/\s+/g, " "));
   if (!m) return null;
-  return { number: `${m[1]}-${m[2]}${m[3] ?? ""}`, year: Number(m[1]), seq: Number(m[2]), region: m[4], topic: m[5] };
+  return { number: `${m[1]}-${m[2]}${(m[3] ?? "").toUpperCase()}`, year: Number(m[1]), seq: Number(m[2]), region: m[4], topic: m[5] };
 }
 
 export function regionChokepoints(region: string): string[] {
@@ -166,8 +168,16 @@ export function parseMaradItems(items: MaradFeedItem[], today: string, maxAgeDay
  *  earn nothing and the board must not list a row that scored nothing. */
 export function maradTextsFor(chokepointId: string, advisories: MaradAdvisory[]): ChokepointText[] {
   const out: ChokepointText[] = [];
-  for (const a of advisories) {
+  // One advisory per interdiction class per strait — the NEWEST. MARAD
+  // spells one region several ways across reissues ("Persian Gulf" /
+  // "Arabian Gulf"), so two standing advisories about the same threat
+  // would otherwise count as two declared threats on the strait.
+  const seen = new Set<string>();
+  const sorted = [...advisories].sort((a, b) => b.year - a.year || b.seq - a.seq || b.number.localeCompare(a.number));
+  for (const a of sorted) {
     if (!a.read || !a.chokepoints.includes(chokepointId)) continue;
+    if (seen.has(a.read.cls)) continue;
+    seen.add(a.read.cls);
     out.push({
       title: `MARAD ${a.number}: ${a.region} — ${a.topic}`,
       summary: `U.S. Maritime Administration advisory ${a.number} in effect${a.date ? ` (issued ${a.date})` : ""}: ${a.topic}.`,

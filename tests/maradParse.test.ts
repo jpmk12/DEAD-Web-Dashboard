@@ -20,7 +20,10 @@ const TODAY = "2026-10-26";
 describe("parseMaradTitle", () => {
   it("reads number / region / topic from MARAD's YYYY-NNN-Region-Topic form, incl. a reissue suffix and en dashes", () => {
     expect(parseMaradTitle(ITEMS[0].title)).toEqual({ number: "2026-013", year: 2026, seq: 13, region: "Red Sea, Bab el Mandeb Strait, Gulf of Aden, Arabian Sea, and Somali Basin", topic: "Houthi Attacks on Commercial Vessels" });
-    expect(parseMaradTitle("2025-007a – Black Sea – Risk to Commercial Vessels")).toMatchObject({ number: "2025-007a", seq: 7, region: "Black Sea" });
+    expect(parseMaradTitle("2025-007a – Black Sea – Risk to Commercial Vessels")).toMatchObject({ number: "2025-007A", seq: 7, region: "Black Sea" });
+    // The live feed's UPPER-case reissue suffix (skipped as "title shape" in the first production diag).
+    expect(parseMaradTitle("2026-001A-Strait of Hormuz, Persian Gulf, Gulf of Oman, and Arabian Sea-Military Operations and Potential Retaliatory Strikes by Iranian Forces"))
+      .toMatchObject({ number: "2026-001A", seq: 1, region: "Strait of Hormuz, Persian Gulf, Gulf of Oman, and Arabian Sea", topic: "Military Operations and Potential Retaliatory Strikes by Iranian Forces" });
     expect(parseMaradTitle("Program notice")).toBeNull();
   });
 });
@@ -96,6 +99,16 @@ describe("maradTextsFor → the shared read", () => {
     expect(read.acts).toBe(0);
     expect(read.score).toBeGreaterThan(0);
     expect(read.lead?.source).toBe("MARAD");
+  });
+  it("one advisory per class per strait — two spellings of the same region are not two threats", () => {
+    const two = parseMaradItems([
+      { title: "2026-001A-Strait of Hormuz, Persian Gulf, Gulf of Oman, and Arabian Sea-Military Operations and Potential Retaliatory Strikes by Iranian Forces", link: "https://www.maritime.dot.gov/msci/2026-001a-strait-hormuz-persian-gulf", pubDate: "Mon, 05 Oct 2026 14:00:00 +0000" },
+      { title: "2025-002A-Strait of Hormuz, Arabian Gulf, Gulf of Oman, and Arabian Sea-Potential Retaliatory Strikes by Iranian Forces", link: "https://www.maritime.dot.gov/msci/2025-002a-strait-hormuz-arabian-gulf", pubDate: "Mon, 05 Oct 2026 14:00:00 +0000" },
+    ], TODAY);
+    expect(two.length).toBe(2);                       // two region spellings → two advisories kept
+    const texts = maradTextsFor("hormuz", two);
+    expect(texts.length).toBe(1);                     // but one declared threat per class on the strait
+    expect(texts[0].title).toMatch(/^MARAD 2026-001A/);
   });
   it("a strait no advisory names gets nothing; a topic that grades null is left out", () => {
     expect(maradTextsFor("panama", advs)).toEqual([]);

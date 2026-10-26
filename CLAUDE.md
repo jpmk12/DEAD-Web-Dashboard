@@ -2419,6 +2419,16 @@ diag and their contracts are pinned from the published feed / API reference.
   NULL — "combat operations" / "combat" joined the strike phrases — and
   the diag now carries `skipped[]` (title + `title shape` / `foreign link`
   / `expired` / `superseded`) so "10 items, 2 parsed" explains itself.
+  The second diag then showed what `skipped` was for: every Hormuz
+  advisory read `title shape` because MARAD's reissue suffix is
+  UPPER-case (`2026-001A`) and the parser accepted only `[a-z]` — fixed,
+  and the number is normalised upper. MARAD also spells one region two
+  ways across reissues ("Persian Gulf" / "Arabian Gulf"), so
+  `maradTextsFor` now keeps ONE advisory per interdiction class per
+  strait (the newest) — two standing advisories about the same threat
+  are not two declared threats. `/api/spectrum?diag=radar` is the SHORT
+  diag (only the Radar rows) — the full body was long enough that a
+  paste of it was cut off before the radar list twice.
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")
