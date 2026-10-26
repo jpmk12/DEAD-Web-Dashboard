@@ -16,7 +16,7 @@
 // Data © Cloudflare, CC BY-NC 4.0 — attribution rendered wherever shown.
 
 import { fetchWithTimeout } from "./fetchTimeout";
-import { parseRadarOutages, parseRadarAnomalies, describeRadarError, type RadarOutage, type RadarAnomaly, type RadarErrorClass } from "./radarSignals";
+import { parseRadarOutages, parseRadarAnomalies, describeRadarError, normalizeRadarToken, describeTokenShape, type RadarOutage, type RadarAnomaly, type RadarErrorClass, type RadarTokenShape } from "./radarSignals";
 
 export const RADAR_BASE = "https://api.cloudflare.com/client/v4/radar";
 // The query is the shape of the Outages doc's own example
@@ -45,8 +45,10 @@ let inflight: Promise<RadarBody> | null = null;
 export function resetRadarCache(): void { cache = null; }
 
 export function radarToken(): string | null {
-  const t = (process.env.CLOUDFLARE_RADAR_TOKEN ?? "").trim();
-  return t ? t : null;
+  // Quotes, a `Bearer ` prefix and whitespace are paste defects, not the
+  // token — the 2026-10-26 diag read 9106 "Authentication failed" on a
+  // value that may have carried one.
+  return normalizeRadarToken(process.env.CLOUDFLARE_RADAR_TOKEN);
 }
 
 export async function getRadar(): Promise<RadarBody> {
@@ -108,10 +110,44 @@ async function load(): Promise<RadarBody> {
 
 export interface RadarDiag { source: string; url: string; configured: boolean; status: number; ms: number; parsed: number; error?: string; errorClass?: RadarErrorClass; hint?: string; sample: string[] }
 
-/** Owner-only: the real fetches from production. Reports status + parsed +
- *  a few description lines; the token is never in the reply. */
-export async function diagnoseRadar(): Promise<RadarDiag[]> {
+export const RADAR_VERIFY_URL = "https://api.cloudflare.com/client/v4/user/tokens/verify";
+
+export interface RadarVerifyDiag {
+  url: string; status: number; ms: number;
+  /** Cloudflare's own word on the token: `active` / `expired` / `disabled` — or null when it refused to say. */
+  tokenStatus: string | null;
+  error?: string;
+}
+
+/** Cloudflare's token-verify endpoint: a valid token answers 200 with
+ *  `result.status`; an invalid one answers the same auth error the Radar
+ *  endpoints do. This separates "the token is bad" from "the token is
+ *  fine but lacks the Radar permission" — the latter verifies and then
+ *  reads 403 on Radar. */
+async function verifyToken(token: string): Promise<RadarVerifyDiag> {
+  const t0 = Date.now();
+  const r = await fetchJson(RADAR_VERIFY_URL, token, 10_000);
+  const status = (r.json as { result?: { status?: unknown } } | null)?.result?.status;
+  return { url: RADAR_VERIFY_URL, status: r.status, ms: Date.now() - t0, tokenStatus: typeof status === "string" ? status : null, ...(r.error ? { error: r.error } : {}) };
+}
+
+export interface RadarDiagBody {
+  /** The token's shape — length, API-token vs Global-API-Key by shape, paste defects stripped — never its characters. */
+  token: RadarTokenShape | null;
+  verify: RadarVerifyDiag | null;
+  endpoints: RadarDiag[];
+}
+
+/** Owner-only: the real fetches from production. Reports the token's shape,
+ *  Cloudflare's own verify answer, and status + parsed + a few description
+ *  lines per endpoint; the token is never in the reply. */
+export async function diagnoseRadar(): Promise<RadarDiagBody> {
   const token = radarToken();
+  const [verify, endpoints] = await Promise.all([token ? verifyToken(token) : Promise.resolve(null), diagnoseRadarEndpoints(token)]);
+  return { token: describeTokenShape(process.env.CLOUDFLARE_RADAR_TOKEN), verify, endpoints };
+}
+
+async function diagnoseRadarEndpoints(token: string | null): Promise<RadarDiag[]> {
   const probe = async (source: string, url: string, parse: (j: unknown) => { n: number; sample: string[] }): Promise<RadarDiag> => {
     const t0 = Date.now();
     if (!token) return { source, url, configured: false, status: 0, ms: 0, parsed: 0, error: "CLOUDFLARE_RADAR_TOKEN not set", sample: [] };

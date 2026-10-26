@@ -225,6 +225,42 @@ export const RADAR_LEVEL_ORDINAL: Record<RadarLevel, number> = { red: 3, amber: 
 
 export type RadarErrorClass = "token" | "query" | "rate" | "other";
 
+/**
+ * The env value as the operator pasted it → the bare token. Strips the
+ * paste defects that make a GOOD token read as "Authentication failed":
+ * surrounding quotes, a `Bearer ` prefix, and whitespace. Returns null for
+ * nothing left.
+ */
+export function normalizeRadarToken(raw: string | undefined | null): string | null {
+  let t = (raw ?? "").trim();
+  if (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))) t = t.slice(1, -1).trim();
+  t = t.replace(/^bearer\s+/i, "").trim();
+  return t ? t : null;
+}
+
+export interface RadarTokenShape {
+  /** Characters in the bare value. */
+  length: number;
+  /** A Cloudflare API Token is 40 chars of [A-Za-z0-9_-]; the Global API
+   *  Key is 37 hex chars — the two are told apart by shape alone. */
+  looksLike: "api-token" | "global-api-key" | "unknown";
+  /** Defects stripped from the pasted value. */
+  stripped: ("quotes" | "bearer-prefix" | "whitespace")[];
+}
+
+/** Describe the token's SHAPE for the diag — never its characters. */
+export function describeTokenShape(raw: string | undefined | null): RadarTokenShape | null {
+  const bare = normalizeRadarToken(raw);
+  if (!bare) return null;
+  const r = raw ?? "";
+  const stripped: RadarTokenShape["stripped"] = [];
+  if (/^\s*["']/.test(r)) stripped.push("quotes");
+  if (/^\s*["']?\s*bearer\s/i.test(r)) stripped.push("bearer-prefix");
+  if (r !== r.trim()) stripped.push("whitespace");
+  const looksLike: RadarTokenShape["looksLike"] = /^[0-9a-f]{37}$/.test(bare) ? "global-api-key" : /^[A-Za-z0-9_-]{40}$/.test(bare) ? "api-token" : "unknown";
+  return { length: bare.length, looksLike, stripped };
+}
+
 export interface RadarErrorInfo {
   cls: RadarErrorClass;
   /** `HTTP 400 — 6003 Invalid request headers › 6111 Invalid format for Authorization header`. */

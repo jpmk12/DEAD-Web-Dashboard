@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRadarOutages, parseRadarAnomalies, radarOutageLevel, radarReadsFor, RADAR_LEVEL_ORDINAL, describeRadarError } from "../lib/radarSignals";
+import { parseRadarOutages, parseRadarAnomalies, radarOutageLevel, radarReadsFor, RADAR_LEVEL_ORDINAL, describeRadarError, normalizeRadarToken, describeTokenShape } from "../lib/radarSignals";
 import { functionalRows, type FcInput } from "../lib/functionalCommands";
 
 // The host is unreachable from the sandbox; these bodies follow the published
@@ -106,6 +106,27 @@ describe("describeRadarError — the error body names the class, the token never
     const e = describeRadarError(400, JSON.stringify({ errors: [{ code: 1, message: "x".repeat(2000), secret: "Bearer abc" }] }));
     expect(e.detail.length).toBeLessThanOrEqual(400);
     expect(e.detail).not.toMatch(/Bearer/);
+  });
+});
+
+describe("normalizeRadarToken / describeTokenShape — paste defects stripped, shape named, characters never", () => {
+  const tok = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_Ab";   // 40 chars, the API-token alphabet
+  it("strips quotes, a Bearer prefix and whitespace; empty → null", () => {
+    expect(normalizeRadarToken(`  "${tok}"  `)).toBe(tok);
+    expect(normalizeRadarToken(`Bearer ${tok}`)).toBe(tok);
+    expect(normalizeRadarToken(`'bearer ${tok}'`)).toBe(tok);
+    expect(normalizeRadarToken(`${tok}\n`)).toBe(tok);
+    expect(normalizeRadarToken("   ")).toBeNull();
+    expect(normalizeRadarToken(undefined)).toBeNull();
+  });
+  it("names the shape and the defects, and the token's characters are not in the result", () => {
+    const s = describeTokenShape(`"Bearer ${tok}"`)!;
+    expect(s).toMatchObject({ length: 40, looksLike: "api-token" });
+    expect(s.stripped).toEqual(expect.arrayContaining(["quotes", "bearer-prefix"]));
+    expect(JSON.stringify(s)).not.toContain(tok.slice(0, 8));
+    expect(describeTokenShape("0123456789abcdef0123456789abcdef01234")!.looksLike).toBe("global-api-key");
+    expect(describeTokenShape("short")!.looksLike).toBe("unknown");
+    expect(describeTokenShape("")).toBeNull();
   });
 });
 

@@ -2489,6 +2489,24 @@ diag and their contracts are pinned from the published feed / API reference.
   the api-schemas repo are all blocked) — if the next diag's message
   names `limit`, lower it. Re-run `/api/spectrum?diag=radar` after a
   deploy: the `error` line now says which it is.
+- **The answer was the credential: 9106 "Authentication failed" on both
+  endpoints (fourth Radar diag, same day).** So the query was never at
+  fault and the fix is on the Cloudflare side. Two things make the NEXT
+  diag conclusive without seeing the token: (1) `radarToken()` goes
+  through `normalizeRadarToken` (PURE, tested) — surrounding quotes, a
+  `Bearer ` prefix and whitespace are paste defects that turn a good
+  token into "Authentication failed"; (2) `diagnoseRadar()` now returns
+  `{ token, verify, endpoints }`: `token` is the value's SHAPE only
+  (`describeTokenShape`: length; `api-token` = 40 chars of `[A-Za-z0-9_-]`
+  vs `global-api-key` = 37 hex chars — told apart by shape alone, never
+  by printing a character; the defects stripped), and `verify` calls
+  Cloudflare's own `GET /client/v4/user/tokens/verify` with the Bearer —
+  a valid token answers 200 with `result.status: "active"`, an invalid one
+  answers the same auth error the Radar endpoints do. Reading the diag:
+  `looksLike: global-api-key` → the wrong kind of credential (a Custom API
+  Token is needed); `verify` 200 `active` + Radar 403 → the token is fine
+  but lacks Account › Radar › Read; `verify` refused → the token itself
+  (expired, disabled, mistyped, or pasted with a defect `stripped` names).
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")
