@@ -47,6 +47,10 @@ export interface MaradAdvisory {
   chokepoints: string[];
   /** The graded read — a declared threat whose class comes from the topic. */
   read: InterdictionRead | null;
+  /** yyyy-mm-dd the advisory expires, when the PAGE states it; else null. */
+  expires?: string | null;
+  /** How "in effect" was decided: the page's own expiry, or the age proxy. */
+  expirySource?: "page" | "proxy" | null;
 }
 
 // Only https links on the MSCI path survive — the feed is external content
@@ -130,7 +134,7 @@ export interface MaradFeedItem { title?: string; link?: string; pubDate?: string
  * Items with an unparseable title or a foreign link are skipped, never
  * guessed.
  */
-export interface MaradSkipped { title: string; reason: "title shape" | "foreign link" | "expired" | "superseded" }
+export interface MaradSkipped { title: string; reason: "title shape" | "foreign link" | "expired" | "superseded" | "cancelled"; /** The evidence — "page: expires 2026-07-01" / "age proxy: issued 2026-01-14, no expiry on the page". */ note?: string }
 
 export function parseMaradItems(items: MaradFeedItem[], today: string, maxAgeDays = MARAD_MAX_AGE_DAYS, skipped?: MaradSkipped[]): MaradAdvisory[] {
   const todayMs = Date.parse(`${today}T00:00:00Z`);
@@ -180,11 +184,108 @@ export function maradTextsFor(chokepointId: string, advisories: MaradAdvisory[])
     seen.add(a.read.cls);
     out.push({
       title: `MARAD ${a.number}: ${a.region} — ${a.topic}`,
-      summary: `U.S. Maritime Administration advisory ${a.number} in effect${a.date ? ` (issued ${a.date})` : ""}: ${a.topic}.`,
+      summary: `U.S. Maritime Administration advisory ${a.number} in effect${a.date ? ` (issued ${a.date}` : ""}${a.expires ? `${a.date ? ", " : " ("}expires ${a.expires}` : ""}${a.date || a.expires ? ")" : ""}: ${a.topic}.`,
       link: a.url, source: "MARAD",
       pubDate: a.date ? `${a.date}T12:00:00Z` : undefined,
       read: a.read,
     });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// The advisory PAGE — the only honest source of "in effect".
+//
+// The feed's pubDate is the Drupal node's CREATION date, which a reissue
+// does not change: 2026-001 was created in January and its "A" reissue —
+// the thing that keeps it in effect — left the date alone, so the age
+// proxy skipped it as expired (2026-10-26 diag, after the title fix). Every
+// MSCI advisory ends with a Cancellation paragraph ("This message will
+// automatically expire on 23 March 2027"), a page that is superseded says
+// so, and the page carries the issue date. `parseMaradPage` reads those
+// from the page TEXT (never CSS); `maradInEffect` decides: the page's
+// expiry wins, a stated cancellation wins, and only with neither does the
+// age proxy apply — and the surfaces say which. Nothing is guessed: a page
+// that gives no date leaves the proxy in charge, stated as such.
+
+export interface MaradPageInfo {
+  /** yyyy-mm-dd from "Date Issued" / "Issued:" on the page, or null. */
+  issued: string | null;
+  /** yyyy-mm-dd from the Cancellation paragraph's expiry, or null. */
+  expires: string | null;
+  /** The page says THIS advisory has been cancelled / superseded / rescinded. */
+  cancelled: boolean;
+}
+
+const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+// "23 March 2027" · "March 23, 2027" · "2027-03-23" · "03/23/2027" (US).
+const DATE_RX = String.raw`(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})|([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})|(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\/(\d{1,2})\/(\d{4})`;
+const EXPIRE_RX = new RegExp(String.raw`\b(?:automatically\s+)?(?:expire|expires|expiring|expiration(?:\s+date)?)\b\s*(?:on|:)?\s*(?:${DATE_RX})`, "gi");
+const ISSUED_RX = new RegExp(String.raw`\b(?:date\s+)?issued\s*:?\s*(?:on\s+)?(?:${DATE_RX})`, "i");
+// Passive voice only — an active reissue says "This advisory supersedes and
+// cancels 2025-012", which is the OPPOSITE statement.
+const CANCELLED_RX = /\bthis\s+(?:advisory|message|alert)\s+(?:has\s+been|is|was)\s+(?:cancell?ed|superseded|rescinded|withdrawn)\b/i;
+
+function dateFromMatch(m: RegExpMatchArray, base: number): string | null {
+  // The alternation's groups start at `base` (1 when DATE_RX is the whole pattern).
+  const g = (i: number) => m[base + i];
+  const month = (name: string) => MONTHS[name.toLowerCase().slice(0, 4)] ?? MONTHS[name.toLowerCase().slice(0, 3)];
+  let y: number, mo: number | undefined, d: number;
+  if (g(0)) { d = Number(g(0)); mo = month(g(1)); y = Number(g(2)); }
+  else if (g(3)) { mo = month(g(3)); d = Number(g(4)); y = Number(g(5)); }
+  else if (g(6)) { y = Number(g(6)); mo = Number(g(7)); d = Number(g(8)); }
+  else if (g(9)) { mo = Number(g(9)); d = Number(g(10)); y = Number(g(11)); }
+  else return null;
+  if (!mo || mo < 1 || mo > 12 || !d || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Read issue date / expiry / cancellation from an advisory page's TEXT
+ *  (run the HTML through `htmlToText` first). The expiry is taken from the
+ *  Cancellation paragraph when the page has one (the first expiry after
+ *  that heading), else the LAST expiry on the page — the Cancellation
+ *  paragraph is the final numbered paragraph of every MSCI advisory. */
+export function parseMaradPage(text: string): MaradPageInfo {
+  const s = (text || "").replace(/\s+/g, " ").slice(0, 200_000);
+  const issuedM = ISSUED_RX.exec(s);
+  const issued = issuedM ? dateFromMatch(issuedM, 1) : null;
+  let expires: string | null = null;
+  const cancelAt = s.search(/\bcancellation\b/i);
+  const rx = new RegExp(EXPIRE_RX.source, "gi");
+  const hits: { at: number; date: string }[] = [];
+  for (let m = rx.exec(s); m; m = rx.exec(s)) { const d = dateFromMatch(m, 1); if (d) hits.push({ at: m.index, date: d }); }
+  if (hits.length) {
+    const after = cancelAt >= 0 ? hits.find((h) => h.at >= cancelAt) : undefined;
+    expires = (after ?? hits[hits.length - 1]).date;
+  }
+  return { issued, expires, cancelled: CANCELLED_RX.test(s) };
+}
+
+export interface MaradEffect {
+  keep: boolean;
+  reason?: "expired" | "cancelled";
+  /** The evidence, for the diag and the chip tooltip. */
+  note: string;
+  expires: string | null;
+  source: "page" | "proxy" | null;
+}
+
+/**
+ * Is the advisory in effect at `today`? The page's statement wins (a
+ * cancellation, then its expiry date); without one the age proxy decides
+ * from the feed date, and says so. An advisory with no page AND no feed
+ * date is kept — unknown age is not expiry — flagged by its note.
+ */
+export function maradInEffect(adv: Pick<MaradAdvisory, "date">, info: MaradPageInfo | null, today: string, maxAgeDays = MARAD_MAX_AGE_DAYS): MaradEffect {
+  if (info?.cancelled) return { keep: false, reason: "cancelled", note: "page: this advisory has been cancelled or superseded", expires: info.expires, source: "page" };
+  if (info?.expires) {
+    const keep = info.expires >= today;
+    return { keep, ...(keep ? {} : { reason: "expired" as const }), note: `page: expires ${info.expires}`, expires: info.expires, source: "page" };
+  }
+  const issued = info?.issued ?? adv.date;
+  const todayMs = Date.parse(`${today}T00:00:00Z`);
+  if (!issued || !Number.isFinite(todayMs)) return { keep: true, note: "no date on the page or in the feed — kept, age unknown", expires: null, source: null };
+  const age = (todayMs - Date.parse(`${issued}T00:00:00Z`)) / 86_400_000;
+  const keep = !(age > maxAgeDays);
+  return { keep, ...(keep ? {} : { reason: "expired" as const }), note: `age proxy: issued ${issued}, no expiry on the page${info ? "" : " (page not read)"}`, expires: null, source: "proxy" };
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseMaradTitle, regionChokepoints, gradeMarad, parseMaradItems, maradTextsFor, MARAD_MAX_AGE_DAYS } from "../lib/maradParse";
+import { parseMaradTitle, regionChokepoints, gradeMarad, parseMaradItems, maradTextsFor, parseMaradPage, maradInEffect, MARAD_MAX_AGE_DAYS } from "../lib/maradParse";
+import { htmlToText } from "../lib/ukmtoParse";
 import { readActivity } from "../lib/chokepointSignals";
 import { CHOKEPOINTS } from "../lib/chokepoints";
 
@@ -83,6 +84,49 @@ describe("parseMaradItems", () => {
     const guinea = advs.find((a) => a.number === "2026-010")!;
     expect(guinea.chokepoints).toEqual([]);
     expect(guinea.read).toMatchObject({ cls: "seizure", modality: "threat" });
+  });
+});
+
+describe("parseMaradPage / maradInEffect — the page decides 'in effect', the feed date is only a proxy", () => {
+  // Synthetic page in the MSCI layout (the host is blocked from the sandbox):
+  // numbered paragraphs, the Cancellation paragraph last.
+  const PAGE = `<html><body><h1>2026-001A-Strait of Hormuz, Persian Gulf, Gulf of Oman, and Arabian Sea-Military Operations and Potential Retaliatory Strikes by Iranian Forces</h1>
+    <div class="field"><strong>Date Issued:</strong> September 23, 2026</div>
+    <p>1. References: U.S. Maritime Advisory 2026-001, which expired on 23 July 2026 and is superseded by this advisory.</p>
+    <p>2. Issue: Military operations in the region continue to pose a threat to commercial vessels.</p>
+    <p>4. Contact Information: NAVCENT. 5. Cancellation: This message will automatically expire on 23 March 2027.</p></body></html>`;
+  it("reads the issue date and the Cancellation paragraph's expiry — not the superseded advisory's", () => {
+    const info = parseMaradPage(htmlToText(PAGE));
+    expect(info).toEqual({ issued: "2026-09-23", expires: "2027-03-23", cancelled: false });
+  });
+  it("accepts the date spellings MARAD uses, and nothing it does not", () => {
+    expect(parseMaradPage("Cancellation. This advisory will automatically expire on March 1, 2027.").expires).toBe("2027-03-01");
+    expect(parseMaradPage("Expiration date: 2027-03-01").expires).toBe("2027-03-01");
+    expect(parseMaradPage("Expires 03/01/2027").expires).toBe("2027-03-01");
+    expect(parseMaradPage("expires on 45 Foo 2027").expires).toBeNull();
+    expect(parseMaradPage("nothing dated here")).toEqual({ issued: null, expires: null, cancelled: false });
+  });
+  it("a cancellation is read only in the passive voice — a reissue that CANCELS the earlier advisory is in effect", () => {
+    expect(parseMaradPage("This advisory supersedes and cancels U.S. Maritime Advisory 2025-012.").cancelled).toBe(false);
+    expect(parseMaradPage("This advisory has been superseded by 2026-013.").cancelled).toBe(true);
+    expect(parseMaradPage("This message was cancelled on 1 October 2026.").cancelled).toBe(true);
+  });
+  it("the 2026-001A case: an old feed date with a future expiry on the page is IN EFFECT", () => {
+    const d = maradInEffect({ date: "2026-01-14" }, { issued: "2026-09-23", expires: "2027-03-23", cancelled: false }, TODAY);
+    expect(d).toMatchObject({ keep: true, expires: "2027-03-23", source: "page" });
+    expect(d.note).toBe("page: expires 2027-03-23");
+  });
+  it("a past expiry on the page is expired even with a fresh feed date; a cancellation is cancelled", () => {
+    expect(maradInEffect({ date: "2026-10-01" }, { issued: null, expires: "2026-10-25", cancelled: false }, TODAY)).toMatchObject({ keep: false, reason: "expired" });
+    expect(maradInEffect({ date: "2026-10-01" }, { issued: null, expires: "2026-10-26", cancelled: false }, TODAY).keep).toBe(true);   // expires today → still in effect today
+    expect(maradInEffect({ date: "2026-10-01" }, { issued: null, expires: null, cancelled: true }, TODAY)).toMatchObject({ keep: false, reason: "cancelled" });
+  });
+  it("without a page the age proxy decides and SAYS so; the page's issue date beats the feed's", () => {
+    expect(maradInEffect({ date: "2026-01-14" }, null, TODAY)).toMatchObject({ keep: false, reason: "expired", source: "proxy" });
+    expect(maradInEffect({ date: "2026-01-14" }, null, TODAY).note).toMatch(/page not read/);
+    expect(maradInEffect({ date: "2026-09-23" }, null, TODAY)).toMatchObject({ keep: true, source: "proxy" });
+    expect(maradInEffect({ date: "2026-01-14" }, { issued: "2026-09-23", expires: null, cancelled: false }, TODAY).keep).toBe(true);
+    expect(maradInEffect({ date: null }, null, TODAY)).toMatchObject({ keep: true, source: null });
   });
 });
 

@@ -2429,6 +2429,32 @@ diag and their contracts are pinned from the published feed / API reference.
   are not two declared threats. `/api/spectrum?diag=radar` is the SHORT
   diag (only the Radar rows) — the full body was long enough that a
   paste of it was cut off before the radar list twice.
+- **"In effect" comes from the advisory PAGE, not the feed date (2026-10-26,
+  fourth diag: 2026-001A parsed at last — and was skipped as `expired`).**
+  The feed's pubDate is the Drupal node's CREATION date; a reissue
+  ("2026-001A", the thing that keeps an advisory in effect) edits the node
+  and leaves the date alone, so the 185-day age proxy called an in-effect
+  Hormuz advisory expired. Every MSCI advisory ends with a Cancellation
+  paragraph ("This message will automatically expire on 23 March 2027")
+  and carries "Date Issued", so `lib/marad.ts` now reads each candidate's
+  page (≤10, 8 s each, in parallel; cached 24 h per URL, 1 h on failure)
+  through `htmlToText` → `parseMaradPage` (PURE, tested: the expiry is the
+  first one after the "Cancellation" heading, else the last on the page —
+  so the superseded advisory's expiry in paragraph 1 is never taken; dates
+  in MARAD's four spellings; a cancellation is read ONLY in the passive
+  voice, because an active reissue says "supersedes and cancels 2025-012")
+  → `maradInEffect` (PURE, tested): a stated cancellation wins, then the
+  page's expiry (`>= today` is in effect), and only without either does
+  the age proxy decide — stated as "age proxy … (page not read)". The
+  page's issue date replaces the feed's. `parseMaradItems` is called with
+  NO age cap (`Infinity`: superseding by region only). `MaradAdvisory`
+  carries `expires` / `expirySource` (`page` | `proxy`), the strait text
+  says "expires <date>", `MaradBody.pages {read, of}` and the diag's
+  `advisories[]` / `skipped[].note` say which rule decided each row. The
+  page layout is UNVERIFIED from the sandbox (same host block as the feed):
+  if the next diag shows `pages.read` > 0 but every row `expirySource:
+  "proxy"`, the Cancellation wording differs — read the diag's advisory
+  URL in a browser and refine `EXPIRE_RX` / `ISSUED_RX`.
 - **The Radar diag read "HTTP 400" on both endpoints and nothing else
   (2026-10-26, third diag)** — and a bare status cannot tell the two
   likely causes apart: Cloudflare answers a MALFORMED Authorization header
