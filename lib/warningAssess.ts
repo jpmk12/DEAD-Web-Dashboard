@@ -42,16 +42,18 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
   // The observed-mobility baseline feeds the divergence sensor (surge is
   // relative to this AOR's own normal, not a static bar).
   const none = { mean: null as number | null, samples: 0, kind: "none" as const };
-  const [mobilityBaseline, pntBase, ransomBase] = await Promise.all([
+  const [mobilityBaseline, pntBase, ransomBase, pntCovBase, oskyBase] = await Promise.all([
     getMobilityBaseline(problemId, day, 30).catch(() => none),
     getSensorBaseline(`pnt:${problemId}`, day, 30).catch(() => none),
     getSensorBaseline(`ransom:${problemId}`, day, 30).catch(() => none),
+    getSensorBaseline(`pntcov:${problemId}`, day, 30).catch(() => none),
+    getSensorBaseline(`osky:${problemId}`, day, 30).catch(() => none),
   ]);
-  const classic = await gatherObservations(mobilityBaseline, geo);
+  const classic = await gatherObservations(mobilityBaseline, geo, { mean: oskyBase.mean, samples: oskyBase.samples });
   // The spectrum indicators (PNT / cyber / space) ride the same request,
   // corroborated by the own-source slice the classic sensors just gathered.
-  const spectrum = await gatherSpectrumObservations(geo, problemId, { pnt: pntBase, ransom: ransomBase }, classic.userNews)
-    .catch(() => ({ observations: [], health: [{ indicatorId: "pnt_denial", live: false, note: "spectrum sensors failed" }], magnitudes: { pntCells: null, victims: null } }));
+  const spectrum = await gatherSpectrumObservations(geo, problemId, { pnt: pntBase, ransom: ransomBase, pntCov: pntCovBase }, classic.userNews)
+    .catch(() => ({ observations: [], health: [{ indicatorId: "pnt_denial", live: false, note: "spectrum sensors failed" }], magnitudes: { pntCells: null, victims: null, pntCoverage: null, pntDate: null } }));
   const observations = [...classic.observations, ...spectrum.observations];
   const health: SensorHealth[] = [...classic.health, ...spectrum.health];
   const { divergence } = classic;
@@ -73,10 +75,18 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
   // Persist today's rollup incl. the day-peak mobility count (fire-and-forget —
   // a DB hiccup must not fail the read). Only record a count the ADS-B sensor
   // actually produced — a dead feed must not write a fake 0 into the baseline.
-  const mobilityLive = health.find((h) => h.indicatorId === "mobility_divergence")?.live ?? false;
+  // The OpenSky FALLBACK's count is a different instrument (mil by ICAO
+  // range, type unknown) — it keeps its own series (osky:) and never enters
+  // the community-ADS-B baseline (mobility_count stays NULL that day).
+  const mobilityLive = (health.find((h) => h.indicatorId === "mobility_divergence")?.live ?? false) && divergence.source !== "opensky";
   recordWarningDay(problemId, day, assessment.rawScore, assessment.anomaly, assessment.level, mobilityLive ? divergence.observedCount : null).catch(() => {});
+  if (divergence.source === "opensky") recordSensorDay(`osky:${problemId}`, day, divergence.observedCount).catch(() => {});
   // Spectrum sensor counts → their own baselines (null when the feed was dead — nothing written).
-  recordSensorDay(`pnt:${problemId}`, day, spectrum.magnitudes.pntCells).catch(() => {});
+  // GPSJam publishes the PRIOR day's file: the cells and the coverage are
+  // recorded under the file's own date, so a day's series is that day's sky.
+  const gpsDay = spectrum.magnitudes.pntDate && /^\d{4}-\d{2}-\d{2}$/.test(spectrum.magnitudes.pntDate) ? spectrum.magnitudes.pntDate : day;
+  recordSensorDay(`pnt:${problemId}`, gpsDay, spectrum.magnitudes.pntCells).catch(() => {});
+  recordSensorDay(`pntcov:${problemId}`, gpsDay, spectrum.magnitudes.pntCoverage ?? null).catch(() => {});
   recordSensorDay(`ransom:${problemId}`, day, spectrum.magnitudes.victims).catch(() => {});
 
   // Per-indicator state of record (PLAN §5 C1) — what the composite row

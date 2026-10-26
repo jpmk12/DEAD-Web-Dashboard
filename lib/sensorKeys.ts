@@ -20,6 +20,8 @@ export interface SensorKeyDef { prefix: string; policy: DayPolicy; what: string 
 export const SENSOR_KEYS: readonly SensorKeyDef[] = [
   // I&W spectrum sensors (cyber/space build)
   { prefix: "pnt",      policy: "peak", what: "GPSJam cells inside an AOI bbox, per problem id" },
+  { prefix: "pntcov",   policy: "peak", what: "GPSJam REPORTING cells (any level) inside an AOI bbox — the coverage denominator, per problem id" },
+  { prefix: "osky",     policy: "peak", what: "OpenSky military-by-ICAO/callsign aircraft within hub radius (the ADS-B fallback's own series), per problem id" },
   { prefix: "ransom",   policy: "peak", what: "ransomware victims relevant to an AOI, per problem id" },
   // Phase C — per-hub lift and chokepoint acts
   { prefix: "mob",      policy: "peak", what: "mobility aircraft within hub radius, per ICAO" },

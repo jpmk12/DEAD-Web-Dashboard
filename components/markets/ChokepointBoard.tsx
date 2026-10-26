@@ -99,6 +99,9 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
   // The MARAD door: the U.S. government's standing advisories by region — a
   // declared threat on every strait the region names. A dead feed is UNKNOWN.
   const [marad, setMarad] = useState<{ live: boolean; count: number; reason: string | null } | null>(null);
+  // The ACLED door: a configured account whose tier embargoes recent data
+  // reads 0 events by construction — the chip says EMBARGOED, never quiet.
+  const [acled, setAcled] = useState<{ configured: boolean; count: number; restriction: string | null } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
 
@@ -111,6 +114,7 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
         if (Array.isArray(d?.signals)) setSignals(d.signals);
         if (d?.ukmto && typeof d.ukmto === "object") setUkmto(d.ukmto);
         if (d?.marad && typeof d.marad === "object") setMarad(d.marad);
+        if (d?.acled && typeof d.acled === "object") setAcled(d.acled);
       })
       .catch(() => {});
   }, []);
@@ -147,6 +151,14 @@ export default function ChokepointBoard({ active }: { active: boolean }) {
               : `MARAD advisories unread — ${marad.reason ?? "feed unreachable"}. UNKNOWN, not "no advisory in effect".`}
           >
             MARAD {marad.live ? marad.count : "UNKNOWN"}
+          </span>
+        )}
+        {acled && acled.configured && acled.count === 0 && acled.restriction && (
+          <span
+            className="text-[8px] font-bold uppercase tracking-wider px-1 rounded border text-amber-200 border-amber-500/50 bg-amber-500/10"
+            title={`ACLED answered with 0 events: this account's access tier restricts data to "${acled.restriction}", so the last 14 days are EMBARGOED for it — not quiet. UCDP / ReliefWeb / UKMTO carry the current picture; request recent-data access from ACLED to lift this.`}
+          >
+            ACLED embargoed
           </span>
         )}
       </div>

@@ -10,7 +10,7 @@
 
 import { fetchFeed } from "./rss";
 import { fetchWithTimeout } from "./fetchTimeout";
-import { parseMaradItems, MARAD_FEED_URL, type MaradAdvisory } from "./maradParse";
+import { parseMaradItems, MARAD_FEED_URL, type MaradAdvisory, type MaradSkipped } from "./maradParse";
 
 export interface MaradBody {
   advisories: MaradAdvisory[];
@@ -47,7 +47,7 @@ async function load(): Promise<MaradBody> {
   }
 }
 
-export interface MaradDiag { url: string; status: number; ms: number; bytes: number; items: number; parsed: number; snippet: string; error?: string; advisories: { number: string; region: string; topic: string; date: string | null; chokepoints: string[]; read: string | null }[] }
+export interface MaradDiag { url: string; status: number; ms: number; bytes: number; items: number; parsed: number; snippet: string; error?: string; /** Items the parser set aside and why — the next diag explains itself. */ skipped: MaradSkipped[]; advisories: { number: string; region: string; topic: string; date: string | null; chokepoints: string[]; read: string | null }[] }
 
 /** Owner-only: the real fetch from production, raw. */
 export async function diagnoseMarad(): Promise<MaradDiag> {
@@ -57,13 +57,14 @@ export async function diagnoseMarad(): Promise<MaradDiag> {
     const text = await res.text();
     const items = (text.match(/<item>/g) ?? []).length;
     const r = await fetchFeed(MARAD_FEED_URL, "MARAD", "maritime");
-    const parsed = r.ok ? parseMaradItems(r.items.map((n) => ({ title: n.title, link: n.link, pubDate: n.pubDate })), new Date().toISOString().slice(0, 10)) : [];
+    const skipped: MaradSkipped[] = [];
+    const parsed = r.ok ? parseMaradItems(r.items.map((n) => ({ title: n.title, link: n.link, pubDate: n.pubDate })), new Date().toISOString().slice(0, 10), undefined, skipped) : [];
     return {
       url: MARAD_FEED_URL, status: res.status, ms: Date.now() - t0, bytes: text.length, items, parsed: parsed.length, snippet: text.slice(0, 300),
-      ...(r.ok ? {} : { error: r.error ?? "feed parse failed" }),
+      ...(r.ok ? {} : { error: r.error ?? "feed parse failed" }), skipped,
       advisories: parsed.map((a) => ({ number: a.number, region: a.region, topic: a.topic, date: a.date, chokepoints: a.chokepoints, read: a.read ? `${a.read.cls} · ${a.read.modality} · “${a.read.phrase}”` : null })),
     };
   } catch (e) {
-    return { url: MARAD_FEED_URL, status: 0, ms: Date.now() - t0, bytes: 0, items: 0, parsed: 0, snippet: "", error: e instanceof Error ? e.message : String(e), advisories: [] };
+    return { url: MARAD_FEED_URL, status: 0, ms: Date.now() - t0, bytes: 0, items: 0, parsed: 0, snippet: "", error: e instanceof Error ? e.message : String(e), skipped: [], advisories: [] };
   }
 }

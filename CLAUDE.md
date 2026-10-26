@@ -2413,6 +2413,70 @@ diag and their contracts are pinned from the published feed / API reference.
   `radar` list (configured / status / parsed / sample lines, no token).
   Data is CC BY-NC 4.0 — the card's meta line attributes it. Not built:
   BGP hijack / leak events and the netflows timeseries (the API has them).
+- **First production diag (same day)**: MARAD 200, 10 items, 2 advisories
+  in effect (Red Sea / Bab el Mandeb → `babelmandeb`, Black Sea →
+  `bosphorus`); the Black Sea topic "Military Combat Operations" graded
+  NULL — "combat operations" / "combat" joined the strike phrases — and
+  the diag now carries `skipped[]` (title + `title shape` / `foreign link`
+  / `expired` / `superseded`) so "10 items, 2 parsed" explains itself.
+No new npm dep (esbuild `0`).
+
+### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")
+Three fixes to sensors the boards already ran, each closing a way a dead
+or half-dead feed could read as calm:
+- **GPSJam coverage is the denominator** (`lib/gpsjam.ts`
+  `parseGpsCsvFull` → `{ elevated, reported }`; `getGpsInterference()`
+  carries `reported`, the h3 ids of EVERY cell that reported at all).
+  GPSJam is crowd-sourced ADS-B receivers, so "no elevated cells over the
+  AOI" could mean no jamming OR no receivers. `spectrumSensors` counts the
+  reporting cells inside the bbox as `pntCoverage`, records it as
+  **`pntcov:<problemId>`** (peak), and the ladder (`pntState`,
+  `PntInputs.coverage`) applies two rules, tested in
+  `tests/cyberSpace.test.ts`: **zero reporting cells → the density half is
+  UNOBSERVED** (with no NOTAM door open the indicator is UNKNOWN; with one
+  the read says "no ADS-B coverage over the AOI — the density half is
+  UNKNOWN"); **coverage below `PNT_COVERAGE_COLLAPSE` = 0.5 × the AOI's
+  own normal** (after `PNT_LEARNING_SAMPLES` = 7 observed days) caps the
+  read at watching, halves its confidence and says "a quiet map may be a
+  blind map". **The `pnt:` and `pntcov:` series are keyed on the GPSJam
+  file's OWN date** (`magnitudes.pntDate` — GPSJam publishes the prior
+  day), not on the day the board ran. **RAIM is wired**: the hubs' DAIP
+  LOCATION NOTAMs (`getNotams(hubIcaos)`, ≤6, 12 s) count `gps_raim`
+  entries into `raimNotams` — the ladder's third leg, which had always
+  been passed `0`.
+- **OpenSky is the ADS-B FALLBACK, rationed and capped** (`lib/
+  openskySignals.ts` PURE, tested in `tests/openskySignals.test.ts`;
+  `lib/opensky.ts` server). When the keyless community mil mirrors
+  (airplanes.live / adsb.lol) are both down, `gatherObservations` asks
+  OpenSky's anonymous `states/all` for the AOI bbox. A state vector carries
+  NO aircraft type, so an aircraft is "military" only by the US ICAO block
+  (AE/AF) or a known mil / mobility callsign prefix (`isMilitaryAircraft`
+  — now ONE home, shared with `/api/osint/aircraft`), and a fighter counts
+  like a C-17. Therefore: the count is judged against the fallback's OWN
+  baseline (**`osky:<problemId>`**, peak; `mobility_count` stays NULL that
+  day so the community-ADS-B baseline is never polluted), confidence is
+  0.35, the state is **capped at watching** on every quadrant, and the
+  provenance / health note say "OpenSky FALLBACK … type unknown".
+  `DivergenceState.source` = `adsb | opensky`. Rationing: OpenSky's
+  anonymous tier is 400 credits/day, a bbox query costs 1–4 by area
+  (`bboxCredits`, OpenSky's own table); `OPENSKY_DAILY_BUDGET` = 150 per
+  UTC day in-process, 10-min cache per bbox, over budget / 429 → the
+  sensor reads dead with the reason. Not built: OpenSky as live
+  corroboration while the mirrors answer (the budget would not carry it
+  across every board poll); OAuth2 credentials for the registered tier.
+- **The ACLED embargo, said out loud.** ACLED's free / basic tier returns
+  `data_query_restrictions.date_recency = "12 Months old"` on every read:
+  the account cannot see events newer than a year, so the 14-day window
+  the app asks for is EMPTY BY CONSTRUCTION — not because the AOI is
+  quiet. `lib/acled.ts` now remembers that echo (`acledStatus()` →
+  `{ configured, count, restriction, lastReadAt }`, no network), the
+  chokepoint body carries `acled { configured, count, restriction }`, and
+  the ChokepointBoard header shows an amber **"ACLED embargoed"** chip when
+  the account is configured, the read returned 0 and a restriction was
+  echoed. The Crisis map's ACLED layer, the country room's incidents and
+  the chokepoint events keep working on UCDP / ReliefWeb / UKMTO meanwhile;
+  the only remedy is recent-data access from ACLED (a research / partner
+  tier), which the diag's `restriction` field already named.
 No new npm dep (esbuild `0`).
 
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
@@ -2737,7 +2801,8 @@ UCDP (`ucdpapi.pcr.uu.se`), ACLED
 INFORM Risk (`data360api.worldbank.org`), WHO (`who.int` Disease Outbreak News +
 `ghoapi.azureedge.net` Global Health Observatory), RainViewer (`api.rainviewer.com` index +
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
-OpenSky (`opensky-network.org`), NWS Aviation Weather (`aviationweather.gov`,
+OpenSky (`opensky-network.org` — the OSINT contacts strip and, rationed, the
+I&W mobility sensor's fallback), NWS Aviation Weather (`aviationweather.gov`,
 METAR + TAF; also the node flight-category rings via `/api/airfield-weather`),
 Yahoo Finance (`query1.finance.yahoo.com`, energy/commodity quotes; Stooq
 `stooq.com` is a best-effort fallback only), Federal Register

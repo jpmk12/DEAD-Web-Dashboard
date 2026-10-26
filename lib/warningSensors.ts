@@ -15,6 +15,7 @@ import { chokepointState } from "./warningRules";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { getFirNotams } from "./airspace";
 import { isMobilityType, isTankerType } from "./aircraftTypes";
+import { getOpenSkyStates } from "./opensky";
 import { getXItems } from "./xStore";
 import { getAllCachedSummaries } from "./newsletterCache";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
@@ -106,6 +107,10 @@ export interface DivergenceState {
   quadrant: "early_warning" | "anomaly" | "corroboration" | "quiet";
   /** Per named hub (PLAN §5 C2): mobility and tanker counts within HUB_RADIUS_KM. */
   byHub?: { icao: string; mobility: number; tanker: number }[];
+  /** Which instrument produced observedCount: the community mil mirrors
+   *  (typed — mobility / tanker) or the OpenSky FALLBACK (mil by ICAO range
+   *  or callsign, type unknown — its own baseline, its own series). */
+  source?: "adsb" | "opensky";
 }
 export interface GatherResult {
   observations: IndicatorObservation[];
@@ -149,6 +154,8 @@ async function fetchMilAircraft(): Promise<MilAc[] | null> {
 export async function gatherObservations(
   mobilityBaseline: MobilityBaseline = { mean: null, samples: 0 },
   geo: ProblemGeo = CENTCOM_GEO,
+  /** The OpenSky fallback's OWN trailing baseline (osky:<problemId>). */
+  openskyBaseline: MobilityBaseline = { mean: null, samples: 0 },
 ): Promise<GatherResult> {
   const [conflictPts, disasters, newsByCountry, chokeNewsRaw, advisories, milAc, firRes, userSrc] = await Promise.all([
     withTimeout(getConflictPoints(), 10_000),
@@ -242,11 +249,32 @@ export async function gatherObservations(
     const hubNote = observedHigh && topHub && topHub.mobility + topHub.tanker > 0 ? `; most at ${topHub.icao} (${topHub.mobility + topHub.tanker})` : "";
     observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}${hubNote}) × implied demand`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true });
-    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant, byHub }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
-  } else {
-    health.push({ indicatorId: "mobility_divergence", live: false, note: "community ADS-B mirrors unreachable" });
-    return finalize(geo, observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
+    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant, byHub, source: "adsb" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
   }
+
+  // The community mirrors are down. FALLBACK: OpenSky's anonymous state
+  // vectors over the AOI bbox (rationed — lib/opensky). A state vector has
+  // no aircraft TYPE, so "military" is by ICAO range / callsign and a
+  // fighter counts like a C-17: the read is judged against the fallback's
+  // OWN baseline (osky:), its confidence is halved, and its state is capped
+  // at watching — a weaker instrument must not fire the 2×2's alarm alone.
+  const osky = await withTimeout(getOpenSkyStates(geo.bbox), 11_000);
+  if (osky?.live) {
+    const observedCount = osky.states.filter((a) => a.mil && !a.onGround && nearHub(geo, a.lat, a.lon)).length;
+    const observedHigh = mobilityObservedHigh(observedCount, openskyBaseline);
+    let quadrant: DivergenceState["quadrant"];
+    let state: ObservedState;
+    if (impliedHigh && !observedHigh) { quadrant = "early_warning"; state = "watching"; }
+    else if (!impliedHigh && observedHigh) { quadrant = "anomaly"; state = "watching"; }
+    else if (impliedHigh && observedHigh) { quadrant = "corroboration"; state = "watching"; }
+    else { quadrant = "quiet"; state = "dormant"; }
+    const baseNote = mobilityBaselineNote(openskyBaseline, new Date(nowMs).toISOString().slice(0, 10));
+    observations.push(obs("mobility_divergence", "opensky", state, state === "dormant" ? 0 : 0.35, `OpenSky FALLBACK — community mil mirrors unreachable; ${observedCount} military-by-ICAO/callsign aircraft within ${HUB_RADIUS_KM}km of AOR hubs (type unknown${baseNote}) × implied demand — capped at watching`, observedCount));
+    health.push({ indicatorId: "mobility_divergence", live: true, note: "community ADS-B mirrors unreachable — OpenSky fallback (mil by ICAO range / callsign, type unknown; capped at watching)" });
+    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: openskyBaseline.mean, baselineSamples: openskyBaseline.samples, quadrant, source: "opensky" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
+  }
+  health.push({ indicatorId: "mobility_divergence", live: false, note: `community ADS-B mirrors unreachable; OpenSky fallback ${osky ? osky.reason ?? "not live" : "timed out"}` });
+  return finalize(geo, observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
 }
 
 function finalize(

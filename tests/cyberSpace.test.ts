@@ -198,6 +198,24 @@ describe("spectrum ladders", () => {
     const hub = pntState({ cellsLive: true, cells: 3, baseline: { mean: null, samples: 0 }, hubHits: 1, gpsNotams: 0, raimNotams: 0, stormGuard: false });
     expect(hub?.state).toBe("active");
   });
+  it("pnt: no ADS-B coverage over the AOI is a blind map (UNKNOWN), not a clear one; a coverage collapse caps a quiet or active read at watching", () => {
+    const none = { mean: null, samples: 0 };
+    // GPSJam answered, zero reporting cells over the AOI, no NOTAM door → nothing observed.
+    expect(pntState({ cellsLive: true, cells: 0, baseline: none, hubHits: 0, gpsNotams: null, raimNotams: 0, stormGuard: false, coverage: { cells: 0, baseline: none } })).toBeNull();
+    // With the NOTAM door open the read exists and says the density half is UNKNOWN.
+    const blind = pntState({ cellsLive: true, cells: 0, baseline: none, hubHits: 0, gpsNotams: 0, raimNotams: 0, stormGuard: false, coverage: { cells: 0, baseline: none } });
+    expect(blind?.state).toBe("dormant");
+    expect(blind?.why).toMatch(/no ADS-B coverage/);
+    // Coverage collapsed against its own normal: a surge cannot pass watching, confidence halved, the why says so.
+    const collapsed = pntState({ cellsLive: true, cells: 14, baseline: { mean: 4, samples: 20 }, hubHits: 0, gpsNotams: 0, raimNotams: 0, stormGuard: false, coverage: { cells: 10, baseline: { mean: 60, samples: 20 } } });
+    expect(collapsed?.state).toBe("watching");
+    expect(collapsed?.confidence).toBeLessThanOrEqual(0.5);
+    expect(collapsed?.why).toMatch(/a quiet map may be a blind map/);
+    // Below the learning floor the coverage rule makes no claim.
+    expect(pntState({ cellsLive: true, cells: 14, baseline: { mean: 4, samples: 20 }, hubHits: 0, gpsNotams: 0, raimNotams: 0, stormGuard: false, coverage: { cells: 10, baseline: { mean: 60, samples: 3 } } })?.state).toBe("active");
+    // RAIM outage NOTAMs at the hubs are the third leg: watching on their own.
+    expect(pntState({ cellsLive: true, cells: 0, baseline: none, hubHits: 0, gpsNotams: 0, raimNotams: 2, stormGuard: false, coverage: { cells: 40, baseline: none } })?.state).toBe("watching");
+  });
   it("pnt: surge against own baseline is active; G3+ storm caps it at watching and says so", () => {
     const base = { mean: 4, samples: 20 };
     expect(pntState({ cellsLive: true, cells: 14, baseline: base, hubHits: 0, gpsNotams: 0, raimNotams: 0, stormGuard: false })?.state).toBe("active");

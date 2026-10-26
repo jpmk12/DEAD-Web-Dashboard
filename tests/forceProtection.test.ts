@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { assessLocation, isForceLocationActive, type ForceContext } from "@/lib/forceProtection";
-import { parseGpsCsv, gpsLevelAt } from "@/lib/gpsjam";
+import { parseGpsCsv, parseGpsCsvFull, gpsLevelAt } from "@/lib/gpsjam";
 import { latLngToCell } from "h3-js";
 import type { ForceLocation } from "@/lib/types";
 
@@ -198,5 +198,12 @@ describe("parseGpsCsv + gpsLevelAt", () => {
     expect(hexes.find((h) => h.h3 === cell)?.level).toBe(2); // 0.9 → high
     expect(gpsLevelAt(48.0, 11.0, hexes)).toBe(2);
     expect(gpsLevelAt(0, 0, hexes)).toBe(0); // elsewhere → none
+  });
+  it("parseGpsCsvFull also returns the coverage denominator — every cell that reported at all", () => {
+    const cell = latLngToCell(48.0, 11.0, 4);
+    const csv = `hex,count_good_aircraft,count_bad_aircraft\n${cell},10,90\nabc123def456,99,1\nbad,,\n`;
+    const { elevated, reported } = parseGpsCsvFull(csv);
+    expect(elevated.map((h) => h.h3)).toEqual([cell]);
+    expect(reported).toEqual([cell, "abc123def456"]);   // the quiet cell counts as coverage; the malformed row does not
   });
 });

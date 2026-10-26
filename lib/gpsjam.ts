@@ -13,7 +13,7 @@ import { latLngToCell } from "h3-js";
 export interface GpsHex { h3: string; level: number } // 1 = moderate, 2 = high
 
 const TTL = 60 * 60 * 1000; // daily data → 1 h cache
-let cache: { hexes: GpsHex[]; date: string; expires: number } | null = null;
+let cache: { hexes: GpsHex[]; reported: string[]; date: string; expires: number } | null = null;
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -54,8 +54,21 @@ function splitCsvLine(line: string): string[] {
 
 // Pure CSV → elevated cells. Exported for unit tests.
 export function parseGpsCsv(csv: string): GpsHex[] {
+  return parseGpsCsvFull(csv).elevated;
+}
+
+/**
+ * Pure CSV → elevated cells PLUS the coverage denominator: every cell that
+ * carried any aircraft report at all (`reported`). The elevated list alone
+ * cannot distinguish "no jamming over the AOI" from "no ADS-B receivers
+ * over the AOI" — GPSJam is derived from crowd-sourced receivers, so a
+ * quiet map over a region with no coverage is a blind map, not a clear one.
+ * The PNT sensor counts the reported cells inside its bbox as the day's
+ * coverage and keys its own baseline on it (lib/spectrumRules pntState).
+ */
+export function parseGpsCsvFull(csv: string): { elevated: GpsHex[]; reported: string[] } {
   const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { elevated: [], reported: [] };
   const headers = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
   const find = (pred: (h: string) => boolean) => headers.findIndex(pred);
   const hexCol = find((h) => h === "hex" || h === "h3" || h === "cell" || h.includes("hex") || h.includes("h3"));
@@ -63,13 +76,15 @@ export function parseGpsCsv(csv: string): GpsHex[] {
   const goodCol = find((h) => h.includes("good"));
   const fracCol = find((h) => h.includes("frac") || h.includes("fraction"));
   const totalCol = find((h) => h === "count" || h === "total" || h === "n" || h === "num");
-  if (hexCol < 0) return [];
+  if (hexCol < 0) return { elevated: [], reported: [] };
 
   const out: GpsHex[] = [];
+  const reported: string[] = [];
   for (let i = 1; i < lines.length; i++) {
     const cells = splitCsvLine(lines[i]);
     const h3 = String(cells[hexCol] ?? "").trim();
     if (!h3 || h3.length < 8) continue;
+    if (reported.length < 60_000) reported.push(h3);
     const bad = badCol >= 0 ? Number(cells[badCol]) : NaN;
     const good = goodCol >= 0 ? Number(cells[goodCol]) : NaN;
     const total = totalCol >= 0 ? Number(cells[totalCol]) : NaN;
@@ -83,22 +98,22 @@ export function parseGpsCsv(csv: string): GpsHex[] {
     const level = bf >= 0.5 ? 2 : bf >= 0.15 ? 1 : 0;
     if (level >= 1) out.push({ h3, level });
   }
-  return out.slice(0, 2500);
+  return { elevated: out.slice(0, 2500), reported };
 }
 
 // Today's (or yesterday's) elevated cells, with the date actually used. ok:false
 // means upstream was unreachable — NOT "no interference".
-export async function getGpsInterference(): Promise<{ ok: boolean; hexes: GpsHex[]; date: string }> {
-  if (cache && cache.expires > Date.now()) return { ok: true, hexes: cache.hexes, date: cache.date };
+export async function getGpsInterference(): Promise<{ ok: boolean; hexes: GpsHex[]; date: string; reported?: string[] }> {
+  if (cache && cache.expires > Date.now()) return { ok: true, hexes: cache.hexes, date: cache.date, reported: cache.reported };
   const today = ymd(new Date());
   const yesterday = ymd(new Date(Date.now() - 86_400_000));
   let date = today;
   let csv = await fetchDay(today);
   if (csv == null) { csv = await fetchDay(yesterday); date = yesterday; }
   if (csv == null) return { ok: false, hexes: [], date: today };
-  const hexes = parseGpsCsv(csv);
-  if (hexes.length > 0) cache = { hexes, date, expires: Date.now() + TTL };
-  return { ok: true, hexes, date };
+  const { elevated: hexes, reported } = parseGpsCsvFull(csv);
+  if (hexes.length > 0) cache = { hexes, reported, date, expires: Date.now() + TTL };
+  return { ok: true, hexes, date, reported };
 }
 
 // GPS interference level at a point: resolve its res-4 cell, look it up in the

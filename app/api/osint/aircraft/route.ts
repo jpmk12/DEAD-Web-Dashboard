@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { isMilitaryAircraft } from "@/lib/openskySignals";
 
 export const dynamic = "force-dynamic";
 
@@ -26,23 +27,8 @@ interface CacheEntry { items: Aircraft[]; bbox: string; fetchedAt: number }
 let cache: CacheEntry | null = null;
 const CACHE_TTL_MS = 60_000;
 
-// Two-tier military detection. ICAO 24-bit address ranges are the most
-// reliable — US Mil owns AE0000-AFFFFF. Callsigns supplement: any of these
-// common mil prefixes flags the aircraft even if its ICAO isn't in our
-// (deliberately conservative) prefix list.
-//
-// References: ADS-B Exchange's mil filter is similar but covers more
-// allied ranges (UK, Germany, etc.). For MVP we cover US Mil reliably and
-// catch the rest through callsigns.
-const MIL_ICAO_PREFIXES = ["ae", "af"];
-const MIL_CALLSIGN_RE = /^(REACH|HAVOC|BLUE\d+|KING\d+|EVAC|HOBO|SAM\d+|MAGMA|GULF|VENUS|ANVIL|VICTUS|VADER|TREK|HEAVY|FORCE|SPAR|PETRO|LIME|ASPEN|FLAP|CASH|TANGO|BISON|RCH|PAT\d+|CONVOY|UNDIE|JOKER|PIKE|BRUTE|RAVEN|SHARK|TITUS|VECTOR|MAGNUM|EAGLE|HERKY|ROCKY|GOTHIC|VOODOO|SCALP|GRIM)/i;
-
-function isMilitary(icao24: string, callsign: string): boolean {
-  if (icao24 && MIL_ICAO_PREFIXES.some((p) => icao24.startsWith(p))) return true;
-  if (callsign && MIL_CALLSIGN_RE.test(callsign)) return true;
-  return false;
-}
-
+// Military detection (ICAO 24-bit range + callsign prefixes) lives in the
+// pure lib/openskySignals.ts, shared with the I&W mobility fallback.
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ aircraft: [] }, { status: 401 });
@@ -103,7 +89,7 @@ export async function GET(req: Request) {
         velocity: typeof s[9] === "number" ? s[9] : null,
         heading: typeof s[10] === "number" ? s[10] : null,
         verticalRate: typeof s[11] === "number" ? s[11] : null,
-        isMilitary: isMilitary(icao24, callsign),
+        isMilitary: isMilitaryAircraft(icao24, callsign),
       });
     }
     cache = { items: aircraft, bbox, fetchedAt: Date.now() };

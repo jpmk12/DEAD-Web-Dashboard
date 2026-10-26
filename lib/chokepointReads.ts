@@ -6,7 +6,7 @@
 import { CHOKEPOINTS, type Chokepoint } from "./chokepoints";
 import { readActivity, type GeoEvent, type ChokepointText, type ActivityRead } from "./chokepointSignals";
 import { getConflictPoints } from "./conflictEvents";
-import { getAcledEvents } from "./acled";
+import { getAcledEvents, acledStatus } from "./acled";
 import { gdeltLocalNewsLive } from "./localNews";
 import { ensureChokepointConnection, type AisStatus } from "./aisStream";
 import { getChokepointTransits, type ChokepointTransit } from "./chokepointAis";
@@ -41,6 +41,9 @@ export interface ChokepointReadsBody {
    *  declared THREATS on the straits they name. `count` is advisories in
    *  effect (all regions); a dead feed reads live:false with the reason. */
   marad?: { live: boolean; count: number; reason: string | null };
+  /** The ACLED door: `restriction` is the account tier's recency embargo
+   *  ("12 Months old") — with it set, a zero is EMBARGOED, not quiet. */
+  acled?: { configured: boolean; count: number; restriction: string | null };
   /** AIS bridge status — so an all-UNKNOWN transit column can be explained. */
   ais?: AisStatus;
 }
@@ -185,5 +188,6 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
     marad: marad
       ? { live: marad.live, count: maradAdvisories.length, reason: marad.reason }
       : { live: false, count: 0, reason: "MARAD read unavailable" },
+    acled: await acledStatus().then((a) => ({ configured: a.configured, count: acled.length, restriction: a.restriction })).catch(() => ({ configured: false, count: acled.length, restriction: null })),
   };
 }

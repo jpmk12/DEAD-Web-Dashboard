@@ -16,6 +16,7 @@ import type { ProblemGeo } from "./warningTaxonomy";
 import { PNT_ID, CYBER_ID, SPACE_ID, COUNTERSPACE_ID } from "./warningTaxonomy";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
 import { getGpsNotams } from "./airspace";
+import { getNotams } from "./notams";
 import { getNoaaScales, getLaunches, getConjunctions } from "./spaceSources";
 import { getIodaOutageAlerts, getRansomwareVictims, getCisaAdvisories } from "./cyberSources";
 import { outageAlertsFor, advisoriesNaming, victimsRelevant, readCyber, cyberTargetOf, cyberPostureRead, type CyberPostureItem, type CyberPostureRead } from "./cyberSignals";
@@ -42,7 +43,7 @@ const SPACE_QUERY = '("inspector satellite" OR "close approach" OR "anti-satelli
 const COUNTERSPACE_ACTORS: SpaceActor[] = ["RUS", "CHN"];
 const OFFICIAL_RX = /\b(space force|ussf|usspacecom|space command|pentagon|18th space defense|18 sds)\b/i;
 
-export interface SpectrumBaselines { pnt: SensorBaseline; ransom: SensorBaseline }
+export interface SpectrumBaselines { pnt: SensorBaseline; ransom: SensorBaseline; /** GPSJam reporting cells over the AOI (the coverage denominator). */ pntCov?: SensorBaseline }
 
 export interface SpectrumHealth { indicatorId: string; live: boolean; note?: string }
 
@@ -50,7 +51,7 @@ export interface SpectrumGather {
   observations: IndicatorObservation[];
   health: SpectrumHealth[];
   /** Counts to persist as the day's sensor values (null = sensor dead — write nothing). */
-  magnitudes: { pntCells: number | null; victims: number | null };
+  magnitudes: { pntCells: number | null; victims: number | null; /** GPSJam reporting cells inside the bbox. */ pntCoverage?: number | null; /** The GPSJam file's own day — the pnt series is keyed on it, not on today. */ pntDate?: string | null };
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -83,9 +84,13 @@ export async function gatherSpectrumObservations(
   const cyberQuery = `(${[...new Set(geo.countries)].slice(0, 8).map((c) => `"${c}"`).join(" OR ")}) ${CYBER_QUERY} sourcelang:english`;
 
   const counterspaceActor = COUNTERSPACE_ACTORS.find((a) => geo.spacePowers.includes(a)) ?? null;
-  const [gps, gpsNotams, scales, outages, victims, advisories, launches, conj, cyberNews, profile, catalogue, spaceNews] = await Promise.all([
+  const hubIcaos = geo.hubs.map((h) => h.icao).filter((x): x is string => !!x).slice(0, 6);
+  const [gps, gpsNotams, hubNotams, scales, outages, victims, advisories, launches, conj, cyberNews, profile, catalogue, spaceNews] = await Promise.all([
     withTimeout(getGpsInterference(), 12_000),
     withTimeout(getGpsNotams(), 12_000),
+    // RAIM / GPS outage NOTAMs at the AOI hubs (DAIP LOCATION — the SITREP's
+    // own query; the third leg of the PNT read the ladder always took).
+    hubIcaos.length ? withTimeout(getNotams(hubIcaos), 12_000) : Promise.resolve(null),
     withTimeout(getNoaaScales(), 8_000),
     withTimeout(getIodaOutageAlerts(24), 10_000),
     withTimeout(getRansomwareVictims(), 10_000),
@@ -102,12 +107,13 @@ export async function gatherSpectrumObservations(
 
   const observations: IndicatorObservation[] = [];
   const health: SpectrumHealth[] = [];
-  const magnitudes: SpectrumGather["magnitudes"] = { pntCells: null, victims: null };
+  const magnitudes: SpectrumGather["magnitudes"] = { pntCells: null, victims: null, pntCoverage: null, pntDate: null };
 
   // ── pnt_denial ──────────────────────────────────────────────────────────
   {
     const cellsLive = !!gps?.ok;
     let cells = 0, hubHits = 0;
+    let coverage: number | null = null;
     if (gps?.ok) {
       for (const h of gps.hexes) {
         try {
@@ -117,6 +123,21 @@ export async function gatherSpectrumObservations(
       }
       hubHits = geo.hubs.filter((h) => gpsLevelAt(h.lat, h.lon, gps.hexes) > 0).length;
       magnitudes.pntCells = cells;
+      magnitudes.pntDate = gps.date || null;
+      // The coverage denominator: cells over the AOI that carried ANY report.
+      // Only when the parser gave us the list (an older cache has none).
+      if (Array.isArray(gps.reported)) {
+        coverage = 0;
+        for (const h3 of gps.reported) {
+          try { const [lat, lon] = cellToLatLng(h3); if (inBbox(geo, lat, lon)) coverage++; } catch { /* skip */ }
+        }
+        magnitudes.pntCoverage = coverage;
+      }
+    }
+    // RAIM / GPS NOTAMs at the hubs — only from a live DAIP read.
+    let raimNotams = 0;
+    if (hubNotams && hubNotams.configured && hubNotams.live) {
+      for (const list of Object.values(hubNotams.byIcao)) raimNotams += list.filter((n) => n.category === "gps_raim").length;
     }
     // GPS/WAAS system NOTAMs that name an AOI FIR or country.
     let gpsNotamCount: number | null = null;
@@ -125,10 +146,10 @@ export async function gatherSpectrumObservations(
       gpsNotamCount = gpsNotams.groups.flatMap((g) => g.notams).filter((n) => rx.test(`${n.text} ${n.rawtext ?? ""}`)).length;
     }
     const guard = scales ? pntStormGuard(scales) : false;
-    const s = pntState({ cellsLive, cells, baseline: baselines.pnt, hubHits, gpsNotams: gpsNotamCount, raimNotams: 0, stormGuard: guard });
+    const s = pntState({ cellsLive, cells, baseline: baselines.pnt, hubHits, gpsNotams: gpsNotamCount, raimNotams, stormGuard: guard, coverage: { cells: coverage, baseline: baselines.pntCov ?? { mean: null, samples: 0 } } });
     if (s) {
-      observations.push(obs(PNT_ID, "gpsjam", s, `GPSJam ${gps?.date ?? ""} cells in AOI bbox${gpsNotamCount != null ? ` + DAIP GPS_WAAS` : ""}${scales?.live ? ` · SWPC G${scales.now.G ?? "?"}` : " · SWPC unreachable (no guard)"}`, cells));
-      health.push({ indicatorId: PNT_ID, live: true, note: !cellsLive ? "GPSJam unreachable — NOTAMs only" : gpsNotamCount == null ? "DAIP GPS/WAAS unreachable — cells only" : undefined });
+      observations.push(obs(PNT_ID, "gpsjam", s, `GPSJam ${gps?.date ?? ""} cells in AOI bbox${coverage != null ? ` (${coverage} reporting)` : ""}${gpsNotamCount != null ? ` + DAIP GPS_WAAS` : ""}${hubNotams?.live ? ` + hub RAIM NOTAMs (${raimNotams})` : ""}${scales?.live ? ` · SWPC G${scales.now.G ?? "?"}` : " · SWPC unreachable (no guard)"}`, cells));
+      health.push({ indicatorId: PNT_ID, live: true, note: !cellsLive ? "GPSJam unreachable — NOTAMs only" : coverage === 0 ? "no ADS-B coverage over the AOI in GPSJam — density UNKNOWN" : gpsNotamCount == null ? "DAIP GPS/WAAS unreachable — cells only" : undefined });
     } else {
       health.push({ indicatorId: PNT_ID, live: false, note: "GPSJam and DAIP GPS/WAAS both unreachable" });
     }

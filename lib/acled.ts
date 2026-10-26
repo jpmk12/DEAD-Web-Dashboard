@@ -61,6 +61,32 @@ interface Creds { email: string; password: string }
 
 let sessionCache: { cookie: string; expires: number; email: string } | null = null;
 let dataCache: { events: AcledEvent[]; expires: number } | null = null;
+/** The last successful read's access-tier echo (see readType). */
+let lastRead: { at: number; restriction: string | null } | null = null;
+
+export interface AcledStatus {
+  configured: boolean;
+  /** Events the last pull returned (the 14-day window). */
+  count: number;
+  /** ACLED's own description of the tier's recency limit ("12 Months old")
+   *  — when set with count 0, the data is EMBARGOED for this account, not
+   *  absent. Null when the account has no restriction, or no read has run. */
+  restriction: string | null;
+  lastReadAt: string | null;
+}
+
+/** Owner-facing status of the ACLED door, from state the reads already
+ *  keep — no network. The surfaces that count ACLED events read this so a
+ *  zero can say "embargoed" instead of "quiet". */
+export async function acledStatus(): Promise<AcledStatus> {
+  const configured = (await resolveCreds()) !== null;
+  return {
+    configured,
+    count: dataCache?.events.length ?? 0,
+    restriction: lastRead?.restriction ?? null,
+    lastReadAt: lastRead ? new Date(lastRead.at).toISOString() : null,
+  };
+}
 
 // Env overrides settings. Imported lazily so the settings path (DB) isn't hit
 // when env credentials are present, and so this module stays import-safe.
@@ -194,7 +220,13 @@ async function readType(cookie: string, type: string, from: string): Promise<Acl
     });
     if (res.status === 401 || res.status === 403) { sessionCache = null; } // session rejected — force re-login next cycle
     if (!res.ok) { console.error("[acled] read failed:", type, res.status); return []; }
-    const j = (await res.json().catch(() => null)) as { data?: unknown[] } | null;
+    const j = (await res.json().catch(() => null)) as { data?: unknown[]; data_query_restrictions?: { date_recency?: { description?: string } } } | null;
+    // ACLED echoes the account's access limits on every read. A
+    // `date_recency` restriction ("12 Months old") is the EMBARGO: the tier
+    // cannot see events newer than that, so a 14-day read is empty by
+    // construction, not because the AOI is quiet. Remembered for status().
+    const recency = j?.data_query_restrictions?.date_recency?.description;
+    lastRead = { at: Date.now(), restriction: typeof recency === "string" && recency.trim() ? recency.trim().slice(0, 80) : null };
     const rows = Array.isArray(j?.data) ? j!.data : [];
     const out: AcledEvent[] = [];
     for (const r of rows) { const e = normalize(r as Record<string, unknown>); if (e) out.push(e); }

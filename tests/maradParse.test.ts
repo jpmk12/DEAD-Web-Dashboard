@@ -40,6 +40,8 @@ describe("regionChokepoints / gradeMarad", () => {
   it("an advisory is a declared THREAT by the authority — never an act — classed by its topic", () => {
     expect(gradeMarad("Houthi Attacks on Commercial Vessels")).toMatchObject({ cls: "strike", modality: "threat" });
     expect(gradeMarad("Risk to Commercial Vessels from Military Activity and Mines")).toMatchObject({ cls: "mining", modality: "threat" });
+    // The live feed's Black Sea title (2026-10-26 diag) graded null before this phrase was known.
+    expect(gradeMarad("Military Combat Operations")).toMatchObject({ cls: "strike", modality: "threat" });
     expect(gradeMarad("Piracy and Armed Robbery")).toMatchObject({ cls: "seizure", modality: "threat" });
     // The generic standing advisory names no instrument — the earliest-signal class, still a threat.
     expect(gradeMarad("Threats to Commercial Vessels by Iran and its Proxies")).toMatchObject({ cls: "approach", modality: "threat" });
@@ -58,6 +60,15 @@ describe("parseMaradItems", () => {
     expect(numbers).not.toContain("2026-014");              // link not on maritime.dot.gov
     expect(advs.find((a) => a.number === "2026-013")!.date).toBe("2026-10-05");
     expect(advs.every((a) => a.url.startsWith("https://www.maritime.dot.gov/msci/"))).toBe(true);
+  });
+  it("names what it set aside and why, so a production diag explains itself", () => {
+    const skipped: { title: string; reason: string }[] = [];
+    parseMaradItems(ITEMS, TODAY, undefined, skipped);
+    const by = Object.fromEntries(skipped.map((s) => [s.title.slice(0, 8), s.reason]));
+    expect(by["2026-009"]).toBe("superseded");
+    expect(by["2026-004"]).toBe("expired");
+    expect(by["2026-014"]).toBe("foreign link");
+    expect(skipped.find((s) => s.title.startsWith("Maritime Security"))?.reason).toBe("title shape");
   });
   it("drops an advisory older than the auto-expiry window — a stale advisory is not a standing threat", () => {
     expect(advs.map((a) => a.number)).not.toContain("2026-004");   // Feb → >185 d by late October

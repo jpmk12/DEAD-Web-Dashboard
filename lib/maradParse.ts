@@ -75,7 +75,7 @@ export const MARAD_REGION_CHOKEPOINTS: { id: string; phrases: string[] }[] = [
  *  listed, it just does not move the strait. */
 const TOPIC_CLASS: { cls: InterdictionRead["cls"]; phrases: string[] }[] = [
   { cls: "mining", phrases: ["mine", "mines", "mining", "naval mines", "sea mines"] },
-  { cls: "strike", phrases: ["attacks on commercial vessels", "attacks", "attack", "missile", "missiles", "drone", "drones", "uav", "strikes", "hostilities", "armed conflict", "military activity", "military operations"] },
+  { cls: "strike", phrases: ["attacks on commercial vessels", "attacks", "attack", "missile", "missiles", "drone", "drones", "uav", "strikes", "hostilities", "armed conflict", "military activity", "military operations", "combat operations", "military combat", "combat"] },
   { cls: "seizure", phrases: ["seizure", "seizures", "boarding", "boardings", "detention", "detentions", "hijacking", "piracy", "armed robbery"] },
   { cls: "closure", phrases: ["closure", "closed", "blockade", "quarantine", "suspension of transits"] },
   { cls: "approach", phrases: ["harassment", "harassing", "interference with vessels", "aggressive", "unsafe"] },
@@ -128,19 +128,22 @@ export interface MaradFeedItem { title?: string; link?: string; pubDate?: string
  * Items with an unparseable title or a foreign link are skipped, never
  * guessed.
  */
-export function parseMaradItems(items: MaradFeedItem[], today: string, maxAgeDays = MARAD_MAX_AGE_DAYS): MaradAdvisory[] {
+export interface MaradSkipped { title: string; reason: "title shape" | "foreign link" | "expired" | "superseded" }
+
+export function parseMaradItems(items: MaradFeedItem[], today: string, maxAgeDays = MARAD_MAX_AGE_DAYS, skipped?: MaradSkipped[]): MaradAdvisory[] {
   const todayMs = Date.parse(`${today}T00:00:00Z`);
   const byRegion = new Map<string, MaradAdvisory>();
+  const skip = (title: string, reason: MaradSkipped["reason"]) => { skipped?.push({ title: title.slice(0, 160), reason }); };
   for (const it of items) {
     const t = typeof it.title === "string" ? it.title.trim() : "";
     const p = parseMaradTitle(t);
-    if (!p) continue;
+    if (!p) { skip(t, "title shape"); continue; }
     const url = typeof it.link === "string" ? it.link.trim() : "";
-    if (!PERMALINK.test(url)) continue;
+    if (!PERMALINK.test(url)) { skip(t, "foreign link"); continue; }
     const date = ymd(it.pubDate);
     if (date && Number.isFinite(todayMs)) {
       const age = (todayMs - Date.parse(`${date}T00:00:00Z`)) / 86_400_000;
-      if (age > maxAgeDays) continue;
+      if (age > maxAgeDays) { skip(t, "expired"); continue; }
     }
     const adv: MaradAdvisory = {
       ...p, title: t.slice(0, 300), url, date,
@@ -149,7 +152,10 @@ export function parseMaradItems(items: MaradFeedItem[], today: string, maxAgeDay
     };
     const key = p.region.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const cur = byRegion.get(key);
-    if (!cur || adv.year > cur.year || (adv.year === cur.year && (adv.seq > cur.seq || (adv.seq === cur.seq && adv.number > cur.number)))) byRegion.set(key, adv);
+    if (!cur || adv.year > cur.year || (adv.year === cur.year && (adv.seq > cur.seq || (adv.seq === cur.seq && adv.number > cur.number)))) {
+      if (cur) skip(cur.title, "superseded");
+      byRegion.set(key, adv);
+    } else skip(t, "superseded");
   }
   return [...byRegion.values()].sort((a, b) => b.year - a.year || b.seq - a.seq);
 }

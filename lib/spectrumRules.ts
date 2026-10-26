@@ -36,16 +36,28 @@ export interface PntInputs {
   raimNotams: number;
   /** SWPC G3+ in effect — attribute to the environment first. */
   stormGuard: boolean;
+  /** GPSJam COVERAGE over the AOI: reported cells inside the bbox (any
+   *  level) and the AOI's own trailing baseline of that count. Absent on
+   *  older callers. GPSJam is crowd-sourced receivers — zero reported cells
+   *  is a blind map, and a collapse against the AOI's own normal means a
+   *  quiet read cannot pass watching ("a quiet map may be a blind map"). */
+  coverage?: { cells: number | null; baseline: { mean: number | null; samples: number } };
 }
 
 /** Samples below this keep the density half in learning mode. */
 export const PNT_LEARNING_SAMPLES = 7;
+/** Coverage below this fraction of the AOI's own normal is a collapse. */
+export const PNT_COVERAGE_COLLAPSE = 0.5;
 
 export function pntState(i: PntInputs): StateRead | null {
-  if (!i.cellsLive && i.gpsNotams == null) return null;   // nothing observed — UNKNOWN
-  let s: StateRead = { state: "dormant", confidence: 0, why: "no interference reported over the AOI" };
+  // The density half is observed only when GPSJam answered AND at least one
+  // cell over the AOI carried a report — no receivers is not no jamming.
+  const noCoverage = i.cellsLive && i.coverage?.cells === 0;
+  const densityLive = i.cellsLive && !noCoverage;
+  if (!densityLive && i.gpsNotams == null) return null;   // nothing observed — UNKNOWN
+  let s: StateRead = { state: "dormant", confidence: 0, why: noCoverage ? "no ADS-B coverage over the AOI in GPSJam — the density half is UNKNOWN" : "no interference reported over the AOI" };
 
-  if (i.cellsLive) {
+  if (densityLive) {
     const learning = i.baseline.mean == null || i.baseline.samples < PNT_LEARNING_SAMPLES;
     const mean = i.baseline.mean ?? 0;
     const surge = !learning && i.cells > Math.max(mean * 1.5, mean + 4);
@@ -67,6 +79,16 @@ export function pntState(i: PntInputs): StateRead | null {
   // The guard: during a G3+ storm the ionosphere degrades GPS everywhere;
   // a jamming read cannot pass watching until the storm clears.
   if (i.stormGuard) s = cap(s, "watching", "G3+ geomagnetic storm in effect, attributed to environment first");
+  // Coverage collapse: far fewer reporting cells than the AOI's own normal.
+  // The jamming read is capped and its confidence halved — the receivers
+  // may have gone, not the jammers — and a dormant read is upgraded to say
+  // so rather than claiming calm over a map that went dark.
+  const cov = i.coverage;
+  if (densityLive && cov && cov.cells != null && cov.baseline.mean != null && cov.baseline.samples >= PNT_LEARNING_SAMPLES && cov.cells < cov.baseline.mean * PNT_COVERAGE_COLLAPSE) {
+    const note = `ADS-B coverage ${cov.cells} vs ~${cov.baseline.mean.toFixed(0)} reporting cells over the AOI — a quiet map may be a blind map`;
+    s = cap(s, "watching", note);
+    s = { ...s, confidence: Math.min(s.confidence, 0.5), why: s.why.includes(note) ? s.why : `${s.why} — ${note}` };
+  }
   return s;
 }
 
