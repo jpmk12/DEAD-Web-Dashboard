@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import DecisionLog from "@/components/osint/DecisionLog";
+import { useAnnotations, BoardNotes, NoteLine, NoteAdd, type AnnotationsApi } from "@/components/osint/AnnotationNotes";
+import type { Annotation } from "@/lib/annotations";
 import type { WarningAssessmentPlus, IndicatorHistory } from "@/lib/warningAssess";
 import type { Trajectory, ObservedState, IndicatorScore } from "@/lib/warning";
 import { LEVEL_PILL, LEVEL_LABEL, CARD_ACCENT } from "@/lib/levelTokens";
@@ -102,6 +104,8 @@ export default function WarningBoard({ active, focusProblemId, onFocused, only }
 function ProblemCard({ p, flash }: { p: WarningAssessmentPlus; flash?: boolean }) {
   const unreachable = p.sensorHealth.filter((h) => !h.live);
   const anomHot = p.level !== "calm";
+  // Analyst annotations — shared per board; a note never changes a level.
+  const notes = useAnnotations(p.problemId);
   return (
     <div id={`iw-board-${p.problemId}`} className={`scroll-mt-24 border ${CARD_ACCENT[p.level]} bg-slate-900/50 rounded-2xl p-4 space-y-3 transition-shadow ${flash ? "ring-2 ring-sky-400/70 shadow-[0_0_0_4px_rgba(56,189,248,0.15)]" : ""}`}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -170,9 +174,12 @@ function ProblemCard({ p, flash }: { p: WarningAssessmentPlus; flash?: boolean }
         <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-600 mb-1">Indicators ({p.indicators.length}) — tap for falsifier &amp; provenance</p>
         {p.indicators.map((i) => {
           const h = p.sensorHealth.find((x) => x.indicatorId === i.id);
-          return <IndicatorRow key={i.id} i={i} unreachable={h ? !h.live : false} note={h?.note} history={p.history?.[i.id]} />;
+          return <IndicatorRow key={i.id} i={i} unreachable={h ? !h.live : false} note={h?.note} history={p.history?.[i.id]} annotation={notes.latest.get(i.id)} notes={notes} />;
         })}
       </div>
+
+      {/* Analyst notes — what the crew knows that the sensors cannot. */}
+      <BoardNotes api={notes} indicatorLabel={label} />
 
       {/* Decision log — inline, where the evidence is. The taxonomy already
           requires a pre-registered falsifier per indicator; this is what
@@ -218,13 +225,19 @@ function StateSpark({ h }: { h: IndicatorHistory }) {
   );
 }
 
-function IndicatorRow({ i, unreachable, note, history }: { i: IndicatorScore; unreachable: boolean; note?: string; history?: IndicatorHistory }) {
+function IndicatorRow({ i, unreachable, note, history, annotation, notes }: {
+  i: IndicatorScore; unreachable: boolean; note?: string; history?: IndicatorHistory;
+  /** The newest open analyst note on this indicator, if any. */
+  annotation?: Annotation; notes?: AnnotationsApi;
+}) {
+  const [adding, setAdding] = useState(false);
   return (
     <details className="border-t border-slate-800/60">
       <summary className="list-none cursor-pointer py-2 flex items-center gap-2.5">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATE_DOT[i.state]}`} />
         <span className="text-[8.5px] font-mono uppercase tracking-wider text-slate-500 w-14 flex-shrink-0">{unreachable ? "unknown" : i.state}</span>
         <span className="text-[12px] text-slate-200 flex-1 min-w-0 truncate">{label(i.id)}{unreachable && <span className="ml-2 text-[9px] text-slate-600">· sensor unreachable</span>}</span>
+        {annotation && <span className="text-[10px] text-violet-400 flex-shrink-0" title={`Analyst note: ${annotation.note}`}>✎</span>}
         {history && <StateSpark h={history} />}
         {history && history.run >= 2 && !unreachable && i.state !== "dormant" && (
           <span className="text-[8.5px] font-mono text-slate-500 flex-shrink-0" title="Consecutive observed days in this state">{history.run} d</span>
@@ -235,6 +248,10 @@ function IndicatorRow({ i, unreachable, note, history }: { i: IndicatorScore; un
         <p>{i.description}</p>
         <p><span className="text-slate-600 font-bold uppercase text-[8.5px] tracking-wider">Falsifier:</span> {i.falsifier}</p>
         <p className="text-slate-600">Provenance: {i.provenance} · Source: {i.sourceFeed}{note ? ` · ${note}` : ""}</p>
+        {annotation && notes && <NoteLine a={annotation} api={notes} dense />}
+        {notes && (adding
+          ? <NoteAdd onSave={(t) => notes.add(i.id, t)} onCancel={() => setAdding(false)} busy={notes.busy} placeholder={`A note on ${label(i.id)} — what you know that this sensor cannot`} />
+          : <button onClick={() => setAdding(true)} className="text-[9px] font-bold uppercase tracking-wider rounded px-2 py-0.5 border border-slate-700 text-slate-500 hover:text-violet-200 hover:border-violet-500/40">✎ {annotation ? "add another note" : "note"}</button>)}
       </div>
     </details>
   );

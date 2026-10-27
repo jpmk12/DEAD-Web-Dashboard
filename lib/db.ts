@@ -103,6 +103,23 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_wd_problem (problem_id, due_at)
   ) ENGINE=InnoDB`,
 
+  // I&W analyst annotations (lib/annotations.ts): a dated note on a board or
+  // on one indicator — what the crew knows that the sensors cannot. Shared
+  // per problem, attributed by `by_email`; resolving is one-way
+  // (resolved_at NULL = open). Never changes a level or a weight.
+  `CREATE TABLE IF NOT EXISTS warning_annotations (
+    id           VARCHAR(64)  NOT NULL,
+    problem_id   VARCHAR(64)  NOT NULL,
+    indicator_id VARCHAR(64)  NULL,
+    note         TEXT         NOT NULL,
+    by_email     VARCHAR(255) NOT NULL DEFAULT '',
+    created_at   DATETIME(3)  NOT NULL,
+    resolved_at  DATETIME(3)  NULL,
+    resolved_by  VARCHAR(255) NULL,
+    PRIMARY KEY (id),
+    INDEX idx_wa_problem (problem_id, created_at)
+  ) ENGINE=InnoDB`,
+
   // Crew state history (lib/crewStore.snapshotCrewDay): the day's LAST counts
   // per qualification, so availability can be read as a series and joined
   // to the recorded demand outlooks (lib/crewTrend). Counts only, no names.

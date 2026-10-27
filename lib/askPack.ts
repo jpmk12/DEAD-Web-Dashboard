@@ -24,6 +24,8 @@ import { computeDelta } from "./oeDelta";
 import { getAllLastSeen } from "./surfaceState";
 import { listDecisions } from "./decisionStore";
 import { hitRate, isDue } from "./decisionLog";
+import { listAnnotations } from "./annotationStore";
+import { annotationLines } from "./annotations";
 import { listDocuments } from "./documents";
 import { getLatestSession } from "./threadHistory";
 import { CHOKEPOINTS } from "./chokepoints";
@@ -110,6 +112,15 @@ export async function buildAskPack(question: string, email: string, opts: { maxW
       const hr = hitRate(dec);
       const open = dec.filter((d) => d.outcome === null);
       lines.push(`Your decision log on this board: ${hr.label}; ${open.length} open call${open.length === 1 ? "" : "s"}${open.filter((d) => isDue(d)).length ? ` (${open.filter((d) => isDue(d)).length} due for scoring)` : ""}${open[0] ? ` · latest: "${clip(open[0].call, 60)}" expecting "${clip(open[0].expectation, 120)}" by ${day(open[0].dueAt)}` : ""}`);
+    }
+    // Analyst annotations — the crew's own voice beside the evidence. Labelled
+    // so the model treats them as judgement, never as an observation.
+    const ann = await within(listAnnotations(p.def.id, 40), 3_000);
+    if (ann === null || ann === undefined) {
+      lines.push("Analyst notes on this board: UNAVAILABLE this pass (the store did not answer — there may be notes you cannot see).");
+    } else if (ann.length) {
+      const noteLines = annotationLines(ann, (id) => id);
+      if (noteLines.length) lines.push("Analyst notes on this board (the crew's own judgement, NOT sensor evidence; an open note is current):", ...noteLines);
     }
     sections.push({ surface, text: lines.join("\n"), door, asOf: a.observedAt });
   }

@@ -1404,15 +1404,32 @@ it, which is exactly a "the button does nothing" on a quiet day.
   glyph (`▾` / `▸`) over `toggleGroup`, which has been `selectGroup` since
   the sectioned model — a header that pretends to fold. The glyph is gone;
   the header still re-selects (scrolls to top).
-- The harness itself is not in the repo (Playwright is not a dependency —
-  esbuild `0` — and the sandbox's Chromium lives at
-  `/opt/pw-browsers/chromium`); the recipe is: `encode` from
-  `@auth/core/jwt` with `secret: "smoke"`, `salt: "authjs.session-token"`
-  and a token carrying `email` = the `OWNER_EMAIL` the server was booted
-  with plus a fake `accessToken`; set it as the `authjs.session-token`
-  cookie on `localhost`; the API routes answer 500 without a database and
-  the UI must still stand up. Dispatch `app:navigate` / `prefs:open` on
-  `window` to move around.
+- **The harness is `tools/ui-sweep/` (committed 2026-10-27).** Playwright
+  is NOT a dependency (esbuild `0`); the scripts `require("playwright")`
+  from wherever it is installed on the machine (the build sandbox has it
+  preinstalled with Chromium at `/opt/pw-browsers/chromium`; elsewhere
+  `npm i -g playwright` + `npx playwright install chromium`). The recipe is
+  `session.cjs`: `encode` from `@auth/core/jwt` with `secret: "smoke"`,
+  `salt: "authjs.session-token"` and a token carrying `email` = the
+  `OWNER_EMAIL` the server was booted with plus a fake `accessToken`, set
+  as the `authjs.session-token` cookie on `localhost`; the API routes
+  answer 500 without a database and the UI must still stand up. Dispatch
+  `app:navigate` / `prefs:open` on `window` to move around. Three probes,
+  all against a booted production build (`BASE=http://localhost:<port>`):
+  `sweep.cjs` (every tab at desktop and phone widths — ErrorBoundary text,
+  horizontal overflow, inert ▾/▴/⚙ controls, page errors; `OUT=<dir>` for
+  screenshots; exit 1 on a crash or overflow), `lazy-check.cjs` (opens the
+  Preferences drawer and the Family tab on a fresh page after a 35-s idle
+  and expects them within 2.5 s — the regression test for the bug above)
+  and `map-check.cjs` (the View menu applies a preset and closes, the
+  Layers popover keeps its chips, outside clicks close it, the radar note
+  appears iff `/api/osint/radar` has 0 frames). Run all three before
+  shipping a change to a tab, a popover, a `lazyClient` site or the map.
+  Known no-data artefacts in a databaseless sweep: "fold ▴" and
+  "★ Must-tracks ▾" read inert because only their glyph changes. **A probe
+  never carries a production secret or address** — `SMOKE_SECRET` /
+  `SMOKE_EMAIL` are the throwaway values the server was booted with.
+  `README.md` in the folder has the run and the reading of findings.
 
 ### Crisis map Overflight layer + the DAIP airspace module (`lib/airspace.ts`)
 The Crisis-map **Overflight** layer (off by default) and the broader DAIP NOTAM
@@ -3641,6 +3658,53 @@ split into one file per section is NOT done** — the file is still one
 3.4k-line component with ~100 shared state vars; the sectioned model above
 is what makes that split mechanical later (each section's JSX + its state
 slice), and nothing else depends on it.
+
+### I&W analyst annotations (2026-10-27, `lib/annotations.ts` · `lib/annotationStore.ts` · `/api/warning/annotation` · `AnnotationNotes.tsx`)
+A dated NOTE on a board or on one indicator — what the analyst knows that
+the sensors cannot ("the GPSJam gap is a known receiver outage, not
+jamming", "exercise window Tue–Thu; expect lift"). Before this the board
+had a decision log (a CALL with a horizon, scored later) and nothing for
+the standing context a call is made in; the Ask pack read the sensors and
+never the crew. The pieces, each the decision-log pattern:
+- **`lib/annotations.ts` (PURE, client-safe, tested in
+  `tests/annotations.test.ts`)**: `Annotation {id, problemId,
+  indicatorId|null, note, by, createdAt, resolvedAt, resolvedBy}`;
+  `validateAnnotationDraft` (a board, an optional string indicator, a note
+  of ≥ `ANNOTATION_MIN_LEN` 4 and ≤ `ANNOTATION_MAX_LEN` 500 characters —
+  the errors are the sentences the UI shows); `sortAnnotations` (open
+  newest first, then resolved by resolution time); `latestOpenByTarget`
+  (ONE open note per indicator, the newest, the board's own under
+  `BOARD_KEY`); `recentlyResolved` (`ANNOTATION_RECENT_DAYS` 14);
+  `annotationLines(entries, label, now, limit)` — the Ask-pack rendering
+  (`- [LABEL] "note" — author, 2 d ago`, resolved ones marked, capped).
+- **`warning_annotations`** (`lib/db.ts`; id PK, `problem_id`,
+  `indicator_id` NULL, `note` TEXT, `by_email`, `created_at`,
+  `resolved_at` / `resolved_by`; indexed by problem + time). SHARED per
+  problem like `warning_decisions` and `sitrep_limfacs`, attributed by
+  email. **Resolve is ONE-WAY and any crew member may do it** (the UPDATE
+  requires `resolved_at IS NULL`; a note is a statement about a period,
+  and closing it is a shared act); **delete is own-and-open only**. A
+  dead store reads **NULL → the route answers 503 `unavailable`** → the
+  board shows an amber "unavailable" chip and the Ask pack says "UNAVAILABLE
+  this pass" — never "nothing noted" (a standing note on a known outage
+  must not vanish on the day the database is down).
+- **Route** `GET ?problemId=` · `POST {problemId, indicatorId?, note}` (422
+  with the validator's sentence) · `PATCH {id}` (409 if already resolved)
+  · `DELETE ?id=` (409 if not yours or resolved); session + email
+  required. **UI** (`components/osint/AnnotationNotes.tsx`,
+  `useAnnotations(problemId)`): a foldable "Analyst notes" block on every
+  `ProblemCard` above the decision log (open count chip, board notes,
+  indicator notes under their label, resolved-in-14-days fold, "✎ Add a
+  board note"); every `IndicatorRow` carries a violet ✎ marker when it has
+  an open note and a `NoteLine` + "✎ note" inside its details. Violet =
+  yours, the ownership accent. The add box says it out loud: "shared with
+  the crew · never changes a level".
+- **Disciplines**: **a note NEVER changes a level, a state or a weight** —
+  it is judgement beside the evidence, and the Ask pack labels it so
+  ("the crew's own judgement, NOT sensor evidence; an open note is
+  current") so the model cannot read it as an observation. Notes are not
+  sent to any model but Ask. No sweeper: "open" is `resolved_at IS NULL`,
+  "recent" is derived at read time. No new npm dep (esbuild `0`).
 
 ### Indicator calibration (`lib/indicatorCalibration.ts` — the decision log feeding back)
 REVIEW §3.2. `warning_decisions` already records calls against a problem and,
