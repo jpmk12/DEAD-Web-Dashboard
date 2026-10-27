@@ -24,6 +24,8 @@
 //
 // Data © Cloudflare, CC BY-NC 4.0 — attribution is rendered wherever shown.
 
+import { parseUtc } from "./radarNetflows";
+
 export type BgpBand = "high" | "mid" | "low";
 export type BgpLevel = "red" | "amber" | "note";
 
@@ -69,7 +71,12 @@ export interface BgpParse<T> { events: T[]; asnInfo: Record<number, BgpAsnInfo> 
 
 const str = (s: unknown): string => (typeof s === "string" ? s.trim() : "");
 const num = (v: unknown): number | null => { const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN; return Number.isFinite(n) ? n : null; };
-const ms = (s: unknown): number | null => { if (typeof s !== "string" || !s) return null; const t = Date.parse(s); return Number.isFinite(t) ? t : null; };
+/** The live rows (2026-10-27) carry zone-less stamps — "2026-10-27T07:15:30.048"
+ *  — which JavaScript parses as LOCAL time; they are UTC, so `parseUtc` (one
+ *  home, in radarNetflows.ts) pins a stamp with a time part and no zone
+ *  designator to UTC. A process outside UTC would otherwise shift every
+ *  "recent" judgement by its offset. */
+const ms = parseUtc;
 const iso2 = (s: unknown): string | null => { const c = str(s).toUpperCase(); return /^[A-Z]{2}$/.test(c) ? c : null; };
 const iso2List = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.map(iso2).filter((c): c is string => !!c))] : []);
 const asnList = (v: unknown): number[] => (Array.isArray(v) ? [...new Set(v.map(num).filter((n): n is number => n != null && Number.isInteger(n) && n > 0))] : []);

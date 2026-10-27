@@ -2765,6 +2765,28 @@ diag and their contracts are pinned from the published feed / API reference.
     body says Y · last values: …" — read it: if RAW_VALUES is accepted
     the values are raw counts (large numbers) and the ratio read is live;
     if MIN0_MAX, the values sit in 0..1 and the drop read is live.
+  - **Second production diag of the two (2026-10-27): both VERIFIED, two
+    contract facts pinned, one order reversed.** The hijack and leak rows
+    arrived verbatim in `rawFirst` and matched the parser (`confidence_score`,
+    `hijacker_country`, `victim_countries`, `on_going_count`, `is_stale`,
+    `tags[{name, score}]`, `leak_asn`, `prefix_count`…); `countries` on a
+    leak repeats a code per prefix (`["VN","VN","VN"]`) — `iso2List` dedupes.
+    (1) **Every timestamp is ZONE-LESS** (`"2026-10-27T07:15:30.048"`), and
+    JavaScript parses such a stamp as LOCAL time — on a process outside UTC
+    every "recent" judgement (`BGP_RECENT_HOURS`, the stale guard) would
+    shift by the offset. `parseUtc` in `radarNetflows.ts` (PURE, tested; one
+    home, imported by `radarBgp.ts`) pins a date-time with no Z / offset to
+    UTC and leaves a stamped or date-only value alone. (2) **NetFlows
+    accepted `MIN0_MAX` and refused `RAW_VALUES`** (166 points, `aggInterval`
+    ONE_HOUR, UA read normal): `NETFLOWS_NORMALIZATIONS` now leads with
+    MIN0_MAX — the other order spent one refused request per country on
+    every fresh process; RAW_VALUES stays as the fallback and the read still
+    branches on what the BODY says. The diag's NetFlows line uses ASCII `|`
+    separators like the others (the `Â·` paste artefact). Both sensors are
+    verified end to end from production; the next change to either should
+    start from a fresh diag, not from these notes. If a tracked country runs
+    red daily on routing, the next rule is a per-country count series
+    against its own trailing normal — not a higher confidence bar.
   No new npm dep (esbuild `0`).
   **Tenth Radar diag (2026-10-27) confirmed it**: both strike annotations
   read `UA` by name (the "Russian strikes on energy infrastructure" row is

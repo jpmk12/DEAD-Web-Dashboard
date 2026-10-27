@@ -371,7 +371,7 @@ async function diagnoseRadarEndpoints(token: string | null, cc: string): Promise
       return {
         source: `Radar NetFlows ${code}`, url: netflowsUrl(code, normalization), configured: true, status: r.status, ms: Date.now() - t0, parsed: s ? s.timestamps.length : 0,
         ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}),
-        sample: s ? [`${read.state} | ratio ${read.ratio == null ? "-" : read.ratio.toFixed(2)} | drop ${read.drop == null ? "-" : read.drop.toFixed(2)} | ${read.why}`, `asked ${normalization} · body says ${s.normalization || "?"} · aggInterval ${s.aggInterval || "?"} · last ${s.timestamps.at(-1) ? new Date(s.timestamps.at(-1)!).toISOString() : "-"} · last values: ${tail}`] : [],
+        sample: s ? [`${read.state} | ratio ${read.ratio == null ? "-" : read.ratio.toFixed(2)} | drop ${read.drop == null ? "-" : read.drop.toFixed(2)} | ${read.why}`, `asked ${normalization} | body says ${s.normalization || "?"} | aggInterval ${s.aggInterval || "?"} | last ${s.timestamps.at(-1) ? new Date(s.timestamps.at(-1)!).toISOString() : "-"} | last values: ${tail}`] : [],
         ...(r.json ? { rawKeys: Object.keys((r.json as { result?: Record<string, unknown> }).result ?? {}).slice(0, 20) } : {}),
       };
     })(),

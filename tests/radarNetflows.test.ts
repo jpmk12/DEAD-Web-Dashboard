@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseNetflows, trafficRead, TRAFFIC_DOWN, TRAFFIC_COLLAPSED, RECENT_HOURS, MIN_BASELINE_DAYS, NORM_DROP_DOWN, NETFLOWS_NORMALIZATIONS, isNormalizedRange } from "../lib/radarNetflows";
+import { parseNetflows, trafficRead, TRAFFIC_DOWN, TRAFFIC_COLLAPSED, RECENT_HOURS, MIN_BASELINE_DAYS, NORM_DROP_DOWN, NETFLOWS_NORMALIZATIONS, isNormalizedRange, parseUtc } from "../lib/radarNetflows";
 
 // The host is unreachable from the sandbox; the body follows the published
 // reference for /radar/netflows/timeseries (serie_0.timestamps / values as
@@ -45,9 +45,31 @@ describe("parseNetflows", () => {
     expect(s.values[s.values.length - 1]).toBeCloseTo(diurnal(NOW, 12) / 0.8, 3);
     const named = parseNetflows({ result: { meta: {}, ua: { timestamps: ["2026-10-27T00:00:00Z"], values: ["0.5"] } } })!;
     expect(named.values).toEqual([0.5]);
-    expect(NETFLOWS_NORMALIZATIONS[0]).toBe("RAW_VALUES");
+    // Production ACCEPTED MIN0_MAX and REFUSED RAW_VALUES (2026-10-27), so the
+    // accepted one is asked first — a refused request per country per fresh
+    // process was the cost of the other order.
+    expect(NETFLOWS_NORMALIZATIONS[0]).toBe("MIN0_MAX");
+    expect(NETFLOWS_NORMALIZATIONS).toContain("RAW_VALUES");
     expect(isNormalizedRange("MIN0_MAX")).toBe(true);
     expect(isNormalizedRange("RAW_VALUES")).toBe(false);
+  });
+});
+
+describe("parseUtc — a zone-less Radar stamp is UTC, never local time", () => {
+  it("pins a date-time with no zone designator to UTC (the live BGP rows' shape) and leaves stamped or date-only values alone", () => {
+    const utc = Date.parse("2026-10-27T07:15:30.048Z");
+    expect(parseUtc("2026-10-27T07:15:30.048")).toBe(utc);
+    expect(parseUtc("2026-10-27T07:15:30")).toBe(Date.parse("2026-10-27T07:15:30Z"));
+    expect(parseUtc("2026-10-27T07:15:30.048Z")).toBe(utc);
+    expect(parseUtc("2026-10-27T09:15:30.048+02:00")).toBe(utc);
+    expect(parseUtc("2026-10-27T09:15:30.048+0200")).toBe(utc);
+    expect(parseUtc("2026-10-27T05:15:30.048-02:00")).toBe(utc);
+    expect(parseUtc(" 2026-10-27T07:15:30.048 ")).toBe(utc);
+    expect(parseUtc("2026-10-27")).toBe(Date.parse("2026-10-27"));  // date-only: left as the platform reads it
+    expect(parseUtc("junk")).toBeNull();
+    expect(parseUtc("")).toBeNull();
+    expect(parseUtc(1_700_000_000_000)).toBeNull();
+    expect(parseUtc(null)).toBeNull();
   });
 });
 

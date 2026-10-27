@@ -13,10 +13,11 @@
 //
 // Normalization — what the values MEAN depends on what the API agreed to
 // send, and the read branches on `series.normalization`:
-//   - RAW_VALUES (asked first): a ratio read. `TRAFFIC_DOWN` ≤ 0.6 is well
-//     outside ordinary day-to-day variance on a national series;
-//     `TRAFFIC_COLLAPSED` ≤ 0.25 is a shutdown-class drop.
-//   - MIN0_MAX / MIN_MAX (the fallback — the API's default): every value is
+//   - RAW_VALUES (the fallback — production REFUSED it, 2026-10-27): a ratio
+//     read. `TRAFFIC_DOWN` ≤ 0.6 is well outside ordinary day-to-day
+//     variance on a national series; `TRAFFIC_COLLAPSED` ≤ 0.25 is a
+//     shutdown-class drop.
+//   - MIN0_MAX / MIN_MAX (asked first — the one production ACCEPTS): every value is
 //     (v − min) / (max − min) over the window, so the nightly trough reads 0
 //     and a RATIO of two values is amplified (a 20 % daytime dip can read
 //     60 %). A ratio is therefore never claimed; the read is the DROP in
@@ -73,11 +74,26 @@ export const NORM_DROP_DOWN = 0.35;
 export const NORM_DROP_COLLAPSED = 0.7;
 export const NORM_FLOOR = 0.1;
 
-/** The normalizations the fetcher asks for, in order of preference. */
-export const NETFLOWS_NORMALIZATIONS = ["RAW_VALUES", "MIN0_MAX"] as const;
+/** The normalizations the fetcher asks for, in order of preference.
+ *  MIN0_MAX leads because production ACCEPTED it and REFUSED RAW_VALUES
+ *  (2026-10-27, second diag) — asking RAW_VALUES first spent one refused
+ *  request per country on every fresh process. RAW_VALUES stays as the
+ *  fallback in case the API's acceptance changes; the read branches on
+ *  what the body says, not on what was asked. */
+export const NETFLOWS_NORMALIZATIONS = ["MIN0_MAX", "RAW_VALUES"] as const;
 
 const num = (v: unknown): number | null => { const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN; return Number.isFinite(n) ? n : null; };
-const ms = (s: unknown): number | null => { if (typeof s !== "string" || !s) return null; const t = Date.parse(s); return Number.isFinite(t) ? t : null; };
+/** A Radar timestamp → epoch ms. The BGP rows arrived ZONE-LESS in
+ *  production ("2026-10-27T07:15:30.048"); JavaScript reads such a stamp as
+ *  LOCAL time, so a date-time with no Z / offset is pinned to UTC here (Radar
+ *  reports in UTC). A date-only string and a stamped one are left as-is. */
+export function parseUtc(s: unknown): number | null {
+  if (typeof s !== "string" || !s) return null;
+  const v = s.trim();
+  const t = Date.parse(/T\d{2}:\d{2}/.test(v) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(v) ? `${v}Z` : v);
+  return Number.isFinite(t) ? t : null;
+}
+const ms = parseUtc;
 
 export const isNormalizedRange = (normalization: string) => /^MIN0?_MAX$/.test(normalization);
 
