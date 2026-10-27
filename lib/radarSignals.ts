@@ -242,8 +242,13 @@ export interface RadarTokenShape {
   /** Characters in the bare value. */
   length: number;
   /** A Cloudflare API Token is 40 chars of [A-Za-z0-9_-]; the Global API
-   *  Key is 37 hex chars — the two are told apart by shape alone. */
-  looksLike: "api-token" | "global-api-key" | "unknown";
+   *  Key is 37 hex chars; an Origin CA key starts `v1.0-` — all told apart
+   *  by shape alone. */
+  looksLike: "api-token" | "global-api-key" | "origin-ca-key" | "unknown";
+  /** The alphabet the value uses — `token-alphabet` ([A-Za-z0-9_-]), `hex`,
+   *  or `other` (a character Cloudflare's Bearer parser refuses outright:
+   *  that is the 6003 › 6111 "Invalid format for Authorization header"). */
+  charset: "token-alphabet" | "hex" | "other";
   /** Defects stripped from the pasted value. */
   stripped: ("quotes" | "bearer-prefix" | "whitespace")[];
 }
@@ -257,8 +262,13 @@ export function describeTokenShape(raw: string | undefined | null): RadarTokenSh
   if (/^\s*["']/.test(r)) stripped.push("quotes");
   if (/^\s*["']?\s*bearer\s/i.test(r)) stripped.push("bearer-prefix");
   if (r !== r.trim()) stripped.push("whitespace");
-  const looksLike: RadarTokenShape["looksLike"] = /^[0-9a-f]{37}$/.test(bare) ? "global-api-key" : /^[A-Za-z0-9_-]{40}$/.test(bare) ? "api-token" : "unknown";
-  return { length: bare.length, looksLike, stripped };
+  const charset: RadarTokenShape["charset"] = /^[0-9a-f]+$/i.test(bare) ? "hex" : /^[A-Za-z0-9_-]+$/.test(bare) ? "token-alphabet" : "other";
+  const looksLike: RadarTokenShape["looksLike"] =
+    /^v1\.0-/.test(bare) ? "origin-ca-key"
+    : /^[0-9a-f]{37}$/.test(bare) ? "global-api-key"
+    : /^[A-Za-z0-9_-]{40}$/.test(bare) ? "api-token"
+    : "unknown";
+  return { length: bare.length, looksLike, charset, stripped };
 }
 
 export interface RadarErrorInfo {

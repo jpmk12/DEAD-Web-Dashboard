@@ -124,8 +124,11 @@ describe("normalizeRadarToken / describeTokenShape — paste defects stripped, s
     expect(s).toMatchObject({ length: 40, looksLike: "api-token" });
     expect(s.stripped).toEqual(expect.arrayContaining(["quotes", "bearer-prefix"]));
     expect(JSON.stringify(s)).not.toContain(tok.slice(0, 8));
-    expect(describeTokenShape("0123456789abcdef0123456789abcdef01234")!.looksLike).toBe("global-api-key");
-    expect(describeTokenShape("short")!.looksLike).toBe("unknown");
+    expect(describeTokenShape("0123456789abcdef0123456789abcdef01234")).toMatchObject({ looksLike: "global-api-key", charset: "hex" });
+    expect(describeTokenShape("short")).toMatchObject({ looksLike: "unknown", charset: "token-alphabet" });
+    expect(describeTokenShape("v1.0-abcdef0123456789abcdef0123456789abcdef01234567")!.looksLike).toBe("origin-ca-key");
+    // The 2026-10-27 production value: 54 chars, a character outside the token alphabet → Cloudflare's 6111.
+    expect(describeTokenShape("abc.def/ghi+jkl=mnopqrstuvwxyz0123456789ABCDEFGHIJKLMN")).toMatchObject({ length: 54, looksLike: "unknown", charset: "other" });
     expect(describeTokenShape("")).toBeNull();
   });
 });

@@ -2507,6 +2507,18 @@ diag and their contracts are pinned from the published feed / API reference.
   Token is needed); `verify` 200 `active` + Radar 403 → the token is fine
   but lacks Account › Radar › Read; `verify` refused → the token itself
   (expired, disabled, mistyped, or pasted with a defect `stripped` names).
+  **Fifth Radar diag (2026-10-27) — conclusive**: `token.length` 54,
+  `looksLike: unknown`, nothing stripped, and `verify` itself answered
+  6003 › 6111 "Invalid format for Authorization header". A 54-character
+  value is NOT a Cloudflare API Token (exactly 40 chars of `[A-Za-z0-9_-]`)
+  and not the Global API Key (37 hex); Cloudflare's Bearer parser refused
+  the value's SHAPE before any lookup, so no code change can make it
+  work — the env var holds some other credential. `describeTokenShape`
+  now also reports `charset` (`token-alphabet` / `hex` / `other` — `other`
+  is exactly what earns 6111) and recognises an Origin CA key (`v1.0-…`),
+  so the next diag names the wrong kind of value without printing it.
+  Remedy: My Profile › API Tokens › Create Token › Custom, permission
+  Account › Radar › Read, no IP filter; paste the 40-char value bare.
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")
