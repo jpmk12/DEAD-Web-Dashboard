@@ -57,6 +57,22 @@ describe("parseRadarOutages / parseRadarAnomalies", () => {
     // Never from prose or ASN lists: a description and `asns` are not places.
     expect(parseRadarOutages(row({ description: "UA strikes on RU", asns: [12], entities: { asns: [12] } }))[0].countries).toEqual([]);
   });
+  it("reads the LIVE entities row verbatim (eighth diag): GEOLOCATION entities name the country and the places; GeoNames ids yield nothing", () => {
+    const live = { id: "L", startDate: "2026-10-25T00:00:00Z", endDate: null, description: "Ukrainian drone strikes on energy infrastructure caused power outages", locations: [], asns: [], geoIds: ["694422", "703883"], origins: [], entities: [
+      { entityType: "GEOLOCATION", entityValue: "694422", entityName: "Sevastopol City, Ukraine", entityLocation: "UA" },
+      { entityType: "GEOLOCATION", entityValue: "703883", entityName: "Crimea, Ukraine", entityLocation: "UA" },
+    ], asnsDetails: [], locationsDetails: [], originsDetails: [], outage: { outageType: "REGIONAL", outageCause: "MILITARY_ACTION" } };
+    const o = parseRadarOutages({ result: { annotations: [live] } })[0];
+    expect(o).toMatchObject({ countries: [{ code: "UA", name: "Ukraine" }], countriesVia: "named", places: ["Sevastopol City", "Crimea"] });
+    const read = radarReadsFor([o], [], ["UA"], NOW)[0];
+    expect(read.level).toBe("amber");
+    expect(read.why).toBe("regional outage · military action · Sevastopol City, Crimea · since 2026-10-25");
+    // An ASN-class entity's entityLocation is a PLACEMENT, never a named country; the country itself is not a place.
+    const asnOnly = parseRadarOutages({ result: { annotations: [{ ...live, geoIds: [], entities: [{ entityType: "ASN", entityValue: "27364", entityName: "Armstrong", entityLocation: "US" }] }] } })[0];
+    expect(asnOnly).toMatchObject({ countries: [{ code: "US", name: "US" }], countriesVia: "asn", places: [] });
+    const whole = parseRadarOutages({ result: { annotations: [{ ...live, entities: [{ entityType: "GEOLOCATION", entityValue: "690791", entityName: "Ukraine", entityLocation: "UA" }] }] } })[0];
+    expect(whole).toMatchObject({ countries: [{ code: "UA", name: "Ukraine" }], countriesVia: "named", places: [] });
+  });
   it("places a NETWORK annotation with no location at its networks' registration country, and says so", () => {
     const j = { result: { annotations: [{ id: "n", startDate: "2026-10-25T00:00:00Z", locations: [], locationsDetails: [], asns: [27364], asnsDetails: [{ asn: 27364, name: "Armstrong", location: { code: "US", name: "United States" } }], outage: { outageType: "NETWORK", outageCause: "UNKNOWN" } }] } };
     const o = parseRadarOutages(j)[0];

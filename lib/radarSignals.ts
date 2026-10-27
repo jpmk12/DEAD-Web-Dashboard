@@ -35,6 +35,10 @@ export interface RadarOutage {
   cause: string;
   /** ISO alpha-2 codes + names the annotation names. */
   countries: { code: string; name: string }[];
+  /** Subnational places the annotation names (`entities[].entityName` of
+   *  GEOLOCATION entities — "Sevastopol City", "Crimea"), the country
+   *  suffix stripped; empty for a nationwide or network row. */
+  places: string[];
   /** How the countries were found: `named` by the annotation's own location
    *  fields, or `asn` — PLACED at the registration country of the networks
    *  it names, because the annotation named no location (the Armstrong
@@ -85,13 +89,30 @@ const LOCATION_KEYS = /^(locations?|locationsDetails|locationDetails|origins?|or
 /** ISO 3166-2 subdivision id (`UA-30`, `US-PA`) → its country. */
 const GEO_ID_RX = /^([A-Za-z]{2})-[A-Za-z0-9]{1,3}$/;
 
+/** The live `entities[]` row (2026-10-27): `{ entityType: "GEOLOCATION",
+ *  entityValue: "694422" (a GeoNames id), entityName: "Sevastopol City,
+ *  Ukraine", entityLocation: "UA" }`. Only a GEOLOCATION-class entity
+ *  NAMES a place; an ASN-class entity's `entityLocation` is a placement. */
+const GEO_ENTITY_RX = /GEO|LOCATION|COUNTRY|REGION|CITY/i;
+
+/** "Sevastopol City, Ukraine" → the country name after the last comma; a
+ *  name with no comma ("Ukraine") IS the country. */
+const countryOfEntityName = (name: unknown): string | undefined => {
+  const n = str(name);
+  const i = n.lastIndexOf(",");
+  return (i > 0 ? n.slice(i + 1) : n).trim() || undefined;
+};
+
 /** Countries named anywhere under the given sources, walking only the
  *  location-shaped keys (never names, descriptions or ASN lists): a string
- *  code, a `{ code | alpha2 | iso2, name }` object, arrays of either, and
- *  nested containers such as `entities.locations`. A geo id yields its
- *  country. Nothing is guessed from prose. */
-function countriesOf(...sources: unknown[]): { code: string; name: string }[] {
+ *  code, a `{ code | alpha2 | iso2, name }` object, a GEOLOCATION entity's
+ *  `entityLocation`, arrays of either, and nested containers such as
+ *  `entities.locations`. An ISO 3166-2 geo id yields its country; a
+ *  GeoNames number yields nothing. Nothing is guessed from prose. Also
+ *  returns the subnational `places` the GEOLOCATION entities name. */
+function countriesOf(...sources: unknown[]): { countries: { code: string; name: string }[]; places: string[] } {
   const out = new Map<string, string>();
+  const placeNames: { name: string; country: string | undefined }[] = [];
   const take = (code: unknown, name?: unknown) => {
     const c = str(code).toUpperCase();
     if (!/^[A-Z]{2}$/.test(c)) return;
@@ -110,10 +131,24 @@ function countriesOf(...sources: unknown[]): { code: string; name: string }[] {
     const o = v as Record<string, unknown>;
     const code = o.code ?? o.alpha2 ?? o.iso2;
     if (typeof code === "string") take(code, o.name ?? o.locationName);
+    if (typeof o.entityLocation === "string" && (o.entityType == null || GEO_ENTITY_RX.test(str(o.entityType)))) {
+      const country = countryOfEntityName(o.entityName);
+      take(o.entityLocation, country);
+      const full = str(o.entityName).slice(0, 80);
+      if (full) placeNames.push({ name: full, country });
+    }
     for (const [k, x] of Object.entries(o)) if (LOCATION_KEYS.test(k)) walk(x, depth + 1);
   };
   for (const s of sources) walk(s, 0);
-  return [...out.entries()].map(([code, name]) => ({ code, name }));
+  const countries = [...out.entries()].map(([code, name]) => ({ code, name }));
+  const countryNames = new Set(countries.map((c) => c.name.toLowerCase()));
+  const places = [...new Set(placeNames.map((p) => {
+    // Strip the ", <country>" suffix when it names a country we took; an
+    // entity that IS the country ("Ukraine") is not a subnational place.
+    const suffix = p.country ? `, ${p.country}` : "";
+    return suffix && p.name.toLowerCase().endsWith(suffix.toLowerCase()) ? p.name.slice(0, -suffix.length).trim() : p.name;
+  }).filter((n) => n && !countryNames.has(n.toLowerCase())))].slice(0, 5);
+  return { countries, places };
 }
 
 /** The registration countries of the networks an annotation / anomaly names
@@ -121,9 +156,16 @@ function countriesOf(...sources: unknown[]): { code: string; name: string }[] {
  *  statement of where the outage is — the caller marks it `via: "asn"`. */
 function asnCountriesOf(...sources: unknown[]): { code: string; name: string }[] {
   const places: unknown[] = [];
-  const push = (d: unknown) => { if (d && typeof d === "object") { const o = d as Record<string, unknown>; places.push(o.location, o.locations, o.locationDetails, o.locationsDetails); } };
+  const push = (d: unknown) => {
+    if (!d || typeof d !== "object") return;
+    const o = d as Record<string, unknown>;
+    places.push(o.location, o.locations, o.locationDetails, o.locationsDetails);
+    // An ASN-class entity row (`entities[]` with entityType "ASN") carries
+    // the network's registration country as `entityLocation`.
+    if (/ASN|NETWORK/i.test(str(o.entityType)) && typeof o.entityLocation === "string") places.push(o.entityLocation);
+  };
   for (const s of sources) { if (Array.isArray(s)) s.forEach(push); else push(s); }
-  return countriesOf(...places);
+  return countriesOf(...places).countries;
 }
 
 /** `result.annotations[]` → outages. A row with no start date or no id is
@@ -141,14 +183,15 @@ export function parseRadarOutages(json: unknown): RadarOutage[] {
     const scopeRaw = str(outage.outageType).toUpperCase();
     const scope: RadarScope = scopeRaw === "NATIONWIDE" || scopeRaw === "REGIONAL" || scopeRaw === "NETWORK" || scopeRaw === "PLATFORM" ? scopeRaw : "UNKNOWN";
     const named = countriesOf(r.locationsDetails, r.locations, r.locationDetails, r.location, r.originsDetails, r.origins, r.entities, r.geoIds);
-    const placed = named.length ? [] : asnCountriesOf(r.asnsDetails);
+    const placed = named.countries.length ? [] : asnCountriesOf(r.asnsDetails, r.entities);
     out.push({
       id,
       description: str(r.description).slice(0, 400),
       scope,
       cause: str(outage.outageCause).toUpperCase().slice(0, 40),
-      countries: named.length ? named : placed,
-      countriesVia: named.length ? "named" : placed.length ? "asn" : null,
+      countries: named.countries.length ? named.countries : placed,
+      places: named.places,
+      countriesVia: named.countries.length ? "named" : placed.length ? "asn" : null,
       asns: Array.isArray(r.asns) ? (r.asns as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0) : [],
       startMs,
       endMs: ms(r.endDate),
@@ -242,7 +285,7 @@ export function radarReadsFor(outages: RadarOutage[], anomalies: RadarAnomaly[],
       if (RANK[lvl] > RANK[r.level] || !r.why) {
         r.level = lvl;
         const ongoing = lvl !== "note";
-        r.why = `${o.scope === "UNKNOWN" ? "outage" : o.scope.toLowerCase() + " outage"} · ${niceCause(o.cause)} · ${ongoing ? `since ${fmtDay(o.startMs)}` : `ended ${fmtDay(o.endMs!)}`}${o.countriesVia === "asn" ? " · placed by the network's registration — the annotation names no country" : ""}`;
+        r.why = `${o.scope === "UNKNOWN" ? "outage" : o.scope.toLowerCase() + " outage"} · ${niceCause(o.cause)}${o.places.length ? ` · ${o.places.slice(0, 3).join(", ")}` : ""} · ${ongoing ? `since ${fmtDay(o.startMs)}` : `ended ${fmtDay(o.endMs!)}`}${o.countriesVia === "asn" ? " · placed by the network's registration — the annotation names no country" : ""}`;
         r.ongoing = r.ongoing || ongoing;
         r.url = o.url ?? r.url;
       }

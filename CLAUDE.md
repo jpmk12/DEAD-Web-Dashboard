@@ -2618,9 +2618,24 @@ diag and their contracts are pinned from the published feed / API reference.
   country's traffic; only a LOCATION anomaly earns amber. The diag's raw
   filter is wide now (`locat|countr|asn|entit|origin|geo|region`, 800
   chars) and the sample lines use ASCII `|` separators — a paste through
-  a Latin-1 pipe had turned `·` into `Â·`. If the next diag still shows
-  the strike annotations unplaced, paste `rawLocations` — the country is
-  in whichever of those containers is non-empty.
+  a Latin-1 pipe had turned `·` into `Â·`.
+  **Ninth Radar diag (2026-10-27): the location shape, VERBATIM.** A
+  regional outage row reads `locations: []`, `locationsDetails: []`,
+  `geoIds: ["694422","703883"]` (GeoNames ids — numbers, NOT ISO 3166-2;
+  they yield nothing) and **`entities: [{ entityType: "GEOLOCATION",
+  entityValue: "694422", entityName: "Sevastopol City, Ukraine",
+  entityLocation: "UA" }, …]`** — the walk had reached the array and
+  looked for `code`. Now a GEOLOCATION-class entity (`GEO_ENTITY_RX`)
+  names the country from `entityLocation` with the name after the last
+  comma of `entityName` (a comma-less name IS the country), and the
+  subnational names are kept as **`RadarOutage.places`** ("Sevastopol
+  City", "Crimea" — the country suffix stripped, the country itself never
+  a place, ≤5), rendered in the why ("regional outage · military action
+  · Sevastopol City, Crimea · since …"). An ASN-class entity's
+  `entityLocation` is a placement and feeds `asnCountriesOf` only. The
+  AS-anomaly placement was confirmed on the same diag (EG / VE / HT / IQ
+  by ASN, CG by location). Pinned verbatim in `tests/radarSignals.test.ts`.
+  Both sensors are now verified end to end from production.
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")
