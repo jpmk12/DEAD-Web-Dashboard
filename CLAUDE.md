@@ -1349,6 +1349,33 @@ because `img-src https:` allows them. Render note: the loop mounts **all frames
 and animates by opacity** (the active frame opaque, the rest at 0) rather than
 swapping one TileLayer's `url` — swapping `url` drops the old tiles before the
 new load and **blinks**. Keyless, no new dep.
+- **"The view dropdown doesn't do anything / I can't toggle the weather
+  overlay" (2026-10-27, reproduced in headless Chromium against the build
+  with a forged local session)**: the toolbar popovers (View / Layers /
+  Legend) closed on a `document` `mousedown` listener, and each wrapper
+  carried `onMouseDown={e => e.stopPropagation()}` to keep inside clicks
+  from reaching it. **Under the App Router React hydrates the whole
+  `document`**, so React's delegated listener and ours sat on the SAME
+  node — `stopPropagation` stops the walk to ancestors, not the other
+  listeners on the node it is already at — and every mousedown inside a
+  menu closed it BEFORE the click landed. The menu opened, the preset or
+  chip did nothing. **Outside-click closers decide by containment**
+  (`ref.current.contains(e.target)`, the rule DocList / EmailCard / ZonePin
+  / TripControls already followed), never by `stopPropagation` on a
+  wrapper. The server-state merge from `/api/ui-state` also now yields to a
+  click made before it resolved (`userTouched`). Radar: `/api/osint/radar`
+  returns `status` + `reason` (8-s timeout) and the map says why when the
+  layer is on with nothing to draw — `markSrc("Radar")` joins the
+  source-down badge and an amber "radar: no frames — <reason> · blank ≠
+  clear" note sits where the loop bar would be; a frame index that answers
+  but whose tiles are refused (8 errors before any load, the basemap's own
+  test) reads "tiles refused by RainViewer". **RainViewer's free tier
+  changed 2026-01-01**: max zoom 7 (the layer sets `maxNativeZoom={7}` so
+  deeper zooms upscale instead of requesting a tile the host refuses), 100
+  requests per IP per minute, nowcast and satellite withdrawn, the `path`
+  used as returned. Neither host is reachable from the sandbox; the
+  owner-only `/api/osint/map-diag` probes the index and one tile from
+  production — if the note persists there, read that diag first.
 
 ### Crisis map Overflight layer + the DAIP airspace module (`lib/airspace.ts`)
 The Crisis-map **Overflight** layer (off by default) and the broader DAIP NOTAM

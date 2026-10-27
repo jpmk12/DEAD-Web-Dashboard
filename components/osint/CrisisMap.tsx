@@ -325,6 +325,22 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   const [radarNowIdx, setRadarNowIdx] = useState(0);
   const [radarPlaying, setRadarPlaying] = useState(true);
   const [radarOpacity, setRadarOpacity] = useState(0.6);
+  // Why the radar layer has nothing to draw (null = frames in hand), and the
+  // tile-level judgement: RainViewer's free tier changed on 1 Jan 2026 (max
+  // zoom 7, one colour scheme, nowcast withdrawn), so an index that answers
+  // can still refuse the tiles. Errors are counted only until the first tile
+  // loads — coverage gaps produce errors AND loads, a refusal only errors
+  // (the basemap's own rule).
+  const [radarReason, setRadarReason] = useState<string | null>(null);
+  const [radarTilesRefused, setRadarTilesRefused] = useState(false);
+  const radarTileOk = useRef(false);
+  const radarTileErrors = useRef(0);
+  const onRadarTileLoad = useCallback(() => { radarTileOk.current = true; setRadarTilesRefused(false); }, []);
+  const onRadarTileError = useCallback(() => {
+    if (radarTileOk.current) return;
+    radarTileErrors.current += 1;
+    if (radarTileErrors.current >= 8) setRadarTilesRefused(true);
+  }, []);
   // Sources that reported "upstream down" (ok:false) — rendered as an amber
   // badge so a blank layer reads as "source down", never as "all quiet".
   const [srcDown, setSrcDown] = useState<string[]>([]);
@@ -437,9 +453,13 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   // devices. `didHydrate` keeps the initial (local-only) render from POSTing
   // before we've read the server copy; localStorage still saves immediately.
   const didHydrate = useRef(false);
+  // A layer or preset the user picked BEFORE the server copy arrived wins —
+  // the merge below must not revert a click made during a slow /api/ui-state.
+  const userTouched = useRef(false);
   useEffect(() => {
     fetchUiState()
       .then((st) => {
+        if (userTouched.current) return;
         const sv = st[UI_KEYS.crisisLayers];
         if (sv && typeof sv === "object" && !Array.isArray(sv)) {
           setOn((prev) => ({ ...prev, ...(sv as Partial<Record<LayerKey, boolean>>) }));
@@ -564,15 +584,24 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
         if (d) markSrc("Launch Library", d.live === false);
       })
       .catch(() => {});
+    // Radar: an empty frame list is a dead index, not a dry sky — say so in
+    // the source-down badge and on the map when the layer is on. Before this
+    // the layer failed in silence: toggling Radar drew nothing and named
+    // nothing (bug report 2026-10-27).
     fetch("/api/osint/radar", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { host?: string; frames?: RadarFrame[]; nowIdx?: number } | null) => {
-        if (d?.host && Array.isArray(d.frames) && d.frames.length) {
-          setRadarHost(d.host); setRadarFrames(d.frames);
-          setRadarNowIdx(d.nowIdx ?? 0); setRadarIdx(d.nowIdx ?? 0);
+      .then((r) => (r.ok ? r.json() : { ok: false, frames: [], reason: `HTTP ${r.status}` }))
+      .then((d: { ok?: boolean; host?: string; frames?: RadarFrame[]; nowIdx?: number; reason?: string | null } | null) => {
+        const frames = d?.host && Array.isArray(d.frames) ? d.frames : [];
+        if (frames.length) {
+          setRadarHost(d!.host!); setRadarFrames(frames);
+          setRadarNowIdx(d!.nowIdx ?? 0); setRadarIdx(d!.nowIdx ?? 0);
+          setRadarReason(null);
+        } else {
+          setRadarReason(d?.reason || "no frames in the index");
         }
+        markSrc("Radar", frames.length === 0);
       })
-      .catch(() => {});
+      .catch(() => { setRadarReason("index unreachable"); markSrc("Radar", true); });
     return () => ctrl.abort();
   }, [refreshKey]);
 
@@ -860,7 +889,8 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     () => AORS.filter((a) => starAors.includes(a) || forces.some((f) => f.cocom === a) || allDisasters.some((d) => d.aor === a) || neoAll.some((x) => x.a.aor === a)),
     [forces, allDisasters, neoAll, starAors],
   );
-  const toggle = (k: LayerKey) => setOn((p) => ({ ...p, [k]: !p[k] }));
+  const toggle = (k: LayerKey) => { userTouched.current = true; setOn((p) => ({ ...p, [k]: !p[k] })); };
+  const applyPreset = (layers: Record<LayerKey, boolean>, name: string) => { userTouched.current = true; setOn(layers); setViewName(name); setViewMenuOpen(false); };
   const showNodeLabels = on.labels && zoom >= 4;
   const pick = (id: string, lat: number, lon: number, z = 4) => { setSelected(id); setFlyTo({ lat, lon, zoom: z, key: Date.now() }); };
 
@@ -875,11 +905,26 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     if (v) setFlyTo({ lat: v.lat, lon: v.lon, zoom: v.zoom, key: Date.now() });
   }, [aorFilter]);
 
-  // Close the toolbar popovers (View / Layers / Legend) on any outside click.
-  // The popover wrappers stopPropagation so inside clicks don't bubble here.
+  // Close the toolbar popovers (View / Layers / Legend) on an OUTSIDE click —
+  // decided by DOM containment, never by stopPropagation. The first cut put
+  // `onMouseDown={e => e.stopPropagation()}` on each wrapper and listened on
+  // `document`; under the App Router React hydrates the whole document, so
+  // its delegated listener and this one sit on the SAME node and
+  // stopPropagation cannot keep the event from the other. Every mousedown
+  // inside a menu closed it before the click landed: the View presets and
+  // every chip in the Layers popover "did nothing" (bug report 2026-10-27,
+  // reproduced in headless Chromium). Same rule as DocList / EmailCard /
+  // ZonePin: `ref.contains(target)`.
+  const viewWrapRef = useRef<HTMLDivElement>(null);
+  const layersWrapRef = useRef<HTMLDivElement>(null);
+  const legendWrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!layersOpen && !legendOpen && !viewMenuOpen) return;
-    const close = () => { setLayersOpen(false); setLegendOpen(false); setViewMenuOpen(false); };
+    const close = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (t && [viewWrapRef, layersWrapRef, legendWrapRef].some((r) => r.current?.contains(t))) return;
+      setLayersOpen(false); setLegendOpen(false); setViewMenuOpen(false);
+    };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [layersOpen, legendOpen, viewMenuOpen]);
@@ -961,7 +1006,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
       <div className="flex flex-wrap items-center gap-1.5 text-[10px] relative z-[20]">
         <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">View</span>
         {/* View preset dropdown */}
-        <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="relative" ref={viewWrapRef}>
           <button onClick={() => { setViewMenuOpen((v) => !v); setLayersOpen(false); setLegendOpen(false); }} title="Apply a curated layer preset" className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 transition-all">{viewName} ▾</button>
           {viewMenuOpen && (
             <div className="absolute left-0 top-full mt-1 z-[55] w-48 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-1 shadow-2xl">
@@ -970,10 +1015,8 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
                   onClick={() => {
                     // Mission-Profile view: force-protection lens + the access
                     // degraders (overflight/GPS), narrowed to your primary theater.
-                    setOn(preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "overflight", "enroute", "crf", "tracked", "labels"]));
+                    applyPreset(preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "overflight", "enroute", "crf", "tracked", "labels"]), "My AO");
                     setAorFilter(myAoAor);
-                    setViewName("My AO");
-                    setViewMenuOpen(false);
                   }}
                   title={`Your primary AOI theater (${myAoAor}) — forces, conflict, NEO, airspace/GPS access degraders`}
                   className="block w-full text-left px-2.5 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-100"
@@ -982,7 +1025,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
                 </button>
               )}
               {PRESETS.map((pz) => (
-                <button key={pz.name} onClick={() => { setOn(pz.on); setViewName(pz.name); setViewMenuOpen(false); }} title={pz.desc} className="block w-full text-left px-2.5 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:bg-violet-500/15 hover:text-violet-100">
+                <button key={pz.name} onClick={() => applyPreset(pz.on, pz.name)} title={pz.desc} className="block w-full text-left px-2.5 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:bg-violet-500/15 hover:text-violet-100">
                   {pz.name}<span className="block text-[9px] text-slate-500 normal-case font-normal tracking-normal">{pz.desc.split("—")[0].trim()}</span>
                 </button>
               ))}
@@ -990,7 +1033,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
           )}
         </div>
         {/* Layers popover (overlays the map; contextual ⚙ for Mil air + Rings) */}
-        <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="relative" ref={layersWrapRef}>
           <button onClick={() => { setLayersOpen((v) => !v); setLegendOpen(false); setViewMenuOpen(false); }} title="Map layers" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${layersOpen ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⚙ Layers <span className="text-slate-500">({activeCount})</span></button>
           {layersOpen && (
             <div className="absolute left-0 top-full mt-1 z-[55] w-[min(580px,calc(100vw-2.5rem))] max-h-[62vh] overflow-auto bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-3 shadow-2xl">
@@ -1081,7 +1124,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
           )}
         </div>
         {/* Legend popover */}
-        <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="relative" ref={legendWrapRef}>
           <button onClick={() => { setLegendOpen((v) => !v); setLayersOpen(false); setViewMenuOpen(false); }} title="Marker glyph legend" className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${legendOpen ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>Legend ▾</button>
           {legendOpen && (
             <div className="absolute left-0 top-full mt-1 z-[55] w-[min(520px,calc(100vw-2.5rem))] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg px-3 py-2.5 shadow-2xl flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-400">
@@ -1182,14 +1225,20 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
                 zIndex={3}
               />
             )}
+            {/* RainViewer serves radar tiles to zoom 7 on the free tier (since
+                2026-01-01); deeper zooms upscale the zoom-7 tile instead of
+                requesting one the host refuses. The `path` is used exactly as
+                the index returned it, never rebuilt from the timestamp. */}
             {on.radar && radarFrames.map((f, i) => (
               <TileLayer
                 key={f.path}
                 url={`${radarHost}${f.path}/256/{z}/{x}/{y}/2/1_1.png`}
                 opacity={i === radarIdx ? radarOpacity : 0}
                 zIndex={5}
+                maxNativeZoom={7}
                 updateWhenZooming={false}
                 attribution={i === 0 ? "radar &copy; RainViewer" : undefined}
+                eventHandlers={i === radarNowIdx ? { load: onRadarTileLoad, tileload: onRadarTileLoad, tileerror: onRadarTileError } : undefined}
               />
             ))}
             <ZoomWatcher onZoom={setZoom} />
@@ -1435,8 +1484,17 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
             })}
           </MapContainer>
 
+          {/* Radar on with nothing to draw — the map must say so (blank ≠ dry). */}
+          {on.radar && (radarFrames.length === 0 || radarTilesRefused) && (
+            <div
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[400] bg-slate-950/85 border border-amber-500/40 rounded-md px-2.5 py-1.5 text-[10px] text-amber-300 font-mono whitespace-nowrap"
+              title="RainViewer is keyless and changed its free tier on 2026-01-01 (max zoom 7, one colour scheme, no nowcast). An empty layer is a refused or unreachable source, never a dry sky. The owner-only /api/osint/map-diag probes the index and a tile from production."
+            >
+              ⚠ radar: {radarFrames.length === 0 ? `no frames — ${radarReason ?? "index unreachable"}` : "tiles refused by RainViewer"} · blank ≠ clear
+            </div>
+          )}
           {/* Radar time-loop bar — play/scrub + frame time + opacity, only when radar is on. */}
-          {on.radar && radarFrames[radarIdx] && (() => {
+          {on.radar && !radarTilesRefused && radarFrames[radarIdx] && (() => {
             const f = radarFrames[radarIdx];
             const mins = Math.round((f.time * 1000 - Date.now()) / 60000);
             const zulu = new Date(f.time * 1000).toISOString().slice(11, 16) + "Z";
