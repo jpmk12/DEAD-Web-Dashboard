@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openTrackPicker, postTrack, roleBody, untrackAirfieldBody, untrackCountryBody, type TrackResponse } from "@/lib/trackClient";
-import dynamic from "next/dynamic";
+import { lazyClient } from "@/lib/lazyClient";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ReactivationCard from "@/components/osint/ReactivationCard";
 import RoomDrawer from "@/components/osint/RoomDrawer";
@@ -50,14 +50,13 @@ import { toast } from "@/lib/feedback";
 // "role". Every write returns the server's `undo`, shown in a strip for a
 // few seconds; the board reloads on `tracking:changed`.
 
-const CrisisMap = dynamic(() => import("@/components/osint/CrisisMap"), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[420px] bg-slate-900/60 border border-slate-800 rounded-xl animate-pulse flex items-center justify-center text-xs text-slate-600 font-mono uppercase tracking-wider">
-      Loading crisis map…
-    </div>
-  ),
-});
+// `lazyClient`, not `next/dynamic` (lib/lazyClient.tsx: a resolved lazy
+// chunk waited for an unrelated re-render before it rendered).
+const CrisisMap = lazyClient(() => import("@/components/osint/CrisisMap"), () => (
+  <div className="h-[420px] bg-slate-900/60 border border-slate-800 rounded-xl animate-pulse flex items-center justify-center text-xs text-slate-600 font-mono uppercase tracking-wider">
+    Loading crisis map…
+  </div>
+));
 
 type Body = CommandsBody & { canEdit?: boolean };
 

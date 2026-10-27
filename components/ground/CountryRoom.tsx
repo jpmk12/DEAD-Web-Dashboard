@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { openTrackPicker } from "@/lib/trackClient";
-import dynamic from "next/dynamic";
+import { lazyClient } from "@/lib/lazyClient";
 import PostureCard from "@/components/osint/PostureCard";
 import type { ForceAssessment, CategoryAssessment } from "@/lib/forceProtection";
 import type { CountryDossier } from "@/lib/groundTruth";
@@ -13,7 +13,10 @@ import { relTime } from "@/lib/relTime";
 import { COCOM_LABEL } from "@/lib/aor";
 import { noteOpen } from "@/lib/noteOpenClient";
 
-const IncidentMiniMap = dynamic(() => import("./IncidentMiniMap"), { ssr: false });
+// `lazyClient`, not `next/dynamic` (lib/lazyClient.tsx).
+const IncidentMiniMap = lazyClient(() => import("./IncidentMiniMap"), () => (
+  <div className="h-40 bg-slate-900/60 border border-slate-800 rounded-lg animate-pulse" />
+));
 
 // The country SITUATION ROOM — the per-country dossier (posture, conflict
 // reporting, incidents + mini-map, news, civil, health, digital) rendered

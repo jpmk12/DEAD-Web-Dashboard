@@ -14,12 +14,23 @@ import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
 import DocumentsTab from "@/components/documents/DocumentsTab";
 import GlanceTab from "@/components/glance/GlanceTab";
-import dynamic from "next/dynamic";
+import { lazyClient } from "@/lib/lazyClient";
 // Loaded on demand: neither is needed for Glance's first paint — the drawer
 // is a 150 KB component rendered only while open, and the Family tab mounts
 // only when opened (code review 2026-10-07: one 1.2 MB page chunk).
-const FamilyTab = dynamic(() => import("@/components/family/FamilyTab"), { ssr: false });
-const PreferencesDrawer = dynamic(() => import("@/components/PreferencesDrawer"), { ssr: false });
+// `lazyClient`, not `next/dynamic`: a lazy chunk here resolved in ~100 ms
+// but did not render until the shell re-rendered for an unrelated reason
+// (see lib/lazyClient.tsx). Each carries a placeholder so a tap is answered
+// at once instead of looking dead while the chunk arrives.
+const FamilyTab = lazyClient(() => import("@/components/family/FamilyTab"), () => (
+  <div className="px-4 py-6 text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading Family…</div>
+));
+const PreferencesDrawer = lazyClient(() => import("@/components/PreferencesDrawer"), () => (
+  <>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" />
+    <div className="fixed top-0 right-0 h-full w-full max-w-md lg:max-w-3xl bg-slate-950 border-l border-slate-800 z-50 flex items-center justify-center text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading preferences…</div>
+  </>
+));
 import BriefingModal from "@/components/BriefingModal";
 import QuickCaptureModal from "@/components/QuickCaptureModal";
 import TrackPicker from "@/components/TrackPicker";

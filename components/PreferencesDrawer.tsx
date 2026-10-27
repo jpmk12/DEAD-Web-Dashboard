@@ -2038,7 +2038,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               onClick={() => toggleGroup("mission")}
               className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.mission ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Mission Profile</span>
               <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("mission")}</span>
             </button>
@@ -2058,7 +2057,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               onClick={() => toggleGroup("you")}
               className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.you ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">You</span>
               <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("you")}</span>
             </button>
@@ -2238,7 +2236,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               onClick={() => toggleGroup("connections")}
               className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.connections ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Connections & appearance</span>
               <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("connections")}</span>
             </button>
@@ -2318,7 +2315,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               onClick={() => toggleGroup("email")}
               className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.email ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Email rules</span>
               <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("email")}</span>
             </button>
@@ -2358,7 +2354,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               onClick={() => toggleGroup("sources")}
               className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.sources ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">Content sources</span>
               <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("sources")}</span>
             </button>
@@ -2388,7 +2383,6 @@ export default function PreferencesDrawer({ open, onClose, onSaved }: Preference
               onClick={() => toggleGroup("ai")}
               className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/60 hover:bg-slate-900 transition-colors text-left"
             >
-              <span className="text-slate-500 text-xs w-3 flex-shrink-0">{openGroups.ai ? "▾" : "▸"}</span>
               <span className="text-sm font-bold text-slate-200 uppercase tracking-wider">AI & memory</span>
               <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal truncate">· {groupSubtitle("ai")}</span>
             </button>

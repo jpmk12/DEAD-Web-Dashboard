@@ -1377,6 +1377,43 @@ new load and **blinks**. Keyless, no new dep.
   owner-only `/api/osint/map-diag` probes the index and one tile from
   production — if the note persists there, read that diag first.
 
+### Lazy components render on arrival (`lib/lazyClient.tsx`, 2026-10-27 — found by the browser sweep after the map fix)
+The same headless-Chromium harness (the production build, a session
+cookie forged with the smoke secret, every tab walked at desktop and phone
+widths, every ▾ / ⚙ control clicked) found that **every `next/dynamic(…,
+{ ssr: false })` component in the app rendered late or never**: the
+Preferences drawer and the Family tab loaded their chunk in ~100 ms and
+then did not COMMIT until the shell re-rendered for an unrelated reason —
+22 s after the click on a fresh page (the briefing grace timer), never once
+the dashboard had settled; a non-lazy modal mounted in 17 ms. React 19.2 /
+Next 15.5. On a live dashboard the shell re-renders often enough to mask
+it, which is exactly a "the button does nothing" on a quiet day.
+- **`lazyClient(load, fallback?)`** does the split by hand: the module is
+  imported in an effect and the component goes into STATE, so its arrival
+  is an ordinary update React must render; the import runs only in the
+  browser (SSR-safe for Leaflet-style modules); the loaded component is
+  cached per helper. Used for the Preferences drawer, the Family tab
+  (`TabShell`), the Crisis map (`CommandBoard`) and the country mini-map
+  (`CountryRoom`). **Do not reintroduce `next/dynamic` for a client-only
+  component** without re-running the harness check: open the drawer on a
+  fresh page after a 35-s idle and expect it within ~250 ms.
+- **A tap is answered at once**: each site carries a fallback (a drawer
+  frame reading "Loading preferences…", a Family line, the map's existing
+  placeholder) — the old `dynamic()` calls rendered nothing while loading.
+- Also from the sweep: the drawer's six section headers carried a fold
+  glyph (`▾` / `▸`) over `toggleGroup`, which has been `selectGroup` since
+  the sectioned model — a header that pretends to fold. The glyph is gone;
+  the header still re-selects (scrolls to top).
+- The harness itself is not in the repo (Playwright is not a dependency —
+  esbuild `0` — and the sandbox's Chromium lives at
+  `/opt/pw-browsers/chromium`); the recipe is: `encode` from
+  `@auth/core/jwt` with `secret: "smoke"`, `salt: "authjs.session-token"`
+  and a token carrying `email` = the `OWNER_EMAIL` the server was booted
+  with plus a fake `accessToken`; set it as the `authjs.session-token`
+  cookie on `localhost`; the API routes answer 500 without a database and
+  the UI must still stand up. Dispatch `app:navigate` / `prefs:open` on
+  `window` to move around.
+
 ### Crisis map Overflight layer + the DAIP airspace module (`lib/airspace.ts`)
 The Crisis-map **Overflight** layer (off by default) and the broader DAIP NOTAM
 classes come from `lib/airspace.ts` → `/api/osint/airspace`. **Key contract fact
