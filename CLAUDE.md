@@ -3773,9 +3773,50 @@ horizon is 4 days, today included.
   is amber / red / UNKNOWN; never invent a time, tail, callsign or load);
   the **OE brief export** gets a Lines table (`OeBriefInput.lines`, null =
   UNAVAILABLE on the page).
+- **Lines sit BESIDE the 7-day demand horizon, never inside its score
+  (same day, "should lines be part of 7 day demand on glance? Crews and
+  lines are deeply related")**. The horizon is a FORECAST of what the world
+  may ask and the app scores its own forecasts against observed lift; a
+  declared line is the crew's own COMMITMENT, and folding it into the
+  score would make a RISE call verify because the app was told, not
+  because it sensed. The relationship lives in the crews, the third leg:
+  forecast demand × committed lines × available crews.
+  - `linesByCommand(reads)` (PURE, `lib/lineRead.ts`): `LineFieldInput.aor`
+    (placed by country then coordinates through `classifyAor` in the
+    assembler) → `LineRead.commands` (a line through fields in two
+    commands is committed into both; UNKNOWN left out) →
+    `Record<aor, LineCommandSummary {count, worst, lead, lineIds}>`. **A
+    command with no line is ABSENT** — `/api/demand-horizon` adds a
+    `lines` key only when something is declared (`getLinesByCommandBounded`
+    3 s, null when the store is down), so the card is byte-identical for a
+    crew that never uses lines. On the card: an "N lines" chip with the
+    worst LED on the command's row, a Lines paragraph in the open row
+    ("the forecast is the world's; the lines are yours — beside it, never
+    inside the score"), a count in the header line.
+  - `postureAgainstDemand(crew, outlooks, labels, declared?: DeclaredLines)`
+    gains a FOURTH, optional argument (`{total, byAor}`; absent / null /
+    empty → the rule reads exactly as before, tested by deep equality).
+    Two more mismatch triggers against thin / critical crews: lines
+    declared in the command ("⚠ 2 lines declared against thin crews" —
+    rising and lines together are one sentence), and lines exceeding
+    AVAILABLE crews, named whatever the posture ("⚠ 7 lines declared
+    against 6 available crews"). Squadron totals only — no per-line crew,
+    which the operator declined. `PostureLine.linesDeclared`; the headline
+    appends "· N lines declared this week". Only `/api/team/crew` passes
+    it (the Glance card's crews line); `commandsAssemble` and `oeContext`
+    call the three-argument form unchanged.
+  - The reverse direction, plan §4's "context, not a driver":
+    `LineRead.outlook` = the 7-day outlook of each command the line enters
+    (`getDemandHorizonBounded(3 s)` in the assembler, skipped when cold or
+    pending), rendered on the open strip row as "entering USCENTCOM —
+    demand likely to RISE (7-day outlook, context not a driver)" and on the
+    Ask / brief line as "· entering CENTCOM (demand likely to RISE)". It is
+    never a `LineDriver` and never moves `worst` (tested).
 - Not built (plan §6): alerts on a line read, a `line_read_daily` series
-  scoring whether a driver predicted a slip, a per-line map, the command
-  board mark. No new npm dep (esbuild `0`).
+  scoring whether a driver predicted a slip (lines as a second
+  VERIFICATION target for the horizon — not an input — once a month of
+  lines exists), a per-line map, the command board mark. No new npm dep
+  (esbuild `0`).
 
 ### Indicator calibration (`lib/indicatorCalibration.ts` — the decision log feeding back)
 REVIEW §3.2. `warning_decisions` already records calls against a problem and,

@@ -10,6 +10,7 @@
 
 import type { LineAirframe, LineStatus } from "./missionLines";
 import { lineDayLabel, lineLabel, runwayClassFor } from "./missionLines";
+import type { Aor } from "./aor";
 
 export type LineLed = "g" | "a" | "r" | "u";
 export interface LineLeds { wx: LineLed; ops: LineLed; threat: LineLed; infra: LineLed; spectrum: LineLed }
@@ -18,6 +19,8 @@ export const worstLineLed = (...leds: LineLed[]): LineLed => leds.reduce((w, l) 
 
 export interface LineFieldInput {
   icao: string;
+  /** The combatant command the field sits in (by country, then coordinates); null when the app cannot place it. */
+  aor?: Aor | null;
   /** The field has a SITREP slot (configured base). */
   sitrepSlot: boolean;
   /** The SITREP rollup when the slot assembled; null when it did not. */
@@ -55,6 +58,7 @@ export interface LineDriver {
 
 export interface LineFieldRead {
   icao: string;
+  aor: Aor | null;
   worst: LineLed;
   leds: LineLeds | null;
   drivers: LineDriver[];
@@ -76,6 +80,23 @@ export interface LineRead {
   summary: string;
   /** Source families that did not answer. */
   unavailable: string[];
+  /** The commands the line routes through (distinct, field order; UNKNOWN left out). */
+  commands: Aor[];
+  /** The 7-day demand outlook of each command the line enters — CONTEXT on the
+   *  line, never a driver (the forecast and the commitment stay separate). */
+  outlook?: { aor: Aor; direction: "rise" | "hold" | "fall" }[];
+}
+
+/** What the demand card shows beside a command's forecast: the lines
+ *  COMMITTED into it. A command with no line is ABSENT — the card shows
+ *  nothing, so an unused feature leaves the board exactly as it was. */
+export interface LineCommandSummary {
+  aor: Aor;
+  count: number;
+  worst: LineLed;
+  /** The worst line's lead driver, "ICAO: text"; null when every line is quiet. */
+  lead: string | null;
+  lineIds: string[];
 }
 
 const KIND_RANK: Record<LineDriverKind, number> = { closure: 5, runway: 4, led: 3, posture: 2, taf: 1, unknown: 0 };
@@ -138,7 +159,7 @@ function readField(f: LineFieldInput, line: LineReadInput["line"], today: string
 
   drivers.sort(byWorst);
   const worst = drivers.length ? worstLineLed(...drivers.map((d) => d.level)) : "g";
-  return { icao: f.icao, worst, leds, drivers, sitrepSlot: f.sitrepSlot };
+  return { icao: f.icao, aor: f.aor && f.aor !== "UNKNOWN" ? f.aor : null, worst, leds, drivers, sitrepSlot: f.sitrepSlot };
 }
 
 export function readLine(input: LineReadInput): LineRead {
@@ -157,16 +178,40 @@ export function readLine(input: LineReadInput): LineRead {
     : worst === "u"
       ? `${label}: UNKNOWN — ${lead ? `${lead.icao} ${lead.text}` : "no reading"}.`
       : `${label}: ${worst === "r" ? "RED" : "AMBER"} at ${lead.icao} — ${lead.text}.`;
+  const commands: Aor[] = [];
+  for (const p of perField) if (p.aor && !commands.includes(p.aor)) commands.push(p.aor);
   return {
     id: input.line.id, day: input.line.day, dayLabel: lineDayLabel(input.line.day), airframe: input.line.airframe,
-    fields: input.line.fields, status: input.line.status, label, worst, drivers, perField, summary, unavailable,
+    fields: input.line.fields, status: input.line.status, label, worst, drivers, perField, summary, unavailable, commands,
   };
 }
+
+/** Fold the reads per command. A line through fields in two commands is
+ *  committed into both. Commands with no line do not appear. */
+export function linesByCommand(reads: LineRead[]): Record<string, LineCommandSummary> {
+  const out: Record<string, LineCommandSummary> = {};
+  for (const r of reads) {
+    for (const aor of r.commands) {
+      const cur = out[aor] ?? (out[aor] = { aor, count: 0, worst: "g", lead: null, lineIds: [] });
+      cur.count += 1;
+      cur.lineIds.push(r.id);
+      const lead = r.drivers.find((d) => d.level !== "g");
+      if (RANK[r.worst] > RANK[cur.worst] || (cur.lead === null && lead)) {
+        cur.worst = worstLineLed(cur.worst, r.worst);
+        if (lead) cur.lead = `${r.label} · ${lead.icao}: ${lead.text}`;
+      }
+    }
+  }
+  return out;
+}
+
+const DIR_WORD = { rise: "likely to RISE", hold: "holding", fall: "likely to fall" } as const;
 
 /** The lines for a prompt / the Ask pack: one line each, drivers inline. */
 export function lineReadLines(reads: LineRead[], limit = 12): string[] {
   return reads.slice(0, limit).map((r) => {
     const drv = r.drivers.filter((d) => d.level !== "g").slice(0, 3).map((d) => `${d.icao}: ${d.text}`).join(" · ");
-    return `- ${r.dayLabel} · ${r.label} · ${r.status} · worst ${r.worst === "g" ? "GREEN" : r.worst === "a" ? "AMBER" : r.worst === "r" ? "RED" : "UNKNOWN"}${drv ? ` — ${drv}` : " — quiet (absence of signal, not evidence of calm)"}${r.unavailable.length ? ` · UNAVAILABLE: ${r.unavailable.join(", ")}` : ""}`;
+    const ctx = r.outlook?.length ? ` · entering ${r.outlook.map((o) => `${o.aor} (demand ${DIR_WORD[o.direction]})`).join(", ")}` : "";
+    return `- ${r.dayLabel} · ${r.label} · ${r.status} · worst ${r.worst === "g" ? "GREEN" : r.worst === "a" ? "AMBER" : r.worst === "r" ? "RED" : "UNKNOWN"}${drv ? ` — ${drv}` : " — quiet (absence of signal, not evidence of calm)"}${r.unavailable.length ? ` · UNAVAILABLE: ${r.unavailable.join(", ")}` : ""}${ctx}`;
   });
 }

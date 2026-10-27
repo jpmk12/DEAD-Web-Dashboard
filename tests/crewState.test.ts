@@ -66,4 +66,42 @@ describe("postureAgainstDemand — the sentence the north star asks for", () => 
     expect(r.lines[0].posture).toBe("unknown");
     expect(r.headline).toMatch(/No crew state declared/);
   });
+
+  describe("declared lines beside the forecast", () => {
+    const hold = [{ aor: "CENTCOM", direction: "hold" as const, score: 0 }, { aor: "EUCOM", direction: "hold" as const, score: 0 }];
+    it("absent or empty lines leave the rule exactly as it was", () => {
+      const without = postureAgainstDemand(thin, hold);
+      const nullish = postureAgainstDemand(thin, hold, {}, null);
+      const empty = postureAgainstDemand(thin, hold, {}, { total: 0, byAor: {} });
+      expect(nullish).toEqual(without);
+      expect(empty).toEqual(without);
+      expect(without.lines[0].mismatch).toBe(false);
+      expect(without.lines[0].linesDeclared).toBe(0);
+      expect(without.headline).not.toMatch(/line/);
+    });
+    it("lines declared against thin crews are a mismatch even when demand holds; sufficient crews are not", () => {
+      const r = postureAgainstDemand(thin, hold, { CENTCOM: "USCENTCOM" }, { total: 2, byAor: { CENTCOM: 2 } });
+      expect(r.lines[0].mismatch).toBe(true);
+      expect(r.lines[0].linesDeclared).toBe(2);
+      expect(r.lines[0].line).toBe("USCENTCOM demand holding — 2 of 8 crews available (thin) · 2 lines declared ⚠ 2 lines declared against thin crews");
+      expect(r.lines[1].mismatch).toBe(false);
+      expect(r.headline).toMatch(/2 lines declared this week — mismatch/);
+      const fine = postureAgainstDemand(ok, hold, {}, { total: 2, byAor: { CENTCOM: 2 } });
+      expect(fine.lines[0].mismatch).toBe(false);
+      expect(fine.lines[0].line).toMatch(/· 2 lines declared$/);
+    });
+    it("more lines than available crews is named outright, whatever the posture", () => {
+      const r = postureAgainstDemand(ok, hold, {}, { total: 7, byAor: { CENTCOM: 7 } });
+      expect(r.lines[0].mismatch).toBe(true);
+      expect(r.lines[0].line).toMatch(/⚠ 7 lines declared against 6 available crews/);
+    });
+    it("rising demand and lines together are one sentence, and an undeclared crew state still names the lines", () => {
+      const r = postureAgainstDemand(thin, [{ aor: "CENTCOM", direction: "rise", score: 40 }], {}, { total: 1, byAor: { CENTCOM: 1 } });
+      expect(r.lines[0].line).toMatch(/⚠ rising demand and 1 line declared against thin crews/);
+      const u = postureAgainstDemand(deriveAvailability([], NOW), hold, {}, { total: 3, byAor: { CENTCOM: 3 } });
+      expect(u.lines[0].mismatch).toBe(false);
+      expect(u.lines[0].line).toMatch(/no crew state declared · 3 lines declared$/);
+      expect(u.headline).toMatch(/cannot be judged\. · 3 lines declared this week/);
+    });
+  });
 });

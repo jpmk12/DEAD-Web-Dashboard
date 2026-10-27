@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import CrewStateEditor from "@/components/preferences/CrewStateEditor";
 import { AOR_LABELS, type Aor } from "@/lib/aor";
 import type { DemandOutlook, DemandDriver } from "@/lib/demandHorizon";
+import type { LineCommandSummary } from "@/lib/lineRead";
+import { LED_CLASS } from "@/lib/levelTokens";
 
 // 7-day demand horizon — the forecast the north star names.
 //
@@ -29,6 +31,8 @@ interface Body {
   sources: Record<string, boolean>;
   /** Verification of outlooks whose 7-day window has closed (lib/demandVerify). */
   skill?: SkillBody | null;
+  /** Declared lines per command, BESIDE the forecast — absent when none are declared. */
+  lines?: Record<string, LineCommandSummary>;
 }
 
 const DIR = {
@@ -81,6 +85,10 @@ export default function DemandHorizonCard() {
   const falling = body.outlooks.filter((o) => o.direction === "fall").length;
   const answered = Object.entries(body.sources).filter(([, v]) => v).map(([k]) => SRC_LABEL[k as DemandDriver["source"]] ?? k);
   const silent = Object.entries(body.sources).filter(([, v]) => !v).map(([k]) => SRC_LABEL[k as DemandDriver["source"]] ?? k);
+  // Declared lines: the COMMITMENT beside the forecast. Only present when a
+  // line exists; a crew that never declares one sees the card unchanged.
+  const lines = body.lines ?? {};
+  const linesTotal = new Set(Object.values(lines).flatMap((l) => l.lineIds)).size;
 
   return (
     <section className="rounded-lg border border-slate-800 bg-slate-900/40 overflow-hidden">
@@ -90,6 +98,7 @@ export default function DemandHorizonCard() {
         <span className="text-[10px] text-slate-500 truncate">
           {rising > 0 ? `${rising} command${rising === 1 ? "" : "s"} likely to rise` : "no command likely to rise"}
           {falling > 0 ? ` · ${falling} likely to fall` : ""}
+          {linesTotal > 0 ? ` · ${linesTotal} line${linesTotal === 1 ? "" : "s"} declared` : ""}
         </span>
         <span className="ml-auto text-[9px] text-slate-600 flex-shrink-0">deterministic · no model</span>
       </button>
@@ -126,6 +135,7 @@ export default function DemandHorizonCard() {
           {body.outlooks.map((o) => {
             const d = DIR[o.direction];
             const isOpen = open === o.aor;
+            const ln = lines[o.aor];
             return (
               <div key={o.aor} className="border-t border-slate-800/60">
                 <button
@@ -139,6 +149,11 @@ export default function DemandHorizonCard() {
                   <span className="flex-1 min-w-0 text-[10.5px] text-slate-400 truncate">
                     {o.drivers.length === 0 ? "no demand signals on the board" : o.drivers.slice(0, 2).map((x) => x.text).join(" · ")}
                   </span>
+                  {ln && (
+                    <span className="inline-flex items-center gap-1 flex-shrink-0 text-[8.5px] font-bold uppercase tracking-wider rounded px-1 py-0.5 border border-slate-700 text-slate-300" title={ln.lead ? `declared lines — worst: ${ln.lead}` : "declared lines — all quiet (absence of signal, not evidence of calm)"}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${LED_CLASS[ln.worst]}`} />{ln.count} line{ln.count === 1 ? "" : "s"}
+                    </span>
+                  )}
                   <span className="text-[9px] font-mono text-slate-500 flex-shrink-0" title={`${o.sources} independent source${o.sources === 1 ? "" : "s"}`}>{CONF[o.confidence]}</span>
                   <span className={`text-[10px] font-mono flex-shrink-0 ${o.score > 0 ? "text-amber-300" : o.score < 0 ? "text-emerald-300" : "text-slate-600"}`}>
                     {o.score > 0 ? "+" : ""}{o.score}
@@ -156,6 +171,13 @@ export default function DemandHorizonCard() {
                         <span className={`font-mono flex-shrink-0 ${dr.delta > 0 ? "text-amber-300" : "text-emerald-300"}`}>{dr.delta > 0 ? "+" : ""}{dr.delta}</span>
                       </div>
                     ))}
+                    {ln && (
+                      <p className={`text-[10px] pt-1 ${ln.worst === "r" ? "text-red-300" : ln.worst === "a" ? "text-amber-300" : "text-slate-400"}`}>
+                        <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 mr-1">Lines</span>
+                        {ln.count} declared into this command in the next 4 days{ln.lead ? ` · worst ${ln.worst === "r" ? "RED" : ln.worst === "a" ? "AMBER" : "UNKNOWN"} — ${ln.lead}` : " · all quiet"}
+                        <span className="text-slate-600"> · the forecast is the world's; the lines are yours — beside it, never inside the score</span>
+                      </p>
+                    )}
                     {crew?.byAor[o.aor] && (
                       <p className={`text-[10px] pt-1 ${crew.byAor[o.aor].mismatch ? "text-amber-300" : "text-slate-400"}`}>
                         <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 mr-1">Crews</span>{crew.byAor[o.aor].line}

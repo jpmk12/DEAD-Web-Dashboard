@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readLine, lineReadLines, type LineFieldInput, type LineReadInput } from "../lib/lineRead";
+import { readLine, lineReadLines, linesByCommand, type LineFieldInput, type LineReadInput } from "../lib/lineRead";
 
 const TODAY = "2026-10-27";
 const line = (over: Partial<LineReadInput["line"]> = {}): LineReadInput["line"] => ({ id: "l1", day: TODAY, airframe: "C-17", fields: ["OJAQ", "OTBH"], status: "planned", ...over });
@@ -64,6 +64,27 @@ describe("readLine", () => {
     expect(r.worst).toBe("u");
     expect(r.drivers.map((d) => d.text).join(" ")).toMatch(/force posture unavailable/);
     expect(r.drivers.map((d) => d.text).join(" ")).toMatch(/SITREP did not assemble/);
+  });
+  it("folds the reads per command — a line through two commands is committed into both; a command with no line is absent", () => {
+    const a = readLine({ line: line({ id: "a", fields: ["OJAQ", "ETAR"] }), fields: [field("OJAQ", { aor: "CENTCOM" }), field("ETAR", { aor: "EUCOM", sitrep: { status: { ...green, ops: "r" }, driver: "FIELD CLOSED", worse: [], closure: { now: true, next: null, indeterminate: false } } })], sources: all, today: TODAY });
+    const b = readLine({ line: line({ id: "b", fields: ["OJAQ"] }), fields: [field("OJAQ", { aor: "CENTCOM" })], sources: all, today: TODAY });
+    expect(a.commands).toEqual(["CENTCOM", "EUCOM"]);
+    const by = linesByCommand([a, b]);
+    expect(Object.keys(by).sort()).toEqual(["CENTCOM", "EUCOM"]);
+    expect(by.CENTCOM.count).toBe(2);
+    expect(by.CENTCOM.lineIds).toEqual(["a", "b"]);
+    expect(by.EUCOM).toMatchObject({ count: 1, worst: "r" });
+    expect(by.EUCOM.lead).toMatch(/ETAR: field CLOSED now/);
+    expect(by.CENTCOM.worst).toBe("r"); // line a routes through CENTCOM too, and it is red at ETAR
+    expect(linesByCommand([])).toEqual({});
+    const unplaced = readLine({ line: line({ fields: ["ZZZZ"] }), fields: [field("ZZZZ", { aor: "UNKNOWN" })], sources: all, today: TODAY });
+    expect(unplaced.commands).toEqual([]);
+  });
+  it("renders the outlook as context on the prompt line, never as a driver", () => {
+    const r = readLine({ line: line({ fields: ["OJAQ"] }), fields: [field("OJAQ", { aor: "CENTCOM" })], sources: all, today: TODAY });
+    r.outlook = [{ aor: "CENTCOM", direction: "rise" }];
+    expect(r.worst).toBe("g");
+    expect(lineReadLines([r])[0]).toMatch(/quiet .* · entering CENTCOM \(demand likely to RISE\)$/);
   });
   it("renders prompt lines with the day, the label, the status and the lead drivers", () => {
     const r = readLine({ line: line(), fields: [field("OJAQ", { sitrep: { status: { ...green, wx: "a" }, driver: "IFR → LIFR fcst", worse: [], closure: null } }), field("OTBH")], sources: all, today: TODAY });

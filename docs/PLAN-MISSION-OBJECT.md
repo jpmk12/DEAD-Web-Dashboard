@@ -29,6 +29,20 @@ section in the Ask pack, a block in the Morning Brief prompt and a table in
 the OE brief export. The sections below are the original proposal; where
 they say "crew complement", "label" or "note", the answers above override.
 
+**Lines and the demand horizon (decided the same day).** Asked whether
+lines should be part of the 7-day demand on Glance: no — beside it, never
+inside its score. The horizon forecasts and is scored against observed
+lift; a line is a commitment, and feeding it in would make the forecast
+verify because it was told. The relationship is carried by the crews:
+forecast × committed lines × available crews. Built: a lines chip per
+command on the demand card (absent when none), lines as a second trigger
+of the crews mismatch (declared against thin crews; more lines than
+available crews), and the command's outlook as context on the line. Not
+built, by design, until a month of lines exists: lines as a second
+VERIFICATION target for the horizon. An unused feature leaves the board
+exactly as it was — every join is absent, not zero, when nothing is
+declared.
+
 ## 0. Why this is the largest lever left
 
 The dashboard models the world (posture, I&W boards, SITREPs, straits,

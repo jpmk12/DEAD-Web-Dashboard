@@ -132,6 +132,11 @@ export default function LinesStrip({ active = true }: { active?: boolean }) {
               {isOpen && (
                 <div className="px-2.5 pb-2 border-t border-slate-800/80 pt-2 space-y-1.5">
                   <p className="text-[10px] text-slate-400 leading-snug">{r.summary}</p>
+                  {r.outlook && r.outlook.length > 0 && (
+                    <p className="text-[10px] text-slate-500 leading-snug" title="The command's 7-day demand outlook, as context on the line — never a driver of its read">
+                      entering {r.outlook.map((o) => `${o.aor} — demand ${o.direction === "rise" ? "likely to RISE" : o.direction === "fall" ? "likely to fall" : "holding"}`).join(" · ")} <span className="text-slate-600">(7-day outlook, context not a driver)</span>
+                    </p>
+                  )}
                   {r.perField.map((f, i) => (
                     <div key={`${f.icao}-${i}`} className="text-[10px] leading-snug">
                       <button onClick={() => openField(f.icao, f.sitrepSlot)} className="font-mono font-bold text-slate-200 hover:text-sky-300">

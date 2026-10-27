@@ -107,35 +107,65 @@ export interface PostureLine {
   aor: string;
   direction: DemandRef["direction"];
   posture: CrewPosture;
-  /** Demand rising against thin/critical availability — the sentence that matters. */
+  /** Demand rising, or lines declared, against thin/critical availability — the sentence that matters. */
   mismatch: boolean;
+  /** Lines declared into this command in the next four days (0 when none). */
+  linesDeclared: number;
   line: string;
+}
+
+/** Declared lines (lib/missionLines) beside the forecast: the COMMITTED half
+ *  of demand. Optional on purpose — absent or empty, the rule below reads
+ *  exactly as it did before lines existed. */
+export interface DeclaredLines {
+  /** Distinct lines in the horizon (a line through two commands counts once here). */
+  total: number;
+  /** Lines per command. */
+  byAor: Record<string, number>;
 }
 
 /** The sentence the north star asks for: demand direction per command
  *  against declared availability. Crew state is squadron-wide, so every
- *  command sees the same availability — what differs is the demand. */
-export function postureAgainstDemand(crew: CrewSummary, outlooks: DemandRef[], labels: Record<string, string> = {}): { lines: PostureLine[]; headline: string } {
+ *  command sees the same availability — what differs is the demand: the
+ *  FORECAST (the horizon) and, when any are declared, the COMMITMENT (the
+ *  lines). Two triggers, both against thin / critical crews: demand rising,
+ *  or lines declared. More lines than available crews is named outright.
+ *  Lines never change the forecast; they sit beside it. */
+export function postureAgainstDemand(crew: CrewSummary, outlooks: DemandRef[], labels: Record<string, string> = {}, declared?: DeclaredLines | null): { lines: PostureLine[]; headline: string } {
   const posture = postureOf(crew.fraction);
+  const short = posture === "thin" || posture === "critical";
   const staleNote = crew.stale && crew.staleHours !== null ? ` — crew state last updated ${crew.staleHours >= 48 ? `${Math.round(crew.staleHours / 24)}d` : `${Math.round(crew.staleHours)}h`} ago, confirm` : "";
   const avail = crew.total > 0 ? `${crew.available} of ${crew.total} crews available` : "no crew state declared";
 
   const lines: PostureLine[] = outlooks.map((o) => {
     const name = labels[o.aor] ?? o.aor;
-    const mismatch = o.direction === "rise" && (posture === "thin" || posture === "critical");
+    const n = Math.max(0, Math.floor(declared?.byAor?.[o.aor] ?? 0));
+    const overCommitted = n > 0 && crew.total > 0 && n > crew.available;
+    const risingShort = o.direction === "rise" && short;
+    const linesShort = n > 0 && short;
+    const mismatch = risingShort || linesShort || overCommitted;
     const dir = o.direction === "rise" ? "likely to RISE" : o.direction === "fall" ? "likely to fall" : "holding";
+    const linesNote = n > 0 ? ` · ${n} line${n === 1 ? "" : "s"} declared` : "";
+    const why = overCommitted ? ` ⚠ ${n} line${n === 1 ? "" : "s"} declared against ${crew.available} available crew${crew.available === 1 ? "" : "s"}`
+      : risingShort && linesShort ? ` ⚠ rising demand and ${n} line${n === 1 ? "" : "s"} declared against ${posture} crews`
+      : risingShort ? " ⚠ rising demand against thin crews"
+      : linesShort ? ` ⚠ ${n} line${n === 1 ? "" : "s"} declared against ${posture} crews`
+      : "";
     const line = posture === "unknown"
-      ? `${name} demand ${dir} — ${avail}`
-      : `${name} demand ${dir} — ${avail} (${posture})${mismatch ? " ⚠ rising demand against thin crews" : ""}${staleNote}`;
-    return { aor: o.aor, direction: o.direction, posture, mismatch, line };
+      ? `${name} demand ${dir} — ${avail}${linesNote}${overCommitted ? why : ""}`
+      : `${name} demand ${dir} — ${avail} (${posture})${linesNote}${why}${staleNote}`;
+    return { aor: o.aor, direction: o.direction, posture, mismatch, linesDeclared: n, line };
   });
 
   const rising = lines.filter((l) => l.direction === "rise").map((l) => labels[l.aor] ?? l.aor);
+  const total = Math.max(0, Math.floor(declared?.total ?? 0));
+  const declaredNote = total > 0 ? ` · ${total} line${total === 1 ? "" : "s"} declared this week` : "";
+  const mismatchNote = lines.some((l) => l.mismatch) ? " — mismatch" : "";
   const headline = posture === "unknown"
-    ? "No crew state declared — posture against demand cannot be judged."
+    ? `No crew state declared — posture against demand cannot be judged.${declaredNote}`
     : rising.length
-      ? `${avail} (${posture}) with demand likely to rise in ${rising.join(", ")}${lines.some((l) => l.mismatch) ? " — mismatch" : ""}${staleNote}`
-      : `${avail} (${posture}); no command with rising demand${staleNote}`;
+      ? `${avail} (${posture}) with demand likely to rise in ${rising.join(", ")}${declaredNote}${mismatchNote}${staleNote}`
+      : `${avail} (${posture}); no command with rising demand${declaredNote}${mismatchNote}${staleNote}`;
 
   return { lines, headline };
 }

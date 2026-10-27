@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDemandHorizonBounded } from "@/lib/demandAssemble";
 import { getDemandSkill } from "@/lib/demandVerifyAssemble";
+import { getLinesByCommandBounded } from "@/lib/lineReadAssemble";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,14 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const [body, skill] = await Promise.all([getDemandHorizonBounded(8_000), within(getDemandSkill(), 4_000)]);
-  return NextResponse.json({ ...body, skill });
+  const [body, skill, declared] = await Promise.all([
+    getDemandHorizonBounded(8_000),
+    within(getDemandSkill(), 4_000),
+    // Declared lines per command BESIDE the forecast, never inside its score
+    // (lib/lineRead linesByCommand). Omitted when none / the store is down,
+    // so the card is unchanged for a crew that does not use lines.
+    getLinesByCommandBounded(3_000).catch(() => null),
+  ]);
+  const lines = declared && Object.keys(declared.byCommand).length ? declared.byCommand : undefined;
+  return NextResponse.json({ ...body, skill, ...(lines ? { lines } : {}) });
 }

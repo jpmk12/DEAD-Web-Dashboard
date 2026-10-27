@@ -9,7 +9,9 @@
 import { getUserPrefs } from "./userPrefs";
 import { listLines } from "./missionLineStore";
 import { linesInHorizon, todayZulu, addDaysYmd, LINE_HORIZON_DAYS, type MissionLine } from "./missionLines";
-import { readLine, type LineRead, type LineFieldInput } from "./lineRead";
+import { readLine, linesByCommand, type LineRead, type LineFieldInput, type LineCommandSummary } from "./lineRead";
+import { classifyAor, type Aor } from "./aor";
+import { getDemandHorizonBounded } from "./demandAssemble";
 import { assembleSitrep, sitrepSummary } from "./sitrep";
 import { getForceProtectionCached } from "./forceProtectionCached";
 import { getTafOutlook } from "./aviationWx";
@@ -25,6 +27,8 @@ export interface LineReadsBody {
   /** NULL when the store did not answer — UNAVAILABLE, never "no lines". */
   lines: MissionLine[] | null;
   reads: LineRead[];
+  /** The reads folded per command — only commands with a line appear. */
+  byCommand: Record<string, LineCommandSummary>;
   /** Source families that did not answer this pass. */
   unavailable: string[];
   atISO: string;
@@ -54,21 +58,27 @@ async function assemble(wait: number): Promise<LineReadsBody> {
   const lastDay = addDaysYmd(today, LINE_HORIZON_DAYS - 1);
   const lines = await listLines(today, lastDay);
   const active = lines ? linesInHorizon(lines, today) : [];
-  const empty: LineReadsBody = { today, horizonDays: LINE_HORIZON_DAYS, lastDay, lines, reads: [], unavailable: [], atISO };
+  const empty: LineReadsBody = { today, horizonDays: LINE_HORIZON_DAYS, lastDay, lines, reads: [], byCommand: {}, unavailable: [], atISO };
   if (!active.length) return empty;
 
   const icaos = Array.from(new Set(active.flatMap((l) => l.fields)));
   const prefs = await within(getUserPrefs(), 3_000);
   const slots = new Map((prefs?.sitrepBases ?? []).map((b) => [b.icao.toUpperCase(), b]));
 
-  // Place every field (country for the posture fallback) — the shared door
-  // the Track picker and the SITREP base add use. Unplaceable → no country.
-  const placed = new Map<string, { country: string } | null>();
+  // Place every field (country for the posture fallback, command by country
+  // then coordinates) — the shared door the Track picker and the SITREP base
+  // add use. Unplaceable → no country, no command.
+  const placed = new Map<string, { country: string; aor: Aor } | null>();
   await Promise.all(icaos.map(async (icao) => {
     const slot = slots.get(icao);
-    if (slot) { placed.set(icao, { country: normalizeCountryName(slot.country) || "" }); return; }
+    if (slot) {
+      const country = normalizeCountryName(slot.country) || "";
+      placed.set(icao, { country, aor: classifyAor({ lat: slot.lat, lon: slot.lon, name: country }) });
+      return;
+    }
     const r = await within(resolveAirfield(icao), 4_000);
-    placed.set(icao, r ? { country: normalizeCountryName(r.country) || "" } : null);
+    const country = r ? normalizeCountryName(r.country) || "" : "";
+    placed.set(icao, r ? { country, aor: classifyAor({ lat: r.lat, lon: r.lon, name: country }) } : null);
   }));
 
   const [sitreps, fp, taf, caps] = await Promise.all([
@@ -99,6 +109,7 @@ async function assemble(wait: number): Promise<LineReadsBody> {
     const c = caps?.[icao];
     return {
       icao,
+      aor: place?.aor ?? null,
       sitrepSlot: slots.has(icao),
       sitrep: sum ? { status: sum.status, driver: sum.driver, worse: sum.worse, closure: payload?.ops.closure ?? null } : null,
       posture,
@@ -113,6 +124,25 @@ async function assemble(wait: number): Promise<LineReadsBody> {
     sources,
     today,
   }));
+  // The 7-day outlook of each command a line enters — CONTEXT on the line,
+  // never a driver. The horizon's own cache answers; a cold one is skipped.
+  const demand = await within(getDemandHorizonBounded(3_000), 3_500);
+  if (demand && !demand.pending && demand.outlooks.length) {
+    const byAor = new Map(demand.outlooks.map((o) => [o.aor, o.direction]));
+    for (const r of reads) {
+      const ctx = r.commands.filter((a) => byAor.has(a)).map((a) => ({ aor: a, direction: byAor.get(a)! }));
+      if (ctx.length) r.outlook = ctx;
+    }
+  }
   const unavailable = (["sitrep", "posture", "taf", "cap"] as const).filter((k) => !sources[k]).map((k) => ({ sitrep: "SITREP", posture: "force posture", taf: "TAF", cap: "runway capability" })[k]);
-  return { today, horizonDays: LINE_HORIZON_DAYS, lastDay, lines, reads, unavailable, atISO };
+  return { today, horizonDays: LINE_HORIZON_DAYS, lastDay, lines, reads, byCommand: linesByCommand(reads), unavailable, atISO };
+}
+
+/** Lines per command for the demand card and the crews rule, bounded and
+ *  fail-safe: null when the store did not answer, {} when nothing is
+ *  declared — either way the callers show nothing extra. */
+export async function getLinesByCommandBounded(maxWaitMs = 3_000): Promise<{ byCommand: Record<string, LineCommandSummary>; total: number } | null> {
+  const body = await within(getLineReads({ maxWaitMs }), maxWaitMs + 500);
+  if (!body || body.lines === null) return null;
+  return { byCommand: body.byCommand, total: body.reads.length };
 }
