@@ -2519,6 +2519,29 @@ diag and their contracts are pinned from the published feed / API reference.
   so the next diag names the wrong kind of value without printing it.
   Remedy: My Profile › API Tokens › Create Token › Custom, permission
   Account › Radar › Read, no IP filter; paste the 40-char value bare.
+  **Sixth Radar diag (2026-10-27, after a re-paste): the token was
+  TRANSCRIBED, not copied.** Every row read `status: 0` with Node's own
+  error — "Cannot convert argument to a ByteString because the character
+  at index 27 has a value of 1061" — i.e. the Authorization header held a
+  non-Latin-1 character and undici refused to SEND it; the request never
+  reached Cloudflare. Code point 1061 is the Cyrillic capital Х, a
+  look-alike of Latin X, at position 21 of a 53-character value — a
+  keyboard layout, OCR or a text pipeline substituting a homoglyph. The
+  diag had classed it `other` / "network or timeout", which was wrong on
+  both counts. Now: `firstNonAscii(bare)` (PURE, tested) names the FIRST
+  character outside printable ASCII by 1-based position and script
+  (`scriptOf`: Cyrillic / Greek / Latin with a diacritic / full-width /
+  typographic dash or quote) — never the character; `RadarTokenShape.
+  nonAscii` carries it; `isByteStringError` recognises the undici message
+  and `fetchJson` classes it `token` with "the value was retyped, not
+  copied — re-copy the secret". `normalizeRadarToken` also strips the
+  INVISIBLE paste defects (zero-width U+200B–200D / U+2060, the BOM
+  U+FEFF, NBSP as whitespace; `stripped: "invisible"`) — a visible
+  look-alike letter is deliberately NOT repaired: a secret is never
+  guessed, it is reported. The two earlier diags' 54-character value was
+  the same class of defect (a `charset: other` character that Cloudflare
+  itself refused as 6111). A good diag reads `length: 40 · api-token ·
+  token-alphabet · nonAscii: null · verify 200 active`.
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")

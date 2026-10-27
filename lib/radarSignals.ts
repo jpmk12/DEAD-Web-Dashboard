@@ -232,10 +232,53 @@ export type RadarErrorClass = "token" | "query" | "rate" | "other";
  * nothing left.
  */
 export function normalizeRadarToken(raw: string | undefined | null): string | null {
-  let t = (raw ?? "").trim();
+  // Invisible paste defects first: zero-width characters, a byte-order mark,
+  // and non-breaking spaces (as whitespace). A VISIBLE look-alike letter from
+  // another alphabet is NOT repaired — a secret is never guessed; it is
+  // reported by describeTokenShape instead.
+  let t = (raw ?? "").replace(/[​-‍⁠﻿]/g, "").replace(/ /g, " ").trim();
   if (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))) t = t.slice(1, -1).trim();
   t = t.replace(/^bearer\s+/i, "").trim();
   return t ? t : null;
+}
+
+/** The script a non-ASCII code point belongs to, for naming a homoglyph
+ *  without printing it. */
+export function scriptOf(cp: number): string {
+  if (cp >= 0x0400 && cp <= 0x04ff) return "Cyrillic";
+  if (cp >= 0x0370 && cp <= 0x03ff) return "Greek";
+  if (cp >= 0x00c0 && cp <= 0x024f) return "Latin with a diacritic";
+  if (cp >= 0xff01 && cp <= 0xff5e) return "full-width Latin";
+  if (cp >= 0x2010 && cp <= 0x2015) return "typographic dash";
+  if (cp >= 0x2018 && cp <= 0x201f) return "typographic quote";
+  return "non-ASCII";
+}
+
+export interface NonAsciiNote {
+  /** 1-based position inside the bare token. */
+  position: number;
+  codePoint: number;
+  script: string;
+}
+
+/** The first character outside printable ASCII, named by position and
+ *  script — the character itself is never returned. Node's fetch refuses a
+ *  header with such a character ("Cannot convert argument to a ByteString…
+ *  greater than 255"), so a transcribed token fails BEFORE reaching
+ *  Cloudflare; the 2026-10-27 value carried a Cyrillic Х at position 21. */
+export function firstNonAscii(bare: string): NonAsciiNote | null {
+  let i = 0;
+  for (const ch of bare) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp < 0x20 || cp > 0x7e) return { position: i + 1, codePoint: cp, script: scriptOf(cp) };
+    i += 1;
+  }
+  return null;
+}
+
+/** True for the error Node's fetch throws on a non-Latin-1 header value. */
+export function isByteStringError(message: string): boolean {
+  return /ByteString|greater than 255/i.test(message);
 }
 
 export interface RadarTokenShape {
@@ -249,8 +292,12 @@ export interface RadarTokenShape {
    *  or `other` (a character Cloudflare's Bearer parser refuses outright:
    *  that is the 6003 › 6111 "Invalid format for Authorization header"). */
   charset: "token-alphabet" | "hex" | "other";
+  /** The first character outside printable ASCII, by position and script
+   *  (a look-alike letter from another alphabet — the value was retyped,
+   *  not copied). Null when the value is plain ASCII. */
+  nonAscii: NonAsciiNote | null;
   /** Defects stripped from the pasted value. */
-  stripped: ("quotes" | "bearer-prefix" | "whitespace")[];
+  stripped: ("quotes" | "bearer-prefix" | "whitespace" | "invisible")[];
 }
 
 /** Describe the token's SHAPE for the diag — never its characters. */
@@ -262,13 +309,14 @@ export function describeTokenShape(raw: string | undefined | null): RadarTokenSh
   if (/^\s*["']/.test(r)) stripped.push("quotes");
   if (/^\s*["']?\s*bearer\s/i.test(r)) stripped.push("bearer-prefix");
   if (r !== r.trim()) stripped.push("whitespace");
+  if (/[​-‍⁠﻿ ]/.test(r)) stripped.push("invisible");
   const charset: RadarTokenShape["charset"] = /^[0-9a-f]+$/i.test(bare) ? "hex" : /^[A-Za-z0-9_-]+$/.test(bare) ? "token-alphabet" : "other";
   const looksLike: RadarTokenShape["looksLike"] =
     /^v1\.0-/.test(bare) ? "origin-ca-key"
     : /^[0-9a-f]{37}$/.test(bare) ? "global-api-key"
     : /^[A-Za-z0-9_-]{40}$/.test(bare) ? "api-token"
     : "unknown";
-  return { length: bare.length, looksLike, charset, stripped };
+  return { length: bare.length, looksLike, charset, nonAscii: firstNonAscii(bare), stripped };
 }
 
 export interface RadarErrorInfo {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRadarOutages, parseRadarAnomalies, radarOutageLevel, radarReadsFor, RADAR_LEVEL_ORDINAL, describeRadarError, normalizeRadarToken, describeTokenShape } from "../lib/radarSignals";
+import { parseRadarOutages, parseRadarAnomalies, radarOutageLevel, radarReadsFor, RADAR_LEVEL_ORDINAL, describeRadarError, normalizeRadarToken, describeTokenShape, firstNonAscii, isByteStringError } from "../lib/radarSignals";
 import { functionalRows, type FcInput } from "../lib/functionalCommands";
 
 // The host is unreachable from the sandbox; these bodies follow the published
@@ -128,7 +128,25 @@ describe("normalizeRadarToken / describeTokenShape — paste defects stripped, s
     expect(describeTokenShape("short")).toMatchObject({ looksLike: "unknown", charset: "token-alphabet" });
     expect(describeTokenShape("v1.0-abcdef0123456789abcdef0123456789abcdef01234567")!.looksLike).toBe("origin-ca-key");
     // The 2026-10-27 production value: 54 chars, a character outside the token alphabet → Cloudflare's 6111.
-    expect(describeTokenShape("abc.def/ghi+jkl=mnopqrstuvwxyz0123456789ABCDEFGHIJKLMN")).toMatchObject({ length: 54, looksLike: "unknown", charset: "other" });
+    expect(describeTokenShape("abc.def/ghi+jkl=mnopqrstuvwxyz0123456789ABCDEFGHIJKLMN")).toMatchObject({ length: 54, looksLike: "unknown", charset: "other", nonAscii: null });
+  });
+  it("a look-alike letter from another alphabet is named by position and script, never printed; invisibles are stripped", () => {
+    // The second 2026-10-27 value: a Cyrillic Х (U+0425) at position 21 — Node's fetch refuses the header.
+    const typed = "abcdefghij0123456789" + "Х" + "klmnopqrstuvwxyzABCDEFGHIJKLMNOP";
+    const s = describeTokenShape(typed)!;
+    expect(s.length).toBe(53);
+    expect(s.charset).toBe("other");
+    expect(s.nonAscii).toEqual({ position: 21, codePoint: 0x0425, script: "Cyrillic" });
+    expect(JSON.stringify(s)).not.toContain("Х");
+    expect(firstNonAscii("plainASCII_-09")).toBeNull();
+    expect(firstNonAscii("abΧcd")!.script).toBe("Greek");
+    expect(isByteStringError("Cannot convert argument to a ByteString because the character at index 27 has a value of 1061 which is greater than 255.")).toBe(true);
+    expect(isByteStringError("fetch failed")).toBe(false);
+    // A zero-width space and a BOM are invisible paste defects — stripped, and said so.
+    const inv = describeTokenShape(`﻿${tok}​`)!;
+    expect(inv).toMatchObject({ length: 40, looksLike: "api-token", charset: "token-alphabet", nonAscii: null });
+    expect(inv.stripped).toContain("invisible");
+    expect(normalizeRadarToken(` ${tok} `)).toBe(tok);
     expect(describeTokenShape("")).toBeNull();
   });
 });

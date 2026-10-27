@@ -16,7 +16,7 @@
 // Data © Cloudflare, CC BY-NC 4.0 — attribution rendered wherever shown.
 
 import { fetchWithTimeout } from "./fetchTimeout";
-import { parseRadarOutages, parseRadarAnomalies, describeRadarError, normalizeRadarToken, describeTokenShape, type RadarOutage, type RadarAnomaly, type RadarErrorClass, type RadarTokenShape } from "./radarSignals";
+import { parseRadarOutages, parseRadarAnomalies, describeRadarError, normalizeRadarToken, describeTokenShape, firstNonAscii, isByteStringError, type RadarOutage, type RadarAnomaly, type RadarErrorClass, type RadarTokenShape } from "./radarSignals";
 
 export const RADAR_BASE = "https://api.cloudflare.com/client/v4/radar";
 // The query is the shape of the Outages doc's own example
@@ -74,7 +74,20 @@ async function fetchJson(url: string, token: string, timeoutMs = 10_000): Promis
     }
     return { status: res.status, json: await res.json() };
   } catch (e) {
-    return { status: 0, json: null, error: e instanceof Error ? e.message : String(e), errorClass: "other", hint: "the host did not answer — network or timeout" };
+    const msg = e instanceof Error ? e.message : String(e);
+    // Node refuses to SEND a header holding a non-Latin-1 character — the
+    // request never left the process. That is the credential (a look-alike
+    // letter from another alphabet, i.e. a retyped token), not the network.
+    if (isByteStringError(msg)) {
+      const note = firstNonAscii(token);
+      return {
+        status: 0, json: null,
+        error: `the token holds a character outside ASCII${note ? ` — ${note.script} at position ${note.position}` : ""}; the request was never sent`,
+        errorClass: "token",
+        hint: "the value was retyped, not copied — re-copy the 40-character secret from Cloudflare's Create / Roll Token screen and paste it bare",
+      };
+    }
+    return { status: 0, json: null, error: msg, errorClass: "other", hint: "the host did not answer — network or timeout" };
   }
 }
 
