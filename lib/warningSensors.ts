@@ -30,6 +30,7 @@ import { getCapturedEvents } from "./eventStore";
 import { kineticEvents, countKineticInAoi } from "./kineticEvents";
 import { mobilityWithChatter, type ChatterLite } from "./warningRules";
 import { readChatter, chatterSurge } from "./mobilityChatter";
+import { getOwnPlaces } from "./ownPlaces";
 import { CENTCOM_GEO, type ProblemGeo } from "./warningTaxonomy";
 import type { NewsItem } from "./types";
 
@@ -166,7 +167,7 @@ export async function gatherObservations(
   /** The OpenSky fallback's OWN trailing baseline (osky:<problemId>). */
   openskyBaseline: MobilityBaseline = { mean: null, samples: 0 },
 ): Promise<GatherResult> {
-  const [conflictPts, disasters, newsByCountry, chokeNewsRaw, advisories, milAc, firRes, userSrc, capturedRaw] = await Promise.all([
+  const [conflictPts, disasters, newsByCountry, chokeNewsRaw, advisories, milAc, firRes, userSrc, capturedRaw, ownPlacesRaw] = await Promise.all([
     withTimeout(getConflictPoints(), 10_000),
     withTimeout(getDisasters(), 10_000),
     withTimeout(getConflictNewsByCountry(geo.countries), 12_000),
@@ -181,6 +182,9 @@ export async function gatherObservations(
     // acts and placed — the fill for ACLED's embargo (warningRules
     // conflictWithCaptures). A store miss is simply no captures.
     withTimeout(getCapturedEvents(300), 6_000),
+    // The operator's tracked fields join the chatter grammar's place list
+    // (lib/ownPlaces) — a spotter post naming THEIR spoke is placed by it.
+    withTimeout(getOwnPlaces(), 4_000),
   ]);
   const capturedKinetic = capturedRaw ? countKineticInAoi(kineticEvents(capturedRaw, Date.now()), { bbox: geo.bbox, countries: geo.countries }) : 0;
   const chokeNews: ChokepointRead | null = chokeNewsRaw?.signals?.[0] ?? null;
@@ -189,7 +193,7 @@ export async function gatherObservations(
   const userSrcLabel = userSources.size ? ` + your ${[...userSources].join("/")}` : "";
   // Lift chatter toward THIS command in the last 72 h, from the whole own-
   // source pool (a spotter post names a base, not the AOI's terms).
-  const chatter: ChatterLite | null = chatterSurge(readChatter(userSrc?.all ?? [], Date.now()), geo.aor, Date.now());
+  const chatter: ChatterLite | null = chatterSurge(readChatter(userSrc?.all ?? [], Date.now(), { ownPlaces: ownPlacesRaw ?? [] }), geo.aor, Date.now());
 
   const observations: IndicatorObservation[] = [];
   const health: SensorHealth[] = [];

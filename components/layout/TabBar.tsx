@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { TAB_ICONS } from "@/lib/icons";
 
-export type Tab = "glance" | "news" | "calendar" | "email" | "docs" | "osint" | "markets" | "weather" | "family";
+export type Tab = "glance" | "news" | "calendar" | "email" | "docs" | "osint" | "markets" | "weather" | "family" | "tools";
 
 interface TabBarProps {
   activeTab: Tab;
@@ -23,10 +23,11 @@ export const TABS: { id: Tab; label: string }[] = [
   { id: "weather",  label: "Weather" },
   { id: "docs",     label: "Docs" },
   { id: "markets",  label: "Economy" },
+  { id: "tools",    label: "Tools" },
 ];
 
 export default function TabBar({ activeTab, onTabChange, badges }: TabBarProps) {
-  // Nine tabs do not fit a phone. The row scrolls, labels collapse to icons
+  // Ten tabs do not fit a phone. The row scrolls, labels collapse to icons
   // below `sm` (the badge survives), and the active tab is kept in view so a
   // deep-link to Family or Economy never lands on a bar that shows Glance.
   const navRef = useRef<HTMLElement>(null);

@@ -46,6 +46,8 @@ import type { ManualLimfac } from "./limfac";
 import { sensorKey } from "./sensorKeys";
 import { catOrdinal, tafVerification, type TafSkill } from "./tafVerify";
 import { bestBaseline, highWater, type SeriesPoint } from "./series";
+import { getPostureMoves } from "./postureMovesAssemble";
+import type { FieldChatter } from "./mobilityChatter";
 
 export interface SitrepAlert {
   event: string;
@@ -126,6 +128,11 @@ export interface SitrepPayload {
     /** Lift at this field vs its own normal (PLAN §5 C2) — only when the field
      *  is a hub on an I&W board and the ADS-B series exists. */
     lift?: LiftRead | null;
+    /** Lift chatter naming THIS field in the user's own sources, last 72 h
+     *  (lib/mobilityChatter chatterForIcao via the posture-moves sweep).
+     *  Null = no post named it, or the sweep was cold this pass — reported,
+     *  never observed; it sits beside the ADS-B row and never replaces it. */
+    liftChatter?: FieldChatter | null;
     // System fuel NOTAMs referencing this ICAO (DAIP FUEL_NOTAMS).
     fuel: { live: boolean; items: string[] } | null;
   };
@@ -565,6 +572,12 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
       payload.spectrum.edge.cadence = kevCadence(byVendor, today);
     }
   } catch { payload.weather.tafSkill = null; payload.ops.lift = null; payload.tempo = null; }
+  // Lift chatter naming this field from the own-source sweep (15-min cached
+  // elsewhere; bounded here — a cold sweep reads null, never "no chatter").
+  try {
+    const pm = await getPostureMoves(3_000);
+    payload.ops.liftChatter = pm.pending ? null : pm.fieldChatter?.[icao.toUpperCase()] ?? null;
+  } catch { payload.ops.liftChatter = null; }
   if (!payload.history.some((h) => h.day === today)) {
     payload.history = [...payload.history, { day: today, wx: payload.status.wx, ops: payload.status.ops, threat: payload.status.threat }].slice(-7);
   }

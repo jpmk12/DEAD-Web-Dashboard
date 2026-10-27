@@ -3020,10 +3020,38 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   corroborated, the lead post on hover) with the sentence "reported, not
   observed". `gatherUserSourceNews` returns `all` beside the mention-
   gated `items` — a spotter post names a base, not the AOI's terms.
-- Not built: a per-hub join (chatter naming OTBH against `byHub` for
-  OTBH) and the airfield-level chatter line on a SITREP; both are one
-  `places` lookup away once a few weeks of real posts show which bases
-  the user's lists actually name.
+- **Your tracked fields join the place list (2026-10-27, "how does it know
+  which bases I care about" — it did not: the grammar was catalogue-bound,
+  the AMC hubs plus a hand list, and never read the tracking registry).**
+  `OwnPlace {icao, label, aor, own: hub|spoke|null, star}`; `lib/ownPlaces.ts`
+  (server, 3-min cache, a failed read → `[]` so the sweep never stops;
+  deliberately does NOT import `lib/trackingOps`, which imports `lib/sitrep`,
+  so the SITREP assembler can read chatter without a cycle) folds the PURE
+  `buildRegistry` into that list; `placesWithOwn(own)` (PURE, tested) puts
+  the own fields FIRST, matched by ICAO and by the short label
+  (`shortName`: "Muwaffaq Salti AB, Jordan" → "Muwaffaq Salti"), and
+  REPLACES a catalogue entry with the same name or ICAO so an AMC hub you
+  also track keeps `mine`; the hand list now carries its ICAO (read from
+  its forms) so the replacement works both ways. `readChatter(items, now,
+  { ownPlaces })`; every post carries `icao` + `mine`, every cluster `icaos`
+  + `mine`, and clusters sort mine › corroborated › reports (the Global
+  Reach "mine" rule). A return wave FROM your field carries that field's
+  ICAO (its SITREP row sees the departure). The posture-moves sweep and the
+  I&W mobility sensor both pass the list (4-s bound). **The per-field
+  join**: `chatterForIcao(posts, icao, now)` → `FieldChatter` (reports,
+  handles, corroborated, tankers / airlift, stated count, inbound vs
+  departing, the lead post) and `fieldChatterLine` ("2 reports from 2
+  handles naming OJAQ · tankers 2 · up to 3 stated · 1 inbound · 1
+  departing · newest 1h ago"); `PostureMovesBody.fieldChatter` keyed by
+  ICAO for every own field; `SitrepPayload.ops.liftChatter` is read from
+  `getPostureMoves(3_000)` (null when the sweep is cold — never "no
+  chatter") and the SITREP Ops card shows a **Chatter** row under the
+  ADS-B Lift row (source "your sources", amber when corroborated, "reported,
+  not observed"); the Glance chatter lines carry a violet `mine` chip. A
+  field the registry cannot place (command UNKNOWN) still matches and the
+  post reads UNKNOWN rather than falling through to a region guess.
+- Not built: tuning the grammar on real posts (which bases the user's
+  lists actually name).
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in
@@ -3240,6 +3268,52 @@ and up to 12 phrases; the read is what the app can state honestly:
 calendar day of the zone (the device's when none is given) — the three-
 digit form a flying schedule prints, not the astronomical Julian Day
 Number. The Glance header reads "Tuesday, October 27 (JD 300)".
+
+### Tools tab (2026-10-27, "I often need to convert dates to Julian day or back again … set an H hour and date and easily see what H-72 is")
+A tenth tab, `components/tools/ToolsTab.tsx`, hidden-mounted like Weather
+(`Tab` union in `TabBar.tsx` — the palette and the phone drawer derive
+from `TABS`; `TAB_ICONS.tools = Wrench`; `VALID_TABS` in `TabShell`; the
+sweep's `TABS`). **All arithmetic is in the browser** — no route, no model,
+no store; the only persistence is this browser's own H-hour
+(`localStorage tools.hhour`: anchor ms, offsets, hidden clocks). The maths
+is `lib/plannerTools.ts` (PURE, client-safe, tested in
+`tests/plannerTools.test.ts`), three vocabularies stated once:
+- **Julian** = the ordinal day (001–366), never the astronomical JDN
+  (`ymdToJulian` / `julianToYmd` — a day outside 1..daysInYear is null, Feb
+  30 is null; `parseJulianInput` reads "300" with a given year, "26300"
+  (YYDDD → 20YY), "2026300", "2026-300", "300/2026"; `JulianDate` carries
+  `label` "300", `yyddd` "26300", weekday, leap). The card shows today's
+  JD in Zulu, on this device and in the effective zone when it differs,
+  then date → Julian (with ISO week) and Julian → date (year box for a
+  bare number).
+- **H-hour**: one anchor, every offset in hours (`DEFAULT_H_OFFSETS` −96 …
+  +72; `parseOffsetInput` reads "H-72", "-72", "+36", "2d", "90m",
+  "H-1:30"; `hLabel` → "H-72" / "H" / "H+0:30"); `hHourTable` is ascending
+  and deduplicated. The anchor is typed as a date + time IN A CHOSEN ZONE
+  (`wallToMs`: two passes so DST on that day is honoured; a non-existent
+  wall time lands after the gap, a doubled one resolves to the FIRST
+  instant — the Zulu DTG beside it is the unambiguous record), or pasted
+  as a DTG, or "H = now". The columns are Zulu DTG + the clocks the
+  operator already keeps — the Glance clock row (`localStorage
+  glance.clocks`, read not edited) plus this device and the effective
+  zone, each a toggle; a cell whose calendar day differs from H's in that
+  clock is amber; rows already past are dimmed; "⧉ copy table"
+  (`hTableText`, padded columns, anchor named) and a countdown
+  (`hCountdown`).
+- **DTG** `DDHHMM[Z]MONYY` (`inZone(ms, zone)` → wall clock + `dtg`;
+  `dtgZulu`; `parseDtg` reads "271930ZOCT26", "271930Z OCT 26", "271930
+  OCT 2026" (no letter = Zulu), a letter zone, "+0330"). The zone letter
+  (`zoneLetter`) is Z for UTC, A–M east skipping J, N–Y west; a
+  half-hour zone has NO letter and is written "+0330"; **J (local) is
+  never produced and is refused on read** — the reader cannot know whose
+  local. Round-trips through every letter are pinned.
+- **Days**: `daysBetween` (signed, whole calendar days), a date + N days,
+  `isoWeek`.
+No new npm dep (esbuild `0`). Offered and not built (the operator picks):
+ETA / enroute-time across the clocks, light data for a field and date
+(`lib/moon.ts` already has it), a DST-change table for a zone and date
+range, a sunrise/sunset-relative offset ("BMNT-30"), unit conversions
+(nm/km/ft/m, kts/kph, °C/°F, lbs/kg, fuel lbs ↔ gal).
 
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to

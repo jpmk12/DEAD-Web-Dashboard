@@ -14,7 +14,7 @@
 // change and it is the same length. Judge an "inert" line by opening it.
 const { loadPlaywright, openApp, goTab, closeOverlays } = require("./session.cjs");
 
-const TABS = ["glance", "news", "calendar", "email", "family", "docs", "osint", "markets", "weather"];
+const TABS = ["glance", "news", "calendar", "email", "family", "docs", "osint", "markets", "weather", "tools"];
 const OUT = process.env.OUT || null; // directory for screenshots, optional
 
 async function sweep(browser, viewport, label, mobile) {

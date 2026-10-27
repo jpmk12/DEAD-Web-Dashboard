@@ -24,7 +24,8 @@ import { fetchFeed } from "./rss";
 import { BASE_NEWS_SOURCES } from "./newsSources";
 import { gdeltSearch } from "./localNews";
 import { detectPostureMoves, mergePostureMoves, POSTURE_GDELT_QUERY, type PostureMove } from "./postureMoves";
-import { readChatter, clusterChatter, chatterToMoves, chatterSurge, type ChatterCluster } from "./mobilityChatter";
+import { readChatter, clusterChatter, chatterToMoves, chatterSurge, chatterForIcao, type ChatterCluster, type FieldChatter } from "./mobilityChatter";
+import { getOwnPlaces } from "./ownPlaces";
 import { getXItems } from "./xStore";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
 import { recordSensorDay } from "./sensorStore";
@@ -38,8 +39,12 @@ export interface PostureMovesBody {
   /** Lift chatter clusters from the user's own sources (newest-first inside
    *  each; corroborated first). Empty when nothing was read. */
   chatter: ChatterCluster[];
-  /** RSS feeds that answered, whether GDELT did, and how many own-source items were read. */
-  sources: { rss: number; rssTotal: number; gdelt: boolean; own: number };
+  /** Chatter naming each of the operator's OWN fields (destination or
+   *  origin) in the sensor window, keyed by ICAO — the SITREP Ops row reads
+   *  its own entry. Absent ICAO = no post named it. */
+  fieldChatter: Record<string, FieldChatter>;
+  /** RSS feeds that answered, whether GDELT did, how many own-source items were read, and how many own fields joined the place list. */
+  sources: { rss: number; rssTotal: number; gdelt: boolean; own: number; ownFields: number };
   pending?: boolean;
   note?: string;
 }
@@ -71,7 +76,7 @@ export async function getPostureMoves(maxWaitMs = 8_000): Promise<PostureMovesBo
   const settled = await withTimeout(getPostureMovesFull(), maxWaitMs);
   if (settled) return settled;
   if (cache) return { ...cache.body, pending: true };
-  return { generatedAt: new Date().toISOString(), moves: [], chatter: [], sources: { rss: 0, rssTotal: 0, gdelt: false, own: 0 }, pending: true, note: "sweeping the defense feeds — ask again shortly" };
+  return { generatedAt: new Date().toISOString(), moves: [], chatter: [], fieldChatter: {}, sources: { rss: 0, rssTotal: 0, gdelt: false, own: 0, ownFields: 0 }, pending: true, note: "sweeping the defense feeds — ask again shortly" };
 }
 
 export function resetPostureMovesCache(): void { cache = null; }
@@ -89,10 +94,13 @@ async function sweep(): Promise<PostureMovesBody> {
   const feeds = BASE_NEWS_SOURCES.filter((s) => s.category === "defense" || s.category === "strategic" || s.category === "overview");
   const items: NewsItem[] = [];
   let rss = 0;
-  const [results, g, own] = await Promise.all([
+  const [results, g, own, ownPlaces] = await Promise.all([
     Promise.all(feeds.map((f) => withTimeout(fetchFeed(f.url, f.name, f.category), 8_000))),
     withTimeout(gdeltSearch(POSTURE_GDELT_QUERY, { timespan: "3d", maxrecords: 50, keep: 50, cacheKey: "posture-moves" }), 8_000),
     ownSourceItems().catch(() => [] as NewsItem[]),
+    // The operator's tracked fields join the place list, so a post naming
+    // their spoke places and is marked `mine` (lib/ownPlaces).
+    withTimeout(getOwnPlaces(), 4_000).then((p) => p ?? []),
   ]);
   for (const r of results) {
     if (!r || !r.ok) continue;
@@ -107,9 +115,15 @@ async function sweep(): Promise<PostureMovesBody> {
   // sources). The chatter grammar reads ONLY the own sources — the wires
   // do not write "6x KC-135 out of Mildenhall heading east".
   const moves = detectPostureMoves([...items, ...own], now);
-  const posts = readChatter(own, now);
+  const posts = readChatter(own, now, { ownPlaces });
   const chatter = clusterChatter(posts);
   const liftMoves = chatterToMoves(chatter);
+  // Per own field: the chatter naming it, for the SITREP Ops row beside ADS-B.
+  const fieldChatter: Record<string, FieldChatter> = {};
+  for (const p of ownPlaces) {
+    const f = chatterForIcao(posts, p.icao, now);
+    if (f) fieldChatter[p.icao] = f;
+  }
 
   // The series: distinct handles reporting lift TOWARD each command in the
   // trailing 72 h (peak). Nothing written for a command with no chatter —
@@ -125,6 +139,7 @@ async function sweep(): Promise<PostureMovesBody> {
     generatedAt: new Date(now).toISOString(),
     moves: mergePostureMoves(moves, liftMoves),
     chatter,
-    sources: { rss, rssTotal: feeds.length, gdelt: !!g, own: own.length },
+    fieldChatter,
+    sources: { rss, rssTotal: feeds.length, gdelt: !!g, own: own.length, ownFields: ownPlaces.length },
   };
 }

@@ -36,8 +36,24 @@ import type { PostureMove, ActorSide } from "./postureMoves";
 export type AirframeClass = "tanker" | "airlift";
 export type ChatterDirection = "toward" | "away" | "unclear";
 
+/** A field the operator tracks (the tracking registry), joined to the
+ *  catalogue at read time so a post naming YOUR spoke places — and is
+ *  marked `mine`. Built server-side (lib/ownPlaces.ts); the grammar never
+ *  reads the registry itself. */
+export interface OwnPlace {
+  icao: string;
+  label: string;
+  aor: Aor;
+  own: "hub" | "spoke" | null;
+  star?: boolean;
+}
+
 export interface ChatterPost {
   id: string;
+  /** The destination's ICAO when the place carries one (own fields and the AMC hubs), else null. */
+  icao: string | null;
+  /** The destination is a field the operator tracks (the Global Reach "mine" rule). */
+  mine: boolean;
   /** Canonical airframe ids named ("KC-135", "C-17", "tanker"…). */
   airframes: string[];
   classes: AirframeClass[];
@@ -74,6 +90,10 @@ export interface ChatterCluster {
   count: number | null;
   airframes: string[];
   places: string[];
+  /** ICAOs of the destinations named, when known. */
+  icaos: string[];
+  /** Any report in the cluster names a field the operator tracks. */
+  mine: boolean;
   lead: ChatterPost;
   pubDate: string;
 }
@@ -120,22 +140,30 @@ const AWAY = /\b(?:return(?:ing|ed|s)?\s+(?:home|stateside|to\s+(?:conus|the\s+(
 const ORIGIN_CUE = /\b(?:from|out of|departed|departing|leaving|left|launched from|took off from|ex)\s+(?:the\s+)?$/i;
 const DEST_CUE = /\b(?:to|into|for|toward|towards|at|in|bound for|arriv(?:ed|ing|al)\s+(?:at|in)|landed\s+(?:at|in)|landing\s+(?:at|in)|inbound\s+(?:to|for)?|on the ground at|on the ramp at|staging (?:at|in|out of)|heading (?:to|for|toward|towards))\s+(?:the\s+)?$/i;
 
-interface PlaceDef { name: string; aor: Aor; rx: RegExp }
+interface PlaceDef { name: string; aor: Aor; rx: RegExp; icao?: string; mine?: boolean }
+const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The short name a spotter uses for a field: "Al Udeid AB, Qatar" → "Al Udeid". */
+function shortName(label: string): string {
+  return label.replace(/\s*,.*$/, "").replace(/\b(?:AFB|AB|JB|NAS|NS|RAF|Field|Intl|International|Airport|Air Base|Airbase)\b/g, "").replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim();
+}
 function placeDefs(): PlaceDef[] {
   const out: PlaceDef[] = [];
   const seen = new Set<string>();
-  const add = (name: string, aor: Aor, forms: string[]) => {
+  const add = (name: string, aor: Aor, forms: string[], icao?: string) => {
     const key = name.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ name, aor, rx: new RegExp(`\\b(?:${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "i") });
+    // The hand list names its ICAO among the forms ("OMAM"); keep it so a
+    // registry join can replace the entry by ICAO as well as by name.
+    const id = icao ?? forms.find((f) => /^[A-Z]{4}$/.test(f));
+    out.push({ name, aor, icao: id, rx: new RegExp(`\\b(?:${forms.map(escapeRx).join("|")})\\b`, "i") });
   };
   // The AMC hubs: the short name ("Al Udeid", "Ramstein", "Mildenhall") plus the ICAO.
   for (const region of AMC_HUBS) for (const h of region.hubs) {
-    const short = h.name.replace(/\s*,.*$/, "").replace(/\b(?:AFB|AB|JB|NAS|NS|RAF|Field|Intl)\b/g, "").replace(/\(.*?\)/g, "").trim();
+    const short = shortName(h.name);
     const forms = [h.icao, ...short.split(/\s*\/\s*|-| and /).map((s) => s.trim()).filter((s) => s.length >= 4)];
     if (short.length >= 4) forms.push(short);
-    add(short || h.icao, aorFromCoords(h.lat, h.lon), forms);
+    add(short || h.icao, aorFromCoords(h.lat, h.lon), forms, h.icao);
   }
   const extra: [string, Aor, string[]][] = [
     ["Al Dhafra", "CENTCOM", ["Al Dhafra", "OMAM"]], ["Prince Sultan", "CENTCOM", ["PSAB", "Prince Sultan"]], ["Muwaffaq Salti", "CENTCOM", ["Muwaffaq Salti", "Azraq", "OJMS"]],
@@ -152,6 +180,35 @@ function placeDefs(): PlaceDef[] {
   return out;
 }
 const PLACES = placeDefs();
+
+/** The catalogue with the operator's own fields joined in FRONT of it: a
+ *  tracked field places a post by its label or ICAO and carries `mine`; a
+ *  catalogue entry for the same field (an AMC hub you also track) is replaced
+ *  by yours so the flag is kept. A field the registry cannot place (command
+ *  UNKNOWN) is still matched — the post then reads UNKNOWN rather than
+ *  falling through to a region guess, which is the honest answer. */
+export function placesWithOwn(own: OwnPlace[] | undefined): PlaceDef[] {
+  if (!own?.length) return PLACES;
+  const defs: PlaceDef[] = [];
+  const taken = new Set<string>();
+  const takenIcao = new Set<string>();
+  for (const o of own) {
+    const icao = o.icao.trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(icao) || takenIcao.has(icao)) continue;
+    const short = shortName(o.label || icao);
+    const forms = [icao, ...short.split(/\s*\/\s*|-| and /).map((s) => s.trim()).filter((s) => s.length >= 4)];
+    if (short.length >= 4) forms.push(short);
+    const name = short.length >= 3 ? short : icao;
+    takenIcao.add(icao);
+    taken.add(name.toLowerCase());
+    defs.push({ name, aor: o.aor, icao, mine: true, rx: new RegExp(`\\b(?:${[...new Set(forms)].map(escapeRx).join("|")})\\b`, "i") });
+  }
+  for (const p of PLACES) {
+    if (taken.has(p.name.toLowerCase()) || (p.icao && takenIcao.has(p.icao))) continue;
+    defs.push(p);
+  }
+  return defs;
+}
 
 const REGION_AOR: [RegExp, Aor][] = [
   [/\b(?:middle east|persian gulf|the gulf|arabian gulf|red sea|hormuz|arabian sea|gulf of oman|levant|gulf region|centcom|the sandbox|the desert)\b/i, "CENTCOM"],
@@ -214,11 +271,11 @@ export function statedCount(text: string, airframes: AirframeDef[]): number | nu
 }
 
 /** Destination / origin places named in a text, by the cue words before them. */
-export function placesIn(text: string): { dest: PlaceDef | null; origin: PlaceDef | null } {
+export function placesIn(text: string, places: PlaceDef[] = PLACES): { dest: PlaceDef | null; origin: PlaceDef | null } {
   let dest: { p: PlaceDef; i: number } | null = null;
   let origin: { p: PlaceDef; i: number } | null = null;
   let bare: { p: PlaceDef; i: number } | null = null;
-  for (const p of PLACES) {
+  for (const p of places) {
     const g = new RegExp(p.rx.source, "ig");
     let m: RegExpExecArray | null;
     while ((m = g.exec(text)) !== null) {
@@ -248,9 +305,12 @@ export function resolveChatterAor(text: string, dest: PlaceDef | null, origin: P
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
-/** Read every item for mobility chatter; items older than the window are ignored. */
-export function readChatter(items: NewsItem[], nowMs: number = Date.now()): ChatterPost[] {
+/** Read every item for mobility chatter; items older than the window are
+ *  ignored. `ownPlaces` (the tracking registry) joins the catalogue so a
+ *  post naming your spoke places and is marked `mine`. */
+export function readChatter(items: NewsItem[], nowMs: number = Date.now(), opts: { ownPlaces?: OwnPlace[] } = {}): ChatterPost[] {
   const out: ChatterPost[] = [];
+  const places = placesWithOwn(opts.ownPlaces);
   for (const it of items) {
     const t = Date.parse(it.pubDate);
     if (!Number.isFinite(t) || nowMs - t > CHATTER_WINDOW_DAYS * DAY || t - nowMs > DAY) continue;
@@ -259,7 +319,7 @@ export function readChatter(items: NewsItem[], nowMs: number = Date.now()): Chat
     if (!frames.length) continue;
     const move = MOVEMENT.map((re) => re.exec(text)).filter((m): m is RegExpExecArray => !!m).sort((a, b) => a.index - b.index)[0];
     if (!move) continue;
-    const { dest, origin } = placesIn(text);
+    const { dest, origin } = placesIn(text, places);
     // The side is the most specific airframe's: a named Russian or allied
     // type wins over the generic "tanker"; a US type wins over an ally's
     // generic mention. Ties go to the first declared.
@@ -270,8 +330,14 @@ export function readChatter(items: NewsItem[], nowMs: number = Date.now()): Chat
     // from Al Udeid" is CENTCOM lift going away.
     const aor = away && !dest && origin ? origin.aor : resolveChatterAor(text, dest, origin, lead.actor);
     const direction: ChatterDirection = away ? "away" : dest || aor !== "UNKNOWN" ? "toward" : "unclear";
+    // A return wave is about the field it LEAVES — that field's SITREP row
+    // should see "3 tankers departing", so the ICAO and the mine flag follow
+    // the origin when the wave is placed by it.
+    const field = away && !dest && origin ? origin : dest;
     out.push({
       id: `ch-${it.id}`,
+      icao: field?.icao ?? null,
+      mine: !!field?.mine,
       airframes: [...new Set(frames.map((f) => f.id))],
       classes: [...new Set(frames.map((f) => f.cls))],
       count: statedCount(text, frames),
@@ -285,15 +351,17 @@ export function readChatter(items: NewsItem[], nowMs: number = Date.now()): Chat
 
 /** One cluster per (AOR, side, direction): distinct sources corroborate. */
 export function clusterChatter(posts: ChatterPost[]): ChatterCluster[] {
-  const by = new Map<string, ChatterCluster & { srcSet: Set<string>; placeSet: Set<string>; frameSet: Set<string> }>();
+  const by = new Map<string, ChatterCluster & { srcSet: Set<string>; placeSet: Set<string>; frameSet: Set<string>; icaoSet: Set<string> }>();
   for (const p of posts) {
     const key = `${p.aor}|${p.side}|${p.direction}`;
     let c = by.get(key);
     if (!c) {
-      c = { id: `ch-${slug(p.aor)}-${p.side}-${p.direction}`, aor: p.aor, side: p.side, actor: p.actor, direction: p.direction, reports: 0, sources: 0, corroborated: false, tankers: 0, airlifters: 0, count: null, airframes: [], places: [], lead: p, pubDate: p.pubDate, srcSet: new Set(), placeSet: new Set(), frameSet: new Set() };
+      c = { id: `ch-${slug(p.aor)}-${p.side}-${p.direction}`, aor: p.aor, side: p.side, actor: p.actor, direction: p.direction, reports: 0, sources: 0, corroborated: false, tankers: 0, airlifters: 0, count: null, airframes: [], places: [], icaos: [], mine: false, lead: p, pubDate: p.pubDate, srcSet: new Set(), placeSet: new Set(), frameSet: new Set(), icaoSet: new Set() };
       by.set(key, c);
     }
     c.reports++;
+    if (p.mine) c.mine = true;
+    if (p.icao) c.icaoSet.add(p.icao);
     c.srcSet.add(p.source);
     if (p.classes.includes("tanker")) c.tankers++;
     if (p.classes.includes("airlift")) c.airlifters++;
@@ -302,8 +370,64 @@ export function clusterChatter(posts: ChatterPost[]): ChatterCluster[] {
     if (p.place) c.placeSet.add(p.place);
     if (Date.parse(p.pubDate) > Date.parse(c.pubDate)) { c.pubDate = p.pubDate; c.lead = p; }
   }
-  return [...by.values()].map(({ srcSet, placeSet, frameSet, ...c }) => ({ ...c, sources: srcSet.size, corroborated: srcSet.size >= 2, airframes: [...frameSet], places: [...placeSet] }))
-    .sort((a, b) => Number(b.corroborated) - Number(a.corroborated) || b.reports - a.reports || Date.parse(b.pubDate) - Date.parse(a.pubDate));
+  // Your own fields first (the Global Reach "mine" rule), then corroborated, then by volume.
+  return [...by.values()].map(({ srcSet, placeSet, frameSet, icaoSet, ...c }) => ({ ...c, sources: srcSet.size, corroborated: srcSet.size >= 2, airframes: [...frameSet], places: [...placeSet], icaos: [...icaoSet] }))
+    .sort((a, b) => Number(b.mine) - Number(a.mine) || Number(b.corroborated) - Number(a.corroborated) || b.reports - a.reports || Date.parse(b.pubDate) - Date.parse(a.pubDate));
+}
+
+export interface FieldChatter {
+  icao: string;
+  reports: number;
+  /** Distinct handles / feeds. */
+  sources: number;
+  corroborated: boolean;
+  tankers: number;
+  airlifters: number;
+  /** The largest count any post stated, else null. */
+  count: number | null;
+  airframes: string[];
+  /** Inbound reports vs reports of lift leaving the field. */
+  inbound: number;
+  outbound: number;
+  lead: { source: string; text: string; link: string; pubDate: string };
+  pubDate: string;
+}
+
+/** Chatter naming ONE field — as the destination, or as the origin of a
+ *  return wave — inside the window. Null when no post names it, so the
+ *  SITREP row can tell "no chatter" from "chatter says nothing". Reporting
+ *  beside the field's ADS-B count, never in place of it. */
+export function chatterForIcao(posts: ChatterPost[], icao: string, nowMs: number, hours = CHATTER_SENSOR_HOURS): FieldChatter | null {
+  const want = icao.trim().toUpperCase();
+  if (!want) return null;
+  const cutoff = nowMs - hours * 3_600_000;
+  const hits = posts.filter((p) => p.icao === want && Date.parse(p.pubDate) >= cutoff);
+  if (!hits.length) return null;
+  const srcs = new Set(hits.map((p) => p.source));
+  const counts = hits.map((p) => p.count).filter((n): n is number => n != null);
+  const lead = hits[0];
+  return {
+    icao: want, reports: hits.length, sources: srcs.size, corroborated: srcs.size >= 2,
+    tankers: hits.filter((p) => p.classes.includes("tanker")).length,
+    airlifters: hits.filter((p) => p.classes.includes("airlift")).length,
+    count: counts.length ? Math.max(...counts) : null,
+    airframes: [...new Set(hits.flatMap((p) => p.airframes))],
+    inbound: hits.filter((p) => p.direction !== "away").length,
+    outbound: hits.filter((p) => p.direction === "away").length,
+    lead: { source: lead.source, text: lead.text, link: lead.link, pubDate: lead.pubDate },
+    pubDate: lead.pubDate,
+  };
+}
+
+/** One line for a SITREP Ops row: "3 reports from 2 handles naming OJAQ · tankers 2 · up to 6 stated · newest 4h ago". */
+export function fieldChatterLine(f: FieldChatter, relTime?: (iso: string) => string): string {
+  const parts = [`${f.reports} report${f.reports === 1 ? "" : "s"} from ${f.sources} ${f.sources === 1 ? "handle" : "handles"} naming ${f.icao}`];
+  const what = [f.tankers ? `tankers ${f.tankers}` : "", f.airlifters ? `airlift ${f.airlifters}` : ""].filter(Boolean).join(" · ");
+  if (what) parts.push(what);
+  if (f.count) parts.push(`up to ${f.count} stated`);
+  if (f.outbound) parts.push(f.inbound ? `${f.inbound} inbound · ${f.outbound} departing` : `${f.outbound} departing`);
+  if (relTime) parts.push(`newest ${relTime(f.pubDate)}`);
+  return parts.join(" · ");
 }
 
 export interface ChatterSurge { reports: number; sources: number; tankers: number; airlifters: number; count: number | null; lead: string | null }

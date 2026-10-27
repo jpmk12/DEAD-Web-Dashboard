@@ -14,6 +14,7 @@ import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
 import DocumentsTab from "@/components/documents/DocumentsTab";
 import GlanceTab from "@/components/glance/GlanceTab";
+import ToolsTab from "@/components/tools/ToolsTab";
 import { lazyClient } from "@/lib/lazyClient";
 // Loaded on demand: neither is needed for Glance's first paint — the drawer
 // is a 150 KB component rendered only while open, and the Family tab mounts
@@ -41,7 +42,7 @@ import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult }
 import { prefetchBriefing } from "@/lib/briefingPrefetch";
 import { prefetchDigest } from "@/lib/digestPrefetch";
 
-const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "family", "docs", "osint", "markets", "weather"];
+const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "family", "docs", "osint", "markets", "weather", "tools"];
 
 export default function TabShell() {
   const [activeTab, setActiveTab] = useState<Tab>("glance");
@@ -483,6 +484,11 @@ export default function TabShell() {
 
         <div className={activeTab !== "weather" ? "hidden" : ""}>
           <WeatherTab />
+        </div>
+
+        {/* Tools: pure client-side date-time arithmetic — no fetch, no model. */}
+        <div className={activeTab !== "tools" ? "hidden" : ""}>
+          <ToolsTab />
         </div>
       </main>
 

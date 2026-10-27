@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readChatter, clusterChatter, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn } from "../lib/mobilityChatter";
+import { readChatter, clusterChatter, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn, placesWithOwn, chatterForIcao, fieldChatterLine, type OwnPlace } from "../lib/mobilityChatter";
 import { mobilityWithChatter } from "../lib/warningRules";
 import { demandHorizon, type DemandInput } from "../lib/demandHorizon";
 import { mergePostureMoves, detectPostureMoves } from "../lib/postureMoves";
@@ -117,6 +117,82 @@ describe("clusterChatter / chatterSurge / chatterToMoves", () => {
     const d = gulf.drivers.find((x) => x.source === "move")!;
     expect(d.delta).toBe(10);
     expect(d.text).toMatch(/United States lift/);
+  });
+});
+
+describe("own fields join the place list — a post naming YOUR spoke is placed and marked mine", () => {
+  const own: OwnPlace[] = [
+    { icao: "OJAQ", label: "Muwaffaq Salti AB", aor: "CENTCOM", own: "spoke" },
+    { icao: "KWRI", label: "McGuire AFB", aor: "NORTHCOM", own: "hub" },
+    { icao: "OTBH", label: "Al Udeid AB", aor: "CENTCOM", own: null, star: true },  // an AMC hub the operator also tracks
+    { icao: "ZZZZ", label: "Somewhere", aor: "UNKNOWN", own: null },
+  ];
+  it("placesWithOwn puts own fields first and replaces the catalogue entry for the same field so `mine` is kept", () => {
+    const defs = placesWithOwn(own);
+    expect(defs.slice(0, 4).every((d) => d.mine)).toBe(true);
+    expect(defs.filter((d) => d.icao === "OTBH")).toHaveLength(1);
+    expect(defs.find((d) => d.icao === "OTBH")?.mine).toBe(true);
+    expect(defs.find((d) => d.name === "Al Udeid")?.mine).toBe(true);
+    expect(placesWithOwn([])).toBe(placesWithOwn(undefined));
+    expect(placesWithOwn([{ icao: "bad", label: "x", aor: "EUCOM", own: null }]).every((d) => !d.mine)).toBe(true);  // a non-ICAO id is skipped
+  });
+  it("a post naming a spoke by its short label is placed by it — the catalogue alone would read UNKNOWN", () => {
+    const text = "3x KC-135 inbound to Muwaffaq Salti this evening";
+    const [bare] = readChatter([post(text)], NOW);
+    expect(bare.aor).toBe("CENTCOM");       // the hand list already knows Azraq
+    const [p] = readChatter([post("2x C-17 inbound to McGuire tonight")], NOW, { ownPlaces: own });
+    expect(p.icao).toBe("KWRI");
+    expect(p.mine).toBe(true);
+    expect(p.aor).toBe("NORTHCOM");
+    const [q] = readChatter([post("2x C-17 inbound to McGuire tonight")], NOW);
+    expect(q.mine).toBe(false);
+    expect(q.icao).toBeNull();
+  });
+  it("a catalogue hub you also track keeps mine; an untracked catalogue hub does not", () => {
+    const [p] = readChatter([post("6x KC-135 heading to Al Udeid tonight")], NOW, { ownPlaces: own });
+    expect(p.icao).toBe("OTBH");
+    expect(p.mine).toBe(true);
+    const [q] = readChatter([post("Another 4 KC-46 inbound to Al Dhafra")], NOW, { ownPlaces: own });
+    expect(q.icao).toBe("OMAM");
+    expect(q.mine).toBe(false);
+  });
+  it("a return wave FROM your field carries its ICAO (the field's SITREP row sees the departure)", () => {
+    const [p] = readChatter([post("KC-135s returning home from Muwaffaq Salti")], NOW, { ownPlaces: own });
+    expect(p.direction).toBe("away");
+    expect(p.icao).toBe("OJAQ");
+    expect(p.mine).toBe(true);
+    expect(p.aor).toBe("CENTCOM");
+  });
+  it("clusters sort mine first and carry the ICAOs named", () => {
+    const cs = clusterChatter(readChatter([
+      post("Another 4 KC-46 inbound to Al Dhafra", { id: "a", source: "𝕏 @s1" }),
+      post("More KC-46 inbound to Al Dhafra", { id: "b", source: "𝕏 @s2" }),
+      post("2x C-17 inbound to McGuire tonight", { id: "c", source: "𝕏 @s3" }),
+    ], NOW, { ownPlaces: own }));
+    expect(cs[0].mine).toBe(true);
+    expect(cs[0].icaos).toEqual(["KWRI"]);
+    expect(cs[1].corroborated).toBe(true);
+    expect(cs[1].mine).toBe(false);
+  });
+  it("chatterForIcao: the posts naming ONE field inside the sensor window, inbound vs departing; nothing → null", () => {
+    const posts = readChatter([
+      post("3x KC-135 inbound to Muwaffaq Salti", { id: "a", source: "𝕏 @s1" }),
+      post("KC-135s returning home from Muwaffaq Salti", { id: "b", source: "𝕏 @s2", pubDate: "2026-10-27T11:00:00Z" }),
+      post("C-17 landed at OJAQ last week", { id: "c", source: "𝕏 @s3", pubDate: "2026-10-20T10:00:00Z" }),  // outside 72 h
+      post("2x C-17 inbound to McGuire tonight", { id: "d", source: "𝕏 @s4" }),
+    ], NOW, { ownPlaces: own });
+    const f = chatterForIcao(posts, "ojaq", NOW)!;
+    expect(f.icao).toBe("OJAQ");
+    expect(f.reports).toBe(2);
+    expect(f.sources).toBe(2);
+    expect(f.corroborated).toBe(true);
+    expect(f.inbound).toBe(1);
+    expect(f.outbound).toBe(1);
+    expect(f.count).toBe(3);
+    expect(f.lead.source).toBe("𝕏 @s2");  // newest
+    expect(fieldChatterLine(f, () => "1h ago")).toBe("2 reports from 2 handles naming OJAQ · tankers 2 · up to 3 stated · 1 inbound · 1 departing · newest 1h ago");
+    expect(chatterForIcao(posts, "OTBH", NOW)).toBeNull();
+    expect(chatterForIcao(posts, "", NOW)).toBeNull();
   });
 });
 

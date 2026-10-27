@@ -10,6 +10,8 @@ import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
 import { EdgeVendorsInline } from "@/components/preferences/SpectrumInline";
 import { CounterspaceLine } from "@/components/osint/CounterspaceLine";
 import { LED_CLASS as LED_BG, LED_GLOW } from "@/lib/levelTokens";
+import { fieldChatterLine } from "@/lib/mobilityChatter";
+import { relTime } from "@/lib/relTime";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
 // LEDs carry the glow on top.
@@ -646,6 +648,18 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               {payload.ops.lift && (
                 <Row sev={payload.ops.lift.high ? "a" : "b"} src="ADS-B">
                   <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">Lift</span>{payload.ops.lift.label}
+                </Row>
+              )}
+              {/* Lift chatter naming THIS field in the user's own sources —
+                  reported, not observed; beside the ADS-B row, never in its
+                  place. Corroborated (≥2 handles) reads amber, a lead blue. */}
+              {payload.ops.liftChatter && (
+                <Row sev={payload.ops.liftChatter.corroborated ? "a" : "b"} src="your sources">
+                  <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">Chatter</span>
+                  {payload.ops.liftChatter.lead.link
+                    ? <a href={payload.ops.liftChatter.lead.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400" title={`${payload.ops.liftChatter.lead.source}: ${payload.ops.liftChatter.lead.text}`}>{fieldChatterLine(payload.ops.liftChatter, relTime)}</a>
+                    : <span title={`${payload.ops.liftChatter.lead.source}: ${payload.ops.liftChatter.lead.text}`}>{fieldChatterLine(payload.ops.liftChatter, relTime)}</span>}
+                  <span className="text-slate-600"> — reported, not observed</span>
                 </Row>
               )}
 

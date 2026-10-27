@@ -37,6 +37,7 @@ import { Users,
   X,
   ExternalLink,
   MoreHorizontal,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -53,7 +54,11 @@ export const TAB_ICONS: Record<Tab, LucideIcon> = {
   docs: FileText,
   markets: Coins,
   family: Users,
+  tools: Wrench,
 };
+
+// Tools tab header (planner date-time tools).
+export { Wrench };
 
 // Economy (Economic Warfare Watch) tab header.
 export const EconomyIcon = Coins;

@@ -1448,6 +1448,7 @@ export default function GlanceTab({
                     {liftChatter.slice(0, 3).map((c) => (
                       <div key={c.id} className="text-[11px] text-slate-400 truncate" title={`${c.lead.source}: ${c.lead.text}`}>
                         {c.lead.link ? <a href={c.lead.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400">{chatterLine(c, relTime)}</a> : chatterLine(c, relTime)}
+                        {c.mine && <span className="ml-1 text-[8px] font-mono uppercase text-violet-300" title={`names a field you track${c.icaos.length ? ` (${c.icaos.join(", ")})` : ""}`}>mine</span>}
                         {c.corroborated ? <span className="ml-1 text-[8px] font-mono uppercase text-amber-300">corroborated</span> : <span className="ml-1 text-[8px] font-mono uppercase text-slate-600">lead</span>}
                       </div>
                     ))}
