@@ -33,6 +33,8 @@ import { knownCountryNames, sameCountry } from "./countryNames";
 import { AOR_LABELS } from "./aor";
 import { getFunctionalRowsBounded } from "./commandsAssemble";
 import { functionalText } from "./functionalCommands";
+import { getLineReads } from "./lineReadAssemble";
+import { lineReadLines } from "./lineRead";
 
 export interface AskPack {
   resolution: AskResolution;
@@ -155,6 +157,18 @@ export async function buildAskPack(question: string, email: string, opts: { maxW
         sections.push({ surface, text: rows.length ? rows.map((s) => `- ${s.icao} ${s.label} (${s.country}, ${s.aor}): wx ${s.status.wx} · ops ${s.status.ops} · threat ${s.status.threat} · infra ${s.status.infra} · spectrum ${s.status.spectrum} — ${clip(s.driver, 140)}${s.worse.length ? ` · worse than yesterday: ${s.worse.join(", ")}` : ""}`).join("\n") + "\n(LEDs: g green · a amber · r red · u UNKNOWN)" : "No SITREP base in the matched commands." });
       }
     }
+  }
+
+  // 3b. Your lines — the next four days of declared flying, each read
+  //     against its fields (lib/lineRead). Declared, never derived; a line
+  //     never changes a level, so the pack labels it as the lens it is.
+  {
+    const lr = await within(getLineReads({ maxWaitMs: Math.min(wait, 8_000) }), wait + 500);
+    const surface = "Glance › Lines (next 4 days)";
+    const door = { event: "app:navigate", detail: "glance" };
+    if (!lr || lr.lines === null) sections.push({ surface, text: "", unavailable: true, door });
+    else if (lr.reads.length) sections.push({ surface, text: ["Declared lines (a day · an airframe · the fields · planned|execution — the crew's own declaration, NOT a sensor; the read is the fields' existing readings joined to the day, planning-grade):", ...lineReadLines(lr.reads)].join("\n"), door, asOf: lr.atISO });
+    else sections.push({ surface, text: "No lines declared for the next 4 days.", door });
   }
 
   // 4. Economic warfare — the actor's tile and its moves.

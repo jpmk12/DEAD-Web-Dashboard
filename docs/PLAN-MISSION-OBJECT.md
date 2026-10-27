@@ -1,9 +1,33 @@
 # Plan — bounding the mission object
 
-Status: PROPOSAL, 2026-10-27. Nothing here is built. The purpose of this
-document is to bound the thing before designing it, and to name the
-questions only the operator can answer. Read §2 first; everything else
-follows from those answers.
+Status: DECIDED and BUILT (phases 2–3), 2026-10-27. §2 was answered the
+same day and the schema in §3 is the one that shipped. The original
+questions are kept with the answers beside them, because the answers are
+the bound: a line is a Zulu day, an airframe, the fields in order and a
+status, and nothing finer — the operator's own words were "I don't want to
+actually put real flight data in here. I want to keep it high level."
+
+## Answers (2026-10-27)
+
+| # | Question | Answer | What it fixed |
+|---|---|---|---|
+| 1 | Unit of record | **by Julian / Zulu day** | one row = one Zulu day (`day` YYYY-MM-DD); the JD is derived for display, never stored |
+| 2 | Fields | **a series of fields of interest** | `fields` = ordered ICAO list, up to 8; a turn keeps its repeat |
+| 3 | Airframe | **C-17, C-130, KC-135, KC-46** | `LINE_AIRFRAMES`, the four and no other |
+| 4 | Crew | **not at this level of detail** | NO crew column; the crew-state join is dropped |
+| 5 | Status | **planned and execution** | `planned \| execution`, two states, no slip flag |
+| 6 | Horizon | **4 days** | `LINE_HORIZON_DAYS` 4, today included; a line beyond it exists but is not read |
+| 7 | Source | **no real flight data — keep it high level** | no label, no note, no times, no tails, no callsigns, no loads; the validator REFUSES every extra key and every token shaped like one |
+| 8 | Who | (default) | crew-maintained, attributed by email, the `crew_state` model |
+| 9 | Never held | (default, strengthened by 7) | tails, callsigns, loads, times, free text — refused at the write boundary, by name |
+
+What shipped: `lib/missionLines.ts` (PURE: vocabulary, validator, day
+maths), `lib/lineRead.ts` (PURE: the join), `lib/missionLineStore.ts` +
+`mission_lines`, `lib/lineReadAssemble.ts` (server, bounded, 5-min cache),
+`/api/mission-lines`, the Glance **Lines** strip under the status row, a
+section in the Ask pack, a block in the Morning Brief prompt and a table in
+the OE brief export. The sections below are the original proposal; where
+they say "crew complement", "label" or "note", the answers above override.
 
 ## 0. Why this is the largest lever left
 

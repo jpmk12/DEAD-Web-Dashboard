@@ -3706,6 +3706,77 @@ never the crew. The pieces, each the decision-log pattern:
   sent to any model but Ask. No sweeper: "open" is `resolved_at IS NULL`,
   "recent" is derived at read time. No new npm dep (esbuild `0`).
 
+### Mission lines (2026-10-27, `docs/PLAN-MISSION-OBJECT.md` — the schema the operator fixed, then built)
+The first model of the FLYING: until this every sensor answered "what is
+the environment doing" and nothing could say what that meant for
+Tuesday's line through OJAQ, because the app had never been told there was
+one. The bound was decided BEFORE the design (the plan's §2, answered the
+same day): a line is **a Zulu day, one of four airframes (C-17 / C-130 /
+KC-135 / KC-46), the fields of interest in order, and planned |
+execution — nothing finer**. The operator's words: "I don't want to
+actually put real flight data in here. I want to keep it high level." No
+label, no note, no crew, no times, no tails, no callsigns, no loads; the
+horizon is 4 days, today included.
+- **`lib/missionLines.ts` (PURE, client-safe, tested in
+  `tests/missionLines.test.ts`)**: `LINE_AIRFRAMES`, `LINE_STATUSES`,
+  `LINE_HORIZON_DAYS` 4, `LINE_MAX_FIELDS` 8, `LINE_KEYS` (the ONLY keys a
+  line may carry); `validateLineDraft` REFUSES, by name, any extra key
+  ("A line holds no “note”"), a token shaped like a callsign (RCH123), a
+  tail (07-7177), a time (1400Z) or a load (40PAX) typed as a field, and
+  anything that is not four letters or digits — the `/api/family/event`
+  rule, at the write boundary, so the record cannot drift finer than the
+  decision; `normalizeLineDraft` (upper-case, order kept, a turn keeps its
+  repeat), `parseFieldsText`, the Zulu day maths (`todayZulu`,
+  `addDaysYmd`, `julianOf`, `lineDayLabel` "Wed 28 Oct · JD 301"),
+  `lineLabel` ("C-17 · OJAQ → OTBH" — the only label a line has, derived),
+  `linesInHorizon` (a past line is never read), `runwayClassFor` (tankers
+  need the heavy class).
+- **`lib/lineRead.ts` (PURE, tested in `tests/lineRead.test.ts`)** — the
+  join: one line in, one `LineRead` out from readings the app ALREADY
+  holds per field — SITREP LEDs + closure state (`closure.now` → RED
+  "field CLOSED now"; `next` → AMBER "closure scheduled …";
+  `indeterminate` → AMBER LIMITED), force posture (the field's own base
+  row, else its HOST COUNTRY's, said as such), the TAF turn (AMBER, only
+  for today / tomorrow — the forecast reaches no further), runway
+  capability vs the airframe's class (RED, "planning-grade, not an
+  assault minimum"). Disciplines: **a line never changes a level** — a
+  line through a red field is a red LINE READ, not a redder field;
+  **UNKNOWN is a value** — no SITREP slot ("★ the field for one"), a field
+  the line names but the read was not given, a dead source family
+  (`unavailable`, named on every read) all read `u`, never green; drivers
+  rank closure › runway › LED › posture › TAF, worst first; a quiet line
+  says "absence of signal, not evidence of calm". `lineReadLines` is the
+  prompt / Ask-pack rendering.
+- **Store + route**: `mission_lines` (`lib/db.ts`; id · day · airframe ·
+  fields JSON · status · updated_by · updated_at — no finer column EXISTS)
+  via `lib/missionLineStore.ts` (a dead store reads NULL → 503
+  `unavailable`, never "no lines"); `/api/mission-lines` GET (`?read=1` →
+  `getLineReads`), POST (422 with the validator's sentence; a field the
+  app cannot place through `resolveAirfield` still saves and the reply
+  names it `unresolved`), DELETE — any allowlisted member, attributed by
+  email (the `crew_state` model). `lib/lineReadAssemble.ts` (server,
+  5-min cache, in-flight deduped, every family bounded): lines in the
+  horizon × `assembleSitrep` (its 10-min cache) / `getForceProtectionCached`
+  / `getTafOutlook(…, 30)` / `airfieldCapabilities`; no new fetch, no
+  model call.
+- **Surfaces**: Glance **Lines · next 4 days** strip
+  (`components/glance/LinesStrip.tsx`, under the status row): one row per
+  line — LED · day + JD · airframe · the fields each with its own LED ·
+  the lead driver · a Planned/Execution toggle · ✕; a row opens to the
+  per-field drivers with a door to the field's SITREP (or the Track
+  picker for a field without a slot); ＋ Line is a four-control form whose
+  live validator is the same PURE one the route runs; an amber
+  "unavailable" chip when the store did not answer; `lines:changed`
+  re-reads. The **Ask pack** gets a "Glance › Lines (next 4 days)"
+  section labelled as the crew's declaration, NOT a sensor; the **Morning
+  Brief** prompt gets a YOUR LINES block (name a line only when its read
+  is amber / red / UNKNOWN; never invent a time, tail, callsign or load);
+  the **OE brief export** gets a Lines table (`OeBriefInput.lines`, null =
+  UNAVAILABLE on the page).
+- Not built (plan §6): alerts on a line read, a `line_read_daily` series
+  scoring whether a driver predicted a slip, a per-line map, the command
+  board mark. No new npm dep (esbuild `0`).
+
 ### Indicator calibration (`lib/indicatorCalibration.ts` — the decision log feeding back)
 REVIEW §3.2. `warning_decisions` already records calls against a problem and,
 optionally, ONE indicator; once enough are scored the hit rate is per

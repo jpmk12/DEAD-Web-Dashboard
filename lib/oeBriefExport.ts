@@ -17,12 +17,15 @@ import { esc } from "./sitrepExport";
 import { AOR_LABELS } from "./aor";
 import { CALL_LABEL, type DecisionEntry } from "./decisionLog";
 import type { OeSnapshot } from "./oeContextFormat";
+import type { LineRead } from "./lineRead";
 
 export interface OeBriefInput {
   snapshot: OeSnapshot;
   openDecisions: DecisionEntry[];
   preparedBy: string;
   missionSummary?: string | null;
+  /** The next four days of declared lines, read; null = UNAVAILABLE; absent = not asked. */
+  lines?: LineRead[] | null;
 }
 
 const SEV_RANK: Record<string, number> = { red: 3, amber: 2, unknown: 1, green: 0 };
@@ -120,6 +123,17 @@ export function renderOeBriefHtml(input: OeBriefInput): string {
           s.sitrep.map((b) => `<tr><td><b>${esc(b.label)}</b> <span class="mono">${esc(b.icao)}</span></td>${(["wx", "ops", "threat", "infra"] as const).map((k) => `<td><span class="led ${b.status[k]}"></span>${LED_TXT[b.status[k]] ?? "UNK"}${b.worse.includes(k) ? ' <span class="worse">↑</span>' : ""}</td>`).join("")}<td class="drv">${esc(b.driver)}</td></tr>`).join("")
         }</tbody></table>`;
 
+  // ── Lines (declared, read against their fields) ──
+  const linesHtml = input.lines === undefined ? ""
+    : input.lines === null ? `<h2>Lines — next 4 days</h2>${unavailable("Lines")}`
+    : input.lines.length === 0 ? `<h2>Lines — next 4 days</h2><p class="quiet">No lines declared.</p>`
+    : `<h2>Lines — next 4 days</h2><table><thead><tr><th>Day</th><th>Line</th><th>Status</th><th>Read</th><th>Lead driver</th></tr></thead><tbody>${
+        input.lines.map((l) => {
+          const lead = l.drivers.find((d) => d.level !== "g");
+          return `<tr><td class="mono">${esc(l.dayLabel)}</td><td><b>${esc(l.label)}</b></td><td>${esc(l.status)}</td><td><span class="led ${l.worst}"></span>${LED_TXT[l.worst] ?? "UNK"}</td><td class="drv">${lead ? `${esc(lead.icao)}: ${esc(lead.text)}` : "quiet — absence of signal, not evidence of calm"}${l.unavailable.length ? ` <span class="note">(${esc(l.unavailable.join(", "))} UNAVAILABLE)</span>` : ""}</td></tr>`;
+        }).join("")
+      }</tbody></table><p class="quiet">Declared by the crew, never derived; planning-grade; a line never changes a level.</p>`;
+
   // ── I&W boards + open calls ──
   const labelFor = new Map<string, string>();
   for (const b of s.boards ?? []) if (b.problemId) labelFor.set(b.problemId, b.label);
@@ -199,6 +213,8 @@ tr.due td{background:#2a1a05}
 
 <h2>7-day demand horizon (deterministic)</h2>${demandHtml}
 ${s.crew ? `<h2>Team state — crews against demand</h2><p class="${s.crew.declared ? (s.crew.mismatches.length ? "na" : "") : "quiet"}">${esc(s.crew.headline)}</p>${s.crew.mismatches.length ? `<ul class="chg">${s.crew.mismatches.map((m) => `<li class="a">${esc(m)}</li>`).join("")}</ul>` : ""}${s.crew.trend ? `<p class="quiet">History: ${esc(s.crew.trend)}</p>` : ""}` : ""}
+
+${linesHtml}
 
 <h2>Force posture</h2>${forceHtml}
 

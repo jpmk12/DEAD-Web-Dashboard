@@ -4,6 +4,7 @@ import { normEmail } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getOeSnapshotFor } from "@/lib/oeContext";
 import { listOpenDecisions } from "@/lib/decisionStore";
+import { getLineReads } from "@/lib/lineReadAssemble";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,11 @@ export async function GET() {
   const email = normEmail(session?.user?.email);
   if (!session?.accessToken || !email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [snapshot, openDecisions, prefs] = await Promise.all([
+  const [snapshot, openDecisions, prefs, lineReads] = await Promise.all([
     getOeSnapshotFor(email, 12_000),
     listOpenDecisions(40),
     getUserPrefs(email).catch(() => null),
+    getLineReads({ maxWaitMs: 10_000 }).catch(() => null),
   ]);
   if (!snapshot) return NextResponse.json({ error: "The OE snapshot is not ready yet — try again in a moment." }, { status: 503 });
 
@@ -30,5 +32,7 @@ export async function GET() {
     openDecisions,
     preparedBy: email,
     missionSummary: prefs?.missionSummary ?? null,
+    // null = the store did not answer (UNAVAILABLE on the page, never "no lines").
+    lines: lineReads && lineReads.lines !== null ? lineReads.reads : null,
   });
 }

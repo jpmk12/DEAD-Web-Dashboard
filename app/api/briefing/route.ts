@@ -15,6 +15,8 @@ import { geocodePlace } from "@/lib/geocode";
 import { getDayForecasts, forecastLine, type DayForecast } from "@/lib/forecast";
 import { getActiveTrip, tripProgress } from "@/lib/trips";
 import { getLatestSession } from "@/lib/threadHistory";
+import { getLineReads } from "@/lib/lineReadAssemble";
+import { lineReadLines } from "@/lib/lineRead";
 import { ensureTripTz } from "@/lib/timezoneLookup";
 import { resolveZone, DEFAULT_ZONE } from "@/lib/effectiveZone";
 import { isWorse } from "@/lib/severity";
@@ -305,6 +307,14 @@ export async function POST(request: Request) {
       }
     }
   } catch { /* threads are best-effort in the brief */ }
+  // Declared lines for the next four days, read against their fields — one
+  // line each, no model-side invention (docs/PLAN-MISSION-OBJECT.md §5).
+  let lineBlock = "";
+  try {
+    const lr = await Promise.race([getLineReads({ maxWaitMs: 6_000 }), new Promise<null>((r) => setTimeout(() => r(null), 7_000))]);
+    if (lr && lr.reads.length) lineBlock = lineReadLines(lr.reads, 8).join("\n");
+    else if (lr && lr.lines === null) lineBlock = "(lines UNAVAILABLE this pass — the store did not answer; do not assume no flying)";
+  } catch { /* lines are best-effort in the brief */ }
   const assemblyStart = Date.now();
   // Week-over-week movers from the deterministic trend layer (P1) — cheap SQL,
   // no extra model call; the brief just narrates them. Best-effort.
@@ -387,6 +397,7 @@ export async function POST(request: Request) {
     forceLine && `FORCE PROTECTION (watched countries/bases — fused threat posture. Call out RED and newly-escalated locations prominently, e.g. in the headline or topStories; tie to where the user's forces operate):\n${forceLine}`,
     dayWeatherBlock && `DAY WEATHER (today's forecast — first line is your current base location, the rest are destinations from your calendar; use for the "weather" field):\n${dayWeatherBlock}`,
     threadLines && `RISING THREADS (the News tab's own synthesis of the recent feed — use to connect the stories; do not restate verbatim):\n${threadLines}`,
+    lineBlock && `YOUR LINES (the next 4 days of declared flying — a day, an airframe, the fields, planned|execution — each read against the fields' own LEDs / posture / closures / TAF / runway class; planning-grade; name a line in the focus ONLY when its read is AMBER, RED or UNKNOWN, and never invent a time, tail, callsign or load):\n${lineBlock}`,
     trendLines && `WEEK-OVER-WEEK SIGNAL (deterministic counts from the user's monitored feeds — use for the "trends" field):\n${trendLines}`,
     articleSummary && `TODAY'S ARTICLES:\n${articleSummary}`,
     newsletterBullets && `NEWSLETTER HIGHLIGHTS:\n${newsletterBullets}`,

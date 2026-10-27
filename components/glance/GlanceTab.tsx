@@ -13,6 +13,7 @@ import type { MissionProfile } from "@/lib/missionProfile";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import StatusRow from "@/components/glance/StatusRow";
+import LinesStrip from "@/components/glance/LinesStrip";
 import WorldClocks from "@/components/glance/WorldClocks";
 import WhereYouAre from "@/components/glance/WhereYouAre";
 import { useEffectiveZone, type EffectiveZone } from "@/lib/zoneClient";
@@ -1158,6 +1159,11 @@ export default function GlanceTab({
         tasks={{ due: dueTasks.length, overdue: overdueTaskCount, asks: emailAsks.length, items: dueTasks.map((x) => `${x.t.title}${x.state === "overdue" ? " (overdue)" : ""}`), askItems: emailAsks.map((e) => e.label) }}
         onNavigate={onNavigate}
       />
+
+      {/* ── Lines — the next four days of declared flying, read against the
+          fields' own LEDs / posture / closures / TAF / runway class. The lens
+          that turns the world picture into a need (docs/PLAN-MISSION-OBJECT). */}
+      <LinesStrip active={active} />
 
       {/* Alerts on this device — push setup lives beside the Alerts tile it
           serves (REVIEW-2026-10 §12), folded; the drawer links here. */}

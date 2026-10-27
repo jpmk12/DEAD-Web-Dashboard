@@ -120,6 +120,22 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_wa_problem (problem_id, created_at)
   ) ENGINE=InnoDB`,
 
+  // Mission lines (lib/missionLineStore): a Zulu day, an airframe, the fields
+  // of interest in order, planned | execution. Deliberately coarse — no
+  // label, note, tail, callsign, load or time column exists, by the
+  // operator's decision (docs/PLAN-MISSION-OBJECT.md).
+  `CREATE TABLE IF NOT EXISTS mission_lines (
+    id          VARCHAR(36)  NOT NULL,
+    day         VARCHAR(10)  NOT NULL,
+    airframe    VARCHAR(8)   NOT NULL,
+    fields      JSON         NOT NULL,
+    status      VARCHAR(12)  NOT NULL DEFAULT 'planned',
+    updated_by  VARCHAR(255) NULL,
+    updated_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_ml_day (day)
+  ) ENGINE=InnoDB`,
+
   // Crew state history (lib/crewStore.snapshotCrewDay): the day's LAST counts
   // per qualification, so availability can be read as a series and joined
   // to the recorded demand outlooks (lib/crewTrend). Counts only, no names.
