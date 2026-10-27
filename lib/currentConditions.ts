@@ -34,6 +34,45 @@ export interface CurrentConditions {
   /** Hourly total cloud cover for the 7 forecast days (local times in the
    *  place's zone) — the lunar card's cloud overlay. Empty when absent. */
   hourlyCloud: HourlyCloud[];
+  /** Hourly forecast for the 7 days (local stamps in the place's zone) —
+   *  the H-hour planner reads the hour that contains H. Empty when absent. */
+  hourly: HourlyForecast[];
+}
+
+export interface HourlyForecast {
+  /** Local ISO hour in the place's zone ("2026-10-30T06:00"). */
+  time: string;
+  tempF: number | null;
+  windMph: number | null;
+  windDir: number | null;
+  gustMph: number | null;
+  precipPct: number | null;
+  weatherCode: number | null;
+  cloudPct: number | null;
+  /** Statute miles, from Open-Meteo's metres. */
+  visMi: number | null;
+}
+
+/** PURE: Open-Meteo `hourly` block → one row per stamp. Missing columns read null. */
+export function parseHourlyForecast(json: unknown): HourlyForecast[] {
+  const h = (json as { hourly?: Record<string, unknown> })?.hourly;
+  if (!h || !Array.isArray(h.time)) return [];
+  const col = (k: string): unknown[] => (Array.isArray(h[k]) ? (h[k] as unknown[]) : []);
+  const num = (v: unknown): number | null => { const n = Number(v); return v != null && Number.isFinite(n) ? Math.round(n) : null; };
+  return (h.time as unknown[]).map((t, i) => {
+    const visM = Number(col("visibility")[i]);
+    return {
+      time: String(t),
+      tempF: num(col("temperature_2m")[i]),
+      windMph: num(col("wind_speed_10m")[i]),
+      windDir: num(col("wind_direction_10m")[i]),
+      gustMph: num(col("wind_gusts_10m")[i]),
+      precipPct: num(col("precipitation_probability")[i]),
+      weatherCode: num(col("weather_code")[i]),
+      cloudPct: num(col("cloud_cover")[i]),
+      visMi: col("visibility")[i] != null && Number.isFinite(visM) ? Math.round(visM / 1609.34 * 10) / 10 : null,
+    };
+  });
 }
 
 export interface DailyOutlook {
@@ -82,6 +121,7 @@ export function parseCurrent(json: unknown): CurrentConditions | null {
     timezone: typeof (json as { timezone?: unknown })?.timezone === "string" && /^[A-Za-z_]+\/[A-Za-z_\-+0-9/]+$|^UTC$|^GMT$/.test((json as { timezone: string }).timezone) ? (json as { timezone: string }).timezone : null,
     daily: outlook,
     hourlyCloud: parseHourlyCloud(json),
+    hourly: parseHourlyForecast(json),
   };
 }
 
@@ -91,7 +131,7 @@ export async function getCurrentConditions(lat: number, lon: number): Promise<Cu
       `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
       `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
       `&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code` +
-      `&hourly=cloud_cover` +
+      `&hourly=cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code,visibility` +
       `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
     const res = await fetchWithTimeout(url, { headers: { "User-Agent": "DEAD-Dashboard (github.com/jpmk12/dead-web-dashboard)" } }, 8_000);
     if (!res.ok) return null;

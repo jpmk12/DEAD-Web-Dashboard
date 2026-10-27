@@ -3309,11 +3309,52 @@ is `lib/plannerTools.ts` (PURE, client-safe, tested in
   local. Round-trips through every letter are pinned.
 - **Days**: `daysBetween` (signed, whole calendar days), a date + N days,
   `isoWeek`.
+- **What H looks like THERE (same day, "tell me about the weather, moon
+  illumination and other key considerations")**: a **Where** picker on the
+  H-hour card — the places the app already tracks (`/api/track` airfields
+  hub › spokes › ★ › rest, home and the active TDY from `/api/user-prefs` /
+  `/api/trips`, civil places), stored with the anchor. A place turns on a
+  **Light** column in the table (PURE `lightAt` per row, client-side: ☀ day
+  · ◐ civil · ◑ nautical · ● night, and ☾ illumination + altitude when the
+  moon is up) and the **At H** panel from `GET /api/tools/hhour?at&lat&lon
+  &icao&label&country` (10-min cache per place + 10-min step of H; every
+  source bounded; the response carries `live` facts per source).
+  `lib/hHour.ts` (PURE, tested in `tests/hHour.test.ts`) does the reading:
+  `lightAt` (sun state by altitude −0.833 / −6 / −12°, topocentric moon,
+  `moonUseful` ≥30°), `nearestLightEvent` ("0:45 before BMNT"),
+  `nightDateFor` (the night that CONTAINS H: the date from local noon, the
+  day before until noon), `forecastHourAt` (the Open-Meteo hour whose stamp
+  begins the hour containing H — `CurrentConditions.hourly` is NEW:
+  `parseHourlyForecast` reads temperature / wind / gusts / direction /
+  precip probability / weather code / cloud / visibility (metres → statute
+  miles) for the 7 days), `wmoWord`, `forecastLine`, `tafAt` (the base
+  period covering H plus any TEMPO / PROB overlapping it — the category is
+  the WORSE), `windowsAt` (closure / outage windows covering H, every
+  indeterminate schedule included), `scaleDayFor` (today's observed max,
+  then the dated or index-placed outlook days), and `summarize` → ranked
+  `Consideration {tone r › a › u › i › g, text, source}`: closures at H
+  (airfield / runway red, taxiway / navaid amber, an unreadable schedule
+  amber), TAF at H (IFR / LIFR red, MVFR amber), the forecast hour
+  (thunderstorm / gusts ≥35 / vis <1 mi red; gusts ≥25 / vis <3 / snow /
+  fog / freezing rain / precip ≥60% amber), the 30-h model hazard, the light
+  and the night's budget (info), posture (NOW, said so), host-nation
+  holidays on H day (amber — closed offices, customs, reduced ATC / ramp),
+  the space-weather day (G / R / S ≥3 amber). **Disciplines**: a dead feed
+  reads UNKNOWN by name (DAIP / AWC / Open-Meteo / SWPC / Nager.Date / the
+  watch list — `getCountryHolidaysLive` in `lib/holidays.ts` now carries
+  liveness, because the old read returned `[]` on failure and would have
+  said "no holidays"); H beyond the 7-day forecast or the 3-day space
+  outlook says so; H in the past says the NOTAM read is for now; a place
+  with no ICAO gets no TAF / NOTAM rows and says why; the place's zone is
+  Open-Meteo's, else by longitude and labelled; nothing here is a model
+  call. The panel: the ranked list, then Light / Weather / Airfield (METAR
+  now, TAF at H, NOTAM windows) / Host nation + space cards; the place's
+  own clock joins the table columns once Open-Meteo names its zone.
 No new npm dep (esbuild `0`). Offered and not built (the operator picks):
-ETA / enroute-time across the clocks, light data for a field and date
-(`lib/moon.ts` already has it), a DST-change table for a zone and date
-range, a sunrise/sunset-relative offset ("BMNT-30"), unit conversions
-(nm/km/ft/m, kts/kph, °C/°F, lbs/kg, fuel lbs ↔ gal).
+ETA / enroute-time across the clocks, a DST-change table for a zone and date
+range, a sunrise/sunset-relative offset ("BMNT-30" as an offset row), unit
+conversions (nm/km/ft/m, kts/kph, °C/°F, lbs/kg, fuel lbs ↔ gal), cloud over
+the dark hours of H's night on the Light card (`lib/lunarCloud.ts` has it).
 
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to

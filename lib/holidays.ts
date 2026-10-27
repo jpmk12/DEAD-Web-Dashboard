@@ -92,10 +92,10 @@ export function upcomingHolidays(holidays: Holiday[], nowMs: number, lookaheadDa
 
 const cache = new Map<string, { holidays: Holiday[]; expires: number }>();
 
-async function fetchYear(iso2: string, year: number): Promise<Holiday[]> {
+async function fetchYearLive(iso2: string, year: number): Promise<{ live: boolean; holidays: Holiday[] }> {
   const key = `${iso2}-${year}`;
   const hit = cache.get(key);
-  if (hit && hit.expires > Date.now()) return hit.holidays;
+  if (hit && hit.expires > Date.now()) return { live: true, holidays: hit.holidays };
   try {
     const res = await fetch(`${API}/${year}/${iso2}`, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -105,10 +105,27 @@ async function fetchYear(iso2: string, year: number): Promise<Holiday[]> {
       localName: String(r.localName ?? ""), global: r.global !== false,
     })).filter((h) => h.date);
     cache.set(key, { holidays, expires: Date.now() + TTL });
-    return holidays;
+    return { live: true, holidays };
   } catch {
-    return hit?.holidays ?? []; // serve stale on failure; else empty (never throws)
+    // Serve stale on failure (still a real calendar); else empty and NOT live.
+    return hit ? { live: true, holidays: hit.holidays } : { live: false, holidays: [] };
   }
+}
+
+async function fetchYear(iso2: string, year: number): Promise<Holiday[]> {
+  return (await fetchYearLive(iso2, year)).holidays; // never throws
+}
+
+/** The same read with its liveness: `live` false when the calendar could
+ *  not be reached for a year the window needs, so a caller can say UNKNOWN
+ *  instead of "no holidays". Null when the country is unmapped. */
+export async function getCountryHolidaysLive(country: string, nowMs: number = Date.now(), lookaheadDays = 30): Promise<{ live: boolean; holidays: UpcomingHoliday[] } | null> {
+  const iso2 = countryIso2(country);
+  if (!iso2) return null;
+  const yr = new Date(nowMs).getUTCFullYear();
+  const needNext = new Date(nowMs + lookaheadDays * DAY).getUTCFullYear() > yr;
+  const [a, b] = await Promise.all([fetchYearLive(iso2, yr), needNext ? fetchYearLive(iso2, yr + 1) : Promise.resolve({ live: true, holidays: [] as Holiday[] })]);
+  return { live: a.live && b.live, holidays: upcomingHolidays([...a.holidays, ...b.holidays], nowMs, lookaheadDays) };
 }
 
 // Upcoming public holidays for a country. Fetches the current and next year (so
