@@ -91,9 +91,14 @@ export async function collectUkmto(durationMs, maxItems) {
     });
   } catch (e) { /* fall through with the page text */ }
 
-  // 5. The requests the page made for its data — URL and status only, so the
-  //    next run can name the incident API; same-origin JSON bodies sampled
-  //    (first 1,500 chars) so the record shape can be pinned from one paste.
+  // 5. The requests the page made for its data. The first run (2026-10-27)
+  //    named them: the incidents come from the Royal Navy's SCCD —
+  //    https://sccd.royalnavy.mod.uk/api/ukmto/all — a CROSS-origin JSON
+  //    feed the page's own script reads (so CORS admits this origin and the
+  //    page-context fetch below works). That body is carried WHOLE (≤1.5 MB)
+  //    as `api[].body`: the dashboard reads its records, with positions,
+  //    and the text parse becomes the fallback. Other data requests are
+  //    sampled (1,500 chars) so a renamed endpoint shows in the run log.
   const apiHints = [];
   const api = [];
   try {
@@ -101,22 +106,26 @@ export async function collectUkmto(durationMs, maxItems) {
     for (const e of performance.getEntriesByType("resource")) {
       const u = String(e.name || "");
       if (!u || seenUrl.has(u)) continue;
-      if (/\/_next\/static\/|\.(?:css|js|png|jpg|svg|woff2?|ico)(?:\?|$)|googletagmanager|google-analytics|cookieControl|fonts\./i.test(u)) continue;
-      if (!/api|json|incident|graphql|sitecore|layout|data|search/i.test(u)) continue;
+      if (/\/_next\/static\/|\.(?:css|js|png|jpg|svg|woff2?|ico)(?:\?|$)|googletagmanager|google-analytics|cookieControl|fonts\.|atlas\.microsoft\.com|\/styling\/|\/tileset|\/tile\//i.test(u)) continue;
+      if (!/api|json|incident|graphql|sitecore|layout|data|search|ukmto/i.test(u)) continue;
       seenUrl.add(u);
       apiHints.push(u.slice(0, 300));
       if (apiHints.length >= 12) break;
     }
-    for (const u of apiHints.slice(0, 4)) {
-      if (!u.startsWith(location.origin)) continue;
+    // The incident feed first (whole), then up to three others (sampled).
+    const ordered = apiHints.slice().sort((a, b) => Number(/\/api\/ukmto\/all\b/i.test(b)) - Number(/\/api\/ukmto\/all\b/i.test(a)));
+    for (const u of ordered.slice(0, 4)) {
+      const whole = /\/api\/ukmto\/all\b/i.test(u);
       try {
         const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 5000);
-        const r = await fetch(u, { credentials: "same-origin", signal: ctrl.signal });
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(u, { credentials: u.startsWith(location.origin) ? "same-origin" : "omit", mode: "cors", signal: ctrl.signal });
         clearTimeout(to);
         const ct = r.headers.get("content-type") || "";
-        const body = /json/i.test(ct) ? (await r.text()).slice(0, 1500) : "";
-        api.push({ url: u.slice(0, 300), status: r.status, contentType: ct.slice(0, 60), sample: body });
+        const text = /json/i.test(ct) || whole ? await r.text() : "";
+        const entry = { url: u.slice(0, 300), status: r.status, contentType: ct.slice(0, 60), sample: text.slice(0, 1500) };
+        if (whole && r.ok && text) entry.body = text.slice(0, 1500000);
+        api.push(entry);
       } catch (e) { api.push({ url: u.slice(0, 300), status: 0, contentType: "", sample: String((e && e.message) || e).slice(0, 120) }); }
     }
   } catch (e) { /* hints are best-effort */ }
@@ -131,7 +140,7 @@ export async function collectUkmto(durationMs, maxItems) {
     text,
     blocks,
     items: out,
-    diag: { reports: reportCount(), listItems: listItems().length, blocks: blocks.length },
+    diag: { reports: reportCount(), listItems: listItems().length, blocks: blocks.length, apiBody: api.some((a) => a.body) ? "carried" : "none" },
     apiHints,
     api,
   };

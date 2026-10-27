@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
 //   POST   dead-ukmto JSON → validate + parse + upsert
 //   GET    → store status
 //   DELETE → clear (owner)
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
+// 4 MB: the capture may carry the SCCD API body whole (the extension caps
+// it at 1.5 MB) beside the page text.
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -36,7 +38,7 @@ export async function POST(req: Request) {
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return NextResponse.json({ error: "Payload too large." }, { status: 413 });
   const raw = await req.text();
-  if (raw.length > MAX_BODY_BYTES) return NextResponse.json({ error: "Capture too large (2 MB max)." }, { status: 413 });
+  if (raw.length > MAX_BODY_BYTES) return NextResponse.json({ error: "Capture too large (4 MB max)." }, { status: 413 });
 
   const parsed = parseUkmtoCapture(raw);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
     resetUkmtoCache();
     resetChokepointReadsCache();
     const status = await getUkmtoStoreStatus();
-    return NextResponse.json({ ok: true, imported, total: status.count, source: "UKMTO" });
+    return NextResponse.json({ ok: true, imported, total: status.count, source: "UKMTO", fromApi: parsed.fromApi });
   } catch (err) {
     // The CLASS of failure is the reply ("the database refused the row — a
     // value is too long for column 'incident_at'" is actionable; "database

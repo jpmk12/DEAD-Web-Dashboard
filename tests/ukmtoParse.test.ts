@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   htmlToText, parseUkmtoDate, parseUkmtoPosition, seaAreaIn, parseUkmtoText, parseUkmtoHtml,
   gradeUkmto, ukmtoGeoEvents, ukmtoTextsFor, parseUkmtoCapture, mergeUkmto, UKMTO_URL,
-  fitUkmtoRow, UKMTO_COLUMN_WIDTHS,
+  fitUkmtoRow, UKMTO_COLUMN_WIDTHS, parseUkmtoApi, apiRecords, apiRecordToIncident,
 } from "../lib/ukmtoParse";
 import { readActivity, readInterdiction } from "../lib/chokepointSignals";
 
@@ -225,6 +225,71 @@ describe("parseUkmtoCapture — the browser path", () => {
   it("ignores a pageUrl that is not on UKMTO", () => {
     const r = parseUkmtoCapture(JSON.stringify({ format: "dead-ukmto", source: { host: "www.ukmto.org", pageUrl: "https://evil.example/x" }, text: PAGE }));
     expect(r.ok && r.incidents[0].url).toBe(UKMTO_URL);
+  });
+});
+
+describe("parseUkmtoApi — the SCCD feed, read tolerantly (shape unverified)", () => {
+  const flat = [
+    { id: 9123, reference: "162-26", incidentType: "Attack", incidentDate: "2026-10-08T07:15:00Z", latitude: 12.6667, longitude: 43.3333, description: "A vessel was struck by an unknown projectile 15NM west of Mocha.", source: "Master" },
+    { id: 9124, reference: "163-26", incidentType: "Advisory", incidentDate: "10 OCT 2026", description: "An incident involving a tanker and military forces in the Gulf of Oman.", source: "Military authorities" },
+    { id: 9125, title: "161-26 SUSPICIOUS APPROACH", date: "2026-10-05", location: { lat: 25.2, lng: 56.9 }, narrative: "Approached by two small craft 60NM east of Fujairah." },
+    { id: 9126, description: "no reference anywhere", latitude: 1, longitude: 1 },
+    { id: 9123, reference: "162-26", incidentType: "Attack", description: "duplicate" },
+  ];
+  it("finds the records under the usual keys, a GeoJSON collection, or a bare array", () => {
+    expect(apiRecords(flat)).toHaveLength(5);
+    expect(apiRecords({ data: flat })).toHaveLength(5);
+    expect(apiRecords({ result: { incidents: flat } })).toHaveLength(5);
+    expect(apiRecords({ type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: null }] })).toHaveLength(1);
+    expect(apiRecords({ count: 0 })).toEqual([]);
+    expect(apiRecords(null)).toEqual([]);
+  });
+  it("reads reference / label / date / position / narrative by the names such feeds use; a row with no reference is skipped; duplicates collapse", () => {
+    const p = parseUkmtoApi(flat);
+    expect(p.records).toBe(5);
+    expect(p.incidents.map((i) => i.ref)).toEqual(["163-26", "162-26", "161-26"]);   // newest first, the duplicate and the ref-less row gone
+    const atk = p.incidents.find((i) => i.ref === "162-26")!;
+    expect(atk.label).toBe("ATTACK");
+    expect(atk.date).toBe("2026-10-08");
+    expect(atk.time).toBe("0715 UTC");
+    expect(atk.placement).toBe("reported");
+    expect(atk.lat).toBeCloseTo(12.6667, 3);
+    expect(atk.reportedBy).toBe("Master");
+    expect(gradeUkmto(atk)?.cls).toBe("strike");
+    const adv = p.incidents.find((i) => i.ref === "163-26")!;
+    expect(adv.placement).toBe("area");
+    expect(adv.area).toBe("Gulf of Oman");
+    const app = p.incidents.find((i) => i.ref === "161-26")!;
+    expect(app.label).toBe("SUSPICIOUS APPROACH");          // from the title, reference stripped
+    expect(app.lat).toBeCloseTo(25.2, 3);
+    expect(p.keys).toContain("reference");
+  });
+  it("reads a GeoJSON feature's properties and [lon, lat] geometry, and a string position", () => {
+    const f = apiRecordToIncident({ type: "Feature", properties: { ref: "160-26", category: "WARNING", date: "01/10/2026", summary: "Increased military activity in the Arabian Gulf." }, geometry: { type: "Point", coordinates: [50.5, 26.1] } })!;
+    expect(f.ref).toBe("160-26");
+    expect(f.lon).toBeCloseTo(50.5, 3);
+    expect(f.lat).toBeCloseTo(26.1, 3);
+    expect(f.date).toBe("2026-10-01");
+    expect(gradeUkmto(f)?.modality).toBe("threat");
+    const s = apiRecordToIncident({ reference: "159-26", type: "Boarding", position: "12°40'N 043°20'E", details: "Boarded by armed persons." })!;
+    expect(s.placement).toBe("reported");
+    expect(s.lat).toBeCloseTo(12.667, 2);
+    expect(apiRecordToIncident({ description: "nothing to key on" })).toBeNull();
+  });
+  it("a capture carrying the SCCD body uses its rows (positions win) and keeps the text parse as the fallback; a foreign host's body is ignored", () => {
+    const cap = (api: unknown[], text = PAGE) => JSON.stringify({ format: "dead-ukmto", version: 1, source: { host: "www.ukmto.org", pageUrl: UKMTO_URL }, text, api });
+    const r = parseUkmtoCapture(cap([{ url: "https://sccd.royalnavy.mod.uk/api/ukmto/all", status: 200, body: JSON.stringify({ data: flat }) }]));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.fromApi).toBe(3);
+    expect(r.incidents.map((i) => i.ref)).toEqual(["163-26", "162-26", "161-26", "160-26"]);   // 160-26 only in the text
+    expect(r.incidents.find((i) => i.ref === "161-26")?.placement).toBe("reported");          // the API's position, not the text's unplaced row
+    const foreign = parseUkmtoCapture(cap([{ url: "https://evil.example/api/ukmto/all", status: 200, body: JSON.stringify(flat) }]));
+    expect(foreign.ok && foreign.fromApi).toBe(0);
+    const apiOnly = parseUkmtoCapture(cap([{ url: "https://sccd.royalnavy.mod.uk/api/ukmto/all", status: 200, body: JSON.stringify(flat) }], ""));
+    expect(apiOnly.ok && apiOnly.incidents.length).toBe(3);
+    const junk = parseUkmtoCapture(cap([{ url: "https://sccd.royalnavy.mod.uk/api/ukmto/all", status: 200, body: "<html>" }]));
+    expect(junk.ok && junk.fromApi).toBe(0);
   });
 });
 

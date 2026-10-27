@@ -3004,6 +3004,50 @@ against each collector. What each one taught, and the fix:
   for a daily sweep) and fetching UKMTO's incident API server-side (the
   host refuses datacenter fetches; the hints are for the capture path).
 
+### UKMTO's structured door — the SCCD API (2026-10-27, from the first 1.2.4 run log)
+The run log named the page's data requests: **the incidents come from the
+Royal Navy's SCCD** — `https://sccd.royalnavy.mod.uk/api/ukmto/all` (plus
+`/ticker` and `/incident/filters`), a cross-origin JSON feed the page's own
+script reads, so the ukmto.org HTML can never carry them. Built on it,
+contract UNVERIFIED (the sandbox cannot reach the host; neither its
+reachability from production nor its record shape is known yet):
+- **`lib/ukmtoParse.ts`**: `UKMTO_API_URL`, `UKMTO_API_HOST_ALLOW`
+  (`royalnavy.mod.uk`), `apiRecords` (a bare array, a GeoJSON
+  FeatureCollection, or the first array under data / incidents / items /
+  results / records / value / list / events / all, one level deep),
+  `apiRecordToIncident` (fields by the names such feeds use, case-
+  insensitive: reference / incidentNumber / title "NNN-YY" / id;
+  category / incidentType / type / title; incidentDate / date /
+  occurredAt… through `parseUkmtoDate` then `Date.parse`; a time from
+  the ISO stamp; source / reportedBy; description / narrative / summary;
+  position from numeric lat / lng fields, a nested location object,
+  GeoJSON `[lon, lat]`, an ambiguous pair, or a string through
+  `parseUkmtoPosition`; else a named sea area → `placement: "area"`). **A
+  row with no reference is skipped** — the reference is the store's key.
+  `parseUkmtoApi(json)` → `{incidents, records, keys}` (the first record's
+  keys for the diag). Tested on synthetic flat and GeoJSON shapes.
+- **`lib/ukmto.ts`**: three doors in order — the API (Accept json, Origin
+  ukmto.org, 6 MB cap; `door: "api"`), the page (`door: "page"`, which can
+  only parse 0 now that we know the HTML carries nothing), the store.
+  `UkmtoFetchStatus.door`; `diagnoseUkmto` reports BOTH doors — the API's
+  status / bytes / records / parsed / `keys` / snippet / five sample rows
+  — so one paste of `/api/osint/ukmto?diag=1` pins the shape (`records`
+  > 0 with `parsed` 0 means the reference key is named something the
+  reader does not try; add it to `apiRecordToIncident`).
+- **The capture carries the body** (extension **1.2.5**, `ukmto.js`): the
+  `/api/ukmto/all` request is fetched in the page context (CORS admits
+  the page's own origin) and carried WHOLE (≤1.5 MB) as `api[].body`;
+  the other data requests are sampled (1,500 chars) and the run log shows
+  each hint with its status and first 240 chars. `parseUkmtoCapture`
+  reads `api[]` bodies from the allowed host through `parseUkmtoApi`,
+  merges them OVER the text parse (positions win; the text fills the
+  rest) and reports `fromApi`; the route's body cap is 4 MB and the reply
+  carries `fromApi`, which the run log prints ("N rows from the SCCD API
+  body"). A foreign host's body is ignored; a non-JSON body leaves the
+  text parse standing.
+- Next: the first 1.2.5 run (or the next diag) shows the record shape;
+  expect to add one or two field names, nothing more.
+
 ### Glance date carries the Julian date (2026-10-27, "Tuesday, October 27 (JD)")
 `lib/date.ts` `dayOfYear(d, tz?)` / `julianDayLabel` (PURE, tested in
 `tests/dayOfYear.test.ts`): the ordinal day of the year on the LOCAL

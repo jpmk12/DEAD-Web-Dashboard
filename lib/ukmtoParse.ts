@@ -414,13 +414,129 @@ export function ukmtoTextsFor(
   return out;
 }
 
+// ───────────────────────────── the SCCD API ─────────────────────────────
+// The 2026-10-27 run log named the requests the page makes for its data:
+//   https://sccd.royalnavy.mod.uk/api/ukmto/all            (the incidents)
+//   https://sccd.royalnavy.mod.uk/api/ukmto/ticker
+//   https://sccd.royalnavy.mod.uk/api/ukmto/incident/filters
+// A structured feed with positions beats parsing rendered text. Its RECORD
+// SHAPE is unverified (the sandbox cannot reach the host; the first capture
+// to carry its body, or the first production diag, pins it), so the reader
+// is TOLERANT: the records array is found under the usual keys (or a GeoJSON
+// FeatureCollection), and every field is read by the names such feeds use.
+// A row with no reference is skipped — the reference is the store's key.
+// Nothing is guessed: a date that does not parse is null, a row with no
+// position but a named sea area is placed at the centroid and says so.
+
+export const UKMTO_API_URL = "https://sccd.royalnavy.mod.uk/api/ukmto/all";
+export const UKMTO_API_HOST_ALLOW = [/(^|\.)royalnavy\.mod\.uk$/i];
+
+type Rec = Record<string, unknown>;
+const isRec = (v: unknown): v is Rec => !!v && typeof v === "object" && !Array.isArray(v);
+const str = (v: unknown): string => (typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "");
+const num = (v: unknown): number | null => { const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN; return Number.isFinite(n) ? n : null; };
+/** The first present field among the names, case-insensitive on the key. */
+function pick(r: Rec, names: string[]): unknown {
+  const lower = new Map(Object.keys(r).map((k) => [k.toLowerCase(), k]));
+  for (const n of names) { const k = lower.get(n.toLowerCase()); if (k != null && r[k] != null && r[k] !== "") return r[k]; }
+  return undefined;
+}
+
+/** The records array in an API body: a top-level array, a FeatureCollection,
+ *  or the first array under a usual key (one level of nesting). */
+export function apiRecords(json: unknown, depth = 0): Rec[] {
+  if (Array.isArray(json)) return json.filter(isRec);
+  if (!isRec(json) || depth > 2) return [];
+  if (Array.isArray(json.features)) return (json.features as unknown[]).filter(isRec);
+  for (const k of ["data", "incidents", "items", "results", "result", "records", "value", "list", "events", "all", "payload", "body"]) {
+    const v = pick(json, [k]);
+    if (Array.isArray(v)) return v.filter(isRec);
+    if (isRec(v)) { const inner = apiRecords(v, depth + 1); if (inner.length) return inner; }
+  }
+  for (const v of Object.values(json)) {
+    if (Array.isArray(v) && v.some(isRec)) return v.filter(isRec);
+    if (isRec(v)) { const inner = apiRecords(v, depth + 1); if (inner.length) return inner; }
+  }
+  return [];
+}
+
+const REF_RX = /\b(\d{1,4})\s*-\s*(\d{2})\b/;
+
+/** One API record → an incident, or null when it carries no reference. */
+export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | null {
+  // GeoJSON: the fields live under `properties`, the position under `geometry`.
+  const props = isRec(r.properties) ? { ...r, ...(r.properties as Rec) } : r;
+  const refRaw = str(pick(props, ["reference", "ref", "incidentNumber", "incident_number", "incidentRef", "incidentReference", "number", "serial", "refNo"]));
+  const title = str(pick(props, ["title", "name", "headline", "subject"]));
+  const idRaw = str(pick(props, ["id", "incidentId", "incident_id", "uid"]));
+  const refM = REF_RX.exec(refRaw) ?? REF_RX.exec(title) ?? (REF_RX.test(idRaw) ? REF_RX.exec(idRaw) : null);
+  // The reference is the store's key: a row with none is skipped, never
+  // keyed on a bare numeric id (a later fix to the field name would then
+  // store the same incident twice).
+  const ref = refM ? `${Number(refM[1])}-${refM[2]}` : refRaw;
+  if (!ref) return null;
+  const labelRaw = str(pick(props, ["category", "incidentType", "incident_type", "type", "classification", "label", "eventType", "kind"])) || (title && !REF_RX.test(title) ? title : "") || (title.replace(REF_RX, "").replace(/^[\s\-–—:|]+/, ""));
+  const label = (labelRaw || "INCIDENT").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 40);
+  const dateRaw = str(pick(props, ["incidentDate", "incident_date", "dateOfIncident", "date", "occurredAt", "eventDate", "incidentDateTime", "dateTime", "reportedAt", "reportDate", "createdAt", "created"]));
+  const date = parseUkmtoDate(dateRaw) ?? (Number.isFinite(Date.parse(dateRaw)) ? new Date(Date.parse(dateRaw)).toISOString().slice(0, 10) : null);
+  let time = str(pick(props, ["incidentTime", "incident_time", "timeOfIncident", "time"])) || null;
+  if (!time && /T\d{2}:\d{2}/.test(dateRaw) && Number.isFinite(Date.parse(dateRaw))) time = `${new Date(Date.parse(dateRaw)).toISOString().slice(11, 16).replace(":", "")} UTC`;
+  const reportedBy = str(pick(props, ["source", "reportedBy", "reporter", "reportSource", "sourceOfReport"])) || null;
+  const text = str(pick(props, ["description", "narrative", "summary", "details", "text", "body", "remarks", "comment", "comments", "message"])).replace(/\s+/g, " ").slice(0, 2000);
+
+  // Position: numeric fields, a nested location object, GeoJSON geometry
+  // ([lon, lat]), or a string in the page's spellings.
+  let lat = num(pick(props, ["latitude", "lat", "y"]));
+  let lon = num(pick(props, ["longitude", "lng", "lon", "long", "x"]));
+  const loc = pick(props, ["location", "position", "coordinates", "coords", "geo"]);
+  if ((lat == null || lon == null) && isRec(loc)) { lat = num(pick(loc, ["latitude", "lat", "y"])); lon = num(pick(loc, ["longitude", "lng", "lon", "long", "x"])); }
+  if ((lat == null || lon == null) && isRec(r.geometry) && Array.isArray((r.geometry as Rec).coordinates)) {
+    const c = (r.geometry as Rec).coordinates as unknown[];
+    const a = num(c[0]), b = num(c[1]);
+    if (a != null && b != null) { lon = a; lat = b; }
+  }
+  if ((lat == null || lon == null) && Array.isArray(loc) && loc.length >= 2) {
+    const a = num(loc[0]), b = num(loc[1]);
+    // Ambiguous order: a pair whose first value cannot be a latitude is [lon, lat].
+    if (a != null && b != null) { if (Math.abs(a) > 90) { lon = a; lat = b; } else { lat = a; lon = b; } }
+  }
+  if ((lat == null || lon == null) && typeof loc === "string") { const p = parseUkmtoPosition(loc); if (p) { lat = p.lat; lon = p.lon; } }
+  if ((lat == null || lon == null) && text) { const p = parseUkmtoPosition(text); if (p) { lat = p.lat; lon = p.lon; } }
+  const pos = lat != null && lon != null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0) ? { lat, lon } : null;
+  const area = seaAreaIn(text);
+  const placement: UkmtoIncident["placement"] = pos ? "reported" : area ? "area" : null;
+  return {
+    id: `ukmto-${ref}`, ref: ref.slice(0, 16), label, date, time, reportedBy,
+    lat: pos?.lat ?? area?.lat ?? null, lon: pos?.lon ?? area?.lon ?? null,
+    placement, area: area?.name ?? null, text, url,
+  };
+}
+
+/** The whole API body → incidents (deduped by reference, newest first) and
+ *  the shape seen, for the diag: how many records, the first record's keys. */
+export function parseUkmtoApi(json: unknown, url = UKMTO_URL): { incidents: UkmtoIncident[]; records: number; keys: string[] } {
+  const recs = apiRecords(json);
+  const out: UkmtoIncident[] = [];
+  const seen = new Set<string>();
+  for (const r of recs.slice(0, MAX_ENTRIES * 2)) {
+    const inc = apiRecordToIncident(r, url);
+    if (!inc || seen.has(inc.ref)) continue;
+    seen.add(inc.ref);
+    out.push(inc);
+    if (out.length >= MAX_ENTRIES) break;
+  }
+  const first = recs[0];
+  const keys = first ? Object.keys(isRec(first.properties) ? { ...first, ...(first.properties as Rec) } : first).slice(0, 40) : [];
+  return { incidents: sortUkmto(out), records: recs.length, keys };
+}
+
 // ───────────────────────────── browser capture ─────────────────────────────
 
 export const UKMTO_HOST_ALLOW = [/(^|\.)ukmto\.org$/i];
 const MAX_CAPTURE_TEXT = 400_000;
 
 export type ParseUkmtoCaptureResult =
-  | { ok: true; incidents: UkmtoIncident[]; host: string; pageUrl: string }
+  | { ok: true; incidents: UkmtoIncident[]; host: string; pageUrl: string; /** Rows read from the SCCD API body the capture carried. */ fromApi: number }
   | { ok: false; error: string };
 
 /** Validate a `dead-ukmto` capture (the extension's page text) and parse it.
@@ -442,10 +558,24 @@ export function parseUkmtoCapture(raw: string): ParseUkmtoCaptureResult {
   if (typeof j.text === "string") parts.push(j.text);
   if (Array.isArray(j.blocks)) for (const b of j.blocks) if (typeof b === "string") parts.push(b);
   const text = parts.join("\n\n").slice(0, MAX_CAPTURE_TEXT);
-  if (!text.trim()) return { ok: false, error: "No page text in the capture." };
-  const incidents = parseUkmtoText(text, pageUrl);
+  // The structured door inside the capture: the extension samples the
+  // page's own data requests and carries the SCCD incident body whole
+  // (`api[].body`, host-checked). Its rows win over the text parse — they
+  // carry positions — and the text parse fills in anything they lack.
+  let fromApi: UkmtoIncident[] = [];
+  if (Array.isArray(j.api)) {
+    for (const a of j.api) {
+      const o = (a && typeof a === "object" ? a : {}) as Record<string, unknown>;
+      let host = "";
+      try { host = new URL(typeof o.url === "string" ? o.url : "").hostname; } catch { continue; }
+      if (!UKMTO_API_HOST_ALLOW.some((rx) => rx.test(host)) || typeof o.body !== "string" || !o.body) continue;
+      try { fromApi = mergeUkmto(fromApi, parseUkmtoApi(JSON.parse(o.body), pageUrl).incidents); } catch { /* not JSON — the text stands */ }
+    }
+  }
+  if (!text.trim() && !fromApi.length) return { ok: false, error: "No page text in the capture." };
+  const incidents = mergeUkmto(text.trim() ? parseUkmtoText(text, pageUrl) : [], fromApi);
   if (!incidents.length) return { ok: false, error: "No UKMTO entries found in the capture (expected “<n>-<yy> - LABEL” headers)." };
-  return { ok: true, incidents, host, pageUrl };
+  return { ok: true, incidents, host, pageUrl, fromApi: fromApi.length };
 }
 
 /** The `captured_ukmto` column widths (lib/db.ts) — the store clips every

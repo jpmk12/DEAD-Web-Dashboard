@@ -205,7 +205,12 @@ async function captureOne(url, c) {
     // A collector's own diagnostic (what it waited for and what it found)
     // and the data requests it saw, for the run log either way.
     const own = capture && capture.diag ? " [collector: " + Object.entries(capture.diag).map(([k, v]) => k + " " + v).join(" · ") + "]" : "";
-    const hints = capture && Array.isArray(capture.apiHints) && capture.apiHints.length ? capture.apiHints.slice(0, 6) : null;
+    // Hints: the data requests, each with its sampled status + first 240
+    // chars when the collector fetched it — the record shape, in the log.
+    const samples = capture && Array.isArray(capture.api) ? capture.api : [];
+    const hints = capture && Array.isArray(capture.apiHints) && capture.apiHints.length
+      ? capture.apiHints.slice(0, 6).map((u) => { const s = samples.find((a) => a.url === u); return s ? u + " → " + (s.status || "no answer") + (s.sample ? " · " + String(s.sample).replace(/\s+/g, " ").slice(0, 240) : "") : u; })
+      : null;
     if (!capture || !capture.items || capture.items.length === 0) {
       let diag = null;
       try {
@@ -229,7 +234,8 @@ async function captureOne(url, c) {
     if (!up.ok || !d.ok) {
       return { ok: false, error: (d && d.error) || ("Upload failed (HTTP " + up.status + ")") + own, collected: capture.items.length, hints, url };
     }
-    return { ok: true, collected: capture.items.length, imported: d.imported, updated: d.updated, total: d.total, source: capture.source && capture.source.label, note: own.trim() || undefined, hints, url };
+    const served = d.fromApi != null ? " [dashboard: " + d.fromApi + " rows from the SCCD API body]" : d.sections ? " [dashboard: " + d.sections + " sections]" : "";
+    return { ok: true, collected: capture.items.length, imported: d.imported, updated: d.updated, total: d.total, source: capture.source && capture.source.label, note: (own + served).trim() || undefined, hints, url };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e), url };
   } finally {
