@@ -213,13 +213,22 @@ export interface MaradPageInfo {
   issued: string | null;
   /** yyyy-mm-dd from the Cancellation paragraph's expiry, or null. */
   expires: string | null;
-  /** The page says THIS advisory has been cancelled / superseded / rescinded. */
+  /** The page says THIS advisory has been cancelled / superseded / rescinded
+   *  — in the passive voice, or by its labelled "Status:" field. */
   cancelled: boolean;
+  /** The page's labelled "Status:" field, lower-cased ("cancelled",
+   *  "active", "expired"…), or null when the page has none. */
+  status: string | null;
 }
 
 const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
-// "23 March 2027" · "March 23, 2027" · "2027-03-23" · "03/23/2027" (US).
-const DATE_RX = String.raw`(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})|([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})|(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\/(\d{1,2})\/(\d{4})`;
+// "23 March 2027" · "March 23, 2027" · "March 7th, 2026" (the live page's
+// spelling, 2026-10-27 — the ordinal suffix is optional) · "2027-03-23" ·
+// "03/23/2027" (US).
+const ORD = String.raw`(?:st|nd|rd|th)?`;
+const DATE_RX = String.raw`(\d{1,2})${ORD}\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})|([A-Za-z]{3,9})\.?\s+(\d{1,2})${ORD},?\s+(\d{4})|(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\/(\d{1,2})\/(\d{4})`;
+// The page's labelled status field: "Status: Cancelled" / "Status: Active".
+const STATUS_RX = /\bstatus\s*:\s*(cancell?ed|superseded|rescinded|withdrawn|expired|active|in effect|current)\b/i;
 const EXPIRE_RX = new RegExp(String.raw`\b(?:automatically\s+)?(?:expire|expires|expiring|expiration(?:\s+date)?)\b\s*(?:on|:)?\s*(?:${DATE_RX})`, "gi");
 const ISSUED_RX = new RegExp(String.raw`\b(?:date\s+)?issued\s*:?\s*(?:on\s+)?(?:${DATE_RX})`, "i");
 // Passive voice only — an active reissue says "This advisory supersedes and
@@ -258,7 +267,10 @@ export function parseMaradPage(text: string): MaradPageInfo {
     const after = cancelAt >= 0 ? hits.find((h) => h.at >= cancelAt) : undefined;
     expires = (after ?? hits[hits.length - 1]).date;
   }
-  return { issued, expires, cancelled: CANCELLED_RX.test(s) };
+  const statusM = STATUS_RX.exec(s);
+  const status = statusM ? statusM[1].toLowerCase() : null;
+  const cancelledByStatus = status != null && /^(cancell?ed|superseded|rescinded|withdrawn)$/.test(status);
+  return { issued, expires, cancelled: CANCELLED_RX.test(s) || cancelledByStatus, status };
 }
 
 /** The page's own sentences around the words that decide "in effect" —
@@ -294,7 +306,8 @@ export interface MaradEffect {
  * date is kept — unknown age is not expiry — flagged by its note.
  */
 export function maradInEffect(adv: Pick<MaradAdvisory, "date">, info: MaradPageInfo | null, today: string, maxAgeDays = MARAD_MAX_AGE_DAYS): MaradEffect {
-  if (info?.cancelled) return { keep: false, reason: "cancelled", note: "page: this advisory has been cancelled or superseded", expires: info.expires, source: "page" };
+  if (info?.cancelled) return { keep: false, reason: "cancelled", note: `page: ${info.status ? `status ${info.status}` : "this advisory has been cancelled or superseded"}`, expires: info.expires, source: "page" };
+  if (info?.status === "expired") return { keep: false, reason: "expired", note: "page: status expired", expires: info.expires, source: "page" };
   if (info?.expires) {
     const keep = info.expires >= today;
     return { keep, ...(keep ? {} : { reason: "expired" as const }), note: `page: expires ${info.expires}`, expires: info.expires, source: "page" };

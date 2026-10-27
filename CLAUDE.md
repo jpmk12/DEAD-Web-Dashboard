@@ -2465,6 +2465,24 @@ diag and their contracts are pinned from the published feed / API reference.
   issued / valid until / remain, overlaps merged) plus `info` — paste it
   and pin the wording in `EXPIRE_RX`; a relative expiry ("N months from
   issue") would be computed from the page's issue date, never guessed.
+  **The 2026-001A page, read (2026-10-27): the proxy was RIGHT.** The
+  page reads "This alert will automatically expire on March 7th, 2026 …
+  Status: Cancelled" — expired in March and cancelled since; there is
+  currently NO Hormuz advisory in effect, and the two in-effect rows
+  (2026-013 Red Sea, 2026-012 Black Sea) are the honest set. Two parser
+  gaps explained why every current page read "no expiry": (1) MARAD
+  writes the day with an ORDINAL ("March 7th, 2026", "March 23rd, 2027")
+  and `DATE_RX` accepted only a bare day — `ORD` makes the suffix
+  optional in both month-day orders; (2) the page carries a labelled
+  **`Status:`** field (`STATUS_RX` → `MaradPageInfo.status`, lower-cased:
+  cancelled / superseded / rescinded / withdrawn / expired / active / in
+  effect / current) — `cancelled` is now the passive-voice sentence OR a
+  cancelled-class status, `maradInEffect` treats `status: expired` as
+  expired by the page's word (never the proxy's), and the skip note says
+  "page: status cancelled". Pinned in `tests/maradParse.test.ts` against
+  the diag's verbatim excerpt. The next full diag should show BOTH
+  in-effect rows with `expirySource: "page"` and 2026-001A skipped as
+  `cancelled`.
 - **The Radar diag read "HTTP 400" on both endpoints and nothing else
   (2026-10-26, third diag)** — and a bare status cannot tell the two
   likely causes apart: Cloudflare answers a MALFORMED Authorization header
