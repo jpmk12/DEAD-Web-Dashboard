@@ -48,7 +48,9 @@ export async function POST(req: Request) {
     resetUkmtoCache();
     resetChokepointReadsCache();
     const status = await getUkmtoStoreStatus();
-    return NextResponse.json({ ok: true, imported, total: status.count, source: "UKMTO", fromApi: parsed.fromApi });
+    // apiKeys / placed ride the reply so the extension's run log pins the
+    // SCCD record shape (and whether positions came through) from one run.
+    return NextResponse.json({ ok: true, imported, total: status.count, source: "UKMTO", fromApi: parsed.fromApi, placed: parsed.placed, parsed: parsed.incidents.length, apiKeys: parsed.apiKeys });
   } catch (err) {
     // The CLASS of failure is the reply ("the database refused the row — a
     // value is too long for column 'incident_at'" is actionable; "database

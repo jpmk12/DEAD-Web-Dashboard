@@ -35,6 +35,8 @@ import { getFunctionalRowsBounded } from "./commandsAssemble";
 import { functionalText } from "./functionalCommands";
 import { getLineReads } from "./lineReadAssemble";
 import { lineReadLines } from "./lineRead";
+import { getThemeReads } from "./themesAssemble";
+import { themeLines } from "./themes";
 
 export interface AskPack {
   resolution: AskResolution;
@@ -169,6 +171,21 @@ export async function buildAskPack(question: string, email: string, opts: { maxW
     if (!lr || lr.lines === null) sections.push({ surface, text: "", unavailable: true, door });
     else if (lr.reads.length) sections.push({ surface, text: ["Declared lines (a day · an airframe · the fields · planned|execution — the crew's own declaration, NOT a sensor; the read is the fields' existing readings joined to the day, planning-grade):", ...lineReadLines(lr.reads)].join("\n"), door, asOf: lr.atISO });
     else sections.push({ surface, text: "No lines declared for the next 4 days.", door });
+  }
+
+  // 3c. Declared themes — what the operator's OWN sources say about the
+  //     things they named (lib/themes). Counts and framing over a single-
+  //     source pool: labelled so the model treats a surge as watching at
+  //     most, never as an observation.
+  {
+    const tb = await within(getThemeReads({ maxWaitMs: Math.min(wait, 8_000) }), wait + 500);
+    const surface = "OSINT › Feeds › Your themes";
+    const door = { event: "app:navigate", detail: "osint", then: { event: "osint:set-pane", detail: "feeds", delayMs: 120 } };
+    if (!tb || tb.pending || tb.themes === null) {
+      if (tb?.themes === null || !tb) sections.push({ surface, text: "", unavailable: true, door });
+    } else if (tb.reads.length) {
+      sections.push({ surface, text: ["Declared themes read against the user's OWN sources (X captures, newsletters, captured articles, OSINT feeds) — volume vs each theme's own normal, distinct sources, framing by the act / threat / analysis / reversal grammar, and whether the base wire feeds also name it. NOT a sensor and never a level: own sources only caps at watching; a surge is a reason to look, not an observation.", ...themeLines(tb.reads)].join("\n"), door, asOf: tb.generatedAt });
+    }
   }
 
   // 4. Economic warfare — the actor's tile and its moves.

@@ -28,6 +28,7 @@ export const SENSOR_KEYS: readonly SensorKeyDef[] = [
   { prefix: "tanker",   policy: "peak", what: "tanker aircraft within hub radius, per ICAO" },
   { prefix: "cpact",    policy: "peak", what: "1 on a day the chokepoint read holds a reported act, per chokepoint id" },
   { prefix: "chatter",  policy: "peak", what: "distinct own-source handles reporting U.S. tanker / airlift lift TOWARD a command in the trailing 72 h (lib/mobilityChatter), per AOR" },
+  { prefix: "theme",    policy: "peak", what: "own-source items naming a declared theme in the trailing 24 h (lib/themes), per theme id — the theme's own normal; nothing written when the pool did not answer" },
   // Phase B/D — base tempo
   { prefix: "fc",       policy: "peak", what: "observed METAR flight category ordinal (VFR 0 … LIFR 3), per ICAO" },
   { prefix: "taf",      policy: "peak", what: "worst TAF category ordinal forecast for the day, per ICAO" },

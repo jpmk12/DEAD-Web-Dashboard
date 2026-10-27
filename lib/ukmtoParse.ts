@@ -469,25 +469,36 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
   const refRaw = str(pick(props, ["reference", "ref", "incidentNumber", "incident_number", "incidentRef", "incidentReference", "number", "serial", "refNo"]));
   const title = str(pick(props, ["title", "name", "headline", "subject"]));
   const idRaw = str(pick(props, ["id", "incidentId", "incident_id", "uid"]));
+  // The live SCCD row (first 1.2.5 run, 2026-10-27) carries the sequence
+  // number BARE (`incidentNumber: 143`) and the year only in its dates
+  // (`utcDateOfIncident`, `utcDateCreated`): UKMTO numbers incidents per
+  // year, so the reference is "<n>-<yy>" with yy from the incident's own
+  // date — never the current year, which would re-key last December's rows.
+  const dateRaw = str(pick(props, ["incidentDate", "incident_date", "dateOfIncident", "utcDateOfIncident", "dateOfIncidentUtc", "date", "occurredAt", "eventDate", "incidentDateTime", "dateTime", "reportedAt", "reportDate", "utcDateCreated", "dateCreated", "createdAt", "created"]));
+  const date = parseUkmtoDate(dateRaw) ?? (Number.isFinite(Date.parse(dateRaw)) ? new Date(Date.parse(dateRaw)).toISOString().slice(0, 10) : null);
   const refM = REF_RX.exec(refRaw) ?? REF_RX.exec(title) ?? (REF_RX.test(idRaw) ? REF_RX.exec(idRaw) : null);
   // The reference is the store's key: a row with none is skipped, never
   // keyed on a bare numeric id (a later fix to the field name would then
   // store the same incident twice).
-  const ref = refM ? `${Number(refM[1])}-${refM[2]}` : refRaw;
+  const bare = /^\d{1,4}$/.test(refRaw) && date ? `${Number(refRaw)}-${date.slice(2, 4)}` : "";
+  const ref = refM ? `${Number(refM[1])}-${refM[2]}` : bare || (/^\d{1,4}$/.test(refRaw) ? "" : refRaw);
   if (!ref) return null;
-  const labelRaw = str(pick(props, ["category", "incidentType", "incident_type", "type", "classification", "label", "eventType", "kind"])) || (title && !REF_RX.test(title) ? title : "") || (title.replace(REF_RX, "").replace(/^[\s\-–—:|]+/, ""));
+  const labelRaw = str(pick(props, ["category", "incidentType", "incidentTypeName", "incident_type", "typeName", "incidentCategory", "categoryName", "type", "classification", "label", "eventType", "kind"])) || (title && !REF_RX.test(title) ? title : "") || (title.replace(REF_RX, "").replace(/^[\s\-–—:|]+/, ""));
   const label = (labelRaw || "INCIDENT").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 40);
-  const dateRaw = str(pick(props, ["incidentDate", "incident_date", "dateOfIncident", "date", "occurredAt", "eventDate", "incidentDateTime", "dateTime", "reportedAt", "reportDate", "createdAt", "created"]));
-  const date = parseUkmtoDate(dateRaw) ?? (Number.isFinite(Date.parse(dateRaw)) ? new Date(Date.parse(dateRaw)).toISOString().slice(0, 10) : null);
   let time = str(pick(props, ["incidentTime", "incident_time", "timeOfIncident", "time"])) || null;
   if (!time && /T\d{2}:\d{2}/.test(dateRaw) && Number.isFinite(Date.parse(dateRaw))) time = `${new Date(Date.parse(dateRaw)).toISOString().slice(11, 16).replace(":", "")} UTC`;
-  const reportedBy = str(pick(props, ["source", "reportedBy", "reporter", "reportSource", "sourceOfReport"])) || null;
-  const text = str(pick(props, ["description", "narrative", "summary", "details", "text", "body", "remarks", "comment", "comments", "message"])).replace(/\s+/g, " ").slice(0, 2000);
+  const reportedBy = str(pick(props, ["source", "reportedBy", "reporter", "reportSource", "sourceOfReport", "incidentIssuer", "issuer"])) || null;
+  const text = str(pick(props, ["description", "narrative", "summary", "details", "text", "body", "remarks", "comment", "comments", "message", "incidentDescription", "navigationLinkText"])).replace(/\s+/g, " ").slice(0, 2000);
+  // The page anchors each incident by its Sitecore id (`/recent-incidents#<id>`,
+  // the ticker's own navigationLink) — the per-incident door, when present.
+  const sitecore = str(pick(props, ["sitecoreId", "sitecoreID", "itemId"]));
+  const navLink = str(pick(props, ["navigationLink"]));
+  const rowUrl = /^[0-9a-f-]{36}$/i.test(sitecore) ? `${UKMTO_URL}#${sitecore.toLowerCase()}` : /^\/recent-incidents#[0-9a-f-]{36}$/i.test(navLink) ? `https://www.ukmto.org${navLink.toLowerCase()}` : url;
 
   // Position: numeric fields, a nested location object, GeoJSON geometry
   // ([lon, lat]), or a string in the page's spellings.
-  let lat = num(pick(props, ["latitude", "lat", "y"]));
-  let lon = num(pick(props, ["longitude", "lng", "lon", "long", "x"]));
+  let lat = num(pick(props, ["latitude", "lat", "y", "incidentLatitude", "latitudeDecimal", "decimalLatitude", "latDd", "lat_dd"]));
+  let lon = num(pick(props, ["longitude", "lng", "lon", "long", "x", "incidentLongitude", "longitudeDecimal", "decimalLongitude", "lonDd", "lon_dd", "lngDd"]));
   const loc = pick(props, ["location", "position", "coordinates", "coords", "geo"]);
   if ((lat == null || lon == null) && isRec(loc)) { lat = num(pick(loc, ["latitude", "lat", "y"])); lon = num(pick(loc, ["longitude", "lng", "lon", "long", "x"])); }
   if ((lat == null || lon == null) && isRec(r.geometry) && Array.isArray((r.geometry as Rec).coordinates)) {
@@ -508,7 +519,7 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
   return {
     id: `ukmto-${ref}`, ref: ref.slice(0, 16), label, date, time, reportedBy,
     lat: pos?.lat ?? area?.lat ?? null, lon: pos?.lon ?? area?.lon ?? null,
-    placement, area: area?.name ?? null, text, url,
+    placement, area: area?.name ?? null, text, url: rowUrl,
   };
 }
 
@@ -536,7 +547,7 @@ export const UKMTO_HOST_ALLOW = [/(^|\.)ukmto\.org$/i];
 const MAX_CAPTURE_TEXT = 400_000;
 
 export type ParseUkmtoCaptureResult =
-  | { ok: true; incidents: UkmtoIncident[]; host: string; pageUrl: string; /** Rows read from the SCCD API body the capture carried. */ fromApi: number }
+  | { ok: true; incidents: UkmtoIncident[]; host: string; pageUrl: string; /** Rows read from the SCCD API body the capture carried. */ fromApi: number; /** The first API record's field names — the run log prints them so a renamed field is pinned from one run. */ apiKeys: string[]; /** Rows with a REPORTED position (not area-placed). */ placed: number }
   | { ok: false; error: string };
 
 /** Validate a `dead-ukmto` capture (the extension's page text) and parse it.
@@ -563,19 +574,24 @@ export function parseUkmtoCapture(raw: string): ParseUkmtoCaptureResult {
   // (`api[].body`, host-checked). Its rows win over the text parse — they
   // carry positions — and the text parse fills in anything they lack.
   let fromApi: UkmtoIncident[] = [];
+  let apiKeys: string[] = [];
   if (Array.isArray(j.api)) {
     for (const a of j.api) {
       const o = (a && typeof a === "object" ? a : {}) as Record<string, unknown>;
       let host = "";
       try { host = new URL(typeof o.url === "string" ? o.url : "").hostname; } catch { continue; }
       if (!UKMTO_API_HOST_ALLOW.some((rx) => rx.test(host)) || typeof o.body !== "string" || !o.body) continue;
-      try { fromApi = mergeUkmto(fromApi, parseUkmtoApi(JSON.parse(o.body), pageUrl).incidents); } catch { /* not JSON — the text stands */ }
+      try {
+        const p = parseUkmtoApi(JSON.parse(o.body), pageUrl);
+        fromApi = mergeUkmto(fromApi, p.incidents);
+        if (p.incidents.length && !apiKeys.length) apiKeys = p.keys;
+      } catch { /* not JSON — the text stands */ }
     }
   }
   if (!text.trim() && !fromApi.length) return { ok: false, error: "No page text in the capture." };
   const incidents = mergeUkmto(text.trim() ? parseUkmtoText(text, pageUrl) : [], fromApi);
   if (!incidents.length) return { ok: false, error: "No UKMTO entries found in the capture (expected “<n>-<yy> - LABEL” headers)." };
-  return { ok: true, incidents, host, pageUrl, fromApi: fromApi.length };
+  return { ok: true, incidents, host, pageUrl, fromApi: fromApi.length, apiKeys, placed: incidents.filter((i) => i.placement === "reported").length };
 }
 
 /** The `captured_ukmto` column widths (lib/db.ts) — the store clips every

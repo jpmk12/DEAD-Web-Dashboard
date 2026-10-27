@@ -7,6 +7,7 @@ import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import CommandBoard from "@/components/osint/CommandBoard";
 import SourcesPane from "@/components/osint/SourcesPane";
+import ThemesCard from "@/components/osint/ThemesCard";
 
 interface OsintItem {
   id: string;
@@ -813,6 +814,10 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       {/* Feeds — the merged reporting list */}
       {pane === "feeds" && (
         <>
+          {/* Declared themes — what your own sources are saying about the
+              things you named (lib/themes). Reads the same pool the feed
+              below merges plus X / newsletters / captured articles. */}
+          <ThemesCard active={active && pane === "feeds"} />
 
           {loading && (
             <div className="space-y-2">

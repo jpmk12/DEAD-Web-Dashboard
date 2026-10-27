@@ -3126,8 +3126,91 @@ reachability from production nor its record shape is known yet):
   carries `fromApi`, which the run log prints ("N rows from the SCCD API
   body"). A foreign host's body is ignored; a non-JSON body leaves the
   text parse standing.
-- Next: the first 1.2.5 run (or the next diag) shows the record shape;
-  expect to add one or two field names, nothing more.
+- **The first 1.2.5 run (2026-10-27, 13:35 local) carried the body: 65
+  blocks, 40 reports on the page, 40 rows from the SCCD API body.** The
+  record shape, as far as the log's 240-char sample showed it:
+  `incidentIssuer: "UKMTO"`, **`incidentNumber: 143` (BARE — the year is
+  not in it)**, `sitecoreId` (the page anchors each incident as
+  `/recent-incidents#<sitecoreId>`, the ticker's own `navigationLink`),
+  `utcDateCreated`, **`utcDateOfIncident`**, `pinColour`,
+  **`incidentTypeName`** ("Suspicious Activity"…). Three of those were
+  not in the reader's name lists, so the 40 API rows were keyed "143"
+  (never merging with the text parse's "143-26"), undated and labelled
+  INCIDENT. Fixed: a bare number is keyed `<n>-<yy>` with yy from the
+  incident's OWN date (UKMTO numbers per year; the current year would
+  re-key last December's rows), a bare number with no date is skipped;
+  `utcDateOfIncident` / `utcDateCreated` / `dateCreated` join the date
+  names; `incidentTypeName` / `typeName` / `incidentCategory` the label
+  names; `incidentIssuer` the reported-by fallback; the row's `url` is
+  the sitecore anchor when present. Pinned verbatim in
+  `tests/ukmtoParse.test.ts`. **Positions are still unverified** — the
+  sample was cut before any position field; the reader now also tries
+  `incidentLatitude` / `latitudeDecimal` / `decimalLatitude` and the
+  `lng` spellings. The capture reply carries **`apiKeys`** (the first
+  record's field names), `parsed` and **`placed`** (rows with a REPORTED
+  position), and the run log prints them (extension **1.2.6**) — the next
+  run says whether positions came through and, if not, names the field.
+  The `/ticker` rows (`navigationLink`, `navigationLinkText`, `date`,
+  `type`) carry no reference and are skipped, never keyed on the link.
+
+### Declared themes — what your own sources are saying (2026-10-27, "declare certain key words or sentiment that I want to see what the X or other opensource are seeing")
+The operator asked for keywords and sentiment over the own sources. Built
+as KEYWORDS with COUNTS AND FRAMING, deliberately not a sentiment score —
+a model's tone number is a claim about mood the app cannot falsify, and
+the single-source discipline would have nothing to cap. A theme is a name
+and up to 12 phrases; the read is what the app can state honestly:
+- **`lib/themes.ts` (PURE, client-safe, tested in `tests/themes.test.ts`)**:
+  `validateThemeDraft` / `normalizePhrases` / `parsePhrasesText` (comma or
+  newline list), `themeRegex` / `matchTheme` (phrases regex-escaped,
+  word-bounded by the same lookarounds as `hasPhrase` — "Hormuz" is not
+  "Hormuzian", "KC-135" is not "KC-135R"), `themeVolume` (today's own-
+  source items vs the theme's OWN trailing mean — `learning` below
+  `THEME_LEARNING_DAYS` 7 observed days, never a surge while learning;
+  `surge` at `THEME_SURGE_FACTOR` 2× the mean with a floor of
+  `THEME_SURGE_FLOOR` 3; `quiet` only against a real normal ≥ 1;
+  `unobserved` = the pool did not answer → UNKNOWN, not quiet),
+  `readThemes(themes, own, {baselines, wires, observed})` → one `ThemeRead`
+  per declared theme (reports in `THEME_WINDOW_DAYS` 7, distinct sources /
+  `corroborated` ≥ 2, per-day counts, `framing` by the SHARED
+  `gradeModality` — act / threat / analysis / reversal, the newest match as
+  `lead`, ≤ 20 matches, `wires` = base-feed items naming it or null when
+  the wires were not read, `ownOnly`), `themeLine` (says "own sources only
+  — reads as watching at most" out loud), `themeLines` (Ask / brief),
+  `sortThemeReads` (surge › corroborated › reports).
+- **Store + route**: `osint_themes` (id · name · phrases JSON · by_email ·
+  updated_at) via `lib/themeStore.ts` (NULL = the store did not answer →
+  503 `unavailable`, never "no themes"); `/api/osint/themes` GET (register
+  + reads, 202 `pending` on a cold read; `?list=1` the register only), POST
+  (`{name, phrases | phrasesText, id?}`, 422 with the validator's sentence,
+  `THEME_MAX` 20), DELETE — any allowlisted member, attributed, the
+  `mission_lines` model. **`lib/themesAssemble.ts`** (server, 5-min cache,
+  in-flight deduped, bounded): the own pool is `gatherUserSourceNews(...).all`
+  (X captures, newsletters, captured articles, OSINT feeds — a theme's
+  phrases ARE its gate, so the whole pool, not the AOI slice); the wires
+  are the base defense / strategic / overview RSS through `fetchFeed`'s
+  5-min cache — **no GDELT query** (the 1-per-5-s gate is spent elsewhere)
+  and no model call; the **`theme:<id>`** series (`sensorKeys.ts`, peak)
+  is written ONLY when the own pool answered, and `getSensorBaseline`
+  over 30 prior days is the theme's normal.
+- **Surfaces**: `components/osint/ThemesCard.tsx` at the top of OSINT ›
+  Feeds (volume chip — SURGE amber · learning sky · UNKNOWN slate, never
+  green; "N sources" / "single source"; "own sources only · caps at
+  watching"; framing counts; the newest item; a row opens to the phrases,
+  a 7-day strip and the matches with the phrase each matched; ＋ Theme /
+  ✎ / ✕; an amber "unavailable" chip; polls every 5 min while the pane is
+  active); a "◈ Your themes — your sources" block under the lift chatter
+  in Glance's Posture moves panel (≤ 3 lines, each a door to OSINT ›
+  Feeds; the panel no longer reads empty when only chatter or themes
+  exist); an Ask-pack section "OSINT › Feeds › Your themes" labelled NOT a
+  sensor and never a level.
+- **Disciplines**: a theme never sets a level anywhere; own sources only
+  caps at watching and every surface says so; no theme → the card's
+  one-paragraph invitation and nothing else changes (the Glance block and
+  the Ask section are absent, not empty). Not built: attaching a theme to
+  an I&W board as a watching-capped indicator (one `ProblemGeo` join away
+  once a few themes have a month of normal), and the MOFCOM / LiveUAMap
+  captures as part of the pool (they are events and notices, not the
+  user's reading).
 
 ### Glance date carries the Julian date (2026-10-27, "Tuesday, October 27 (JD)")
 `lib/date.ts` `dayOfYear(d, tz?)` / `julianDayLabel` (PURE, tested in

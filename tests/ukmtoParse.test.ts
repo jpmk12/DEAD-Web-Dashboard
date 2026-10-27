@@ -264,6 +264,30 @@ describe("parseUkmtoApi — the SCCD feed, read tolerantly (shape unverified)", 
     expect(app.lat).toBeCloseTo(25.2, 3);
     expect(p.keys).toContain("reference");
   });
+  it("reads the LIVE SCCD row shape (first 1.2.5 run, 2026-10-27): a bare incidentNumber keyed with the year of utcDateOfIncident, incidentTypeName, the sitecore anchor as the door", () => {
+    // Verbatim from the run log's sample (cut where the log cut it).
+    const live = { incidentIssuer: "UKMTO", incidentNumber: 143, sitecoreId: "a5b33f9d-6c8e-43fc-9af0-3936d61bf55d", utcDateCreated: "2026-09-29T10:28:14Z", utcDateOfIncident: "2026-09-28T23:00:00Z", pinColour: "Yellow", incidentTypeName: "Suspicious Activity" };
+    const r = apiRecordToIncident(live)!;
+    expect(r.ref).toBe("143-26");
+    expect(r.date).toBe("2026-09-28");                 // the incident's date, not the creation date
+    expect(r.time).toBe("2300 UTC");
+    expect(r.label).toBe("SUSPICIOUS ACTIVITY");
+    expect(r.reportedBy).toBe("UKMTO");
+    expect(r.url).toBe("https://www.ukmto.org/recent-incidents#a5b33f9d-6c8e-43fc-9af0-3936d61bf55d");
+    expect(r.placement).toBeNull();                    // no position field seen yet — never guessed
+    // A December row keeps its own year; a bare number with no date at all is skipped.
+    expect(apiRecordToIncident({ incidentNumber: 201, utcDateOfIncident: "2025-12-30T01:00:00Z" })?.ref).toBe("201-25");
+    expect(apiRecordToIncident({ incidentNumber: 7 })).toBeNull();
+    // The ticker's rows carry no reference — skipped, never keyed on the link.
+    expect(apiRecordToIncident({ navigationLink: "/recent-incidents#428cc21c-1484-49d6-95b6-02e527dffcc5", navigationLinkText: "UKMTO has received a verified time-late report…", date: "2026-10-23T08:30:00Z", type: "Attack" })).toBeNull();
+    // The text parse's "143-26" and the API's bare 143 merge into ONE row.
+    const cap = JSON.stringify({ format: "dead-ukmto", version: 1, source: { host: "www.ukmto.org", pageUrl: UKMTO_URL }, text: "143-26 - SUSPICIOUS ACTIVITY\nIncident Date: 28 SEP 2026\nSource: Master\nPosition: 12°40'N 043°20'E\nApproached by two small craft.", api: [{ url: "https://sccd.royalnavy.mod.uk/api/ukmto/all", status: 200, body: JSON.stringify([live]) }] });
+    const p = parseUkmtoCapture(cap);
+    expect(p.ok && p.incidents.length).toBe(1);
+    expect(p.ok && p.incidents[0].placement).toBe("reported");   // the text's position fills what the API row lacks
+    expect(p.ok && p.apiKeys).toEqual(Object.keys(live));
+    expect(p.ok && p.placed).toBe(1);
+  });
   it("reads a GeoJSON feature's properties and [lon, lat] geometry, and a string position", () => {
     const f = apiRecordToIncident({ type: "Feature", properties: { ref: "160-26", category: "WARNING", date: "01/10/2026", summary: "Increased military activity in the Arabian Gulf." }, geometry: { type: "Point", coordinates: [50.5, 26.1] } })!;
     expect(f.ref).toBe("160-26");

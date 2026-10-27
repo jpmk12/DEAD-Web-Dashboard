@@ -136,6 +136,17 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_ml_day (day)
   ) ENGINE=InnoDB`,
 
+  // Declared themes (lib/themeStore): a name and a few phrases the operator
+  // wants read against their own sources (lib/themes). Shared, attributed.
+  `CREATE TABLE IF NOT EXISTS osint_themes (
+    id          VARCHAR(36)  NOT NULL,
+    name        VARCHAR(40)  NOT NULL,
+    phrases     JSON         NOT NULL,
+    by_email    VARCHAR(255) NULL,
+    updated_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id)
+  ) ENGINE=InnoDB`,
+
   // Crew state history (lib/crewStore.snapshotCrewDay): the day's LAST counts
   // per qualification, so availability can be read as a series and joined
   // to the recorded demand outlooks (lib/crewTrend). Counts only, no names.

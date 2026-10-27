@@ -234,7 +234,9 @@ async function captureOne(url, c) {
     if (!up.ok || !d.ok) {
       return { ok: false, error: (d && d.error) || ("Upload failed (HTTP " + up.status + ")") + own, collected: capture.items.length, hints, url };
     }
-    const served = d.fromApi != null ? " [dashboard: " + d.fromApi + " rows from the SCCD API body]" : d.sections ? " [dashboard: " + d.sections + " sections]" : "";
+    const served = d.fromApi != null
+      ? " [dashboard: " + d.fromApi + " rows from the SCCD API body" + (d.parsed != null ? " · " + d.parsed + " parsed" : "") + (d.placed != null ? " · " + d.placed + " with a reported position" : "") + (Array.isArray(d.apiKeys) && d.apiKeys.length ? " · keys: " + d.apiKeys.join(", ") : "") + "]"
+      : d.sections ? " [dashboard: " + d.sections + " sections]" : "";
     return { ok: true, collected: capture.items.length, imported: d.imported, updated: d.updated, total: d.total, source: capture.source && capture.source.label, note: (own + served).trim() || undefined, hints, url };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e), url };

@@ -9,6 +9,7 @@ import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import { renderOeBriefViewerHtml } from "@/lib/oeBriefViewer";
 import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems, MOVE_LABEL, SIDE_LABEL, type PostureMove } from "@/lib/postureMoves";
 import { chatterLine, type ChatterCluster } from "@/lib/mobilityChatter";
+import type { ThemeRead } from "@/lib/themes";
 import type { MissionProfile } from "@/lib/missionProfile";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
@@ -294,6 +295,27 @@ export default function GlanceTab({
   // Lift chatter — tanker / airlift movement the user's own sources report,
   // clustered per command by the same sweep (lib/mobilityChatter).
   const [liftChatter, setLiftChatter] = useState<ChatterCluster[]>([]);
+  // Declared themes read against the own sources (lib/themes) — one line
+  // each under the chatter; absent when none are declared or the store is
+  // down (the OSINT › Feeds card says which).
+  const [themeReads, setThemeReads] = useState<ThemeRead[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const load = async (attempt = 0) => {
+      try {
+        const r = await fetch("/api/osint/themes", { cache: "no-store" });
+        const j = r.status === 200 || r.status === 202 ? await r.json() : null;
+        if (cancelled || !j) return;
+        if (Array.isArray(j.reads) && !j.pending) setThemeReads(j.reads);
+        if (j.pending && attempt < 3) retry = setTimeout(() => load(attempt + 1), 8_000);
+      } catch { /* the card on OSINT › Feeds carries the status */ }
+    };
+    load();
+    const id = setInterval(() => load(), 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
+  }, [active]);
   // Rising threads from the News tab's latest stored session (today or
   // yesterday) — one row at the top of Breaking & critical (REVIEW-2026-10
   // N11). Stored rows, no model call, one cheap GET when Glance is active.
@@ -1393,7 +1415,7 @@ export default function GlanceTab({
             ) : undefined}
             onJump={() => { document.getElementById("glance-demand")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           >
-            {postureMoves.length === 0 ? (
+            {postureMoves.length === 0 && liftChatter.length === 0 && themeReads.length === 0 ? (
               movesLoading ? <SkeletonRows n={2} /> : <Empty>No force-posture move read in the last 14 days of your feeds — absence of a report, not evidence of none.</Empty>
             ) : (
               <ul className="divide-y divide-slate-800/60">
@@ -1430,6 +1452,17 @@ export default function GlanceTab({
                       </div>
                     ))}
                     <div className="text-[10px] text-slate-600">Reported, not observed — the I&amp;W mobility sensor reads it beside ADS-B and caps chatter-only at watching.</div>
+                  </li>
+                )}
+                {themeReads.length > 0 && (
+                  <li className="px-3 py-1.5">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">◈ Your themes — your sources</div>
+                    {themeReads.slice(0, 3).map((r) => (
+                      <div key={r.id} className="text-[11px] text-slate-400 truncate" title={r.lead ? `${r.lead.source}: ${r.lead.title}` : r.volume.why}>
+                        <button type="button" onClick={() => { onNavigate("osint"); window.setTimeout(() => window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "feeds" })), 120); }} className="hover:text-violet-300 text-left truncate max-w-full">{r.line}</button>
+                      </div>
+                    ))}
+                    <div className="text-[10px] text-slate-600">Counts and framing, never a mood score — a theme never sets a level.</div>
                   </li>
                 )}
                 <li className="px-3 py-1.5 text-[10px] text-slate-600">Feeds a <button onClick={() => document.getElementById("glance-demand")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="underline decoration-dotted hover:text-slate-400">demand-horizon driver</button> (decayed by age, capped per command). Hover a row for its falsifier.</li>
