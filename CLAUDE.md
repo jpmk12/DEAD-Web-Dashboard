@@ -2482,7 +2482,15 @@ diag and their contracts are pinned from the published feed / API reference.
   "page: status cancelled". Pinned in `tests/maradParse.test.ts` against
   the diag's verbatim excerpt. The next full diag should show BOTH
   in-effect rows with `expirySource: "page"` and 2026-001A skipped as
-  `cancelled`.
+  `cancelled`. **It did (sixth MARAD diag, 2026-10-27) — the page
+  contract is VERIFIED from production**: 8 of 8 pages read; 2026-013
+  (Red Sea / Bab el Mandeb) and 2026-012 (Black Sea) in effect, both
+  `expirySource: "page"`, expires 2027-03-22, issued 2026-09-23 (the
+  page's date, not the feed's); 2026-001A and five older advisories
+  skipped `cancelled` by the page's Status field; 2026-006 / 2026-003
+  superseded by the same-region reissues. There is currently NO Hormuz
+  advisory in effect. The `Â·` in a pasted diag's `read` strings is the
+  paste's Latin-1 rendering, not the data.
 - **The Radar diag read "HTTP 400" on both endpoints and nothing else
   (2026-10-26, third diag)** — and a bare status cannot tell the two
   likely causes apart: Cloudflare answers a MALFORMED Authorization header
