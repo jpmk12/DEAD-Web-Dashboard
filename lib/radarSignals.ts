@@ -63,15 +63,26 @@ const ms = (s: unknown): number | null => {
 const str = (s: unknown): string => (typeof s === "string" ? s.trim() : "");
 const httpsOnly = (s: unknown): string | null => (typeof s === "string" && /^https:\/\//i.test(s) ? s.trim().slice(0, 300) : null);
 
-function countriesOf(codes: unknown, details: unknown): { code: string; name: string }[] {
+/** Countries named by an annotation. Tolerant of the shapes the API has
+ *  used: `locations: ["IR"]`, `locations: [{ code, name }]`,
+ *  `locationsDetails: [{ code, name }]`, and a single `location` string —
+ *  the first live rows (2026-10-27) parsed NO country for Ukraine / Russia
+ *  strike annotations, so the diag now also reports the raw field names. */
+function countriesOf(...sources: unknown[]): { code: string; name: string }[] {
   const out = new Map<string, string>();
-  if (Array.isArray(details)) for (const d of details) {
-    const code = str((d as { code?: unknown })?.code).toUpperCase();
-    if (/^[A-Z]{2}$/.test(code)) out.set(code, str((d as { name?: unknown })?.name) || code);
-  }
-  if (Array.isArray(codes)) for (const c of codes) {
-    const code = str(c).toUpperCase();
-    if (/^[A-Z]{2}$/.test(code) && !out.has(code)) out.set(code, code);
+  const take = (code: unknown, name?: unknown) => {
+    const c = str(code).toUpperCase();
+    if (!/^[A-Z]{2}$/.test(c)) return;
+    const n = str(name);
+    if (!out.has(c) || (n && out.get(c) === c)) out.set(c, n || out.get(c) || c);
+  };
+  for (const src of sources) {
+    if (typeof src === "string") take(src);
+    else if (Array.isArray(src)) for (const d of src) {
+      if (typeof d === "string") take(d);
+      else if (d && typeof d === "object") { const o = d as Record<string, unknown>; take(o.code ?? o.alpha2 ?? o.location ?? o.iso2, o.name ?? o.locationName); }
+    }
+    else if (src && typeof src === "object") { const o = src as Record<string, unknown>; take(o.code ?? o.alpha2, o.name); }
   }
   return [...out.entries()].map(([code, name]) => ({ code, name }));
 }
@@ -95,7 +106,7 @@ export function parseRadarOutages(json: unknown): RadarOutage[] {
       description: str(r.description).slice(0, 400),
       scope,
       cause: str(outage.outageCause).toUpperCase().slice(0, 40),
-      countries: countriesOf(r.locations, r.locationsDetails),
+      countries: countriesOf(r.locationsDetails, r.locations, r.locationDetails, r.location),
       asns: Array.isArray(r.asns) ? (r.asns as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0) : [],
       startMs,
       endMs: ms(r.endDate),
@@ -284,9 +295,10 @@ export function isByteStringError(message: string): boolean {
 export interface RadarTokenShape {
   /** Characters in the bare value. */
   length: number;
-  /** A Cloudflare API Token is 40 chars of [A-Za-z0-9_-]; the Global API
-   *  Key is 37 hex chars; an Origin CA key starts `v1.0-` — all told apart
-   *  by shape alone. */
+  /** A Cloudflare API Token is 40–64 chars of [A-Za-z0-9_-] (40 was the
+   *  classic length; the token that verified `active` on 2026-10-27 is 53);
+   *  the Global API Key is 37 hex chars; an Origin CA key starts `v1.0-` —
+   *  all told apart by shape alone. */
   looksLike: "api-token" | "global-api-key" | "origin-ca-key" | "unknown";
   /** The alphabet the value uses — `token-alphabet` ([A-Za-z0-9_-]), `hex`,
    *  or `other` (a character Cloudflare's Bearer parser refuses outright:
@@ -314,7 +326,7 @@ export function describeTokenShape(raw: string | undefined | null): RadarTokenSh
   const looksLike: RadarTokenShape["looksLike"] =
     /^v1\.0-/.test(bare) ? "origin-ca-key"
     : /^[0-9a-f]{37}$/.test(bare) ? "global-api-key"
-    : /^[A-Za-z0-9_-]{40}$/.test(bare) ? "api-token"
+    : /^[A-Za-z0-9_-]{40,64}$/.test(bare) ? "api-token"
     : "unknown";
   return { length: bare.length, looksLike, charset, nonAscii: firstNonAscii(bare), stripped };
 }

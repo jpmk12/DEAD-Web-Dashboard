@@ -2558,8 +2558,31 @@ diag and their contracts are pinned from the published feed / API reference.
   look-alike letter is deliberately NOT repaired: a secret is never
   guessed, it is reported. The two earlier diags' 54-character value was
   the same class of defect (a `charset: other` character that Cloudflare
-  itself refused as 6111). A good diag reads `length: 40 · api-token ·
+  itself refused as 6111). A good diag reads `api-token ·
   token-alphabet · nonAscii: null · verify 200 active`.
+  **Seventh Radar diag (2026-10-27): LIVE — and "exactly 40 characters"
+  was WRONG.** After a copied paste: `verify` 200 `active`, outages 200 /
+  9 parsed, anomalies 200 / 14 parsed — with `token.length` **53** and
+  `looksLike: unknown`. A Cloudflare API Token is NOT a fixed 40
+  characters (the earlier notes and the hint said so, from memory, and a
+  working token disproved it); `describeTokenShape` now reads
+  `api-token` for 40–64 characters of the token alphabet, and the
+  Global-API-Key (37 hex) and Origin CA (`v1.0-`) shapes are unchanged.
+  Do not pin a secret's length from memory again — pin it from a diag
+  that verified. The same diag showed every outage row's countries as
+  `—`: the parser read `locationsDetails[].code/name` only, and the live
+  rows carry their location in some other field or shape. `countriesOf`
+  (PURE, tested) now accepts, in order, `locationsDetails`, `locations`,
+  `locationDetails` and `location`, each as a string, a string array, an
+  object or an object array (`code` / `alpha2` / `location` / `iso2` +
+  `name` / `locationName`), keeps only two-letter codes, and prefers a
+  row that names the country; and `RadarDiag` carries `rawKeys` (the
+  first raw row's field names, ≤40) and `rawLocations` (its fields
+  matching location / country / asn, as JSON ≤400 chars, no token) so the
+  NEXT diag pins the real shape if the tolerant read still misses. An
+  outage with no country still parses (scope, cause, window, link) — it
+  is only unplaced, so `radarReadsFor` cannot credit it to a country and
+  the USCYBERCOM Outages cell reads it as "the feed answered".
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")

@@ -40,6 +40,14 @@ describe("parseRadarOutages / parseRadarAnomalies", () => {
     expect(parseRadarOutages({ result: {} })).toEqual([]);
     expect(parseRadarOutages(null)).toEqual([]);
   });
+  it("reads countries from every location shape the API has used (the first live rows parsed none)", () => {
+    const row = (loc: Record<string, unknown>) => ({ result: { annotations: [{ id: "x", startDate: "2026-10-25T00:00:00Z", outage: { outageType: "NATIONWIDE" }, ...loc }] } });
+    expect(parseRadarOutages(row({ locations: ["UA"] }))[0].countries).toEqual([{ code: "UA", name: "UA" }]);
+    expect(parseRadarOutages(row({ locations: [{ code: "ua", name: "Ukraine" }] }))[0].countries).toEqual([{ code: "UA", name: "Ukraine" }]);
+    expect(parseRadarOutages(row({ locationsDetails: [{ code: "RU", name: "Russia" }], locations: ["RU"] }))[0].countries).toEqual([{ code: "RU", name: "Russia" }]);
+    expect(parseRadarOutages(row({ location: "ir" }))[0].countries).toEqual([{ code: "IR", name: "IR" }]);
+    expect(parseRadarOutages(row({ locations: [] }))[0].countries).toEqual([]);
+  });
   it("reads anomalies, keeping the type vocabulary strict", () => {
     const xs = parseRadarAnomalies(ANOMALIES);
     expect(xs.map((x) => x.id).sort()).toEqual(["a1", "a2", "a3"]);
@@ -126,6 +134,8 @@ describe("normalizeRadarToken / describeTokenShape — paste defects stripped, s
     expect(JSON.stringify(s)).not.toContain(tok.slice(0, 8));
     expect(describeTokenShape("0123456789abcdef0123456789abcdef01234")).toMatchObject({ looksLike: "global-api-key", charset: "hex" });
     expect(describeTokenShape("short")).toMatchObject({ looksLike: "unknown", charset: "token-alphabet" });
+    // The token that verified `active` in production on 2026-10-27 is 53 chars — 40 is not the only length.
+    expect(describeTokenShape("abcdefghij0123456789Xklmnopqrstuvwxyz_ABCDEFGHIJKLMN-")).toMatchObject({ length: 53, looksLike: "api-token" });
     expect(describeTokenShape("v1.0-abcdef0123456789abcdef0123456789abcdef01234567")!.looksLike).toBe("origin-ca-key");
     // The 2026-10-27 production value: 54 chars, a character outside the token alphabet → Cloudflare's 6111.
     expect(describeTokenShape("abc.def/ghi+jkl=mnopqrstuvwxyz0123456789ABCDEFGHIJKLMN")).toMatchObject({ length: 54, looksLike: "unknown", charset: "other", nonAscii: null });

@@ -84,7 +84,7 @@ async function fetchJson(url: string, token: string, timeoutMs = 10_000): Promis
         status: 0, json: null,
         error: `the token holds a character outside ASCII${note ? ` — ${note.script} at position ${note.position}` : ""}; the request was never sent`,
         errorClass: "token",
-        hint: "the value was retyped, not copied — re-copy the 40-character secret from Cloudflare's Create / Roll Token screen and paste it bare",
+        hint: "the value was retyped, not copied — re-copy the secret from Cloudflare's Create / Roll Token screen with the copy button and paste it bare",
       };
     }
     return { status: 0, json: null, error: msg, errorClass: "other", hint: "the host did not answer — network or timeout" };
@@ -121,7 +121,26 @@ async function load(): Promise<RadarBody> {
   };
 }
 
-export interface RadarDiag { source: string; url: string; configured: boolean; status: number; ms: number; parsed: number; error?: string; errorClass?: RadarErrorClass; hint?: string; sample: string[] }
+export interface RadarDiag {
+  source: string; url: string; configured: boolean; status: number; ms: number; parsed: number; error?: string; errorClass?: RadarErrorClass; hint?: string; sample: string[];
+  /** The first raw row's field names and its location-shaped fields, so a
+   *  renamed or reshaped field is pinned from production (no token here). */
+  rawKeys?: string[];
+  rawLocations?: string;
+}
+
+/** The first row of the endpoint's list (annotations / trafficAnomalies),
+ *  reduced to its field names and any field whose name mentions a location. */
+function rawShape(json: unknown): { rawKeys: string[]; rawLocations: string } | null {
+  const result = (json as { result?: Record<string, unknown> } | null)?.result;
+  if (!result || typeof result !== "object") return null;
+  const list = Object.values(result).find((v) => Array.isArray(v)) as unknown[] | undefined;
+  const row = list?.find((r) => r && typeof r === "object") as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const loc: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) if (/locat|countr|asn/i.test(k)) loc[k] = v;
+  return { rawKeys: Object.keys(row).slice(0, 40), rawLocations: JSON.stringify(loc).slice(0, 400) };
+}
 
 export const RADAR_VERIFY_URL = "https://api.cloudflare.com/client/v4/user/tokens/verify";
 
@@ -166,7 +185,8 @@ async function diagnoseRadarEndpoints(token: string | null): Promise<RadarDiag[]
     if (!token) return { source, url, configured: false, status: 0, ms: 0, parsed: 0, error: "CLOUDFLARE_RADAR_TOKEN not set", sample: [] };
     const r = await fetchJson(url, token, 15_000);
     const p = r.json ? parse(r.json) : { n: 0, sample: [] };
-    return { source, url, configured: true, status: r.status, ms: Date.now() - t0, parsed: p.n, ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}), sample: p.sample };
+    const shape = r.json ? rawShape(r.json) : null;
+    return { source, url, configured: true, status: r.status, ms: Date.now() - t0, parsed: p.n, ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}), sample: p.sample, ...(shape ?? {}) };
   };
   return Promise.all([
     probe("Radar outages", RADAR_OUTAGES_URL, (j) => { const xs = parseRadarOutages(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.scope} · ${x.cause || "—"} · ${x.countries.map((c) => c.code).join("/") || "—"} · ${x.description.slice(0, 80)}`) }; }),
