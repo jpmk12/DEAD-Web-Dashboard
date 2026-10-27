@@ -2635,6 +2635,90 @@ diag and their contracts are pinned from the published feed / API reference.
   `entityLocation` is a placement and feeds `asnCountriesOf` only. The
   AS-anomaly placement was confirmed on the same diag (EG / VE / HT / IQ
   by ASN, CG by location). Pinned verbatim in `tests/radarSignals.test.ts`.
+  **BGP routing + NetFlows traffic (2026-10-27, "build the BGP hijack and
+  netflows timeseries you said weren't built")** — the two Radar endpoints
+  the first pass left out, on the same token, the same `fetchJson`, the same
+  15-min cache discipline. Both contracts are pinned from the published
+  reference and UNVERIFIED from the sandbox; each diag row carries
+  **`rawFirst`** (the first raw row, whole, ≤1,200 chars) so one paste of
+  `/api/spectrum?diag=radar` corrects a renamed field — the outages lesson
+  made a rule. `&cc=IR` picks the NetFlows probe country (default UA).
+  - **`lib/radarBgp.ts` (PURE, tested in `tests/radarBgp.test.ts`)**:
+    `parseBgpHijacks` (`result.events[]` of `/radar/bgp/hijacks/events` —
+    `confidence_score` banded by Cloudflare's own ranges `bandOf`: 8–10
+    high · 5–7 mid · 1–4 low; `hijacker_asn` / `hijacker_country`;
+    `victim_asns` / `victim_countries`; `prefixes`; `min/max_hijack_ts`;
+    `on_going_count` > 0 = ongoing; `is_stale`; `tags[].name`; snake_case
+    with camelCase fallbacks), `parseBgpLeaks` (`/radar/bgp/leaks/events` —
+    `leak_asn`, `countries`, counts, `min/max_ts`, `finished`), both with
+    `result.asn_info[]` → `{asn, country, org}` (merged by the server into
+    one table — a test that passed only the hijacks' table missed Lumen).
+    **The level is earned by confidence AND recency** (`hijackLevel`): a
+    HIGH-confidence hijack of a tracked country's prefixes, ongoing or seen
+    inside `BGP_RECENT_HOURS` = 24 → red; mid → amber; older → note; LOW
+    never colours even when ongoing. `leakLevel`: a leak touching the
+    country, ongoing or ≤24 h → amber. `bgpReadsFor(hijacks, leaks,
+    asnInfo, iso2[], now)`: the VICTIM read earns the level; a country
+    that appears only as the HIJACKER is listed (`hijackerIn`, "origin,
+    not victim") and never levels — the read is "against", never "by";
+    absent means nothing and the caller decides green vs UNKNOWN.
+    `BGP_LEVEL_ORDINAL` 3/2/1 for the `bgp:<iso2>` series (peak).
+  - **`lib/radarNetflows.ts` (PURE, tested in `tests/radarNetflows.test.ts`)**:
+    `parseNetflows` (`result.serie_0.{timestamps[], values[]}` as strings,
+    a named series when `serie_0` is absent, `meta.normalization /
+    aggInterval / lastUpdated`; pairs with a junk stamp, a NaN or a value
+    < −100 are dropped). **The request asks `normalization=
+    PERCENTAGE_CHANGE`**: every value is a percentage against ONE reference
+    constant, so v = c·(1+p/100) and a ratio of two samples cancels c.
+    `MIN0_MAX` would NOT do — it subtracts the window's minimum (the nightly
+    trough) and turns a modest daytime dip into a near-zero ratio (tested:
+    a series ending at the 03Z trough reads 100%, not a drop). `trafficRead`
+    is **hour-matched**: median of the last `RECENT_HOURS` = 6 samples over
+    the median of the SAME hours on the prior days (≤14) — Monday 0300 vs
+    0300, never vs the daily mean; median everywhere. `TRAFFIC_DOWN` ≤ 0.6
+    → `down`, `TRAFFIC_COLLAPSED` ≤ 0.25 → `collapsed`; fewer than
+    `MIN_BASELINE_DAYS` = 3 matched days for every recent hour →
+    `learning` (a tally, never a ratio); a last sample older than
+    `STALE_HOURS` = 4 → `unknown` "series stale"; no series → `unknown`.
+    **A drop never re-levels an annotation** — it is a second KIND of
+    evidence beside it. If the first diag's `last values as %change` look
+    like 0..1 fractions the API ignored the normalization — switch the
+    read to the ratio of raw values, never to MIN0_MAX.
+  - **Server (`lib/cloudflareRadar.ts`)**: `getRadarBgp()` (two requests —
+    `RADAR_HIJACKS_URL` with `minConfidence=5&per_page=100&sortBy=TIME&
+    sortOrder=DESC`, `RADAR_LEAKS_URL` — 15-min cache, in-flight deduped,
+    a dead endpoint keeps the last body's rows) → `RadarBgpBody {configured,
+    live, hijacks, leaks, asnInfo, reason}`; `getRadarTraffic(iso2[])` —
+    ONE request per country (`netflowsUrl`, `dateRange=7d&aggInterval=1h`),
+    per-country 15-min cache, parallel, 10 s each, capped at
+    `TRAFFIC_MAX_COUNTRIES` = 16 per pass (`skipped` names the rest; well
+    inside the 1,200 / 5 min limit) → `RadarTrafficBody {reads: Record<iso2,
+    TrafficRead | null>, failed, skipped, live = every asked country
+    answered}`; `trackedRadarCodes(prefs)` = ISO2 → name from the same two
+    lists the alerts pass reads (`countriesOfInterest` + `forceLocations`
+    countries; no ISO code → left out). `resetRadarBgpCache` /
+    `resetRadarTrafficCache`.
+  - **Consumers**: `lib/alerts.ts` — `bgp:<iso2>` (peak, level ordinal, 0
+    when the feed answered and named nothing) and an AMBER alert
+    `bgp-<country>` for a RED read only (a routing event, never red at the
+    alert level); `nflow:<iso2>` (LAST, ratio ×100 — written only from a
+    read that produced a ratio; learning / stale / dead write nothing) and
+    an amber alert `traffic-cf-<country>` for a COLLAPSED read. Both keys
+    registered in `sensorKeys.ts`. **USCYBERCOM** (`functionalCommands.ts`,
+    `FcInput.routing: FcRouting` + `FcInput.traffic: FcTraffic`, gathered
+    in `commandsAssemble` beside the outage sources): a fifth cell
+    **Routing** (red / amber from the reads, green ONLY when the feed
+    answered — "over N countries watched" — UNKNOWN when absent, not
+    configured or dead; the lead country's room is the door), and the
+    **Outages** cell takes NetFlows as corroboration — a COLLAPSED read in a
+    tracked country with no outage alert turns it AMBER ("raw evidence, no
+    annotation or IODA alert yet"), `down` reads and "normal in N" are
+    detail lines, an outage alert stays RED with the collapse beside it.
+    **Country room** `CountryDigital.radar.bgp` (`level` null = nothing;
+    the room line says victim / origin / leak counts) and `.traffic` (the
+    read; not live → UNKNOWN) → two more rows on the "⌁ Digital &
+    spectrum" card (sources "Cloudflare Radar BGP" / "Cloudflare NetFlows").
+  No new npm dep (esbuild `0`).
   **Tenth Radar diag (2026-10-27) confirmed it**: both strike annotations
   read `UA` by name (the "Russian strikes on energy infrastructure" row is
   an outage IN Ukraine — the entity, not the actor, places it), the

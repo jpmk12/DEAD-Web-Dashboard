@@ -40,11 +40,12 @@ import {
   type CbEvent, type CbDelta, type CbAlert, type CbOwnField,
 } from "./commandBoard";
 import { primer, type Primer, type PrimerConvergence, type PrimerDecision } from "./primer";
-import { functionalRows, type FcRow, type FcCrew, type FcStrait, type FcOutageSources } from "./functionalCommands";
+import { functionalRows, type FcRow, type FcCrew, type FcStrait, type FcOutageSources, type FcRouting, type FcTraffic } from "./functionalCommands";
 import { getSpectrumSummary } from "./spectrum";
 import { getChokepointReads } from "./chokepointReads";
 import { getIodaOutageAlerts } from "./cyberSources";
-import { getRadar } from "./cloudflareRadar";
+import { getRadar, getRadarBgp, getRadarTraffic, trackedRadarCodes } from "./cloudflareRadar";
+import { bgpReadsFor } from "./radarBgp";
 
 export interface CommandsBody {
   generatedAt: string;
@@ -220,7 +221,8 @@ async function gatherShared(): Promise<Shared> {
   // The functional commands' domain picture — the spectrum summary and the
   // strait reads, both bounded (each keeps its own cache and assembles in
   // the background past the wait; the row says "assembling" meanwhile).
-  const [spectrum, cpBody, ioda, radar] = await Promise.all([
+  const radarCodes = trackedRadarCodes(prefs);
+  const [spectrum, cpBody, ioda, radar, bgp, netflows] = await Promise.all([
     within(getSpectrumSummary({ maxWaitMs: 8_000 }), 9_000),
     within(getChokepointReads(), 12_000).catch(() => null),
     // The two outage sources, so the USCYBERCOM Outages cell can say which
@@ -228,15 +230,28 @@ async function gatherShared(): Promise<Shared> {
     // asked them, so these are usually cache hits).
     within(getIodaOutageAlerts(24), 6_000),
     within(getRadar(), 6_000),
+    // Routing (BGP hijacks / leaks) and the raw traffic under the
+    // annotations (NetFlows per tracked country) — same token, same caches.
+    within(getRadarBgp(), 6_000),
+    within(getRadarTraffic([...radarCodes.keys()]), 12_000),
   ]);
   const outages: FcOutageSources = {
     ioda: !!ioda?.live,
     radar: radar ? { configured: radar.configured, live: radar.live, reason: radar.reason } : { configured: false, live: false, reason: "Radar read unavailable" },
   };
+  const nameOf = (code: string) => radarCodes.get(code) ?? code;
+  const routing: FcRouting | null = bgp
+    ? { configured: bgp.configured, live: bgp.live, reason: bgp.reason, tracked: radarCodes.size,
+        reads: bgp.configured ? bgpReadsFor(bgp.hijacks, bgp.leaks, bgp.asnInfo, [...radarCodes.keys()], Date.now()).map((r) => ({ code: r.code, name: nameOf(r.code), level: r.level, why: r.why, ongoing: r.ongoing })) : [] }
+    : null;
+  const traffic: FcTraffic | null = netflows
+    ? { configured: netflows.configured, live: netflows.live, reason: netflows.reason, failed: netflows.failed,
+        reads: Object.entries(netflows.reads).flatMap(([code, r]) => (r ? [{ code, name: nameOf(code), state: r.state, ratio: r.ratio, why: r.why }] : [])) }
+    : null;
   const straits: FcStrait[] | null = cpBody
     ? cpBody.signals.filter((s) => s.id !== "russia-ovf").map((s) => ({ id: s.id, name: s.name, aor: classifyAor({ lat: s.lat, lon: s.lon, name: s.name }), score: s.score, acts: s.acts, threats: s.threats, line: s.line, transit: s.transit?.state ?? null }))
     : null;
-  const functional = functionalRows({ spectrum, demand, crew, straits, sitreps, ownFields, alerts: alertsRaw, outages });
+  const functional = functionalRows({ spectrum, demand, crew, straits, sitreps, ownFields, alerts: alertsRaw, outages, routing, traffic });
 
   const countryAors: Record<string, Aor> = {};
   for (const c of mt.countries) countryAors[c.trim().toLowerCase()] = classifyAor({ name: c });

@@ -17,6 +17,9 @@
 
 import { fetchWithTimeout } from "./fetchTimeout";
 import { parseRadarOutages, parseRadarAnomalies, describeRadarError, normalizeRadarToken, describeTokenShape, firstNonAscii, isByteStringError, type RadarOutage, type RadarAnomaly, type RadarErrorClass, type RadarTokenShape } from "./radarSignals";
+import { parseBgpHijacks, parseBgpLeaks, type BgpHijack, type BgpLeak, type BgpAsnInfo } from "./radarBgp";
+import { parseNetflows, trafficRead, type TrafficRead } from "./radarNetflows";
+import { countryIso2 } from "./holidays";
 
 export const RADAR_BASE = "https://api.cloudflare.com/client/v4/radar";
 // The query is the shape of the Outages doc's own example
@@ -27,6 +30,17 @@ export const RADAR_QUERY = "limit=100&offset=0&dateRange=7d&format=json";
 export const RADAR_OUTAGES_URL = `${RADAR_BASE}/annotations/outages?${RADAR_QUERY}`;
 export const RADAR_ANOMALIES_URL = `${RADAR_BASE}/traffic_anomalies?${RADAR_QUERY}`;
 export const RADAR_ATTRIBUTION = "Cloudflare Radar — radar.cloudflare.com (CC BY-NC 4.0)";
+// BGP events, newest first, one page of 100. `minConfidence=5` keeps the
+// mid and high bands (1–4 is mostly misconfiguration by Cloudflare's own
+// banding); the parser still bands what arrives. Pinned from the published
+// reference, UNVERIFIED from the sandbox — the diag's `rawFirst` is the door.
+export const RADAR_HIJACKS_URL = `${RADAR_BASE}/bgp/hijacks/events?dateRange=7d&minConfidence=5&per_page=100&sortBy=TIME&sortOrder=DESC&format=json`;
+export const RADAR_LEAKS_URL = `${RADAR_BASE}/bgp/leaks/events?dateRange=7d&per_page=100&sortBy=TIME&sortOrder=DESC&format=json`;
+// NetFlows per country: a week of hourly samples as PERCENTAGE_CHANGE (see
+// lib/radarNetflows.ts for why not MIN0_MAX). One request per country.
+export const netflowsUrl = (iso2: string) => `${RADAR_BASE}/netflows/timeseries?dateRange=7d&aggInterval=1h&normalization=PERCENTAGE_CHANGE&location=${encodeURIComponent(iso2)}&format=json`;
+/** The per-pass cap on NetFlows countries — far inside the API's 1,200 / 5 min. */
+export const TRAFFIC_MAX_COUNTRIES = 16;
 
 export interface RadarBody {
   configured: boolean;
@@ -121,8 +135,115 @@ async function load(): Promise<RadarBody> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// BGP hijacks + route leaks — one body, two requests, 15-min cache.
+
+export interface RadarBgpBody {
+  configured: boolean;
+  /** Both endpoints answered and parsed. */
+  live: boolean;
+  hijacks: BgpHijack[];
+  leaks: BgpLeak[];
+  /** Both endpoints' ASN tables, merged. */
+  asnInfo: Record<number, BgpAsnInfo>;
+  reason: string | null;
+  fetchedAt: string;
+}
+
+let bgpCache: { at: number; body: RadarBgpBody } | null = null;
+let bgpInflight: Promise<RadarBgpBody> | null = null;
+
+export function resetRadarBgpCache(): void { bgpCache = null; }
+
+export async function getRadarBgp(): Promise<RadarBgpBody> {
+  if (bgpCache && Date.now() - bgpCache.at < TTL) return bgpCache.body;
+  if (bgpInflight) return bgpInflight;
+  bgpInflight = loadBgp().then((b) => { if (b.live) bgpCache = { at: Date.now(), body: b }; return b; }).finally(() => { bgpInflight = null; });
+  return bgpInflight;
+}
+
+async function loadBgp(): Promise<RadarBgpBody> {
+  const fetchedAt = new Date().toISOString();
+  const token = radarToken();
+  if (!token) return { configured: false, live: false, hijacks: [], leaks: [], asnInfo: {}, reason: "CLOUDFLARE_RADAR_TOKEN not set", fetchedAt };
+  const [h, l] = await Promise.all([fetchJson(RADAR_HIJACKS_URL, token), fetchJson(RADAR_LEAKS_URL, token)]);
+  const hp = h.json ? parseBgpHijacks(h.json) : { events: [], asnInfo: {} };
+  const lp = l.json ? parseBgpLeaks(l.json) : { events: [], asnInfo: {} };
+  const failed: string[] = [];
+  if (!h.json) failed.push(`hijacks: ${h.error ?? "no body"}`);
+  if (!l.json) failed.push(`leaks: ${l.error ?? "no body"}`);
+  const tokenProblem = h.errorClass === "token" || l.errorClass === "token";
+  const reason = failed.length ? (tokenProblem ? `token refused (${failed.join("; ")}) — ${h.hint ?? l.hint}` : failed.join("; ")) : null;
+  return {
+    configured: true,
+    live: failed.length === 0,
+    hijacks: h.json ? hp.events : bgpCache?.body.hijacks ?? [],
+    leaks: l.json ? lp.events : bgpCache?.body.leaks ?? [],
+    asnInfo: { ...(bgpCache?.body.asnInfo ?? {}), ...hp.asnInfo, ...lp.asnInfo },
+    reason, fetchedAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// NetFlows traffic per country — one request per ISO2, cached 15 min each,
+// capped at TRAFFIC_MAX_COUNTRIES per pass, parallel, bounded.
+
+export interface RadarTrafficBody {
+  configured: boolean;
+  /** Every country asked for answered (a partial pass is live:false with the failed codes named). */
+  live: boolean;
+  /** Per ISO2 — the read, or null when that country's series did not arrive. */
+  reads: Record<string, TrafficRead | null>;
+  failed: string[];
+  /** Codes beyond the per-pass cap, not asked. */
+  skipped: string[];
+  reason: string | null;
+  fetchedAt: string;
+}
+
+const trafficCache = new Map<string, { at: number; read: TrafficRead }>();
+
+export function resetRadarTrafficCache(): void { trafficCache.clear(); }
+
+/** The tracked countries as ISO2 → display name, from the same two prefs
+ *  lists the alerts pass reads (watched countries + the countries of the
+ *  posture-watched bases). Countries with no ISO code are left out. */
+export function trackedRadarCodes(prefs: { countriesOfInterest?: { country: string }[]; forceLocations?: { country?: string | null }[] } | null | undefined): Map<string, string> {
+  const names = [...(prefs?.countriesOfInterest ?? []).map((c) => c.country), ...(prefs?.forceLocations ?? []).map((l) => l.country).filter((c): c is string => !!c)];
+  const out = new Map<string, string>();
+  for (const n of new Set(names)) { const code = countryIso2(n); if (code && !out.has(code)) out.set(code, n); }
+  return out;
+}
+
+export async function getRadarTraffic(codes: string[]): Promise<RadarTrafficBody> {
+  const fetchedAt = new Date().toISOString();
+  const want = [...new Set(codes.map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)))];
+  const asked = want.slice(0, TRAFFIC_MAX_COUNTRIES);
+  const skipped = want.slice(TRAFFIC_MAX_COUNTRIES);
+  const token = radarToken();
+  if (!token) return { configured: false, live: false, reads: {}, failed: [], skipped, reason: "CLOUDFLARE_RADAR_TOKEN not set", fetchedAt };
+  const now = Date.now();
+  const reads: Record<string, TrafficRead | null> = {};
+  const failed: string[] = [];
+  let tokenHint: string | null = null;
+  await Promise.all(asked.map(async (code) => {
+    const hit = trafficCache.get(code);
+    if (hit && now - hit.at < TTL) { reads[code] = hit.read; return; }
+    const r = await fetchJson(netflowsUrl(code), token, 10_000);
+    if (!r.json) { reads[code] = null; failed.push(`${code}: ${r.error ?? "no body"}`); if (r.errorClass === "token") tokenHint = r.hint ?? null; return; }
+    const read = trafficRead(parseNetflows(r.json), now);
+    trafficCache.set(code, { at: now, read });
+    reads[code] = read;
+  }));
+  const reason = failed.length ? (tokenHint ? `token refused (${failed.join("; ")}) — ${tokenHint}` : failed.join("; ")) : null;
+  return { configured: true, live: failed.length === 0, reads, failed, skipped, reason, fetchedAt };
+}
+
 export interface RadarDiag {
   source: string; url: string; configured: boolean; status: number; ms: number; parsed: number; error?: string; errorClass?: RadarErrorClass; hint?: string; sample: string[];
+  /** The first raw row of a list endpoint, whole (capped) — for the BGP and
+   *  NetFlows contracts, which are pinned from the reference and unverified. */
+  rawFirst?: string;
   /** The first raw row's field names and its location-shaped fields, so a
    *  renamed or reshaped field is pinned from production (no token here). */
   rawKeys?: string[];
@@ -176,25 +297,49 @@ export interface RadarDiagBody {
 /** Owner-only: the real fetches from production. Reports the token's shape,
  *  Cloudflare's own verify answer, and status + parsed + a few description
  *  lines per endpoint; the token is never in the reply. */
-export async function diagnoseRadar(): Promise<RadarDiagBody> {
+/** `cc` is the ISO2 the NetFlows row probes (default UA — a country with a
+ *  live annotation on the first diags, so a normal read is checkable). */
+export async function diagnoseRadar(cc = "UA"): Promise<RadarDiagBody> {
   const token = radarToken();
-  const [verify, endpoints] = await Promise.all([token ? verifyToken(token) : Promise.resolve(null), diagnoseRadarEndpoints(token)]);
+  const [verify, endpoints] = await Promise.all([token ? verifyToken(token) : Promise.resolve(null), diagnoseRadarEndpoints(token, cc)]);
   return { token: describeTokenShape(process.env.CLOUDFLARE_RADAR_TOKEN), verify, endpoints };
 }
 
-async function diagnoseRadarEndpoints(token: string | null): Promise<RadarDiag[]> {
-  const probe = async (source: string, url: string, parse: (j: unknown) => { n: number; sample: string[] }): Promise<RadarDiag> => {
+/** The first row of the first array under `result`, whole, capped. */
+function rawFirst(json: unknown, cap = 1_200): string | null {
+  const result = (json as { result?: Record<string, unknown> } | null)?.result;
+  if (!result || typeof result !== "object") return null;
+  const list = Object.values(result).find((v) => Array.isArray(v)) as unknown[] | undefined;
+  const row = list?.find((r) => r && typeof r === "object");
+  return row ? JSON.stringify(row).slice(0, cap) : null;
+}
+
+async function diagnoseRadarEndpoints(token: string | null, cc: string): Promise<RadarDiag[]> {
+  const probe = async (source: string, url: string, parse: (j: unknown) => { n: number; sample: string[] }, whole = false): Promise<RadarDiag> => {
     const t0 = Date.now();
     if (!token) return { source, url, configured: false, status: 0, ms: 0, parsed: 0, error: "CLOUDFLARE_RADAR_TOKEN not set", sample: [] };
     const r = await fetchJson(url, token, 15_000);
     const p = r.json ? parse(r.json) : { n: 0, sample: [] };
     const shape = r.json ? rawShape(r.json) : null;
-    return { source, url, configured: true, status: r.status, ms: Date.now() - t0, parsed: p.n, ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}), sample: p.sample, ...(shape ?? {}) };
+    const first = whole && r.json ? rawFirst(r.json) : null;
+    return { source, url, configured: true, status: r.status, ms: Date.now() - t0, parsed: p.n, ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}), sample: p.sample, ...(shape ?? {}), ...(first ? { rawFirst: first } : {}) };
   };
+  const code = /^[A-Za-z]{2}$/.test(cc) ? cc.toUpperCase() : "UA";
   return Promise.all([
     // ASCII separators: a diag pasted through a Latin-1 pipe turned "·" into
     // "Â·" on 2026-10-27, which is noise the reader has to see past.
     probe("Radar outages", RADAR_OUTAGES_URL, (j) => { const xs = parseRadarOutages(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.scope} | ${x.cause || "-"} | ${x.countries.map((c) => c.code).join("/") || "-"}${x.countriesVia === "asn" ? " (placed by ASN)" : ""} | ${x.description.slice(0, 80)}`) }; }),
     probe("Radar traffic anomalies", RADAR_ANOMALIES_URL, (j) => { const xs = parseRadarAnomalies(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.type} | ${x.status} | ${x.asn != null ? `AS${x.asn}` : "-"} | ${x.country?.code ?? "-"}${x.countryVia === "asn" ? " (placed by ASN)" : ""}`) }; }),
+    // The BGP and NetFlows contracts are pinned from the reference and
+    // unverified: `rawFirst` carries the first raw row whole so one paste
+    // corrects a renamed field (the outages lesson, 2026-10-27).
+    probe("Radar BGP hijacks", RADAR_HIJACKS_URL, (j) => { const p = parseBgpHijacks(j); return { n: p.events.length, sample: p.events.slice(0, 5).map((h) => `${h.band} ${h.confidence} | by AS${h.hijackerAsn ?? "?"} ${h.hijackerCountry ?? "-"} | victims ${h.victimCountries.join("/") || "-"} (AS${h.victimAsns.slice(0, 2).join("/AS") || "?"}) | ${h.prefixes.length} prefixes | ${h.ongoing ? "ongoing" : "ended"} ${new Date(h.lastMs).toISOString().slice(0, 16)}`) }; }, true),
+    probe("Radar BGP leaks", RADAR_LEAKS_URL, (j) => { const p = parseBgpLeaks(j); return { n: p.events.length, sample: p.events.slice(0, 5).map((l) => `by AS${l.leakAsn ?? "?"} | ${l.countries.join("/") || "-"} | ${l.prefixCount} prefixes, ${l.peerCount} peers | ${l.finished ? "ended" : "ongoing"} ${new Date(l.lastMs).toISOString().slice(0, 16)}`) }; }, true),
+    probe(`Radar NetFlows ${code}`, netflowsUrl(code), (j) => {
+      const s = parseNetflows(j);
+      const r = trafficRead(s, Date.now());
+      const tail = s ? s.values.slice(-4).map((v) => ((v - 1) * 100).toFixed(1) + "%").join(", ") : "-";
+      return { n: s ? s.timestamps.length : 0, sample: [`${r.state} | ratio ${r.ratio == null ? "-" : r.ratio.toFixed(2)} | ${r.why}`, `normalization ${s?.normalization || "?"} · aggInterval ${s?.aggInterval || "?"} · last ${s?.timestamps.at(-1) ? new Date(s.timestamps.at(-1)!).toISOString() : "-"} · last values as %change: ${tail}`] };
+    }),
   ]);
 }

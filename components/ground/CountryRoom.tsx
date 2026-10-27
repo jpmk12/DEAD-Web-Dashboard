@@ -362,6 +362,31 @@ export default function CountryRoom({ country, sel, base, active = true, section
                 : [{ led: "g", src: "Cloudflare Radar", text: "No outage annotation or verified traffic anomaly (7 d)" }]
               : [{ led: "u", src: "Cloudflare Radar", text: dg.radar.configured ? `Cloudflare Radar unreachable (${dg.radar.reason ?? "unknown"}) — UNKNOWN` : "Cloudflare Radar not configured — UNKNOWN, not clear (CLOUDFLARE_RADAR_TOKEN)" }]
             : []),
+          // NetFlows — the raw traffic under the annotations, hour-matched
+          // against the country's own prior days. A drop never re-levels an
+          // annotation; it is a second kind of evidence. Learning / stale /
+          // dead read UNKNOWN, never normal.
+          ...(dg.radar?.configured && dg.radar.traffic
+            ? [{
+                led: !dg.radar.traffic.live ? "u" : dg.radar.traffic.state === "collapsed" || dg.radar.traffic.state === "down" ? "a" : dg.radar.traffic.state === "normal" ? "g" : "u",
+                src: "Cloudflare NetFlows",
+                text: dg.radar.traffic.live ? dg.radar.traffic.why : `${dg.radar.traffic.why} — traffic UNKNOWN`,
+              }]
+            : []),
+          // BGP — hijacks of this country's prefixes (victim) earn the level;
+          // hijacks BY its networks are listed; leaks that touched it are amber
+          // while recent. Nothing + the feed answered = green.
+          ...(dg.radar?.configured && dg.radar.bgp
+            ? [{
+                led: !dg.radar.bgp.live ? "u" : dg.radar.bgp.level === "red" ? "r" : dg.radar.bgp.level === "amber" ? "a" : "g",
+                src: "Cloudflare Radar BGP",
+                text: !dg.radar.bgp.live
+                  ? `Cloudflare BGP unreachable (${dg.radar.bgp.reason ?? "unknown"}) — routing UNKNOWN`
+                  : dg.radar.bgp.why
+                    ? `${dg.radar.bgp.why}${dg.radar.bgp.victimOf + dg.radar.bgp.hijackerIn + dg.radar.bgp.leaks > 1 ? ` · ${dg.radar.bgp.victimOf} as victim, ${dg.radar.bgp.hijackerIn} as origin, ${dg.radar.bgp.leaks} leak${dg.radar.bgp.leaks === 1 ? "" : "s"} (7 d)` : ""}`
+                    : "No BGP hijack or route leak touching this country (7 d)",
+              }]
+            : []),
           { led: led(dg.gps.live, dg.gps.cells >= 10 ? "a" : "g"), src: "GPSJam",
             text: dg.gps.live ? `${dg.gps.cells} elevated GPS-interference cell${dg.gps.cells === 1 ? "" : "s"} within 500 km${dg.gps.date ? ` (${dg.gps.date})` : ""}` : "GPSJam unreachable — interference UNKNOWN" },
           { led: led(dg.ransomware.live, dg.ransomware.victims30 >= 5 ? "a" : "g"), src: "ransomware.live",

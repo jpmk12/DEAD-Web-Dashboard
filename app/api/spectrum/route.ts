@@ -18,12 +18,14 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const diag = new URL(req.url).searchParams.get("diag");
+  const url = new URL(req.url);
+  const diag = url.searchParams.get("diag");
   if (diag === "radar") {
     // The short form: only the Cloudflare Radar rows — the full diag body is
     // long enough that a paste of it was cut off before the radar list twice.
+    // `&cc=IR` picks the country the NetFlows row probes (default UA).
     if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });
-    return NextResponse.json({ radar: await diagnoseRadar() });
+    return NextResponse.json({ radar: await diagnoseRadar(url.searchParams.get("cc") ?? "UA") });
   }
   if (diag === "1") {
     if (!isOwner(session.user?.email)) return NextResponse.json({ error: "Owner only" }, { status: 403 });

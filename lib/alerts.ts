@@ -21,8 +21,9 @@ import { assessWarning } from "./warningAssess";
 import { getSpectrumSummary } from "./spectrum";
 import { getIodaOutageAlerts } from "./cyberSources";
 import { outageAlertsFor } from "./cyberSignals";
-import { getRadar } from "./cloudflareRadar";
+import { getRadar, getRadarBgp, getRadarTraffic } from "./cloudflareRadar";
 import { radarReadsFor, RADAR_LEVEL_ORDINAL } from "./radarSignals";
+import { bgpReadsFor, BGP_LEVEL_ORDINAL } from "./radarBgp";
 import { countryIso2 } from "./holidays";
 import { recordSensorDay } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
@@ -178,12 +179,12 @@ async function build(): Promise<AlertCheck> {
       // regional / network reads stay on the country room. Not configured or
       // dead → nothing here (the Outages cell says UNKNOWN), never a fake
       // quiet day in the series.
+      const byCode = new Map<string, string>();
+      for (const c of new Set(tracked)) { const code = countryIso2(c); if (code) byCode.set(code, c); }
+      const day = new Date().toISOString().slice(0, 10);
       const radar = await getRadar();
       if (radar.configured && radar.live) {
-        const byCode = new Map<string, string>();
-        for (const c of new Set(tracked)) { const code = countryIso2(c); if (code) byCode.set(code, c); }
         const reads = radarReadsFor(radar.outages, radar.anomalies, [...byCode.keys()], Date.now());
-        const day = new Date().toISOString().slice(0, 10);
         for (const code of byCode.keys()) {
           const r = reads.find((x) => x.code === code);
           recordSensorDay(sensorKey("cfout", code), day, r ? RADAR_LEVEL_ORDINAL[r.level] : 0).catch(() => {});
@@ -193,6 +194,41 @@ async function build(): Promise<AlertCheck> {
           const nationwide = r.outages.some((o) => o.scope === "NATIONWIDE" && (o.endMs == null || o.endMs > Date.now()));
           if (r.level === "red") alerts.push({ id: `outage-cf-${name}`, severity: "red", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
           else if (r.level === "amber" && nationwide) alerts.push({ id: `outage-cf-${name}`, severity: "amber", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
+        }
+      }
+      // Cloudflare Radar BGP — a HIGH-confidence, recent hijack of a tracked
+      // country's prefixes is an amber alert (a routing event, not a life
+      // signal — never red here); the `bgp:` series takes the day-peak level
+      // ordinal. Dead or not configured → nothing written.
+      if (byCode.size) {
+        const bgp = await getRadarBgp();
+        if (bgp.configured && bgp.live) {
+          const reads = bgpReadsFor(bgp.hijacks, bgp.leaks, bgp.asnInfo, [...byCode.keys()], Date.now());
+          for (const code of byCode.keys()) {
+            const r = reads.find((x) => x.code === code);
+            recordSensorDay(sensorKey("bgp", code), day, r ? BGP_LEVEL_ORDINAL[r.level] : 0).catch(() => {});
+          }
+          for (const r of reads) {
+            if (r.level !== "red") continue;
+            const name = byCode.get(r.code) ?? r.code;
+            alerts.push({ id: `bgp-${name}`, severity: "amber", kind: "spectrum", title: `BGP hijack — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
+          }
+        }
+        // Cloudflare NetFlows — the raw traffic. `nflow:` takes the hour-
+        // matched ratio ×100 (LAST policy) only from a read that produced
+        // one (learning / stale / dead write nothing); a COLLAPSED read is an
+        // amber alert — raw evidence of a shutdown-class drop before (or
+        // without) a curated annotation.
+        const tr = await getRadarTraffic([...byCode.keys()]);
+        if (tr.configured) {
+          for (const [code, r] of Object.entries(tr.reads)) {
+            if (!r || r.ratio == null) continue;
+            recordSensorDay(sensorKey("nflow", code), day, Math.round(r.ratio * 100)).catch(() => {});
+            if (r.state === "collapsed") {
+              const name = byCode.get(code) ?? code;
+              alerts.push({ id: `traffic-cf-${name}`, severity: "amber", kind: "spectrum", title: `Internet traffic collapsed — ${name}`, sub: `Cloudflare NetFlows: ${r.why}` });
+            }
+          }
         }
       }
     }

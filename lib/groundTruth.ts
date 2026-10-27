@@ -26,8 +26,10 @@ import { getGpsInterference } from "./gpsjam";
 import { getIodaOutageAlerts, getRansomwareVictims, getCisaAdvisories } from "./cyberSources";
 import { outageAlertsFor, victimsRelevant, advisoriesNaming, readCyber } from "./cyberSignals";
 import { countryIso2 } from "./holidays";
-import { getRadar } from "./cloudflareRadar";
+import { getRadar, getRadarBgp, getRadarTraffic } from "./cloudflareRadar";
 import { radarReadsFor } from "./radarSignals";
+import { bgpReadsFor, type BgpLevel } from "./radarBgp";
+import type { TrafficState } from "./radarNetflows";
 
 export interface Incident {
   src: "acled" | "ucdp";
@@ -83,7 +85,13 @@ export interface CountryDigital {
   /** Cloudflare Radar — the second outage source. `configured:false` when
    *  the token is not set (UNKNOWN, never clear); `reads` are this country's
    *  outage annotations / verified anomalies in the last 7 days. */
-  radar: { configured: boolean; live: boolean; reason: string | null; reads: { level: "red" | "amber" | "note"; why: string; ongoing: boolean; url: string | null }[] };
+  radar: {
+    configured: boolean; live: boolean; reason: string | null; reads: { level: "red" | "amber" | "note"; why: string; ongoing: boolean; url: string | null }[];
+    /** BGP hijacks / route leaks touching this country (7 d). `level` null = nothing; absent read = the feed did not answer. */
+    bgp: { live: boolean; reason: string | null; level: BgpLevel | null; why: string | null; victimOf: number; hijackerIn: number; leaks: number } | null;
+    /** The hour-matched NetFlows traffic read. */
+    traffic: { live: boolean; reason: string | null; state: TrafficState; ratio: number | null; why: string } | null;
+  };
   gps: { live: boolean; cells: number; date: string };
   ransomware: { live: boolean; victims30: number };
   advisories: { title: string; link?: string; pubDate?: string; actors: string[] }[];
@@ -199,7 +207,7 @@ async function captureCountryNews(country: string): Promise<NewsItem[]> {
 
 export async function getCountryDossier(country: string, osintFeeds: OsintFeed[] = []): Promise<CountryDossier> {
   const cen = countryCentroid(country);
-  const [acled, conflict, gdelt, osint, captures, advisories, disasterEvents, holidays, detail, healthEvents, hostHealth, outages, gps, ransom, cisa, radar] = await Promise.all([
+  const [acled, conflict, gdelt, osint, captures, advisories, disasterEvents, holidays, detail, healthEvents, hostHealth, outages, gps, ransom, cisa, radar, bgp, netflows] = await Promise.all([
     getAcledEvents().catch(() => []),
     getConflictPoints().catch(() => []),
     gdeltLocalNews(country).catch(() => [] as NewsItem[]),
@@ -216,6 +224,8 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     getRansomwareVictims().catch(() => ({ live: false, victims: [] })),
     getCisaAdvisories().catch(() => ({ live: false, items: [] })),
     getRadar().catch(() => null),
+    getRadarBgp().catch(() => null),
+    (() => { const c = countryIso2(country); return c ? getRadarTraffic([c]).catch(() => null) : Promise.resolve(null); })(),
   ]);
 
   // Host-nation health: live WHO outbreaks in-country (DON) + structural GHO
@@ -307,6 +317,18 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
       configured: !!radar?.configured, live: !!radar?.live,
       reason: radar ? (!iso2 && radar.live ? `no ISO code for ${country}` : radar.reason) : "Radar read unavailable",
       reads: radarReads.map((r) => ({ level: r.level, why: r.why, ongoing: r.ongoing, url: r.url })),
+      bgp: bgp && bgp.configured && iso2
+        ? (() => {
+            const r = bgp.live ? bgpReadsFor(bgp.hijacks, bgp.leaks, bgp.asnInfo, [iso2], nowMs)[0] : undefined;
+            return { live: bgp.live, reason: bgp.reason, level: r?.level ?? null, why: r?.why ?? null, victimOf: r?.victimOf.length ?? 0, hijackerIn: r?.hijackerIn.length ?? 0, leaks: r?.leaks.length ?? 0 };
+          })()
+        : null,
+      traffic: netflows && netflows.configured && iso2
+        ? (() => {
+            const r = netflows.reads[iso2];
+            return r ? { live: true, reason: null, state: r.state, ratio: r.ratio, why: r.why } : { live: false, reason: netflows.reason, state: "unknown" as TrafficState, ratio: null, why: `NetFlows did not answer (${netflows.reason ?? "unknown"})` };
+          })()
+        : null,
     },
     gps: { live: gps.ok, cells: gpsCells, date: gps.date },
     ransomware: { live: ransom.live, victims30: ransom.live ? victimsRelevant(ransom.victims, [{ name: country, iso2 }], nowMs, 30).filter((v) => (iso2 && v.country === iso2) || v.country.toLowerCase() === country.toLowerCase()).length : 0 },

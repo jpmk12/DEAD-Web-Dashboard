@@ -104,6 +104,20 @@ export interface FcStrait { id: string; name: string; aor: Aor; score: number; a
  *  Cloudflare Radar are independent; the Outages cell is green only when at
  *  least one answered, and names what it is missing. */
 export interface FcOutageSources { ioda: boolean; radar: { configured: boolean; live: boolean; reason: string | null } }
+/** Cloudflare Radar BGP — hijacks and route leaks touching the tracked
+ *  countries (7 d). `reads` carry only countries with something; `tracked`
+ *  is how many were asked, so "nothing" can say over how many. */
+export interface FcRouting {
+  configured: boolean; live: boolean; reason: string | null; tracked: number;
+  reads: { code: string; name: string; level: "red" | "amber" | "note"; why: string; ongoing: boolean }[];
+}
+/** Cloudflare Radar NetFlows — the hour-matched traffic read per tracked
+ *  country. A `collapsed` read with no outage alert turns the Outages cell
+ *  amber (raw evidence, not yet curated); `down` is a detail line. */
+export interface FcTraffic {
+  configured: boolean; live: boolean; reason: string | null; failed: string[];
+  reads: { code: string; name: string; state: "normal" | "down" | "collapsed" | "learning" | "unknown"; ratio: number | null; why: string }[];
+}
 export interface FcInput {
   spectrum: FcSpectrum | null;
   demand: CbDemand[] | null;
@@ -114,6 +128,10 @@ export interface FcInput {
   alerts: CbAlert[] | null;
   /** Absent (older callers) → the cell falls back to the cyber sensors' liveness. */
   outages?: FcOutageSources | null;
+  /** Absent (older callers) → the Routing cell reads UNKNOWN. */
+  routing?: FcRouting | null;
+  /** Absent (older callers) → no traffic corroboration on the Outages cell. */
+  traffic?: FcTraffic | null;
 }
 
 const LED_RANK: Record<Led, number> = { g: 0, u: 1, a: 2, r: 3 };
@@ -246,10 +264,46 @@ function cybercom(i: FcInput): FcRow {
     : [];
   const answered = src ? src.ioda || src.radar.live : !!sp?.cyber?.live;
   const answeredBy = src ? [src.ioda ? "IODA" : null, src.radar.live ? "Cloudflare Radar" : null].filter(Boolean).join(" + ") : "IODA";
-  if (outages.length) cells.push({ key: "outages", label: "Outages", led: "r", text: outages.map((a) => a.title).join(" · "), live: true, detail: [...outages.map((a) => `${a.title} — ${a.sub}`), ...srcLines] });
-  else if (!i.alerts) cells.push({ key: "outages", label: "Outages", led: "u", text: "UNKNOWN — alerts unavailable", live: false, detail: srcLines });
-  else if (answered) cells.push({ key: "outages", label: "Outages", led: "g", text: `no nationwide outage alert in a tracked country (${answeredBy})`, live: true, detail: srcLines });
-  else cells.push({ key: "outages", label: "Outages", led: "u", text: src ? "no outage alert — but neither outage source answered, so UNKNOWN" : "no outage alert — but the cyber sensors did not answer, so UNKNOWN", live: false, detail: srcLines });
+  // NetFlows — the raw traffic UNDER the annotations. A collapsed read in a
+  // tracked country with no outage alert is amber here (raw evidence, not
+  // yet curated — a second KIND of evidence, never a re-level of an
+  // annotation); a `down` read is a detail line; learning / stale reads are
+  // named so a quiet cell is not mistaken for a watched one.
+  const tr = i.traffic;
+  const collapsed = tr?.configured ? tr.reads.filter((r) => r.state === "collapsed") : [];
+  const trafficLines: string[] = tr === undefined ? []
+    : tr === null ? ["NetFlows read unavailable — traffic UNKNOWN"]
+    : !tr.configured ? ["Cloudflare NetFlows not configured — traffic UNKNOWN"]
+    : [
+        ...tr.reads.filter((r) => r.state !== "normal").map((r) => `${r.name}: ${r.why}`),
+        ...(tr.failed.length ? [`NetFlows did not answer for ${tr.failed.length} countr${tr.failed.length === 1 ? "y" : "ies"} (${tr.reason ?? "unknown"}) — UNKNOWN there`] : []),
+        ...(tr.reads.length && tr.reads.every((r) => r.state === "normal") ? [`NetFlows: traffic normal in ${tr.reads.length} tracked countr${tr.reads.length === 1 ? "y" : "ies"}`] : []),
+      ];
+  const detail = [...srcLines, ...trafficLines];
+  if (outages.length) cells.push({ key: "outages", label: "Outages", led: "r", text: outages.map((a) => a.title).join(" · "), live: true, detail: [...outages.map((a) => `${a.title} — ${a.sub}`), ...detail] });
+  else if (!i.alerts) cells.push({ key: "outages", label: "Outages", led: "u", text: "UNKNOWN — alerts unavailable", live: false, detail });
+  else if (collapsed.length) cells.push({ key: "outages", label: "Outages", led: "a", text: `traffic COLLAPSED in ${collapsed.map((r) => r.name).join(", ")} (Cloudflare NetFlows) — no outage annotation or IODA alert yet`, live: true, detail, door: { kind: "country", id: collapsed[0].name } });
+  else if (answered) cells.push({ key: "outages", label: "Outages", led: "g", text: `no nationwide outage alert in a tracked country (${answeredBy})`, live: true, detail });
+  else cells.push({ key: "outages", label: "Outages", led: "u", text: src ? "no outage alert — but neither outage source answered, so UNKNOWN" : "no outage alert — but the cyber sensors did not answer, so UNKNOWN", live: false, detail });
+  // Routing — BGP hijacks and route leaks touching the tracked countries.
+  // A high-confidence, recent hijack of a tracked country's prefixes is RED;
+  // mid confidence or a leak is amber; nothing is green ONLY when the feed
+  // answered; not configured is UNKNOWN, never clear.
+  const rt = i.routing;
+  if (rt === undefined) cells.push({ key: "routing", label: "Routing", led: "u", text: "UNKNOWN — BGP read unavailable", live: false, detail: [] });
+  else if (!rt || !rt.configured) cells.push({ key: "routing", label: "Routing", led: "u", text: "Cloudflare Radar not configured — BGP hijacks UNKNOWN, not clear (CLOUDFLARE_RADAR_TOKEN)", live: false, detail: [] });
+  else if (!rt.live) cells.push({ key: "routing", label: "Routing", led: "u", text: `UNKNOWN — Cloudflare BGP did not answer (${rt.reason ?? "unknown"})`, live: false, detail: rt.reads.map((r) => `${r.name} [${r.level}]: ${r.why}`) });
+  else {
+    const red = rt.reads.filter((r) => r.level === "red");
+    const amber = rt.reads.filter((r) => r.level === "amber");
+    const lead = red[0] ?? amber[0];
+    const led: Led = red.length ? "r" : amber.length ? "a" : "g";
+    const more = red.length + amber.length - 1;
+    const text = lead
+      ? `${lead.name}: ${cap(lead.why, 150)}${more > 0 ? ` · +${more} more` : ""}`
+      : `no hijack or route leak touching a tracked country in 7 d (${rt.tracked} countr${rt.tracked === 1 ? "y" : "ies"} watched${rt.reads.length ? `; ${rt.reads.length} note${rt.reads.length === 1 ? "" : "s"}` : ""})`;
+    cells.push({ key: "routing", label: "Routing", led, text, live: true, detail: rt.reads.map((r) => `${r.name} [${r.level}]: ${r.why}`), ...(lead ? { door: { kind: "country" as const, id: lead.name } } : {}) });
+  }
   // Actor posture.
   const posts = (sp?.postures ?? []).filter((p) => p.cyber);
   if (!sp) cells.push({ key: "actors", label: "Actor posture", led: "u", text: pend ?? "UNKNOWN", live: false, detail: [] });
