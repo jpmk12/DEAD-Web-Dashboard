@@ -2635,7 +2635,13 @@ diag and their contracts are pinned from the published feed / API reference.
   `entityLocation` is a placement and feeds `asnCountriesOf` only. The
   AS-anomaly placement was confirmed on the same diag (EG / VE / HT / IQ
   by ASN, CG by location). Pinned verbatim in `tests/radarSignals.test.ts`.
-  Both sensors are now verified end to end from production.
+  **Tenth Radar diag (2026-10-27) confirmed it**: both strike annotations
+  read `UA` by name (the "Russian strikes on energy infrastructure" row is
+  an outage IN Ukraine — the entity, not the actor, places it), the
+  network rows read `US` / `FR` / `RU (placed by ASN)`, the anomalies
+  `EG` / `VE` / `HT` / `IQ (placed by ASN)` and `CG` by location. Both
+  sensors are verified end to end from production; the next change to
+  either should start from a fresh diag, not from these notes.
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")
