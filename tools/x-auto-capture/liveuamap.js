@@ -33,7 +33,19 @@ export async function collectLiveuamap(durationMs, maxItems) {
           const s = ev.querySelector('a[href^="http"]:not([href*="liveuamap.com"])');
           if (s) sourceUrl = s.href;
         }
-        store.set(href, { url: href, title: title.slice(0, 300), time: time.slice(0, 40), sourceUrl });
+        // The event's own coordinates, when the markup carries them (the feed
+        // entries have historically carried data-lat / data-lng; a few
+        // spellings are tried on the entry and its ancestors). A placed event
+        // is what lets the dashboard join it to a strait, a base or a country
+        // by distance instead of by name; nothing is guessed when absent.
+        let lat = null, lng = null;
+        const coordNode = (a.closest("[data-lat],[data-latitude],[data-y]") || ev || a);
+        const pick = (el, names) => { for (const n of names) { const v = el && el.getAttribute && el.getAttribute(n); if (v != null && v !== "" && isFinite(Number(v))) return Number(v); } return null; };
+        lat = pick(coordNode, ["data-lat", "data-latitude", "data-y"]);
+        lng = pick(coordNode, ["data-lng", "data-lon", "data-long", "data-longitude", "data-x"]);
+        const item = { url: href, title: title.slice(0, 300), time: time.slice(0, 40), sourceUrl };
+        if (lat != null && lng != null) { item.lat = lat; item.lng = lng; }
+        store.set(href, item);
       } catch (e) { /* one bad node never kills the capture */ }
     });
   };

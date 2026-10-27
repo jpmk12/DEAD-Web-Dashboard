@@ -17,6 +17,8 @@ import { getUkmtoIncidents } from "./ukmto";
 import { ukmtoGeoEvents, ukmtoTextsFor } from "./ukmtoParse";
 import { getMaradAdvisories } from "./marad";
 import { maradTextsFor } from "./maradParse";
+import { getCapturedEvents } from "./eventStore";
+import { kineticEvents, kineticGeoEvents } from "./kineticEvents";
 
 export interface ChokepointRead extends Chokepoint, ActivityRead {
   totalEvents: number;
@@ -32,7 +34,7 @@ export interface ChokepointRead extends Chokepoint, ActivityRead {
 export interface ChokepointReadsBody {
   signals: ChokepointRead[];
   generatedAt: string;
-  sources: { conflictEvents: number; acledEvents: number; ukmto?: number; marad?: number };
+  sources: { conflictEvents: number; acledEvents: number; ukmto?: number; marad?: number; /** Captured map events read as kinetic acts WITH a reported position (lib/kineticEvents). */ captured?: number };
   /** The UKMTO door: live = the direct fetch parsed entries; the count is
    *  what the board read (fetch + capture merged); reason says why a dead
    *  fetch is dead. */
@@ -113,7 +115,7 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
   // Georeferenced events, from both conflict feeds. ACLED is the higher-fidelity
   // layer but its free tier embargoes recent data, so UCDP/ReliefWeb carries the
   // current picture — exactly the division the Crisis map already assumes.
-  const [conflict, acled, ukmto, marad] = await Promise.all([
+  const [conflict, acled, ukmto, marad, captured] = await Promise.all([
     getConflictPoints().catch(() => []),
     getAcledEvents().catch(() => []),
     // UKMTO is the primary record for the Gulf / Red Sea / Gulf of Aden —
@@ -126,12 +128,19 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
     // threat by region — a DECLARED THREAT on every strait the region names
     // (lib/maradParse gradeMarad), never an act. Pre-graded like UKMTO.
     getMaradAdvisories().catch(() => null),
+    // The user's own browser-captured map events (LiveUAMap), read for a
+    // kinetic ACT and joined by distance ONLY when the capture carried a
+    // real position — a country-centroid placement is hundreds of km from
+    // any strait. The ACLED embargo's timeliest fill (2026-10-27).
+    getCapturedEvents(300).catch(() => []),
   ]);
   const ukmtoIncidents = ukmto?.incidents ?? [];
   const maradAdvisories = marad?.advisories ?? [];
+  const capturedKinetic = kineticGeoEvents(kineticEvents(captured, Date.now()), { reportedOnly: true });
 
   const events: GeoEvent[] = [
     ...ukmtoGeoEvents(ukmtoIncidents),
+    ...capturedKinetic,
     ...conflict.map((c) => ({
       id: `ucdp-${c.name}-${c.lat},${c.lon}`,
       lat: c.lat, lon: c.lon,
@@ -181,7 +190,7 @@ async function compute(points: Chokepoint[]): Promise<ChokepointReadsBody> {
     generatedAt: new Date().toISOString(),
     // So an all-zero board reads as "nothing interdiction-shaped reported",
     // never as "the straits are fine".
-    sources: { conflictEvents: conflict.length, acledEvents: acled.length, ukmto: ukmtoIncidents.length, marad: maradAdvisories.length },
+    sources: { conflictEvents: conflict.length, acledEvents: acled.length, ukmto: ukmtoIncidents.length, marad: maradAdvisories.length, captured: capturedKinetic.length },
     ukmto: ukmto
       ? { live: ukmto.fetch.live, count: ukmtoIncidents.length, reason: ukmto.fetch.reason, captured: ukmto.store.captured }
       : { live: false, count: 0, reason: "UKMTO read unavailable", captured: 0 },

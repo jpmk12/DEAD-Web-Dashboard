@@ -7,6 +7,7 @@ import { relTimeFuture } from "@/lib/relTime";
 import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import { renderOeBriefViewerHtml } from "@/lib/oeBriefViewer";
 import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems, MOVE_LABEL, SIDE_LABEL, type PostureMove } from "@/lib/postureMoves";
+import { chatterLine, type ChatterCluster } from "@/lib/mobilityChatter";
 import type { MissionProfile } from "@/lib/missionProfile";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
@@ -288,6 +289,9 @@ export default function GlanceTab({
   // (/api/posture-moves, deterministic, 15-min cache); merged below with the
   // same detector run over the articles + newsletters this client holds.
   const [serverMoves, setServerMoves] = useState<PostureMove[] | null>(null);
+  // Lift chatter — tanker / airlift movement the user's own sources report,
+  // clustered per command by the same sweep (lib/mobilityChatter).
+  const [liftChatter, setLiftChatter] = useState<ChatterCluster[]>([]);
   // Rising threads from the News tab's latest stored session (today or
   // yesterday) — one row at the top of Breaking & critical (REVIEW-2026-10
   // N11). Stored rows, no model call, one cheap GET when Glance is active.
@@ -311,6 +315,7 @@ export default function GlanceTab({
         const j = r.ok ? await r.json() : null;
         if (cancelled || !j) return;
         if (Array.isArray(j.moves)) setServerMoves(j.moves);
+        if (Array.isArray(j.chatter)) setLiftChatter(j.chatter);
         if (j.pending && attempt < 3) retry = setTimeout(() => load(attempt + 1), 10_000);
       } catch { /* the client-side detector still runs */ }
     };
@@ -1408,6 +1413,18 @@ export default function GlanceTab({
                     </li>
                   );
                 })}
+                {liftChatter.length > 0 && (
+                  <li className="px-3 py-1.5">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">✈ Lift chatter — your sources</div>
+                    {liftChatter.slice(0, 3).map((c) => (
+                      <div key={c.id} className="text-[11px] text-slate-400 truncate" title={`${c.lead.source}: ${c.lead.text}`}>
+                        {c.lead.link ? <a href={c.lead.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400">{chatterLine(c, relTime)}</a> : chatterLine(c, relTime)}
+                        {c.corroborated ? <span className="ml-1 text-[8px] font-mono uppercase text-amber-300">corroborated</span> : <span className="ml-1 text-[8px] font-mono uppercase text-slate-600">lead</span>}
+                      </div>
+                    ))}
+                    <div className="text-[10px] text-slate-600">Reported, not observed — the I&amp;W mobility sensor reads it beside ADS-B and caps chatter-only at watching.</div>
+                  </li>
+                )}
                 <li className="px-3 py-1.5 text-[10px] text-slate-600">Feeds a <button onClick={() => document.getElementById("glance-demand")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="underline decoration-dotted hover:text-slate-400">demand-horizon driver</button> (decayed by age, capped per command). Hover a row for its falsifier.</li>
               </ul>
             )}

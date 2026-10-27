@@ -1,8 +1,19 @@
 // Server sweep for force-posture moves — the defense/strategic/overview RSS
 // sources the News tab already reads (fetchFeed, 5-min cache) plus ONE GDELT
-// query (cached an hour) — read by the PURE detector (lib/postureMoves) and
-// cached 15 min. Feeds the Glance "Posture moves" strip (/api/posture-moves)
-// and the demand horizon's `move` driver (lib/demandAssemble). No model call.
+// query (cached an hour), PLUS the user's own captured sources (X posts and
+// reader-captured articles, 2026-10-27) — read by the PURE detector
+// (lib/postureMoves) and cached 15 min. Feeds the Glance "Posture moves"
+// strip (/api/posture-moves) and the demand horizon's `move` driver
+// (lib/demandAssemble). No model call.
+//
+// The same pass reads the own sources for LIFT CHATTER (lib/mobilityChatter —
+// tanker / airlift movement the plane-spotting community reports, named by
+// destination): the clusters ride the body as `chatter`, the ones placed in
+// a command and not returning home join `moves` as kind `lift`, and the
+// distinct-handle count toward each command is recorded as the `chatter:`
+// series so the app can later learn whether chatter precedes the ADS-B
+// surge (lib/series.precedes). Newsletters are deliberately NOT read here —
+// the Glance client already reads them, and the merge would double-count.
 //
 // Bounded like the other assemblies: a request handler calls
 // getPostureMoves(maxWaitMs) and gets a `pending` stub on a cold start; the
@@ -12,14 +23,23 @@
 import { fetchFeed } from "./rss";
 import { BASE_NEWS_SOURCES } from "./newsSources";
 import { gdeltSearch } from "./localNews";
-import { detectPostureMoves, POSTURE_GDELT_QUERY, type PostureMove } from "./postureMoves";
+import { detectPostureMoves, mergePostureMoves, POSTURE_GDELT_QUERY, type PostureMove } from "./postureMoves";
+import { readChatter, clusterChatter, chatterToMoves, chatterSurge, type ChatterCluster } from "./mobilityChatter";
+import { getXItems } from "./xStore";
+import { getCapturedArticles, articleToNewsItem } from "./articleStore";
+import { recordSensorDay } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
+import { AOR_LABELS, type Aor } from "./aor";
 import type { NewsItem } from "./types";
 
 export interface PostureMovesBody {
   generatedAt: string;
   moves: PostureMove[];
-  /** RSS feeds that answered, and whether GDELT did. */
-  sources: { rss: number; rssTotal: number; gdelt: boolean };
+  /** Lift chatter clusters from the user's own sources (newest-first inside
+   *  each; corroborated first). Empty when nothing was read. */
+  chatter: ChatterCluster[];
+  /** RSS feeds that answered, whether GDELT did, and how many own-source items were read. */
+  sources: { rss: number; rssTotal: number; gdelt: boolean; own: number };
   pending?: boolean;
   note?: string;
 }
@@ -51,26 +71,60 @@ export async function getPostureMoves(maxWaitMs = 8_000): Promise<PostureMovesBo
   const settled = await withTimeout(getPostureMovesFull(), maxWaitMs);
   if (settled) return settled;
   if (cache) return { ...cache.body, pending: true };
-  return { generatedAt: new Date().toISOString(), moves: [], sources: { rss: 0, rssTotal: 0, gdelt: false }, pending: true, note: "sweeping the defense feeds — ask again shortly" };
+  return { generatedAt: new Date().toISOString(), moves: [], chatter: [], sources: { rss: 0, rssTotal: 0, gdelt: false, own: 0 }, pending: true, note: "sweeping the defense feeds — ask again shortly" };
 }
 
 export function resetPostureMovesCache(): void { cache = null; }
+
+/** The user's own captured sources as items: X posts and reader-captured articles. */
+async function ownSourceItems(): Promise<NewsItem[]> {
+  const [xs, arts] = await Promise.all([withTimeout(getXItems(), 6_000), withTimeout(getCapturedArticles(200), 6_000)]);
+  const items: NewsItem[] = [];
+  if (xs) for (const x of xs) items.push({ id: `x-${x.id}`, title: x.text.replace(/\s+/g, " ").trim(), source: `𝕏 @${x.handle}`, category: "social", pubDate: x.postedAt ?? x.importedAt, summary: x.quoted?.text ?? "", link: x.url });
+  if (arts) for (const a of arts) items.push({ ...articleToNewsItem(a, 1200), source: `📄 ${a.source}` });
+  return items;
+}
 
 async function sweep(): Promise<PostureMovesBody> {
   const feeds = BASE_NEWS_SOURCES.filter((s) => s.category === "defense" || s.category === "strategic" || s.category === "overview");
   const items: NewsItem[] = [];
   let rss = 0;
-  const results = await Promise.all(feeds.map((f) => withTimeout(fetchFeed(f.url, f.name, f.category), 8_000)));
+  const [results, g, own] = await Promise.all([
+    Promise.all(feeds.map((f) => withTimeout(fetchFeed(f.url, f.name, f.category), 8_000))),
+    withTimeout(gdeltSearch(POSTURE_GDELT_QUERY, { timespan: "3d", maxrecords: 50, keep: 50, cacheKey: "posture-moves" }), 8_000),
+    ownSourceItems().catch(() => [] as NewsItem[]),
+  ]);
   for (const r of results) {
     if (!r || !r.ok) continue;
     rss++;
     items.push(...r.items);
   }
-  const g = await withTimeout(gdeltSearch(POSTURE_GDELT_QUERY, { timespan: "3d", maxrecords: 50, keep: 50, cacheKey: "posture-moves" }), 8_000);
   if (g) items.push(...g);
+
+  const now = Date.now();
+  // The posture grammar reads the own sources too (a defense reporter's
+  // post is a report like any other; distinct handles are distinct
+  // sources). The chatter grammar reads ONLY the own sources — the wires
+  // do not write "6x KC-135 out of Mildenhall heading east".
+  const moves = detectPostureMoves([...items, ...own], now);
+  const posts = readChatter(own, now);
+  const chatter = clusterChatter(posts);
+  const liftMoves = chatterToMoves(chatter);
+
+  // The series: distinct handles reporting lift TOWARD each command in the
+  // trailing 72 h (peak). Nothing written for a command with no chatter —
+  // absence of a post is not an observation. Fire-and-forget.
+  const today = new Date(now).toISOString().slice(0, 10);
+  for (const aor of Object.keys(AOR_LABELS) as Aor[]) {
+    if (aor === "UNKNOWN") continue;
+    const s = chatterSurge(posts, aor, now);
+    if (s) recordSensorDay(sensorKey("chatter", aor), today, s.sources).catch(() => {});
+  }
+
   return {
-    generatedAt: new Date().toISOString(),
-    moves: detectPostureMoves(items),
-    sources: { rss, rssTotal: feeds.length, gdelt: !!g },
+    generatedAt: new Date(now).toISOString(),
+    moves: mergePostureMoves(moves, liftMoves),
+    chatter,
+    sources: { rss, rssTotal: feeds.length, gdelt: !!g, own: own.length },
   };
 }

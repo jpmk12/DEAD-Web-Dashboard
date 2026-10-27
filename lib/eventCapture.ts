@@ -11,6 +11,12 @@ export interface StoredEventDraft {
   publishedAt: string | null;
   source: string;      // region label, e.g. "iran"
   capturedAt: string;
+  /** The event's REPORTED coordinates when the page carried them (extension
+   *  1.2.3+ reads data-lat / data-lng); null when it did not. A null is
+   *  never filled in here — lib/kineticEvents places an unplaced event by
+   *  the country its title or region names, and says so. */
+  lat: number | null;
+  lon: number | null;
 }
 
 export type ParseEventsResult =
@@ -32,6 +38,17 @@ function isoOrNull(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = Date.parse(v);
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+const num = (v: unknown): number | null => { const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN; return Number.isFinite(n) ? n : null; };
+/** A coordinate pair when both halves are finite and in range and the pair
+ *  is not the 0/0 placeholder; else nulls. `lng` / `long` / `longitude` and
+ *  `latitude` are accepted beside `lat` / `lon`. */
+export function coordsOf(o: Record<string, unknown>): { lat: number | null; lon: number | null } {
+  const lat = num(o.lat ?? o.latitude);
+  const lon = num(o.lon ?? o.lng ?? o.long ?? o.longitude);
+  if (lat == null || lon == null) return { lat: null, lon: null };
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) return { lat: null, lon: null };
+  return { lat: Math.round(lat * 1e5) / 1e5, lon: Math.round(lon * 1e5) / 1e5 };
 }
 
 export function parseEventsCapture(raw: string, nowIso = new Date().toISOString()): ParseEventsResult {
@@ -62,6 +79,7 @@ export function parseEventsCapture(raw: string, nowIso = new Date().toISOString(
       publishedAt: isoOrNull(o.time) ?? isoOrNull(o.publishedAt),
       source,
       capturedAt: isoOrNull(j.capturedAt) ?? nowIso,
+      ...coordsOf(o),
     });
   }
   if (!events.length) return { ok: false, error: "No valid events (need https permalinks + headlines)." };

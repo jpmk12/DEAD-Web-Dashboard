@@ -303,7 +303,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   // the airfield-weather call; only fields with a series are present.
   type Lift = { today: number | null; normal: number | null; high: boolean | null; label: string };
   const [nodeLift, setNodeLift] = useState<Record<string, Lift>>({});
-  const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string }[]>([]);
+  const [conflict, setConflict] = useState<{ lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" | "liveuamap"; date?: string; country?: string }[]>([]);
   const [gpsjam, setGpsjam] = useState<{ h3: string; level: number }[]>([]);
   const [acled, setAcled] = useState<AcledEvent[]>([]);
   type UkmtoPt = { id: string; ref: string; label: string; date: string | null; time: string | null; reportedBy: string | null; lat: number | null; lon: number | null; placement: "reported" | "area" | null; area: string | null; text: string; url: string };
@@ -512,7 +512,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     getForceProtectionData()
       .then((d) => { if (Array.isArray(d.assessments)) setForces(d.assessments); })
       .catch(() => {});
-    type ConflictPt = { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string };
+    type ConflictPt = { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" | "liveuamap"; date?: string; country?: string };
     // Stale-while-revalidate: paint last-known conflict points instantly, then
     // refresh. Pairs with the route's 5-min Cache-Control so a remount/poll is
     // cheap.
@@ -1258,7 +1258,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
             {/* Conflict events (UCDP GED, most recent available) — drawn first, under the crisis markers. */}
             {on.conflict && conflict.map((c, i) => (
               <CircleMarker key={`cf-${i}`} center={[c.lat, c.lon]} radius={Math.min(4 + Math.log2(c.count + 1) * 1.6, 16)} pathOptions={{ color: "#f43f5e", fillColor: "#f43f5e", fillOpacity: 0.18, weight: 0.5, opacity: 0.45 }}>
-                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}{c.src === "reliefweb" ? (<><div className="text-rose-600">Active complex emergency / conflict</div>{c.url ? <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">ReliefWeb ↗</a> : <div className="text-slate-500">ReliefWeb (UN OCHA) — country-level</div>}</>) : (<><div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div>{c.date && <div className="text-slate-600">{c.date}</div>}<div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></>)}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{c.title || c.name || "Armed conflict"}</div>{c.title && c.name && <div className="text-slate-600">{c.name}</div>}{c.src === "liveuamap" ? (<><div className="text-rose-600">Kinetic event — captured from LiveUAMap (reported position)</div>{c.date && <div className="text-slate-600">{c.date}</div>}{c.url ? <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">LiveUAMap ↗</a> : null}<div className="text-slate-500">your browser capture — single source, unverified</div></>) : c.src === "reliefweb" ? (<><div className="text-rose-600">Active complex emergency / conflict</div>{c.url ? <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">ReliefWeb ↗</a> : <div className="text-slate-500">ReliefWeb (UN OCHA) — country-level</div>}</>) : (<><div className="text-rose-600">{c.count > 1 ? `${c.count} fatalities (best est.)` : "armed-conflict event"}</div>{c.date && <div className="text-slate-600">{c.date}</div>}<div className="text-slate-500">UCDP (Uppsala Conflict Data Program) — coarse SA</div></>)}</div></Popup>
               </CircleMarker>
             ))}
 

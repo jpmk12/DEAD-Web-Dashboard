@@ -23,7 +23,10 @@
 import type { NewsItem, NewsletterSummary } from "./types";
 import { aorFromName, type Aor } from "./aor";
 
-export type MoveKind = "deploy" | "surge" | "mobilize" | "reposition" | "exercise" | "withdraw";
+/** `lift` is produced ONLY by lib/mobilityChatter (tanker / airlift movement
+ *  reported by the user's own sources) — this detector's grammar never files
+ *  it; it is here so the one row shape carries both. */
+export type MoveKind = "deploy" | "surge" | "mobilize" | "reposition" | "exercise" | "withdraw" | "lift";
 export type ActorSide = "us" | "ally" | "adversary" | "other";
 
 export interface PostureMove {
@@ -44,7 +47,7 @@ export interface PostureMove {
 }
 
 export const MOVE_LABEL: Record<MoveKind, string> = {
-  deploy: "deployment", surge: "surge", mobilize: "mobilisation", reposition: "repositioning", exercise: "exercise", withdraw: "withdrawal",
+  deploy: "deployment", surge: "surge", mobilize: "mobilisation", reposition: "repositioning", exercise: "exercise", withdraw: "withdrawal", lift: "lift reported",
 };
 export const SIDE_LABEL: Record<ActorSide, string> = { us: "U.S.", ally: "ally", adversary: "adversary", other: "other" };
 
@@ -55,6 +58,7 @@ const FALSIFIER: Record<MoveKind, string> = {
   reposition: "Forces reported in their previous location after the move window.",
   exercise: "The exercise concludes on schedule with forces returning to garrison.",
   withdraw: "Forces reported still in place after the stated withdrawal window.",
+  lift: "ADS-B shows no mobility or tanker lift above the command's own normal within 72 h, or the aircraft are reported returning.",
 };
 
 // ── Grammar ──────────────────────────────────────────────────────────────
@@ -96,6 +100,7 @@ const KIND_PATTERNS: Record<MoveKind, RegExp[]> = {
     /\bwithdraw(?:s|al|n|ing)?\b/i, /\bpull(?:s|ed|ing)?\s+(?:out|back)\b/i, /\bdrawdown\b/i,
     /\bredeploy(?:s|ed|ment)?\s+(?:home|out|back)\b/i, /\bstand(?:s)?\s+down\b/i,
   ],
+  lift: [],   // never matched here — see lib/mobilityChatter
 };
 // Order decides which kind a text that matches several is filed under: the
 // most consequential first. "withdraw" last so "withdraws … and redeploys to
@@ -241,7 +246,7 @@ export function detectPostureMoves(items: NewsItem[], nowMs: number = Date.now()
 }
 
 const SIDE_RANK: Record<ActorSide, number> = { adversary: 3, us: 3, ally: 2, other: 1 };
-const KIND_RANK: Record<MoveKind, number> = { mobilize: 5, deploy: 5, surge: 5, reposition: 3, withdraw: 3, exercise: 1 };
+const KIND_RANK: Record<MoveKind, number> = { mobilize: 5, deploy: 5, surge: 5, reposition: 3, withdraw: 3, lift: 3, exercise: 1 };
 
 /** Corroborated first, then consequence, then recency. */
 export function sortMoves(moves: PostureMove[]): PostureMove[] {

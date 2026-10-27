@@ -16,12 +16,15 @@ export async function upsertEvents(events: StoredEventDraft[], userEmail: string
   if (!events.length) return { imported: 0 };
   const pool = await getDb();
   for (const e of events) {
+    // A later capture without coordinates never erases a reported position
+    // (the UKMTO rule): COALESCE keeps the stored pair.
     await pool.execute(
-      `INSERT INTO captured_events (id, url, title, source_url, published_at, source, user_email, captured_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO captured_events (id, url, title, source_url, published_at, source, user_email, captured_at, lat, lon)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE title = VALUES(title), source_url = VALUES(source_url),
-         published_at = VALUES(published_at), source = VALUES(source), captured_at = VALUES(captured_at)`,
-      [e.id, e.url, e.title, e.sourceUrl, e.publishedAt, e.source, userEmail, new Date(e.capturedAt)],
+         published_at = VALUES(published_at), source = VALUES(source), captured_at = VALUES(captured_at),
+         lat = COALESCE(VALUES(lat), lat), lon = COALESCE(VALUES(lon), lon)`,
+      [e.id, e.url, e.title, e.sourceUrl, e.publishedAt, e.source, userEmail, new Date(e.capturedAt), e.lat, e.lon],
     );
   }
   await pool.execute("DELETE FROM captured_events WHERE captured_at < (NOW(3) - INTERVAL 14 DAY)").catch(() => {});
@@ -35,18 +38,22 @@ export async function upsertEvents(events: StoredEventDraft[], userEmail: string
 interface Row extends RowDataPacket {
   id: string; url: string; title: string; source_url: string | null;
   published_at: string | null; source: string; captured_at: Date;
+  lat: number | string | null; lon: number | string | null;
 }
+
+const asNum = (v: unknown): number | null => { const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN; return Number.isFinite(n) ? n : null; };
 
 export async function getCapturedEvents(limit = 300): Promise<StoredEvent[]> {
   if (cache && Date.now() - cache.at < READ_TTL) return cache.items;
   const pool = await getDb();
   const [rows] = await pool.query<Row[]>(
-    "SELECT id, url, title, source_url, published_at, source, captured_at FROM captured_events ORDER BY captured_at DESC LIMIT ?",
+    "SELECT id, url, title, source_url, published_at, source, captured_at, lat, lon FROM captured_events ORDER BY captured_at DESC LIMIT ?",
     [limit],
   );
   const items: StoredEvent[] = rows.map((r) => ({
     id: r.id, url: r.url, title: r.title, sourceUrl: r.source_url,
     publishedAt: r.published_at, source: r.source, capturedAt: r.captured_at.toISOString(),
+    lat: asNum(r.lat), lon: asNum(r.lon),
   }));
   cache = { at: Date.now(), items };
   return items;

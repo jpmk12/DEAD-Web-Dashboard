@@ -2855,6 +2855,95 @@ or half-dead feed could read as calm:
   tier), which the diag's `restriction` field already named.
 No new npm dep (esbuild `0`).
 
+### Own sources as I&W and posture signals: captured kinetic events, lift chatter (2026-10-27, "stuck at my current tier — can we use the other sources we collect to fill the gaps… tanker and mobility aircraft movements on X are helpful in my feedback loop")
+Two gaps closed with sources the app already stores — no new fetch, no
+model call, no new npm dep (esbuild `0`). Both carry the own-source
+discipline: a capture or a post is the user's OWN source, so chatter-only
+or capture-only **caps at watching**, exactly the single-X-post ceiling.
+- **Captured kinetic events (`lib/kineticEvents.ts`, PURE, tested in
+  `tests/kineticEvents.test.ts`)** — the ACLED-embargo fill. The browser-
+  captured LiveUAMap events (`captured_events`) were a feed row and a
+  country-room headline, never a POINT. Now: extension **1.2.3**
+  (`liveuamap.js`) reads the entry's `data-lat` / `data-lng` (several
+  spellings tried; the markup is UNVERIFIED from the sandbox — if every
+  event still arrives unplaced, the attribute names are elsewhere in the
+  DOM and the saved HTML is needed); `parseEventsCapture` → `coordsOf`
+  (finite, in range, never the 0/0 placeholder); `captured_events.lat /
+  lon` (additive, COALESCE on upsert so a later capture without a position
+  never erases one). `readKinetic(title)` files an ACT by phrase — strike ›
+  incoming (sirens / interceptions / launches) › explosion › shelling ›
+  clash › drone — through the SHARED `gradeModality` (a threat, an
+  analysis piece or a reversal earns nothing). **Placement is said, never
+  guessed**: `placeEvent` = reported coordinates › the centroid of the
+  country the title names (`countryInTitle`: catalogue names + demonyms /
+  capitals / the cities the pages use, longest form wins) › the single
+  country of the region page (`REGION_COUNTRIES`; `isis` and
+  `israelpalestine` cover several, so an event there with no country in
+  the title stays UNPLACED and is dropped). Consumers: the chokepoint reads
+  join **reported positions only** (`kineticGeoEvents({reportedOnly})`,
+  source "LiveUAMap", `sources.captured`) — a country centroid is hundreds
+  of km from any strait; the country room lists `src: "capture"` incidents
+  (both placements, the row says "placed at X centroid — no position in
+  the capture"); `/api/osint/conflict` merges reported points as
+  `src: "liveuamap"` so the Conflict layer draws this week's strikes
+  (popup says "your browser capture — single source, unverified"); the I&W
+  **conflict-intensity indicator** reads them through
+  `warningRules.conflictWithCaptures` (PURE, tested): a live feed at or
+  above watching keeps its state (+0.05 confidence at
+  `CAPTURE_CORROBORATE_AT` 5); a live DORMANT feed lifts to WATCHING at
+  `CAPTURE_WATCH_AT` 5 captured acts in the AOI (bbox for a reported
+  position, country list for a placement) and never higher; a DEAD feed
+  with ≥5 captures earns watching at 0.35 and the note names the outage;
+  below the floor the indicator stays unobserved.
+- **Lift chatter (`lib/mobilityChatter.ts`, PURE, tested in
+  `tests/mobilityChatter.test.ts`)** — tanker / airlift movement the
+  plane-spotting community reports, read from the own-source pool (X
+  captures, reader-captured articles; the wires never write "6x KC-135
+  out of Mildenhall heading east"). AIRFRAME gate (`KC-135/46/10/130`,
+  `C-17/5/130`, `REACH` callsigns, `A400M` / `Voyager` / `MRTT` as ally,
+  `Il-76/78` / `Y-20` as Russia / China; the generic "tanker" counts only
+  beside an aviation word and never beside a maritime one — a seized oil
+  tanker is not a KC-135) + a MOVEMENT phrase. **The AOR is the
+  destination**: a named base (the AMC hubs by short name + ICAO, plus
+  the fields spotters name — Al Dhafra, PSAB, Azraq, Akrotiri, Souda,
+  Kadena, Guam…) after a destination cue; a base after `from / out of /
+  departed` is the ORIGIN and places nothing ("heading east" out of
+  Mildenhall is not a guess at the Gulf → UNKNOWN); else a region phrase;
+  else a country with the mover's own name stripped ("Russian airlift
+  into Syria" is CENTCOM). Direction toward / **away** (a return-home
+  phrase; placed by the command it leaves) / unclear. A COUNT only when
+  stated ("6x", "half a dozen", never the 17 of a C-17). `clusterChatter`
+  = one cluster per (command, side, direction); **distinct handles
+  corroborate**, one post is a lead. Where it lands: (1) **posture moves**
+  gain kind **`lift`** (`chatterToMoves` — placed, not returning; merged
+  into the server sweep's rows; `MOVE_LABEL` "lift reported", falsifier
+  "ADS-B shows no lift above normal within 72 h or the aircraft are
+  reported returning"), and the sweep now also runs the posture grammar
+  over X + captured articles (newsletters stay client-side — the merge
+  would double count); (2) the **demand horizon** takes `lift` at base 10
+  (reporting, under `MOVE_CAP`); (3) the **I&W mobility divergence
+  indicator** reads `chatterSurge` (toward the board's command, U.S.
+  side, last `CHATTER_SENSOR_HOURS` 72) through
+  `warningRules.mobilityWithChatter` (PURE, tested): ADS-B HIGH → +0.1
+  confidence, state kept; ADS-B live but not high → ≥2 handles lift a
+  DORMANT read to watching (never higher; "reported, not observed"), an
+  active early-warning read keeps its state with the note that lift is
+  reported en route, one handle is a note; every ADS-B instrument dead →
+  watching at 0.35, "reported only" (`sensorId: "chatter"`); the
+  OpenSky fallback stays capped at watching / 0.45. `DivergenceState.
+  chatter` carries the surge; (4) the **`chatter:<AOR>`** series (peak,
+  distinct handles toward the command, 72 h; written by the sweep only
+  when there is chatter) so `precedes` can later say whether chatter
+  leads the ADS-B surge; (5) **Glance** posture-moves panel: a "✈ Lift
+  chatter — your sources" block (`chatterLine`, ≤3 clusters, lead /
+  corroborated, the lead post on hover) with the sentence "reported, not
+  observed". `gatherUserSourceNews` returns `all` beside the mention-
+  gated `items` — a spotter post names a base, not the AOI's terms.
+- Not built: a per-hub join (chatter naming OTBH against `byHub` for
+  OTBH) and the airfield-level chatter line on a SITREP; both are one
+  `places` lookup away once a few weeks of real posts show which bases
+  the user's lists actually name.
+
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to
 BMNT (nautical twilight, the OPORD light-data convention), the part of it

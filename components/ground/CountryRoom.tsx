@@ -170,7 +170,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
 
       {/* Overview: the incidents in one line — the full list and the map are the Incidents tab. */}
       {!all && show("overview") && !dLoading && dossier && (
-        <Card title="◆ Security incidents" meta="ACLED · UCDP · in-country + ~500km">
+        <Card title="◆ Security incidents" meta="ACLED · UCDP · your captures · in-country + ~500km">
           {dossier.incidents.length === 0
             ? <p className="text-[11px] text-slate-600">No recent in-country or nearby incidents in window.</p>
             : <ul className="space-y-1">
@@ -186,7 +186,7 @@ export default function CountryRoom({ country, sel, base, active = true, section
         </Card>
       )}
 
-      {show("incidents") && <Card title="◆ Security incidents" meta="ACLED · UCDP · in-country + ~500km">
+      {show("incidents") && <Card title="◆ Security incidents" meta="ACLED · UCDP · your captures · in-country + ~500km">
         {dLoading && <p className="text-[12px] text-slate-500">Loading incidents…</p>}
         {!dLoading && dossier && (
           <div className="flex flex-col md:flex-row gap-3">

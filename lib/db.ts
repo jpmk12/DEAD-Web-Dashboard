@@ -793,6 +793,11 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // Calendar-derived TDY trips: `source` distinguishes auto-synced ('calendar')
   // from hand-entered ('manual') trips so a re-sync never clobbers manual ones;
   // `event_id` keys a calendar trip to its source event for idempotent upsert.
+  // Captured map events carry their REPORTED coordinates when the page had
+  // them (2026-10-27): a placed event joins a strait / base / country by
+  // distance. NULL = the page carried none; never filled in.
+  { table: "captured_events", column: "lat", ddl: "ALTER TABLE captured_events ADD COLUMN lat DOUBLE NULL" },
+  { table: "captured_events", column: "lon", ddl: "ALTER TABLE captured_events ADD COLUMN lon DOUBLE NULL" },
   { table: "trips", column: "source",   ddl: "ALTER TABLE trips ADD COLUMN source   VARCHAR(16)  NOT NULL DEFAULT 'manual'" },
   { table: "trips", column: "event_id", ddl: "ALTER TABLE trips ADD COLUMN event_id VARCHAR(255) NULL" },
   // Multi-user split (phase 1): personal surfaces gain a user_email key.

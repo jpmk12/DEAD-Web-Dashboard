@@ -24,7 +24,12 @@ import { getUserPrefs } from "./userPrefs";
 import {
   isRecentLevel4, recentConflictCount, bandConflictIntensity, conflictImpliesDemand,
   mobilityObservedHigh, mobilityBaselineNote, CONFLICT_WINDOW_DAYS, type MobilityBaseline,
+  conflictWithCaptures,
 } from "./warningRules";
+import { getCapturedEvents } from "./eventStore";
+import { kineticEvents, countKineticInAoi } from "./kineticEvents";
+import { mobilityWithChatter, type ChatterLite } from "./warningRules";
+import { readChatter, chatterSurge } from "./mobilityChatter";
 import { CENTCOM_GEO, type ProblemGeo } from "./warningTaxonomy";
 import type { NewsItem } from "./types";
 
@@ -60,7 +65,7 @@ const aorRelevant = (geo: Pick<ProblemGeo, "terms">, n: NewsItem): boolean => ge
 // `sources` set drives provenance. Bounded so the fan-out can't hang the request.
 // Exported (mention gate only) so the economic-warfare assembler reads the
 // same sources under the same cap.
-export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Promise<{ items: NewsItem[]; sources: Set<string> }> {
+export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Promise<{ items: NewsItem[]; sources: Set<string>; /** The whole pool before the mention gate — the lift-chatter grammar places a post by its own destination, not by the AOI's terms. */ all: NewsItem[] }> {
   const sources = new Set<string>();
   const items: NewsItem[] = [];
 
@@ -89,7 +94,7 @@ export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Prom
     else if (n.source.startsWith("📄")) sources.add("analysis");
     else sources.add("OSINT feeds");
   }
-  return { items: relevant, sources };
+  return { items: relevant, sources, all: items };
 }
 
 const nowIso = () => new Date().toISOString();
@@ -111,6 +116,10 @@ export interface DivergenceState {
    *  (typed — mobility / tanker) or the OpenSky FALLBACK (mil by ICAO range
    *  or callsign, type unknown — its own baseline, its own series). */
   source?: "adsb" | "opensky";
+  /** Lift reported TOWARD this command by the user's own sources in the last
+   *  72 h (lib/mobilityChatter) — reporting beside the observation, never in
+   *  place of it. Null = no chatter. */
+  chatter?: ChatterLite | null;
 }
 export interface GatherResult {
   observations: IndicatorObservation[];
@@ -157,7 +166,7 @@ export async function gatherObservations(
   /** The OpenSky fallback's OWN trailing baseline (osky:<problemId>). */
   openskyBaseline: MobilityBaseline = { mean: null, samples: 0 },
 ): Promise<GatherResult> {
-  const [conflictPts, disasters, newsByCountry, chokeNewsRaw, advisories, milAc, firRes, userSrc] = await Promise.all([
+  const [conflictPts, disasters, newsByCountry, chokeNewsRaw, advisories, milAc, firRes, userSrc, capturedRaw] = await Promise.all([
     withTimeout(getConflictPoints(), 10_000),
     withTimeout(getDisasters(), 10_000),
     withTimeout(getConflictNewsByCountry(geo.countries), 12_000),
@@ -167,12 +176,20 @@ export async function gatherObservations(
     withTimeout(getAllStateAdvisories(), 10_000),
     withTimeout(fetchMilAircraft(), 10_000),
     geo.firs.length ? withTimeout(getFirNotams(geo.firs), 12_000) : Promise.resolve(null),
-    gatherUserSourceNews(geo).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>() })),
+    gatherUserSourceNews(geo).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>(), all: [] as NewsItem[] })),
+    // The user's browser-captured map events (LiveUAMap) read as kinetic
+    // acts and placed — the fill for ACLED's embargo (warningRules
+    // conflictWithCaptures). A store miss is simply no captures.
+    withTimeout(getCapturedEvents(300), 6_000),
   ]);
+  const capturedKinetic = capturedRaw ? countKineticInAoi(kineticEvents(capturedRaw, Date.now()), { bbox: geo.bbox, countries: geo.countries }) : 0;
   const chokeNews: ChokepointRead | null = chokeNewsRaw?.signals?.[0] ?? null;
   const userNews = userSrc?.items ?? [];
   const userSources = userSrc?.sources ?? new Set<string>();
   const userSrcLabel = userSources.size ? ` + your ${[...userSources].join("/")}` : "";
+  // Lift chatter toward THIS command in the last 72 h, from the whole own-
+  // source pool (a spotter post names a base, not the AOI's terms).
+  const chatter: ChatterLite | null = chatterSurge(readChatter(userSrc?.all ?? [], Date.now()), geo.aor, Date.now());
 
   const observations: IndicatorObservation[] = [];
   const health: SensorHealth[] = [];
@@ -186,11 +203,16 @@ export async function gatherObservations(
   if (conflictPts) {
     const nowMs = Date.now();
     recent90 = recentConflictCount(conflictPts.filter((p) => inBbox(geo, p.lat, p.lon)), nowMs);
-    const state = bandConflictIntensity(recent90);
-    observations.push(obs(geo.conflictIndicatorId, "conflictEvents", state, state === "dormant" ? 0 : 0.85, `UCDP/ACLED/ReliefWeb events in AOR bbox, trailing ${CONFLICT_WINDOW_DAYS}d (UCDP lags 1-2mo)`, recent90));
+    const band = bandConflictIntensity(recent90);
+    const fused = conflictWithCaptures({ state: band, confidence: band === "dormant" ? 0 : 0.85, live: true }, capturedKinetic);
+    observations.push(obs(geo.conflictIndicatorId, "conflictEvents", fused.state, fused.confidence, `UCDP/ACLED/ReliefWeb events in AOR bbox, trailing ${CONFLICT_WINDOW_DAYS}d (UCDP lags 1-2mo)${fused.note}`, recent90 + capturedKinetic));
     health.push({ indicatorId: geo.conflictIndicatorId, live: true });
   } else {
-    health.push({ indicatorId: geo.conflictIndicatorId, live: false, note: "conflict-event feed unreachable" });
+    // The structured feeds are dead. The user's own captures can still earn
+    // a watching floor (never more); below it the indicator is unobserved.
+    const fused = conflictWithCaptures({ state: "dormant", confidence: 0, live: false }, capturedKinetic);
+    if (fused.state !== "dormant") observations.push(obs(geo.conflictIndicatorId, "capturedEvents", fused.state, fused.confidence, `your captured map events only${fused.note}`, capturedKinetic));
+    health.push({ indicatorId: geo.conflictIndicatorId, live: false, note: `conflict-event feed unreachable${capturedKinetic ? ` (${capturedKinetic} captured kinetic events in the AOI stand in, capped at watching)` : ""}` });
   }
 
   // 2) escalatory_strike_signal ← GDELT escalation across AOR states, CORROBORATED
@@ -247,9 +269,10 @@ export async function gatherObservations(
     });
     const topHub = byHub.slice().sort((a, b) => (b.mobility + b.tanker) - (a.mobility + a.tanker))[0];
     const hubNote = observedHigh && topHub && topHub.mobility + topHub.tanker > 0 ? `; most at ${topHub.icao} (${topHub.mobility + topHub.tanker})` : "";
-    observations.push(obs("mobility_divergence", "aircraftMil", state, state === "dormant" ? 0 : 0.7, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}${hubNote}) × implied demand`, observedCount));
+    const fused = mobilityWithChatter({ state, confidence: state === "dormant" ? 0 : 0.7, observedHigh, live: true }, chatter);
+    observations.push(obs("mobility_divergence", "aircraftMil", fused.state, fused.confidence, `keyless ADS-B mil (${observedCount} mobility/tanker within ${HUB_RADIUS_KM}km of AOR hubs${baseNote}${hubNote}) × implied demand${fused.note}`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true });
-    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant, byHub, source: "adsb" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
+    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant, byHub, source: "adsb", chatter }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
   }
 
   // The community mirrors are down. FALLBACK: OpenSky's anonymous state
@@ -269,12 +292,18 @@ export async function gatherObservations(
     else if (impliedHigh && observedHigh) { quadrant = "corroboration"; state = "watching"; }
     else { quadrant = "quiet"; state = "dormant"; }
     const baseNote = mobilityBaselineNote(openskyBaseline, new Date(nowMs).toISOString().slice(0, 10));
-    observations.push(obs("mobility_divergence", "opensky", state, state === "dormant" ? 0 : 0.35, `OpenSky FALLBACK — community mil mirrors unreachable; ${observedCount} military-by-ICAO/callsign aircraft within ${HUB_RADIUS_KM}km of AOR hubs (type unknown${baseNote}) × implied demand — capped at watching`, observedCount));
+    // The fallback is already capped at watching; chatter can only add the note and a little confidence.
+    const fused = mobilityWithChatter({ state, confidence: state === "dormant" ? 0 : 0.35, observedHigh, live: true }, chatter);
+    observations.push(obs("mobility_divergence", "opensky", fused.state === "dormant" ? "dormant" : "watching", Math.min(0.45, fused.confidence), `OpenSky FALLBACK — community mil mirrors unreachable; ${observedCount} military-by-ICAO/callsign aircraft within ${HUB_RADIUS_KM}km of AOR hubs (type unknown${baseNote}) × implied demand — capped at watching${fused.note}`, observedCount));
     health.push({ indicatorId: "mobility_divergence", live: true, note: "community ADS-B mirrors unreachable — OpenSky fallback (mil by ICAO range / callsign, type unknown; capped at watching)" });
-    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: openskyBaseline.mean, baselineSamples: openskyBaseline.samples, quadrant, source: "opensky" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
+    return finalize(geo, observations, health, { impliedHigh, observedHigh, observedCount, baselineMean: openskyBaseline.mean, baselineSamples: openskyBaseline.samples, quadrant, source: "opensky", chatter }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
   }
-  health.push({ indicatorId: "mobility_divergence", live: false, note: `community ADS-B mirrors unreachable; OpenSky fallback ${osky ? osky.reason ?? "not live" : "timed out"}` });
-  return finalize(geo, observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet" }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
+  // Every ADS-B instrument is dead. The user's own chatter can still earn a
+  // watching floor — reported only, said so — else the indicator is unobserved.
+  const dead = mobilityWithChatter({ state: "dormant", confidence: 0, observedHigh: false, live: false }, chatter);
+  if (dead.state !== "dormant") observations.push(obs("mobility_divergence", "chatter", dead.state, dead.confidence, `no ADS-B instrument answered${dead.note}`, chatter?.reports));
+  health.push({ indicatorId: "mobility_divergence", live: false, note: `community ADS-B mirrors unreachable; OpenSky fallback ${osky ? osky.reason ?? "not live" : "timed out"}${chatter ? ` — your sources' lift chatter stands in, capped at watching` : ""}` });
+  return finalize(geo, observations, health, { impliedHigh, observedHigh: false, observedCount: 0, baselineMean: mobilityBaseline.mean, baselineSamples: mobilityBaseline.samples, quadrant: impliedHigh ? "early_warning" : "quiet", chatter }, advisories, neoTriggers, chokeNews, firRes, userNews, userSrcLabel);
 }
 
 function finalize(

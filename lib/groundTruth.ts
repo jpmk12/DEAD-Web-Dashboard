@@ -30,9 +30,12 @@ import { getRadar, getRadarBgp, getRadarTraffic } from "./cloudflareRadar";
 import { radarReadsFor } from "./radarSignals";
 import { bgpReadsFor, type BgpLevel } from "./radarBgp";
 import type { TrafficState } from "./radarNetflows";
+import { kineticEvents, kineticInCountry, KINETIC_LABEL } from "./kineticEvents";
 
 export interface Incident {
-  src: "acled" | "ucdp";
+  /** `capture` = a browser-captured map event (LiveUAMap) read as a kinetic
+   *  act (lib/kineticEvents) — the timeliest row while ACLED is embargoed. */
+  src: "acled" | "ucdp" | "capture";
   type: string;
   location: string;
   date: string;
@@ -41,6 +44,8 @@ export interface Incident {
   lon: number;
   km: number | null; // distance from country centroid; null = in-country name match
   url?: string;
+  /** For a capture: whether the position was reported or the event was placed at the country centroid. */
+  placement?: "reported" | "country";
 }
 
 // Natural / humanitarian disaster affecting the country (GDACS/USGS/ReliefWeb),
@@ -283,8 +288,23 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
       date: c.date ?? "", fatalities: c.count, lat: c.lat, lon: c.lon, km: inCountry ? null : km, ...(c.url ? { url: c.url } : {}),
     });
   }
+  // The user's own captured map events, read as kinetic acts and placed
+  // (reported position, else the country centroid — said on the row). The
+  // fill for ACLED's embargo: newest first, so the room shows this week's
+  // strikes beside UCDP's two-month-old record.
+  const capturedAll = await getCapturedEvents(300).catch(() => []);
+  const capturedHere = kineticInCountry(kineticEvents(capturedAll, Date.now()), country);
+  for (const e of capturedHere.slice(0, 8)) {
+    incidents.push({
+      src: "capture", type: `${KINETIC_LABEL[e.cls]} (captured)`,
+      location: e.placement === "reported" ? e.title.slice(0, 80) : `${e.title.slice(0, 60)} — placed at ${e.country} centroid, no position in the capture`,
+      date: e.pubDate.slice(0, 10), fatalities: 0, lat: e.lat, lon: e.lon, km: null, url: e.url, placement: e.placement,
+    });
+  }
   incidents.sort((a, b) =>
     (a.km == null ? 0 : 1) - (b.km == null ? 0 : 1) ||
+    (a.src === "capture" && b.src !== "capture" ? -1 : b.src === "capture" && a.src !== "capture" ? 1 : 0) ||
+    (a.src === "capture" && b.src === "capture" ? Date.parse(b.date) - Date.parse(a.date) : 0) ||
     b.fatalities - a.fatalities ||
     (a.km ?? 0) - (b.km ?? 0),
   );

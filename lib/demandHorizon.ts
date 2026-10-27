@@ -38,7 +38,9 @@ export interface DemandDisaster { title: string; aor: Aor; severity: "red" | "or
 export interface DemandAdvisory { country: string; aor: Aor; ordered: boolean; authorized: boolean; pubDate: string }
 export interface DemandPosture { label: string; aor: Aor; composite: string; escalated: boolean; chronic: boolean }
 /** A force-posture move read from the reporting (lib/postureMoves). */
-export interface DemandMove { headline: string; aor: Aor; kind: "deploy" | "surge" | "mobilize" | "reposition" | "exercise" | "withdraw"; actor: string; side: "us" | "ally" | "adversary" | "other"; pubDate: string; sources: number }
+/** `lift` = tanker / airlift movement reported by the user's own sources
+ *  (lib/mobilityChatter) — reporting of lift, not the ADS-B observation. */
+export interface DemandMove { headline: string; aor: Aor; kind: "deploy" | "surge" | "mobilize" | "reposition" | "exercise" | "withdraw" | "lift"; actor: string; side: "us" | "ally" | "adversary" | "other"; pubDate: string; sources: number }
 export interface DemandChokepoint { name: string; aor: Aor; score: number; acts: number; threats: number; /** AIS transit state when keyed. */ transit?: string }
 
 export interface DemandInput {
@@ -85,7 +87,7 @@ const DISASTER_CAP = 45;
 export const MOVE_CAP = 30;
 /** Per-kind base for a corroborated move by the U.S. or an adversary; a
  *  withdrawal is demand FALLING (an opening), by half for a non-U.S. mover. */
-const MOVE_BASE: Record<DemandMove["kind"], number> = { deploy: 14, surge: 14, mobilize: 12, reposition: 8, exercise: 4, withdraw: -8 };
+const MOVE_BASE: Record<DemandMove["kind"], number> = { deploy: 14, surge: 14, mobilize: 12, reposition: 8, exercise: 4, withdraw: -8, lift: 10 };
 const MOVE_SIDE: Record<DemandMove["side"], number> = { us: 1, adversary: 1, ally: 0.6, other: 0.5 };
 
 const DAY = 86_400_000;

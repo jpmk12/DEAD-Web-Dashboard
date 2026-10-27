@@ -62,6 +62,44 @@ export function conflictImpliesDemand(recent90: number): boolean {
   return recent90 > 40;
 }
 
+// ── Conflict intensity × the user's own captured events ─────────────────────
+// ACLED is embargoed a year on the free tier and UCDP lags one to two months,
+// so the structured count can read DORMANT in a week of strikes. The user's
+// browser-captured map events (lib/kineticEvents — LiveUAMap, read for a
+// kinetic ACT and placed) are the timeliest georeferenced record the app
+// holds, and they are the user's OWN source: the same ceiling as a single X
+// post applies. Rules:
+//   - structured feed live and already at or above watching: the state is
+//     the feed's; CAPTURE_CORROBORATE_AT or more captured acts in the AOI add
+//     a little confidence and are named in the note.
+//   - structured feed live but dormant: CAPTURE_WATCH_AT or more captured
+//     acts in 14 d lift it to WATCHING (never higher — own capture only),
+//     confidence 0.4; fewer are a note.
+//   - structured feed dead: the same floor earns watching at 0.35 and the
+//     note says the structured feeds were unreachable. Below the floor the
+//     indicator stays unobserved (dormant, health live:false) — a dead feed
+//     plus two captures is not evidence of calm or of conflict.
+export const CAPTURE_WATCH_AT = 5;
+export const CAPTURE_CORROBORATE_AT = 5;
+
+export function conflictWithCaptures(
+  structured: { state: ObservedState; confidence: number; live: boolean },
+  captured14d: number,
+): { state: ObservedState; confidence: number; note: string } {
+  const n = Math.max(0, Math.floor(captured14d));
+  const mention = n > 0 ? `${n} captured kinetic event${n === 1 ? "" : "s"} in the AOI (LiveUAMap, your capture, 14 d)` : "";
+  if (structured.live) {
+    if (structured.state !== "dormant") {
+      const boost = n >= CAPTURE_CORROBORATE_AT ? 0.05 : 0;
+      return { state: structured.state, confidence: Math.min(0.9, structured.confidence + boost), note: mention ? `; ${mention}${boost ? " corroborate" : ""}` : "" };
+    }
+    if (n >= CAPTURE_WATCH_AT) return { state: "watching", confidence: 0.4, note: `; ${mention} — own capture only, caps at watching` };
+    return { state: "dormant", confidence: 0, note: mention ? `; ${mention} — below the ${CAPTURE_WATCH_AT}-event floor` : "" };
+  }
+  if (n >= CAPTURE_WATCH_AT) return { state: "watching", confidence: 0.35, note: `; structured conflict feeds unreachable — ${mention} — own capture only, caps at watching` };
+  return { state: "dormant", confidence: 0, note: mention ? `; structured conflict feeds unreachable — ${mention} — below the ${CAPTURE_WATCH_AT}-event floor` : "" };
+}
+
 // ── Mobility divergence (observed half) ──────────────────────────────────────
 // "Observed surge" must mean surge ABOVE THIS AOR'S OWN NORMAL — a static ≥4
 // within 600 km of five Gulf hubs is exceeded on any ordinary day, which pinned
@@ -101,6 +139,39 @@ export function mobilityObservedHigh(count: number, baseline: MobilityBaseline):
   const eff = effectiveMobilityBaseline(baseline);
   if (eff.mean != null) return count > Math.max(eff.mean * MOBILITY_SURGE_FACTOR, eff.mean + 2);
   return count >= MOBILITY_FALLBACK_SURGE;
+}
+
+// ── Mobility divergence × the user's own lift chatter ───────────────────────
+// Plane-spotter posts ("six KC-135s out of Mildenhall heading east") read the
+// same ADS-B the sensor reads, aggregated by a human and NAMED by
+// destination (lib/mobilityChatter). They are the user's own source, so the
+// single-X-post ceiling applies:
+//   - ADS-B live and already HIGH: chatter corroborates — confidence up a
+//     step, named in the note; the state is the observation's.
+//   - ADS-B live and NOT high: two or more handles reporting lift toward the
+//     command lift a DORMANT read to WATCHING (reported, not observed — and
+//     never past watching); an active early-warning read (demand with no
+//     lift seen) keeps its state and gains the note that lift is reported
+//     en route; one handle is a lead and a note only.
+//   - ADS-B dead: any chatter earns WATCHING at 0.35 — reported only.
+export interface ChatterLite { reports: number; sources: number; tankers: number; airlifters: number; count: number | null; lead: string | null }
+export const CHATTER_CORROBORATE_SOURCES = 2;
+
+export function mobilityWithChatter(
+  base: { state: ObservedState; confidence: number; observedHigh: boolean; live: boolean },
+  chatter: ChatterLite | null,
+): { state: ObservedState; confidence: number; note: string } {
+  if (!chatter || chatter.reports <= 0) return { state: base.state, confidence: base.confidence, note: "" };
+  const what = [chatter.tankers ? `${chatter.tankers} tanker` : "", chatter.airlifters ? `${chatter.airlifters} airlift` : ""].filter(Boolean).join(" + ");
+  const who = `${chatter.reports} report${chatter.reports === 1 ? "" : "s"} from ${chatter.sources} ${chatter.sources === 1 ? "handle" : "handles"}`;
+  const says = `your sources report lift toward the AOI (${who}${what ? `: ${what}` : ""}${chatter.count ? `, up to ${chatter.count} stated` : ""})`;
+  if (!base.live) return { state: "watching", confidence: 0.35, note: `; ADS-B unreachable — ${says} — reported only, capped at watching` };
+  if (base.observedHigh) return { state: base.state, confidence: Math.min(0.9, base.confidence + 0.1), note: `; ${says} — corroborates the observed lift` };
+  if (chatter.sources >= CHATTER_CORROBORATE_SOURCES) {
+    if (base.state === "dormant") return { state: "watching", confidence: 0.4, note: `; ${says} — not yet above normal on ADS-B; reported, not observed — caps at watching` };
+    return { state: base.state, confidence: base.confidence, note: `; ${says} — lift reported en route that ADS-B has not yet shown above normal` };
+  }
+  return { state: base.state, confidence: base.confidence, note: `; ${says} — a single handle is a lead, not a signal` };
 }
 
 /** The provenance fragment naming the baseline the surge rule judged against. */

@@ -23,7 +23,9 @@
 import { aorFromCoords } from "./aor";
 import { recordDailySignals, utcDate } from "./trends";
 
-export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb"; date?: string; country?: string }
+/** `src` "liveuamap" = a browser-captured map event with a reported position
+ *  (lib/kineticEvents), merged by the conflict route — never by this lib. */
+export interface ConflictPoint { lat: number; lon: number; name: string; count: number; title?: string; url?: string; src?: "ucdp" | "reliefweb" | "liveuamap"; date?: string; country?: string }
 
 const UCDP_BASE = "https://ucdpapi.pcr.uu.se/api/gedevents/";
 const PAGE_SIZE = 1000;
