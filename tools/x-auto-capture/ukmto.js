@@ -7,51 +7,122 @@
 // Self-contained for executeScript func injection — page globals only.
 // Public site, no login, nothing is sent to UKMTO.
 //
-// Robustness: nothing here depends on CSS classes. It scrolls to let a lazy
-// list render, clicks an obvious "load more / show more" control a few
-// times if one exists, then returns the whole body text plus, where the DOM
-// makes it easy, one block per element whose text starts with a reference
-// ("163-26 - ADVISORY"). The server joins both and dedupes by reference.
+// What the saved page (2026-10-27) taught: the site is a Next.js / Sitecore
+// app whose STATIC HTML carries "0 reports" and an EMPTY incident list
+// (`ul[class*="IncidentList"]`); the incidents arrive by a client-side
+// request after hydration. So the collector now WAITS for the list to hold
+// items (or the "N reports" count to rise above 0) before it harvests,
+// takes every list item as a block (the parser dedupes by reference), tries
+// to open each collapsed item so its detail (position, narrative) is in the
+// text, and records which JSON requests the page made (`apiHints`) so the
+// run log can name the incident API — a structured feed with positions
+// would beat text, and this is how its shape gets pinned.
+//
+// Robustness: nothing here depends on the hashed CSS classes beyond a
+// substring (`IncidentList`); the whole-page text remains the contract.
 export async function collectUkmto(durationMs, maxItems) {
   const MAX = maxItems || 300;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => (s || "").replace(/[ \t\r\f\v]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   const HEAD = /^\s*(?:UKMTO\s*)?\d{1,4}\s*-\s*\d{2}\s*[-–—:|]?\s*[A-Z]{2}/;
+  const listEl = () => document.querySelector("ul[class*='IncidentList'], ul[class*='incidentList'], [class*='IncidentList'] ul, [data-list-panel] ul");
+  const listItems = () => { const ul = listEl(); return ul ? Array.from(ul.querySelectorAll(":scope > li, li")) : []; };
+  const reportCount = () => {
+    const m = /(\d+)\s+reports?\b/i.exec(document.body.innerText || "");
+    return m ? Number(m[1]) : null;
+  };
 
-  const end = Date.now() + Math.min(durationMs || 15000, 30000);
+  const budget = Math.min(durationMs || 20000, 40000);
+  const end = Date.now() + budget;
+  // 1. Wait for the client-side load: items in the list or a count above 0.
+  const minWait = Date.now() + Math.min(12000, budget);
+  while (Date.now() < end) {
+    const n = listItems().length;
+    const c = reportCount();
+    if (n > 0 || (c != null && c > 0 && Date.now() >= minWait)) break;
+    await sleep(600);
+  }
+  // 2. Scroll the list and the page so a lazy list renders; click an obvious
+  //    "load more" if one exists.
   let lastLen = 0, still = 0;
   while (Date.now() < end) {
+    const ul = listEl();
+    const panel = ul ? (ul.closest("[class*='listScroll'], [class*='Scroll']") || ul.parentElement) : null;
+    if (panel) { try { panel.scrollTop = panel.scrollHeight; } catch (e) { /* ignore */ } }
     window.scrollTo(0, document.body.scrollHeight);
-    // A "load more" control, if the list paginates by script.
     const btn = Array.from(document.querySelectorAll("button, a")).find((el) => /\b(load|show|view)\s+more\b|\bmore incidents\b|\bnext\b/i.test((el.innerText || "").trim()) && (el.innerText || "").trim().length < 40);
     if (btn) { try { btn.click(); } catch (e) { /* ignore */ } }
-    await sleep(900);
+    await sleep(800);
     const len = (document.body.innerText || "").length;
     if (len === lastLen) { still++; if (still >= 3) break; } else { still = 0; lastLen = len; }
   }
+  // 3. Open each collapsed item so its detail is in the text. A click that
+  //    navigates away is undone by stopping; the list text already taken
+  //    stands. Only items whose text lacks a labelled field are opened.
+  const items = listItems().slice(0, Math.min(MAX, 80));
+  const startHref = location.href;
+  for (const li of items) {
+    if (Date.now() > end) break;
+    const t = clean(li.innerText);
+    if (/Incident (?:Date|Time)|Position:|Source:/i.test(t)) continue;
+    try {
+      const target = li.querySelector("button, a, [role='button'], summary, h2, h3") || li;
+      target.click();
+      await sleep(180);
+      if (location.href !== startHref) { history.back(); await sleep(400); break; }
+    } catch (e) { /* ignore */ }
+  }
   window.scrollTo(0, 0);
 
-  // Per-entry blocks: the smallest elements whose own text starts with a
-  // reference header. Best-effort — the whole-page text is the contract.
+  // 4. Blocks: every list item, plus any element whose own text starts with
+  //    a reference header (the shape the parser was written against).
   const blocks = [];
   const seen = new Set();
+  const push = (t) => { const key = t.slice(0, 40); if (!t || t.length < 12 || seen.has(key)) return; seen.add(key); blocks.push(t); };
+  try { listItems().forEach((li) => { if (blocks.length < MAX) push(clean(li.innerText).slice(0, 6000)); }); } catch (e) { /* page text stands */ }
   try {
     document.querySelectorAll("article, li, section, div, tr, p").forEach((el) => {
       if (blocks.length >= MAX) return;
       const t = clean(el.innerText);
       if (!t || t.length < 20 || t.length > 6000 || !HEAD.test(t)) return;
-      // Prefer the innermost such element: skip when a child also qualifies.
       const inner = Array.from(el.children).some((c) => HEAD.test(clean(c.innerText)) && clean(c.innerText).length < t.length - 10);
       if (inner) return;
-      const key = t.slice(0, 40);
-      if (seen.has(key)) return;
-      seen.add(key);
-      blocks.push(t);
+      push(t);
     });
   } catch (e) { /* fall through with the page text */ }
 
+  // 5. The requests the page made for its data — URL and status only, so the
+  //    next run can name the incident API; same-origin JSON bodies sampled
+  //    (first 1,500 chars) so the record shape can be pinned from one paste.
+  const apiHints = [];
+  const api = [];
+  try {
+    const seenUrl = new Set();
+    for (const e of performance.getEntriesByType("resource")) {
+      const u = String(e.name || "");
+      if (!u || seenUrl.has(u)) continue;
+      if (/\/_next\/static\/|\.(?:css|js|png|jpg|svg|woff2?|ico)(?:\?|$)|googletagmanager|google-analytics|cookieControl|fonts\./i.test(u)) continue;
+      if (!/api|json|incident|graphql|sitecore|layout|data|search/i.test(u)) continue;
+      seenUrl.add(u);
+      apiHints.push(u.slice(0, 300));
+      if (apiHints.length >= 12) break;
+    }
+    for (const u of apiHints.slice(0, 4)) {
+      if (!u.startsWith(location.origin)) continue;
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 5000);
+        const r = await fetch(u, { credentials: "same-origin", signal: ctrl.signal });
+        clearTimeout(to);
+        const ct = r.headers.get("content-type") || "";
+        const body = /json/i.test(ct) ? (await r.text()).slice(0, 1500) : "";
+        api.push({ url: u.slice(0, 300), status: r.status, contentType: ct.slice(0, 60), sample: body });
+      } catch (e) { api.push({ url: u.slice(0, 300), status: 0, contentType: "", sample: String((e && e.message) || e).slice(0, 120) }); }
+    }
+  } catch (e) { /* hints are best-effort */ }
+
   const text = clean(document.body.innerText).slice(0, 400000);
-  const items = blocks.length ? blocks.map((b) => ({ text: b })) : text ? [{ text }] : [];
+  const out = blocks.length ? blocks.map((b) => ({ text: b })) : text ? [{ text }] : [];
   return {
     format: "dead-ukmto",
     version: 1,
@@ -59,6 +130,9 @@ export async function collectUkmto(durationMs, maxItems) {
     source: { kind: "ukmto", label: "UKMTO", host: location.hostname, pageUrl: location.href.split("#")[0], pageTitle: clean(document.title).slice(0, 120) },
     text,
     blocks,
-    items,
+    items: out,
+    diag: { reports: reportCount(), listItems: listItems().length, blocks: blocks.length },
+    apiHints,
+    api,
   };
 }

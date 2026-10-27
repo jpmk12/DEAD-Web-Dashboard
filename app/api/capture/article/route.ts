@@ -40,9 +40,13 @@ export async function POST(req: Request) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   try {
-    await upsertArticle(parsed.article, email);
+    // A digest page is stored as one row PER SECTION (lib/articleCapture
+    // splitSections) — never also as the whole, which would double the
+    // same text in every read. An ordinary article is one row.
+    const rows = parsed.sections.length ? parsed.sections : [parsed.article];
+    for (const a of rows) await upsertArticle(a, email);
     const status = await getArticleStatus();
-    return NextResponse.json({ ok: true, title: parsed.article.title, source: parsed.article.source, total: status.count });
+    return NextResponse.json({ ok: true, title: parsed.article.title, source: parsed.article.source, total: status.count, sections: parsed.sections.length || undefined });
   } catch (err) {
     console.error("article capture failed:", err);
     const f = describeDbError(err);

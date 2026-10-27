@@ -49,6 +49,26 @@ describe("parseArticleCapture", () => {
     expect(r.article.source).toBe("Analysis");
   });
 
+  it("a digest page becomes one draft per substantial section, keyed by the page URL plus the heading; an ordinary article has none", () => {
+    const sec = (n: number) => ({ heading: `Item ${n} about Hormuz`, text: `Paragraph one of item ${n}. `.repeat(8) });
+    const r = parseArticleCapture(good({ title: "The world in brief", sections: [sec(1), sec(2), sec(3), { heading: "Thin", text: "too short" }, { heading: "x", text: "no heading ".repeat(20) }] }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sections).toHaveLength(3);
+    expect(r.sections[0].title).toBe("Item 1 about Hormuz — The world in brief");
+    expect(r.sections[0].url).toBe("https://www.wsj.com/world/middle-east/some-iran-piece#item-1-about-hormuz");
+    expect(r.sections[0].id).not.toBe(r.article.id);
+    expect(new Set(r.sections.map((s) => s.id)).size).toBe(3);
+    expect(r.sections[0].publishedAt).toBe(r.article.publishedAt);
+    // Re-capturing the same page yields the same section ids.
+    const again = parseArticleCapture(good({ title: "The world in brief", sections: [sec(1), sec(2), sec(3)] }));
+    expect(again.ok && again.sections[1].id).toBe(r.sections[1].id);
+    // Below the floor it is an ordinary article.
+    const two = parseArticleCapture(good({ sections: [sec(1), sec(2)] }));
+    expect(two.ok && two.sections).toEqual([]);
+    expect(parseArticleCapture(good()).ok && (parseArticleCapture(good()) as { sections: unknown[] }).sections).toEqual([]);
+  });
+
   it("caps overlong body text", () => {
     const r = parseArticleCapture(good({ text: "x ".repeat(50_000) }));
     expect(r.ok).toBe(true);

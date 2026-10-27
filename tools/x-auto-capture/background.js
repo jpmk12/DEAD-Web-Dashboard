@@ -202,13 +202,17 @@ async function captureOne(url, c) {
       args: [dur, Number(c.maxPosts) || (kind === "liveuamap" ? 300 : 200)],
     });
     const capture = results && results[0] && results[0].result;
+    // A collector's own diagnostic (what it waited for and what it found)
+    // and the data requests it saw, for the run log either way.
+    const own = capture && capture.diag ? " [collector: " + Object.entries(capture.diag).map(([k, v]) => k + " " + v).join(" · ") + "]" : "";
+    const hints = capture && Array.isArray(capture.apiHints) && capture.apiHints.length ? capture.apiHints.slice(0, 6) : null;
     if (!capture || !capture.items || capture.items.length === 0) {
       let diag = null;
       try {
         const d = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: pageDiag });
         diag = d && d[0] && d[0].result;
       } catch (e) { /* the diagnostic is best-effort */ }
-      return { ok: false, error: EMPTY_MSG[kind] + diagLine(diag, url), diag, url };
+      return { ok: false, error: EMPTY_MSG[kind] + diagLine(diag, url) + own, diag, hints, url };
     }
 
     const endpoint = c.dashboardUrl.replace(/\/+$/, "") + ENDPOINTS[kind];
@@ -223,9 +227,9 @@ async function captureOne(url, c) {
     });
     const d = await up.json().catch(() => ({}));
     if (!up.ok || !d.ok) {
-      return { ok: false, error: (d && d.error) || ("Upload failed (HTTP " + up.status + ")"), collected: capture.items.length, url };
+      return { ok: false, error: (d && d.error) || ("Upload failed (HTTP " + up.status + ")") + own, collected: capture.items.length, hints, url };
     }
-    return { ok: true, collected: capture.items.length, imported: d.imported, updated: d.updated, total: d.total, source: capture.source && capture.source.label, url };
+    return { ok: true, collected: capture.items.length, imported: d.imported, updated: d.updated, total: d.total, source: capture.source && capture.source.label, note: own.trim() || undefined, hints, url };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e), url };
   } finally {
@@ -244,7 +248,7 @@ async function runCapture() {
   // Sequential — one background tab at a time is gentler and looks less automated.
   for (const url of c.listUrls) {
     const r = await captureOne(url, c);
-    results.push({ url, ok: r.ok, collected: r.collected, imported: r.imported, source: r.source, error: r.error });
+    results.push({ url, ok: r.ok, collected: r.collected, imported: r.imported, source: r.source, error: r.error, note: r.note, hints: r.hints });
     if (r.ok) { anyOk = true; collected += r.collected || 0; imported += r.imported || 0; updated += r.updated || 0; if (r.total != null) total = r.total; }
     else if (!firstErr) firstErr = r.error;
   }

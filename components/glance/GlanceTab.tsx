@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useMemo } from "react";
 import { openTrackPicker } from "@/lib/trackClient";
 import { toast } from "@/lib/feedback";
 import { relTimeFuture } from "@/lib/relTime";
+import { julianDayLabel } from "@/lib/date";
 import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
 import { renderOeBriefViewerHtml } from "@/lib/oeBriefViewer";
 import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems, MOVE_LABEL, SIDE_LABEL, type PostureMove } from "@/lib/postureMoves";
@@ -978,7 +979,7 @@ export default function GlanceTab({
           </h2>
           <p className="text-xs uppercase tracking-widest text-slate-500 mt-0.5" suppressHydrationWarning>
             {nowLocal
-              ? nowLocal.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })
+              ? `${nowLocal.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} (JD ${julianDayLabel(nowLocal)})`
               : " "}
           </p>
         </div>

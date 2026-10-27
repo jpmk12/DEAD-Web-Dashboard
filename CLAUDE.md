@@ -2944,6 +2944,73 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   `places` lookup away once a few weeks of real posts show which bases
   the user's lists actually name.
 
+### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
+Five saved view-source pages (Foreign Policy, The Economist's world in
+brief, the MOFCOM bulletin, UKMTO recent-incidents, an X list) checked
+against each collector. What each one taught, and the fix:
+- **MOFCOM bulletin (`bgt.mofcom.gov.cn/wg/`)**: the list is RENDERED BY
+  SCRIPT — the static page has an empty `.listCon` and a loader
+  (`AuthorizedRead/unitbuild.js` → the CMS's `jpaas-publish-server`
+  "信息列表" unit); and the page's own sidebar ("关于我们": 办公厅职能,
+  内设机构) carries `/gywm/art/2026/art_….html` links that MATCH the
+  notice permalink shape. Two bugs at once: those sidebar rows were
+  captured as notices, and because they filled the store immediately the
+  "wait while empty" loop returned before the real list rendered.
+  `mofcom.js` now skips links inside aside / nav / header / footer /
+  breadcrumbs and any `/gywm/` path, waits until a list region holds
+  article links (up to the budget, 25 s max), then harvests and keeps
+  scanning until the count is stable; the capture carries `diag
+  {listRegions, listLinks}` for the run log.
+- **UKMTO recent-incidents**: a Next.js / Sitecore app whose static HTML
+  says "0 reports" with an EMPTY `ul[class*="IncidentList"]` — the
+  incidents arrive by a client-side request, which is why the server
+  fetch can only ever parse 0 and why a capture taken too early would
+  too. `ukmto.js` now waits for list items (or a "N reports" count above
+  0, after ≥12 s), scrolls the list panel, opens each collapsed item
+  (clicking the first control inside it; a click that navigates is undone
+  and stops the pass) so its detail joins the text, takes every list item
+  as a block, and records the data requests the page made
+  (`performance` resource entries filtered to api / json / incident /
+  graphql / sitecore / layout / data / search, static assets excluded)
+  as **`apiHints`**, sampling up to four same-origin JSON bodies (1,500
+  chars) as `api[]`. The run log prints the hints ("↳ data request: …")
+  — the NEXT run names the incident API, and a structured feed with
+  positions beats parsing text. The server parser ignores the extra keys.
+- **Articles** (`article.js`): Foreign Policy is a plain `<article>` with
+  JSON-LD NewsArticle and NO `article:published_time` meta; the
+  Economist's world in brief has NO `<article>` — `<main id="content">`
+  with a dozen `<h2>` items, a DIGEST that, stored whole, gave the 2,000-
+  char corroboration slice the first two items. Now JSON-LD (NewsArticle /
+  Article, also inside `@graph`) is read FIRST for headline / date /
+  author; `main` is preferred after `article`; chrome blocks (newsletter /
+  subscribe / related / promo / paywall / share) are skipped; and a
+  digest-shaped page (≥4 headed sections of ≥120 chars holding ≥ half the
+  body) returns `sections[]`. Server: `parseArticleCapture` → `{article,
+  sections}` with `splitSections` (PURE, tested): at `DIGEST_MIN_SECTIONS`
+  3 or more substantial sections each becomes its own draft titled
+  "<heading> — <page title>", dated and sourced like the page, id from the
+  page URL + a stable heading anchor (a re-capture updates in place); the
+  route stores the SECTIONS, never also the whole.
+- **X list**: the saved source is the JS shell (nothing renders server-
+  side), so the DOM selectors could not be checked from it; `collector.js`
+  now also captures a QUOTED post (the second `tweetText` inside a
+  `role=link` block, with its author / handle) — the lift chatter is
+  often in the quoted part of a comment, and `xImport` already carried
+  `quoted`.
+- **Run log**: every target line carries the collector's own `diag` note
+  and its `apiHints`; `options.js` renders them for a single target too.
+- Not built: calling MOFCOM's `jpaas-publish-server` unit API for more
+  pages (its request contract is unknown; the first list page is enough
+  for a daily sweep) and fetching UKMTO's incident API server-side (the
+  host refuses datacenter fetches; the hints are for the capture path).
+
+### Glance date carries the Julian date (2026-10-27, "Tuesday, October 27 (JD)")
+`lib/date.ts` `dayOfYear(d, tz?)` / `julianDayLabel` (PURE, tested in
+`tests/dayOfYear.test.ts`): the ordinal day of the year on the LOCAL
+calendar day of the zone (the device's when none is given) — the three-
+digit form a flying schedule prints, not the astronomical Julian Day
+Number. The Glance header reads "Tuesday, October 27 (JD 300)".
+
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to
 BMNT (nautical twilight, the OPORD light-data convention), the part of it

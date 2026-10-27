@@ -26,9 +26,22 @@ export async function collectXPosts(durationMs, maxPosts) {
         const linkEl = timeEl ? timeEl.closest('a') : null;
         const url = linkEl ? new URL(linkEl.getAttribute('href'), location.origin).href : '';
         const idMatch = url.match(/status\/(\d+)/);
-        const textEl = a.querySelector('[data-testid="tweetText"]');
+        // The post's own text is the FIRST tweetText; a second one inside a
+        // role=link block is the QUOTED post (its text matters — "6x KC-135
+        // heading east" is often the quoted part of a comment).
+        const texts = Array.from(a.querySelectorAll('[data-testid="tweetText"]'));
+        const textEl = texts[0] || null;
         const text = textEl ? textEl.innerText : '';
         if (!text) return;
+        let quoted;
+        const qEl = texts.slice(1).find((el) => el.closest('[role="link"]') && el !== textEl);
+        if (qEl) {
+          const qBox = qEl.closest('[role="link"]');
+          const qName = qBox ? qBox.querySelector('[data-testid="User-Name"]') : null;
+          const qLines = qName ? qName.innerText.split('\n') : [];
+          const qh = qLines.find((s) => s.startsWith('@'));
+          quoted = { author: qLines[0] || '', handle: qh ? qh.slice(1) : '', text: qEl.innerText.slice(0, 500) };
+        }
         let author = '', handle = '';
         const nameEl = a.querySelector('[data-testid="User-Name"]');
         if (nameEl) {
@@ -51,6 +64,7 @@ export async function collectXPosts(durationMs, maxPosts) {
           time: timeEl ? (timeEl.getAttribute('datetime') || '') : '',
           text,
           metrics: { replies: metric('reply'), reposts: metric('retweet'), likes: metric('like') },
+          ...(quoted && quoted.text ? { quoted } : {}),
         });
       } catch (e) { /* one malformed card never kills the capture */ }
     });

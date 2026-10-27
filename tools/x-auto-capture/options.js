@@ -35,8 +35,14 @@ function renderStatus(lastRun, lastArticle) {
     : "\n\nTip: click the toolbar icon while reading an article to capture it.";
   if (!lastRun) { el.innerHTML = "No sweep run yet. Save your settings, then use “Run now” to test." + art; return; }
   const when = new Date(lastRun.at).toLocaleString();
-  const perList = Array.isArray(lastRun.results) && lastRun.results.length > 1
-    ? "\n" + lastRun.results.map((r) => `  • ${r.source || r.url}: ${r.ok ? `${r.collected} collected` : "✗ " + (r.error || "failed")}`).join("\n")
+  // One line per target, plus the collector's own note and the data
+  // requests it saw (the UKMTO incident API shows up here first).
+  const perList = Array.isArray(lastRun.results) && lastRun.results.length >= 1
+    ? "\n" + lastRun.results.map((r) => {
+        const line = `  • ${r.source || r.url}: ${r.ok ? `${r.collected} collected` : "✗ " + (r.error || "failed")}${r.ok && r.note ? " " + r.note : ""}`;
+        const hints = Array.isArray(r.hints) && r.hints.length ? "\n" + r.hints.map((h) => `      ↳ data request: ${h}`).join("\n") : "";
+        return line + hints;
+      }).join("\n")
     : "";
   if (lastRun.ok) {
     el.innerHTML = `<span class="ok">✓ Last run ${when}</span>\n${lastRun.lists || 1} target(s) · collected ${lastRun.collected} · imported ${lastRun.imported} new` +
