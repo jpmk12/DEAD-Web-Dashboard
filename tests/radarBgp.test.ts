@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseBgpHijacks, parseBgpLeaks, bgpReadsFor, hijackLevel, leakLevel, bandOf, BGP_LEVEL_ORDINAL } from "../lib/radarBgp";
+import { parseBgpHijacks, parseBgpLeaks, bgpReadsFor, hijackLevel, leakLevel, isDomesticHijack, bandOf, BGP_LEVEL_ORDINAL } from "../lib/radarBgp";
 import { functionalRows, type FcInput, type FcRouting, type FcTraffic } from "../lib/functionalCommands";
 
 // The host is unreachable from the sandbox; these bodies follow the published
@@ -25,6 +25,8 @@ const HIJACKS = {
       { id: 1004, confidence_score: 2, hijacker_asn: 8359, hijacker_country: "RU", is_stale: false, max_hijack_ts: H(0.5), min_hijack_ts: H(1), on_going_count: 1, peer_ip_count: 1, prefixes: ["9.9.9.0/24"], tags: [], victim_asns: [1], victim_countries: ["JO"] },
       // Out of the window → dropped by the read.
       { id: 1005, confidence_score: 9, hijacker_asn: 8359, hijacker_country: "RU", max_hijack_ts: H(24 * 10), min_hijack_ts: H(24 * 10 + 1), on_going_count: 0, prefixes: ["4.4.4.0/24"], victim_asns: [12880], victim_countries: ["IR"] },
+      // DOMESTIC (a US network announcing a US prefix — the first production page was mostly these): high, ongoing, and still a note.
+      { id: 1008, confidence_score: 10, hijacker_asn: 22773, hijacker_country: "US", is_stale: false, max_hijack_ts: H(0.2), min_hijack_ts: H(1), on_going_count: 3, peer_ip_count: 20, prefixes: ["68.1.0.0/16"], tags: [], victim_asns: [11404], victim_countries: ["US"] },
       { confidence_score: 9, max_hijack_ts: H(1) },                 // no id → dropped
       { id: 1007, confidence_score: 9 },                            // no time → dropped
     ],
@@ -37,6 +39,8 @@ const LEAKS = {
     events: [
       { id: 2001, leak_asn: 3356, countries: ["US", "JO"], origin_count: 3, peer_count: 20, prefix_count: 150, leak_count: 9, min_ts: H(2), max_ts: H(1), detected_ts: H(2), finished: false, leak_seg: [1, 2, 3], leak_type: 0 },
       { id: 2002, leak_asn: 3356, countries: ["IR"], origin_count: 1, peer_count: 2, prefix_count: 4, leak_count: 1, min_ts: H(80), max_ts: H(79), finished: true },
+      // Small and ongoing — the first production page was 100 of these in a few hours; never a level.
+      { id: 2003, leak_asn: 134840, countries: ["IR", "MM"], origin_count: 1, peer_count: 93, prefix_count: 1, leak_count: 1, min_ts: H(0.5), max_ts: H(0.3), finished: false },
     ],
   },
 };
@@ -44,7 +48,7 @@ const LEAKS = {
 describe("parseBgpHijacks / parseBgpLeaks", () => {
   it("reads the envelope, bands the confidence, keeps ASN info, drops rows with no id or time, newest first", () => {
     const { events, asnInfo } = parseBgpHijacks(HIJACKS);
-    expect(events.map((e) => e.id)).toEqual(["1004", "1001", "1002", "1003", "1005"]);
+    expect(events.map((e) => e.id)).toEqual(["1008", "1004", "1001", "1002", "1003", "1005"]);
     const h = events.find((e) => e.id === "1001")!;
     expect(h).toMatchObject({ confidence: 9, band: "high", hijackerAsn: 8359, hijackerCountry: "RU", victimAsns: [12880], victimCountries: ["IR"], ongoing: true, stale: false, peerCount: 14, tags: ["same_prefix"] });
     expect(h.prefixes).toEqual(["5.56.0.0/16", "5.57.0.0/16"]);
@@ -55,8 +59,8 @@ describe("parseBgpHijacks / parseBgpLeaks", () => {
   });
   it("reads leaks with their countries and the finished flag", () => {
     const { events, asnInfo } = parseBgpLeaks(LEAKS);
-    expect(events.map((e) => e.id)).toEqual(["2001", "2002"]);
-    expect(events[0]).toMatchObject({ leakAsn: 3356, countries: ["US", "JO"], prefixCount: 150, peerCount: 20, finished: false });
+    expect(events.map((e) => e.id)).toEqual(["2003", "2001", "2002"]);
+    expect(events[1]).toMatchObject({ leakAsn: 3356, countries: ["US", "JO"], prefixCount: 150, peerCount: 20, finished: false });
     expect(asnInfo[3356].org).toBe("Lumen");
   });
 });
@@ -66,13 +70,21 @@ describe("hijackLevel / leakLevel / bgpReadsFor — the level is earned by confi
   const { events: leaks, asnInfo: leakInfo } = parseBgpLeaks(LEAKS);
   const asnInfo = { ...hijackInfo, ...leakInfo };   // the server merges both tables into one
   const by = (id: string) => hijacks.find((h) => h.id === id)!;
-  it("high + recent → red; mid + recent → amber; high but old → note; low → note even when ongoing", () => {
-    expect(hijackLevel(by("1001"), NOW)).toBe("red");
-    expect(hijackLevel(by("1002"), NOW)).toBe("amber");
-    expect(hijackLevel(by("1003"), NOW)).toBe("note");
-    expect(hijackLevel(by("1004"), NOW)).toBe("note");
-    expect(leakLevel(leaks[0], NOW)).toBe("amber");
-    expect(leakLevel(leaks[1], NOW)).toBe("note");
+  it("high + recent → red; mid + recent → amber; high but old → note; low → note even when ongoing; DOMESTIC → note whatever the confidence", () => {
+    expect(hijackLevel(by("1001"), NOW, "IR")).toBe("red");
+    expect(hijackLevel(by("1002"), NOW, "US")).toBe("amber");
+    expect(hijackLevel(by("1003"), NOW, "IR")).toBe("note");
+    expect(hijackLevel(by("1004"), NOW, "JO")).toBe("note");
+    // 1008: a US network hijacking a US prefix, confidence 10, ongoing — domestic, so a note for the US…
+    expect(hijackLevel(by("1008"), NOW, "US")).toBe("note");
+    expect(isDomesticHijack(by("1008"), "US")).toBe(true);
+    // …and the same event is cross-border for anyone else it victimised (none here), and red with no country asked.
+    expect(hijackLevel(by("1008"), NOW)).toBe("red");
+    expect(isDomesticHijack(by("1001"), "IR")).toBe(false);
+    // Leaks: big + recent → amber; small or old → note.
+    expect(leakLevel(leaks.find((l) => l.id === "2001")!, NOW)).toBe("amber");
+    expect(leakLevel(leaks.find((l) => l.id === "2002")!, NOW)).toBe("note");
+    expect(leakLevel(leaks.find((l) => l.id === "2003")!, NOW)).toBe("note");
     expect(BGP_LEVEL_ORDINAL.red).toBeGreaterThan(BGP_LEVEL_ORDINAL.amber);
   });
   it("per-country reads: victim reads earn the level, the hijacker country is listed without one, absent means nothing", () => {
@@ -83,9 +95,16 @@ describe("hijackLevel / leakLevel / bgpReadsFor — the level is earned by confi
     expect(r.IR.ongoing).toBe(true);
     expect(r.IR.victimOf.map((h) => h.id)).toEqual(["1001", "1003"]);   // 1005 is outside the window
     expect(r.IR.why).toBe("high-confidence hijack of 2 prefixes (AS12880 (Information Technology Company (ITC))) by AS8359 (MTS PJSC) [RU] · ongoing");
-    expect(r.IR.leaks.map((l) => l.id)).toEqual(["2002"]);
+    expect(r.IR.leaks.map((l) => l.id)).toEqual(["2003", "2002"]);        // listed; neither colours (small / old)
+    // US: the domestic 1008 (confidence 10, ongoing) is listed as a note; the cross-border mid 1002 sets the level.
     expect(r.US.level).toBe("amber");
+    expect(r.US.victimOf.map((h) => h.id)).toEqual(["1008", "1002"]);
     expect(r.US.why).toMatch(/^mid-confidence hijack of 1 prefix \(AS15169 \(Google LLC\)\) by AS12880 .* · last seen 2026-10-27$/);
+    expect(r.US.ongoing).toBe(true);    // from the big ongoing leak 2001 — the domestic hijack contributes nothing to "ongoing"
+    const usOnly = bgpReadsFor(hijacks.filter((h) => h.id === "1008"), [], asnInfo, ["US"], NOW)[0];
+    expect(usOnly.level).toBe("note");
+    expect(usOnly.ongoing).toBe(false);
+    expect(usOnly.why).toMatch(/· ongoing · domestic — likely misconfiguration, not routing pressure$/);
     // Russia is the HIJACKER on 1001 / 1003 / 1004 and a victim of nothing: listed, level note.
     expect(r.RU.level).toBe("note");
     expect(r.RU.hijackerIn.map((h) => h.id)).toEqual(["1004", "1001", "1003"]);

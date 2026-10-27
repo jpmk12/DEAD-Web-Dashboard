@@ -152,6 +152,20 @@ export function parseBgpLeaks(json: unknown): BgpParse<BgpLeak> {
 
 /** An event seen inside this many hours of `now` is "recent" and can colour. */
 export const BGP_RECENT_HOURS = 24;
+/** A route leak colours only when it is this big — the first production
+ *  page (2026-10-27) held 100 leaks in a few hours, nearly all a handful of
+ *  prefixes from one network's misconfiguration; a leak of hundreds of
+ *  prefixes is the class that reroutes a country's traffic. */
+export const LEAK_SIGNIFICANT_PREFIXES = 100;
+
+/** A hijack is DOMESTIC for a victim country when the hijacking network is
+ *  registered in that same country — the first production page was mostly
+ *  these (a US network announcing a US prefix), which is a misconfiguration
+ *  or a customer dispute, not routing pressure on the country. It is listed,
+ *  never a level. Cross-border (or hijacker unknown) earns the level. */
+export function isDomesticHijack(h: BgpHijack, victimCountry: string): boolean {
+  return h.hijackerCountry != null && h.hijackerCountry === victimCountry;
+}
 
 export interface BgpCountryRead {
   code: string;
@@ -170,17 +184,21 @@ const RANK: Record<BgpLevel, number> = { note: 0, amber: 1, red: 2 };
 const fmtDay = (t: number) => new Date(t).toISOString().slice(0, 10);
 const asnLabel = (asn: number | null, info: Record<number, BgpAsnInfo>) => (asn == null ? "an unknown network" : `AS${asn}${info[asn]?.org ? ` (${info[asn].org})` : ""}`);
 
-/** The level one hijack earns for a VICTIM country at `nowMs`. */
-export function hijackLevel(h: BgpHijack, nowMs: number): BgpLevel {
+/** The level one hijack earns for a VICTIM country at `nowMs`: confidence
+ *  AND recency AND cross-border — a domestic hijack is a note whatever its
+ *  confidence. */
+export function hijackLevel(h: BgpHijack, nowMs: number, victimCountry?: string): BgpLevel {
   const recent = h.ongoing || nowMs - h.lastMs <= BGP_RECENT_HOURS * 3_600_000;
   if (!recent || h.band === "low") return "note";
+  if (victimCountry && isDomesticHijack(h, victimCountry)) return "note";
   return h.band === "high" ? "red" : "amber";
 }
 
-/** The level one route leak earns for a country it touched. */
+/** The level one route leak earns for a country it touched: amber only when
+ *  it is recent AND big (`LEAK_SIGNIFICANT_PREFIXES`); the rest are notes. */
 export function leakLevel(l: BgpLeak, nowMs: number): BgpLevel {
   const recent = !l.finished || nowMs - l.lastMs <= BGP_RECENT_HOURS * 3_600_000;
-  return recent ? "amber" : "note";
+  return recent && l.prefixCount >= LEAK_SIGNIFICANT_PREFIXES ? "amber" : "note";
 }
 
 /**
@@ -202,13 +220,14 @@ export function bgpReadsFor(hijacks: BgpHijack[], leaks: BgpLeak[], asnInfo: Rec
   };
   for (const h of hijacks) {
     if (h.lastMs < since) continue;
-    const lvl = hijackLevel(h, nowMs);
     const recent = h.ongoing || nowMs - h.lastMs <= BGP_RECENT_HOURS * 3_600_000;
     for (const c of h.victimCountries) {
       if (!want.has(c)) continue;
       const r = get(c);
       r.victimOf.push(h);
-      lift(r, lvl, `${h.band}-confidence hijack of ${h.prefixes.length} prefix${h.prefixes.length === 1 ? "" : "es"} (${h.victimAsns.slice(0, 3).map((a) => asnLabel(a, asnInfo)).join(", ") || "victim networks unnamed"}) by ${asnLabel(h.hijackerAsn, asnInfo)}${h.hijackerCountry ? ` [${h.hijackerCountry}]` : ""} · ${h.ongoing ? "ongoing" : recent ? `last seen ${fmtDay(h.lastMs)}` : `ended ${fmtDay(h.lastMs)}`}`, h.ongoing);
+      const lvl = hijackLevel(h, nowMs, c);
+      const domestic = isDomesticHijack(h, c);
+      lift(r, lvl, `${h.band}-confidence hijack of ${h.prefixes.length} prefix${h.prefixes.length === 1 ? "" : "es"} (${h.victimAsns.slice(0, 3).map((a) => asnLabel(a, asnInfo)).join(", ") || "victim networks unnamed"}) by ${asnLabel(h.hijackerAsn, asnInfo)}${h.hijackerCountry ? ` [${h.hijackerCountry}]` : ""} · ${h.ongoing ? "ongoing" : recent ? `last seen ${fmtDay(h.lastMs)}` : `ended ${fmtDay(h.lastMs)}`}${domestic ? " · domestic — likely misconfiguration, not routing pressure" : ""}`, h.ongoing && !domestic);
     }
     if (h.hijackerCountry && want.has(h.hijackerCountry) && !h.victimCountries.includes(h.hijackerCountry)) {
       const r = get(h.hijackerCountry);
@@ -225,7 +244,7 @@ export function bgpReadsFor(hijacks: BgpHijack[], leaks: BgpLeak[], asnInfo: Rec
       if (!want.has(c)) continue;
       const r = get(c);
       r.leaks.push(l);
-      lift(r, lvl, `route leak by ${asnLabel(l.leakAsn, asnInfo)} — ${l.prefixCount} prefix${l.prefixCount === 1 ? "" : "es"} seen by ${l.peerCount} peer${l.peerCount === 1 ? "" : "s"} · ${l.finished ? `ended ${fmtDay(l.lastMs)}` : "ongoing"}`, !l.finished);
+      lift(r, lvl, `route leak by ${asnLabel(l.leakAsn, asnInfo)} — ${l.prefixCount} prefix${l.prefixCount === 1 ? "" : "es"} seen by ${l.peerCount} peer${l.peerCount === 1 ? "" : "s"} · ${l.finished ? `ended ${fmtDay(l.lastMs)}` : "ongoing"}${lvl === "note" && l.prefixCount < LEAK_SIGNIFICANT_PREFIXES ? " · small leak, not a level" : ""}`, !l.finished && lvl !== "note");
     }
   }
   return [...by.values()].sort((a, b) => RANK[b.level] - RANK[a.level] || a.code.localeCompare(b.code));

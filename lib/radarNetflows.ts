@@ -6,22 +6,29 @@
 // traffic right now" without waiting for a write-up, and corroborates an
 // annotation with a second kind of evidence.
 //
-// The read is the HOUR-MATCHED ratio: the median of the last RECENT_HOURS
-// hourly samples against the median of the SAME hours of the day on the
-// prior days in the window (a diurnal curve compared to itself — Monday
-// 0300 is compared with 0300, never with the daytime mean). Median
-// everywhere, never mean (the household rule). Thresholds are deliberate:
-// `TRAFFIC_DOWN` ≤ 0.6 is well outside ordinary day-to-day variance on a
-// national series; `TRAFFIC_COLLAPSED` ≤ 0.25 is a shutdown-class drop.
+// The read is HOUR-MATCHED: the last RECENT_HOURS hourly samples against
+// the SAME hours of the day on the prior days in the window (a diurnal
+// curve compared to itself — Monday 0300 is compared with 0300, never with
+// the daytime mean). Median everywhere, never mean (the household rule).
 //
-// Values: the request asks `normalization=PERCENTAGE_CHANGE`, under which
-// every value is a percentage change against ONE reference constant, so
-// v = c·(1 + p/100) and the ratio of two samples is (1+p₁/100)/(1+p₂/100)
-// with c cancelling. MIN0_MAX would NOT do: it subtracts the window's
-// minimum (the nightly trough) and turns a modest daytime dip into a near-
-// zero ratio. The value shape is UNVERIFIED from the sandbox; the diag row
-// prints the first values so a different definition is caught on the first
-// paste. A value below −100 cannot be a percentage change and is dropped.
+// Normalization — what the values MEAN depends on what the API agreed to
+// send, and the read branches on `series.normalization`:
+//   - RAW_VALUES (asked first): a ratio read. `TRAFFIC_DOWN` ≤ 0.6 is well
+//     outside ordinary day-to-day variance on a national series;
+//     `TRAFFIC_COLLAPSED` ≤ 0.25 is a shutdown-class drop.
+//   - MIN0_MAX / MIN_MAX (the fallback — the API's default): every value is
+//     (v − min) / (max − min) over the window, so the nightly trough reads 0
+//     and a RATIO of two values is amplified (a 20 % daytime dip can read
+//     60 %). A ratio is therefore never claimed; the read is the DROP in
+//     range units — median(matched prior hours) − median(recent) —
+//     `NORM_DROP_DOWN` ≥ 0.35 of the window's whole range below the same
+//     hours is a real abnormal drop, `NORM_DROP_COLLAPSED` ≥ 0.7 with the
+//     recent level itself near the floor is a collapse. `ratio` is null and
+//     the why says "range units".
+//   - PERCENTAGE_CHANGE was the first attempt and the API REFUSED it (2001
+//     "Must have 1 comparison series to compare against", 2026-10-27): it
+//     compares two series, it is not a reference-constant normalization.
+//     Kept parseable (p → 1 + p/100) for a body that carries it anyway.
 //
 // Disciplines: below MIN_BASELINE_DAYS matched days the read is `learning`
 // (a tally, never a ratio); a last sample older than STALE_HOURS is
@@ -34,9 +41,10 @@
 export interface TrafficSeries {
   /** Epoch ms, ascending. */
   timestamps: number[];
-  /** Relative level: 1 + p/100 (≥ 0). */
+  /** The level per sample — raw, normalized 0..1, or 1 + p/100 by `normalization`. */
   values: number[];
   aggInterval: string;
+  /** Upper-cased as the API reported it ("" when the body did not say). */
   normalization: string;
   lastUpdatedMs: number | null;
 }
@@ -45,8 +53,10 @@ export type TrafficState = "normal" | "down" | "collapsed" | "learning" | "unkno
 
 export interface TrafficRead {
   state: TrafficState;
-  /** median(recent) / median(hour-matched prior days); null when unknown / learning. */
+  /** median(recent) / median(hour-matched prior days); null for a normalized series, or when unknown / learning. */
   ratio: number | null;
+  /** For a MIN0_MAX series: median(matched) − median(recent) in range units; null otherwise. */
+  drop: number | null;
   recentHours: number;
   /** How many prior days every recent hour could be matched against. */
   baselineDays: number;
@@ -59,29 +69,41 @@ export const MIN_BASELINE_DAYS = 3;
 export const STALE_HOURS = 4;
 export const TRAFFIC_DOWN = 0.6;
 export const TRAFFIC_COLLAPSED = 0.25;
+export const NORM_DROP_DOWN = 0.35;
+export const NORM_DROP_COLLAPSED = 0.7;
+export const NORM_FLOOR = 0.1;
+
+/** The normalizations the fetcher asks for, in order of preference. */
+export const NETFLOWS_NORMALIZATIONS = ["RAW_VALUES", "MIN0_MAX"] as const;
 
 const num = (v: unknown): number | null => { const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN; return Number.isFinite(n) ? n : null; };
 const ms = (s: unknown): number | null => { if (typeof s !== "string" || !s) return null; const t = Date.parse(s); return Number.isFinite(t) ? t : null; };
 
+export const isNormalizedRange = (normalization: string) => /^MIN0?_MAX$/.test(normalization);
+
 /** `result.serie_0` (or the first `serie_*` / named series) → a TrafficSeries,
  *  or null when nothing series-shaped is there. Pairs with a non-finite
- *  value, a value below −100 or an unparseable timestamp are dropped. */
+ *  value or an unparseable timestamp are dropped; under PERCENTAGE_CHANGE a
+ *  value below −100 is dropped and the rest become 1 + p/100; under any
+ *  other normalization a negative value is dropped (traffic is not). */
 export function parseNetflows(json: unknown): TrafficSeries | null {
   const result = (json as { result?: Record<string, unknown> } | null)?.result;
   if (!result || typeof result !== "object") return null;
   const meta = (result.meta ?? {}) as Record<string, unknown>;
   const serie = (result.serie_0 ?? Object.entries(result).find(([k, v]) => k !== "meta" && v && typeof v === "object" && Array.isArray((v as { timestamps?: unknown }).timestamps))?.[1]) as { timestamps?: unknown; values?: unknown } | undefined;
   if (!serie || !Array.isArray(serie.timestamps) || !Array.isArray(serie.values)) return null;
+  const normalization = typeof meta.normalization === "string" ? meta.normalization.trim().toUpperCase() : "";
+  const pct = normalization === "PERCENTAGE_CHANGE";
   const n = Math.min(serie.timestamps.length, serie.values.length);
   const pairs: { t: number; v: number }[] = [];
   for (let i = 0; i < n; i++) {
     const t = ms(serie.timestamps[i]);
     const p = num(serie.values[i]);
-    if (t == null || p == null || p < -100) continue;
-    pairs.push({ t, v: 1 + p / 100 });
+    if (t == null || p == null) continue;
+    if (pct) { if (p < -100) continue; pairs.push({ t, v: 1 + p / 100 }); }
+    else { if (p < 0) continue; pairs.push({ t, v: p }); }
   }
   pairs.sort((a, b) => a.t - b.t);
-  const normalization = typeof meta.normalization === "string" ? meta.normalization : "";
   return {
     timestamps: pairs.map((p) => p.t),
     values: pairs.map((p) => p.v),
@@ -97,7 +119,7 @@ const median = (xs: number[]): number => { const s = [...xs].sort((a, b) => a - 
 export function trafficRead(series: TrafficSeries | null, nowMs: number, opts: { recentHours?: number; minBaselineDays?: number } = {}): TrafficRead {
   const recentHours = opts.recentHours ?? RECENT_HOURS;
   const minDays = opts.minBaselineDays ?? MIN_BASELINE_DAYS;
-  const empty = (why: string, state: TrafficState = "unknown"): TrafficRead => ({ state, ratio: null, recentHours, baselineDays: 0, lastSampleMs: series?.timestamps.at(-1) ?? null, why });
+  const empty = (why: string, state: TrafficState = "unknown"): TrafficRead => ({ state, ratio: null, drop: null, recentHours, baselineDays: 0, lastSampleMs: series?.timestamps.at(-1) ?? null, why });
   if (!series || !series.timestamps.length) return empty("no traffic series");
   const last = series.timestamps[series.timestamps.length - 1];
   if (nowMs - last > STALE_HOURS * 3_600_000) return empty(`series stale — last sample ${Math.round((nowMs - last) / 3_600_000)} h ago`);
@@ -118,14 +140,28 @@ export function trafficRead(series: TrafficSeries | null, nowMs: number, opts: {
   }
   if (!recent.length) return empty("no sample in the recent window");
   const baselineDays = Number.isFinite(minMatched) ? minMatched : 0;
-  if (baselineDays < minDays) return { state: "learning", ratio: null, recentHours, baselineDays, lastSampleMs: last, why: `learning — ${baselineDays} of ${minDays} prior days matched for every recent hour` };
+  if (baselineDays < minDays) return { state: "learning", ratio: null, drop: null, recentHours, baselineDays, lastSampleMs: last, why: `learning — ${baselineDays} of ${minDays} prior days matched for every recent hour` };
+  const mr = median(recent);
   const mb = median(base);
-  if (mb <= 0) return { state: "unknown", ratio: null, recentHours, baselineDays, lastSampleMs: last, why: "baseline is zero — the reference cannot be read" };
-  const ratio = median(recent) / mb;
+  const span = `the same hours on the prior ${baselineDays} days (last ${recentHours} h, Cloudflare NetFlows)`;
+  if (isNormalizedRange(series.normalization)) {
+    // Range units: the drop below the matched hours as a fraction of the
+    // window's whole range. A ratio would be amplified by the subtracted
+    // minimum, so none is claimed.
+    const drop = mb - mr;
+    const state: TrafficState = drop >= NORM_DROP_COLLAPSED && mr <= NORM_FLOOR ? "collapsed" : drop >= NORM_DROP_DOWN ? "down" : "normal";
+    const pct = Math.round(drop * 100);
+    const why = state === "normal"
+      ? `traffic in its usual band against ${span}${pct > 0 ? ` — ${pct}% of the week's range below` : ""}`
+      : `traffic ${state.toUpperCase()} — ${pct}% of the week's range below ${span}; normalized series, range units not a ratio`;
+    return { state, ratio: null, drop, recentHours, baselineDays, lastSampleMs: last, why };
+  }
+  if (mb <= 0) return { state: "unknown", ratio: null, drop: null, recentHours, baselineDays, lastSampleMs: last, why: "baseline is zero — the reference cannot be read" };
+  const ratio = mr / mb;
   const pct = Math.round(ratio * 100);
   const state: TrafficState = ratio <= TRAFFIC_COLLAPSED ? "collapsed" : ratio <= TRAFFIC_DOWN ? "down" : "normal";
   const why = state === "normal"
-    ? `traffic ${pct}% of the same hours on the prior ${baselineDays} days (last ${recentHours} h)`
-    : `traffic ${state.toUpperCase()} — ${pct}% of the same hours on the prior ${baselineDays} days (last ${recentHours} h, Cloudflare NetFlows)`;
-  return { state, ratio, recentHours, baselineDays, lastSampleMs: last, why };
+    ? `traffic ${pct}% of ${span}`
+    : `traffic ${state.toUpperCase()} — ${pct}% of ${span}`;
+  return { state, ratio, drop: null, recentHours, baselineDays, lastSampleMs: last, why };
 }

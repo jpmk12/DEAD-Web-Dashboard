@@ -18,7 +18,7 @@
 import { fetchWithTimeout } from "./fetchTimeout";
 import { parseRadarOutages, parseRadarAnomalies, describeRadarError, normalizeRadarToken, describeTokenShape, firstNonAscii, isByteStringError, type RadarOutage, type RadarAnomaly, type RadarErrorClass, type RadarTokenShape } from "./radarSignals";
 import { parseBgpHijacks, parseBgpLeaks, type BgpHijack, type BgpLeak, type BgpAsnInfo } from "./radarBgp";
-import { parseNetflows, trafficRead, type TrafficRead } from "./radarNetflows";
+import { parseNetflows, trafficRead, NETFLOWS_NORMALIZATIONS, type TrafficRead } from "./radarNetflows";
 import { countryIso2 } from "./holidays";
 
 export const RADAR_BASE = "https://api.cloudflare.com/client/v4/radar";
@@ -36,9 +36,12 @@ export const RADAR_ATTRIBUTION = "Cloudflare Radar — radar.cloudflare.com (CC 
 // reference, UNVERIFIED from the sandbox — the diag's `rawFirst` is the door.
 export const RADAR_HIJACKS_URL = `${RADAR_BASE}/bgp/hijacks/events?dateRange=7d&minConfidence=5&per_page=100&sortBy=TIME&sortOrder=DESC&format=json`;
 export const RADAR_LEAKS_URL = `${RADAR_BASE}/bgp/leaks/events?dateRange=7d&per_page=100&sortBy=TIME&sortOrder=DESC&format=json`;
-// NetFlows per country: a week of hourly samples as PERCENTAGE_CHANGE (see
-// lib/radarNetflows.ts for why not MIN0_MAX). One request per country.
-export const netflowsUrl = (iso2: string) => `${RADAR_BASE}/netflows/timeseries?dateRange=7d&aggInterval=1h&normalization=PERCENTAGE_CHANGE&location=${encodeURIComponent(iso2)}&format=json`;
+// NetFlows per country: a week of hourly samples. The normalization is
+// NEGOTIATED: RAW_VALUES first (a ratio read), MIN0_MAX on a query refusal
+// (a drop read in range units — see lib/radarNetflows.ts). PERCENTAGE_CHANGE
+// was refused in production (2001 "Must have 1 comparison series"). One
+// request per country; the working normalization is remembered per process.
+export const netflowsUrl = (iso2: string, normalization: string) => `${RADAR_BASE}/netflows/timeseries?dateRange=7d&aggInterval=1h&normalization=${encodeURIComponent(normalization)}&location=${encodeURIComponent(iso2)}&format=json`;
 /** The per-pass cap on NetFlows countries — far inside the API's 1,200 / 5 min. */
 export const TRAFFIC_MAX_COUNTRIES = 16;
 
@@ -202,8 +205,24 @@ export interface RadarTrafficBody {
 }
 
 const trafficCache = new Map<string, { at: number; read: TrafficRead }>();
+/** The normalization the API last accepted (index into NETFLOWS_NORMALIZATIONS). */
+let workingNorm = 0;
 
-export function resetRadarTrafficCache(): void { trafficCache.clear(); }
+export function resetRadarTrafficCache(): void { trafficCache.clear(); workingNorm = 0; }
+
+/** One country's series under the negotiated normalization: the preferred
+ *  one first, the next on a QUERY refusal (never on a token or network
+ *  failure, which would not change with the parameter). Returns the fetch
+ *  result and the normalization it was made with. */
+async function fetchNetflows(code: string, token: string, timeoutMs: number): Promise<{ r: FetchResult; normalization: string }> {
+  for (let i = workingNorm; i < NETFLOWS_NORMALIZATIONS.length; i++) {
+    const normalization = NETFLOWS_NORMALIZATIONS[i];
+    const r = await fetchJson(netflowsUrl(code, normalization), token, timeoutMs);
+    if (r.json) { workingNorm = i; return { r, normalization }; }
+    if (r.errorClass !== "query" || i === NETFLOWS_NORMALIZATIONS.length - 1) return { r, normalization };
+  }
+  return { r: { status: 0, json: null, error: "no normalization accepted", errorClass: "query" }, normalization: NETFLOWS_NORMALIZATIONS[NETFLOWS_NORMALIZATIONS.length - 1] };
+}
 
 /** The tracked countries as ISO2 → display name, from the same two prefs
  *  lists the alerts pass reads (watched countries + the countries of the
@@ -229,7 +248,7 @@ export async function getRadarTraffic(codes: string[]): Promise<RadarTrafficBody
   await Promise.all(asked.map(async (code) => {
     const hit = trafficCache.get(code);
     if (hit && now - hit.at < TTL) { reads[code] = hit.read; return; }
-    const r = await fetchJson(netflowsUrl(code), token, 10_000);
+    const { r } = await fetchNetflows(code, token, 10_000);
     if (!r.json) { reads[code] = null; failed.push(`${code}: ${r.error ?? "no body"}`); if (r.errorClass === "token") tokenHint = r.hint ?? null; return; }
     const read = trafficRead(parseNetflows(r.json), now);
     trafficCache.set(code, { at: now, read });
@@ -305,11 +324,13 @@ export async function diagnoseRadar(cc = "UA"): Promise<RadarDiagBody> {
   return { token: describeTokenShape(process.env.CLOUDFLARE_RADAR_TOKEN), verify, endpoints };
 }
 
-/** The first row of the first array under `result`, whole, capped. */
+/** The first EVENT row under `result`, whole, capped — the list named
+ *  `events` / `annotations` / `trafficAnomalies` first; the first production
+ *  diag (2026-10-27) took `asn_info[0]` because it came first in key order. */
 function rawFirst(json: unknown, cap = 1_200): string | null {
   const result = (json as { result?: Record<string, unknown> } | null)?.result;
   if (!result || typeof result !== "object") return null;
-  const list = Object.values(result).find((v) => Array.isArray(v)) as unknown[] | undefined;
+  const list = (["events", "annotations", "trafficAnomalies"].map((k) => result[k]).find((v) => Array.isArray(v)) ?? Object.values(result).find((v) => Array.isArray(v))) as unknown[] | undefined;
   const row = list?.find((r) => r && typeof r === "object");
   return row ? JSON.stringify(row).slice(0, cap) : null;
 }
@@ -333,13 +354,26 @@ async function diagnoseRadarEndpoints(token: string | null, cc: string): Promise
     // The BGP and NetFlows contracts are pinned from the reference and
     // unverified: `rawFirst` carries the first raw row whole so one paste
     // corrects a renamed field (the outages lesson, 2026-10-27).
-    probe("Radar BGP hijacks", RADAR_HIJACKS_URL, (j) => { const p = parseBgpHijacks(j); return { n: p.events.length, sample: p.events.slice(0, 5).map((h) => `${h.band} ${h.confidence} | by AS${h.hijackerAsn ?? "?"} ${h.hijackerCountry ?? "-"} | victims ${h.victimCountries.join("/") || "-"} (AS${h.victimAsns.slice(0, 2).join("/AS") || "?"}) | ${h.prefixes.length} prefixes | ${h.ongoing ? "ongoing" : "ended"} ${new Date(h.lastMs).toISOString().slice(0, 16)}`) }; }, true),
-    probe("Radar BGP leaks", RADAR_LEAKS_URL, (j) => { const p = parseBgpLeaks(j); return { n: p.events.length, sample: p.events.slice(0, 5).map((l) => `by AS${l.leakAsn ?? "?"} | ${l.countries.join("/") || "-"} | ${l.prefixCount} prefixes, ${l.peerCount} peers | ${l.finished ? "ended" : "ongoing"} ${new Date(l.lastMs).toISOString().slice(0, 16)}`) }; }, true),
-    probe(`Radar NetFlows ${code}`, netflowsUrl(code), (j) => {
-      const s = parseNetflows(j);
-      const r = trafficRead(s, Date.now());
-      const tail = s ? s.values.slice(-4).map((v) => ((v - 1) * 100).toFixed(1) + "%").join(", ") : "-";
-      return { n: s ? s.timestamps.length : 0, sample: [`${r.state} | ratio ${r.ratio == null ? "-" : r.ratio.toFixed(2)} | ${r.why}`, `normalization ${s?.normalization || "?"} · aggInterval ${s?.aggInterval || "?"} · last ${s?.timestamps.at(-1) ? new Date(s.timestamps.at(-1)!).toISOString() : "-"} · last values as %change: ${tail}`] };
-    }),
+    // The page is the newest 100 events, so the sample's last line says how
+    // far back that reaches — the 7-d window is wider than one page.
+    probe("Radar BGP hijacks", RADAR_HIJACKS_URL, (j) => { const p = parseBgpHijacks(j); const oldest = p.events.at(-1); return { n: p.events.length, sample: [...p.events.slice(0, 5).map((h) => `${h.band} ${h.confidence} | by AS${h.hijackerAsn ?? "?"} ${h.hijackerCountry ?? "-"} | victims ${h.victimCountries.join("/") || "-"} (AS${h.victimAsns.slice(0, 2).join("/AS") || "?"}) | ${h.prefixes.length} prefixes | ${h.ongoing ? "ongoing" : "ended"} ${new Date(h.lastMs).toISOString().slice(0, 16)}${h.hijackerCountry && h.victimCountries.length === 1 && h.victimCountries[0] === h.hijackerCountry ? " | domestic" : ""}`), ...(oldest ? [`page covers back to ${new Date(oldest.lastMs).toISOString().slice(0, 16)}`] : [])] }; }, true),
+    probe("Radar BGP leaks", RADAR_LEAKS_URL, (j) => { const p = parseBgpLeaks(j); const oldest = p.events.at(-1); return { n: p.events.length, sample: [...p.events.slice(0, 5).map((l) => `by AS${l.leakAsn ?? "?"} | ${l.countries.join("/") || "-"} | ${l.prefixCount} prefixes, ${l.peerCount} peers | ${l.finished ? "ended" : "ongoing"} ${new Date(l.lastMs).toISOString().slice(0, 16)}`), ...(oldest ? [`page covers back to ${new Date(oldest.lastMs).toISOString().slice(0, 16)}`] : [])] }; }, true),
+    (async (): Promise<RadarDiag> => {
+      // NetFlows goes through the same negotiation as the read, so the row
+      // reports WHICH normalization the API accepted and what its values
+      // look like (the first production diag refused PERCENTAGE_CHANGE).
+      const t0 = Date.now();
+      if (!token) return { source: `Radar NetFlows ${code}`, url: netflowsUrl(code, NETFLOWS_NORMALIZATIONS[0]), configured: false, status: 0, ms: 0, parsed: 0, error: "CLOUDFLARE_RADAR_TOKEN not set", sample: [] };
+      const { r, normalization } = await fetchNetflows(code, token, 15_000);
+      const s = r.json ? parseNetflows(r.json) : null;
+      const read = trafficRead(s, Date.now());
+      const tail = s ? s.values.slice(-4).map((v) => (Number.isInteger(v) ? String(v) : v.toFixed(3))).join(", ") : "-";
+      return {
+        source: `Radar NetFlows ${code}`, url: netflowsUrl(code, normalization), configured: true, status: r.status, ms: Date.now() - t0, parsed: s ? s.timestamps.length : 0,
+        ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}),
+        sample: s ? [`${read.state} | ratio ${read.ratio == null ? "-" : read.ratio.toFixed(2)} | drop ${read.drop == null ? "-" : read.drop.toFixed(2)} | ${read.why}`, `asked ${normalization} · body says ${s.normalization || "?"} · aggInterval ${s.aggInterval || "?"} · last ${s.timestamps.at(-1) ? new Date(s.timestamps.at(-1)!).toISOString() : "-"} · last values: ${tail}`] : [],
+        ...(r.json ? { rawKeys: Object.keys((r.json as { result?: Record<string, unknown> }).result ?? {}).slice(0, 20) } : {}),
+      };
+    })(),
   ]);
 }

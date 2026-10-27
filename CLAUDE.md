@@ -2718,6 +2718,53 @@ diag and their contracts are pinned from the published feed / API reference.
     the room line says victim / origin / leak counts) and `.traffic` (the
     read; not live → UNKNOWN) → two more rows on the "⌁ Digital &
     spectrum" card (sources "Cloudflare Radar BGP" / "Cloudflare NetFlows").
+  - **First production diag of the two (2026-10-27, same day)** — BGP:
+    both endpoints 200, 100 events each, the contract as pinned
+    (`confidence_score`, `hijacker_country`, `victim_countries`,
+    `on_going_count`, `leak_asn`, `countries`, `prefix_count`…). Two
+    things the page itself taught: (1) **most hijacks are DOMESTIC** — a
+    US network announcing a US prefix (AS22773 → AS11404), an Indian one
+    an Indian — misconfiguration or a customer dispute, not routing
+    pressure on the country; and **leaks run at ~100 per few hours**,
+    nearly all a prefix or two. As first written a tracked United States
+    would have read RED every day — the Christmas tree. Now
+    `isDomesticHijack(h, victimCountry)` (hijacker registered in the
+    victim's own country) is a NOTE whatever the confidence ("domestic —
+    likely misconfiguration"), cross-border or hijacker-unknown earns
+    the level, and `hijackLevel(h, now, victimCountry)` takes the
+    country; a leak earns amber only when recent AND ≥
+    `LEAK_SIGNIFICANT_PREFIXES` = 100 prefixes (the class that reroutes a
+    country), else "small leak, not a level". (2) The page is the newest
+    100 events, which at this rate is a few hours — the diag's last
+    sample line says "page covers back to <time>"; the 7-d window is
+    wider than the page and the read does not pretend otherwise. If a
+    tracked country still runs red daily after this, the next rule is
+    the I&W one — a per-country count series against its own trailing
+    normal — not a higher confidence bar. `rawFirst` took `asn_info[0]`
+    (first array in key order) — it now prefers `events` / `annotations`
+    / `trafficAnomalies`. **NetFlows refused `PERCENTAGE_CHANGE`**: HTTP
+    400 code 2001 "validation error: normalization is PERCENTAGE_CHANGE.
+    Must have 1 comparison series to compare against" — it compares TWO
+    series, it is not a reference-constant normalization, and the
+    reasoning in the first note was wrong. The fetcher now NEGOTIATES
+    (`fetchNetflows`, `NETFLOWS_NORMALIZATIONS` = RAW_VALUES → MIN0_MAX,
+    the next tried only on a QUERY-class refusal, the working index
+    remembered per process) and `trafficRead` branches on
+    `series.normalization`: RAW_VALUES → the ratio read as designed;
+    MIN0_MAX / MIN_MAX → **a drop in range units**, `median(matched) −
+    median(recent)` where every value is (v − min)/(max − min) over the
+    window — `NORM_DROP_DOWN` ≥ 0.35 of the week's whole range below the
+    same hours → down, `NORM_DROP_COLLAPSED` ≥ 0.7 with the recent level
+    at or under `NORM_FLOOR` 0.1 → collapsed; `ratio` is null and the why
+    says "range units not a ratio" (tested: a 20 % daytime dip, which a
+    normalized RATIO would read as 60 %, stays normal; the 03Z trough
+    stays normal). The classifier also learned the validator's words
+    (`validation` / `must have` / `normalization` / `series` → `query`)
+    and a 400 WITH a body no longer reads "no error body". The diag's
+    NetFlows row goes through the same negotiation and reports "asked X ·
+    body says Y · last values: …" — read it: if RAW_VALUES is accepted
+    the values are raw counts (large numbers) and the ratio read is live;
+    if MIN0_MAX, the values sit in 0..1 and the drop read is live.
   No new npm dep (esbuild `0`).
   **Tenth Radar diag (2026-10-27) confirmed it**: both strike annotations
   read `UA` by name (the "Russian strikes on energy infrastructure" row is

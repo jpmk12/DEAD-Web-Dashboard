@@ -468,12 +468,15 @@ export function describeRadarError(status: number, bodyText: string | null | und
   let cls: RadarErrorClass = "other";
   if (status === 429) cls = "rate";
   else if (status === 401 || status === 403 || codes.some((c) => TOKEN_CODES.has(c)) || /authoriz|authenticat|token/.test(lower)) cls = "token";
-  else if (status === 400 && (/limit|daterange|date_range|datestart|dateend|offset|format|param|invalid|must be/.test(lower))) cls = "query";
+  // 2001 "validation error: normalization is PERCENTAGE_CHANGE. Must have 1
+  // comparison series" (2026-10-27) is a QUERY refusal — the words that
+  // name one include the parameter vocabulary and the validator's own.
+  else if (status === 400 && (/limit|daterange|date_range|datestart|dateend|offset|format|param|invalid|must be|must have|validation|normalization|aggin|location|series/.test(lower))) cls = "query";
   const hint =
     cls === "token" ? "the credential — use a Custom API Token with Account › Radar › Read (not the Global API Key), pasted with no stray characters" :
     cls === "query" ? "a query parameter the API refused — the message names it" :
     cls === "rate" ? "rate-limited — the pass is retried after the cache window" :
-    status === 400 ? "HTTP 400 with no error body — the request shape or the credential; see the diag" :
+    status === 400 ? (text ? "HTTP 400 — the message names the refused request shape; see the diag" : "HTTP 400 with no error body — the request shape or the credential; see the diag") :
     "the host did not answer usefully";
   return { cls, detail, hint };
 }
