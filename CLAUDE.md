@@ -2583,6 +2583,36 @@ diag and their contracts are pinned from the published feed / API reference.
   outage with no country still parses (scope, cause, window, link) — it
   is only unplaced, so `radarReadsFor` cannot credit it to a country and
   the USCYBERCOM Outages cell reads it as "the feed answered".
+  **Eighth Radar diag (2026-10-27): the raw row shape, pinned.** Outage
+  rows carry `locations: []` and `locationsDetails: []` EVEN for the
+  Ukrainian / Russian strike annotations, beside fields the SDK's older
+  schema never listed — `entities`, `origins`, `originsDetails`,
+  `geoIds`, `tags`, `asnsDetails` — which the diag's narrow filter
+  (`locat|countr|asn`) did not capture; and an AS-type anomaly has
+  `locationDetails: null` with the country under `asnDetails.location`
+  (`{asn:"8452", name:"TE-AS", location:{code:"EG", name:"Egypt"}}`).
+  `countriesOf` is now a WALK over location-shaped keys only
+  (`LOCATION_KEYS`: locations / locationsDetails / origins /
+  originsDetails / entities / geoIds / regions — never names,
+  descriptions or ASN lists), depth-bounded, reading a string code, a
+  `{code|alpha2|iso2, name}` object, arrays of either, and an ISO 3166-2
+  geo id (`UA-30` → UA). **A network's registration country is a
+  PLACEMENT, not a location**: `asnCountriesOf` reads
+  `asnsDetails[].location{s}` only when the annotation named no place,
+  `RadarOutage.countriesVia` = `named` | `asn` | null, and
+  `radarReadsFor` appends "placed by the network's registration — the
+  annotation names no country" to the why (the country room and the
+  alert `sub` both render it; a NETWORK outage is never nationwide, so a
+  placement cannot raise an alert). `RadarAnomaly.countryVia` =
+  `location` | `asn` | null likewise; an ASN-placed anomaly is LISTED on
+  the country's read ("verified network anomaly (AS8452) · … · placed by
+  the network's registration") but NEVER colours — one ISP is not the
+  country's traffic; only a LOCATION anomaly earns amber. The diag's raw
+  filter is wide now (`locat|countr|asn|entit|origin|geo|region`, 800
+  chars) and the sample lines use ASCII `|` separators — a paste through
+  a Latin-1 pipe had turned `·` into `Â·`. If the next diag still shows
+  the strike annotations unplaced, paste `rawLocations` — the country is
+  in whichever of those containers is non-empty.
 No new npm dep (esbuild `0`).
 
 ### I&W sensor hardening — GPSJam coverage, the OpenSky fallback, the ACLED embargo (2026-10-26, "add the GPS hardening and OpenSky fallback")

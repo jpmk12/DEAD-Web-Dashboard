@@ -138,8 +138,11 @@ function rawShape(json: unknown): { rawKeys: string[]; rawLocations: string } | 
   const row = list?.find((r) => r && typeof r === "object") as Record<string, unknown> | undefined;
   if (!row) return null;
   const loc: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(row)) if (/locat|countr|asn/i.test(k)) loc[k] = v;
-  return { rawKeys: Object.keys(row).slice(0, 40), rawLocations: JSON.stringify(loc).slice(0, 400) };
+  // The 2026-10-27 diag showed the location-shaped fields EMPTY on the live
+  // outage rows while `entities` / `origins` / `originsDetails` / `geoIds`
+  // sat beside them unread — so the filter is wide and the cap generous.
+  for (const [k, v] of Object.entries(row)) if (/locat|countr|asn|entit|origin|geo|region/i.test(k)) loc[k] = v;
+  return { rawKeys: Object.keys(row).slice(0, 40), rawLocations: JSON.stringify(loc).slice(0, 800) };
 }
 
 export const RADAR_VERIFY_URL = "https://api.cloudflare.com/client/v4/user/tokens/verify";
@@ -189,7 +192,9 @@ async function diagnoseRadarEndpoints(token: string | null): Promise<RadarDiag[]
     return { source, url, configured: true, status: r.status, ms: Date.now() - t0, parsed: p.n, ...(r.error ? { error: r.error, errorClass: r.errorClass, hint: r.hint } : {}), sample: p.sample, ...(shape ?? {}) };
   };
   return Promise.all([
-    probe("Radar outages", RADAR_OUTAGES_URL, (j) => { const xs = parseRadarOutages(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.scope} · ${x.cause || "—"} · ${x.countries.map((c) => c.code).join("/") || "—"} · ${x.description.slice(0, 80)}`) }; }),
-    probe("Radar traffic anomalies", RADAR_ANOMALIES_URL, (j) => { const xs = parseRadarAnomalies(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.type} · ${x.status} · ${x.country?.code ?? (x.asn != null ? `AS${x.asn}` : "—")}`) }; }),
+    // ASCII separators: a diag pasted through a Latin-1 pipe turned "·" into
+    // "Â·" on 2026-10-27, which is noise the reader has to see past.
+    probe("Radar outages", RADAR_OUTAGES_URL, (j) => { const xs = parseRadarOutages(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.scope} | ${x.cause || "-"} | ${x.countries.map((c) => c.code).join("/") || "-"}${x.countriesVia === "asn" ? " (placed by ASN)" : ""} | ${x.description.slice(0, 80)}`) }; }),
+    probe("Radar traffic anomalies", RADAR_ANOMALIES_URL, (j) => { const xs = parseRadarAnomalies(j); return { n: xs.length, sample: xs.slice(0, 5).map((x) => `${x.type} | ${x.status} | ${x.asn != null ? `AS${x.asn}` : "-"} | ${x.country?.code ?? "-"}${x.countryVia === "asn" ? " (placed by ASN)" : ""}`) }; }),
   ]);
 }

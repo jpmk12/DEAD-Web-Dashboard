@@ -46,13 +46,41 @@ describe("parseRadarOutages / parseRadarAnomalies", () => {
     expect(parseRadarOutages(row({ locations: [{ code: "ua", name: "Ukraine" }] }))[0].countries).toEqual([{ code: "UA", name: "Ukraine" }]);
     expect(parseRadarOutages(row({ locationsDetails: [{ code: "RU", name: "Russia" }], locations: ["RU"] }))[0].countries).toEqual([{ code: "RU", name: "Russia" }]);
     expect(parseRadarOutages(row({ location: "ir" }))[0].countries).toEqual([{ code: "IR", name: "IR" }]);
-    expect(parseRadarOutages(row({ locations: [] }))[0].countries).toEqual([]);
+    expect(parseRadarOutages(row({ locations: [] }))[0]).toMatchObject({ countries: [], countriesVia: null });
   });
-  it("reads anomalies, keeping the type vocabulary strict", () => {
+  it("walks the newer containers the live rows carry beside empty locations — entities / origins / geoIds (2026-10-27)", () => {
+    const row = (loc: Record<string, unknown>) => ({ result: { annotations: [{ id: "x", startDate: "2026-10-25T00:00:00Z", locations: [], locationsDetails: [], outage: { outageType: "REGIONAL" }, ...loc }] } });
+    expect(parseRadarOutages(row({ entities: { asns: [], locations: ["UA"] } }))[0]).toMatchObject({ countries: [{ code: "UA", name: "UA" }], countriesVia: "named" });
+    expect(parseRadarOutages(row({ origins: ["RU"], originsDetails: [{ code: "RU", name: "Russia" }] }))[0].countries).toEqual([{ code: "RU", name: "Russia" }]);
+    expect(parseRadarOutages(row({ geoIds: ["UA-30", "UA-32"] }))[0].countries).toEqual([{ code: "UA", name: "UA" }]);
+    expect(parseRadarOutages(row({ entities: { locations: [{ alpha2: "ua", name: "Ukraine" }] } }))[0].countries).toEqual([{ code: "UA", name: "Ukraine" }]);
+    // Never from prose or ASN lists: a description and `asns` are not places.
+    expect(parseRadarOutages(row({ description: "UA strikes on RU", asns: [12], entities: { asns: [12] } }))[0].countries).toEqual([]);
+  });
+  it("places a NETWORK annotation with no location at its networks' registration country, and says so", () => {
+    const j = { result: { annotations: [{ id: "n", startDate: "2026-10-25T00:00:00Z", locations: [], locationsDetails: [], asns: [27364], asnsDetails: [{ asn: 27364, name: "Armstrong", location: { code: "US", name: "United States" } }], outage: { outageType: "NETWORK", outageCause: "UNKNOWN" } }] } };
+    const o = parseRadarOutages(j)[0];
+    expect(o).toMatchObject({ countries: [{ code: "US", name: "United States" }], countriesVia: "asn" });
+    const read = radarReadsFor([o], [], ["US"], NOW)[0];
+    expect(read.level).toBe("amber");
+    expect(read.why).toMatch(/placed by the network's registration — the annotation names no country$/);
+    // A named location wins over the placement.
+    const named = parseRadarOutages({ result: { annotations: [{ ...j.result.annotations[0], locations: ["CA"] }] } })[0];
+    expect(named).toMatchObject({ countries: [{ code: "CA", name: "CA" }], countriesVia: "named" });
+  });
+  it("reads anomalies, keeping the type vocabulary strict; an AS anomaly takes its network's country as a placement", () => {
     const xs = parseRadarAnomalies(ANOMALIES);
     expect(xs.map((x) => x.id).sort()).toEqual(["a1", "a2", "a3"]);
-    expect(xs.find((x) => x.id === "a1")).toMatchObject({ type: "LOCATION", status: "VERIFIED", country: { code: "JO", name: "Jordan" } });
-    expect(xs.find((x) => x.id === "a3")).toMatchObject({ type: "AS", asn: 48832, country: null });
+    expect(xs.find((x) => x.id === "a1")).toMatchObject({ type: "LOCATION", status: "VERIFIED", country: { code: "JO", name: "Jordan" }, countryVia: "location" });
+    expect(xs.find((x) => x.id === "a3")).toMatchObject({ type: "AS", asn: 48832, country: null, countryVia: null });
+    // The live shape (2026-10-27): locationDetails null, asnDetails.location carries the country.
+    const eg = parseRadarAnomalies({ result: { trafficAnomalies: [{ uuid: "e", type: "AS", status: "VERIFIED", startDate: "2026-10-25T21:00:00Z", endDate: null, locationDetails: null, asnDetails: { asn: "8452", name: "TE-AS", location: { code: "EG", name: "Egypt" } } }] } })[0];
+    expect(eg).toMatchObject({ asn: 8452, country: { code: "EG", name: "Egypt" }, countryVia: "asn" });
+    // Listed on Egypt's read, never a level — one ISP is not the country's traffic.
+    const read = radarReadsFor([], [eg], ["EG"], NOW)[0];
+    expect(read.level).toBe("note");
+    expect(read.anomalies).toHaveLength(1);
+    expect(read.why).toBe("verified network anomaly (AS8452) · since 2026-10-25 · placed by the network's registration");
   });
 });
 

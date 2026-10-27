@@ -35,6 +35,11 @@ export interface RadarOutage {
   cause: string;
   /** ISO alpha-2 codes + names the annotation names. */
   countries: { code: string; name: string }[];
+  /** How the countries were found: `named` by the annotation's own location
+   *  fields, or `asn` — PLACED at the registration country of the networks
+   *  it names, because the annotation named no location (the Armstrong
+   *  AS27364 row). A placement is said on every surface; null = unplaced. */
+  countriesVia: "named" | "asn" | null;
   /** ASNs named (for a NETWORK-scope annotation). */
   asns: number[];
   startMs: number;
@@ -48,6 +53,11 @@ export interface RadarAnomaly {
   type: "LOCATION" | "AS";
   status: "VERIFIED" | "UNVERIFIED";
   country: { code: string; name: string } | null;
+  /** `location` = the anomaly's own `locationDetails`; `asn` = the network's
+   *  registration country from `asnDetails.location` (an AS anomaly carries
+   *  `locationDetails: null` — the 2026-10-27 diag). An ASN placement lists
+   *  the anomaly on the country's read but never colours it. */
+  countryVia: "location" | "asn" | null;
   asn: number | null;
   startMs: number;
   endMs: number | null;
@@ -63,11 +73,23 @@ const ms = (s: unknown): number | null => {
 const str = (s: unknown): string => (typeof s === "string" ? s.trim() : "");
 const httpsOnly = (s: unknown): string | null => (typeof s === "string" && /^https:\/\//i.test(s) ? s.trim().slice(0, 300) : null);
 
-/** Countries named by an annotation. Tolerant of the shapes the API has
- *  used: `locations: ["IR"]`, `locations: [{ code, name }]`,
- *  `locationsDetails: [{ code, name }]`, and a single `location` string —
- *  the first live rows (2026-10-27) parsed NO country for Ukraine / Russia
- *  strike annotations, so the diag now also reports the raw field names. */
+/** The field names under which the Radar API has been seen (or can be
+ *  expected) to carry a place: the first live outage rows (2026-10-27) had
+ *  `locations: []` and `locationsDetails: []` for Ukrainian and Russian
+ *  strike annotations while also carrying `entities`, `origins`,
+ *  `originsDetails` and `geoIds` — fields the SDK's older schema never
+ *  listed. ASN fields are deliberately NOT here: a network's registration
+ *  country is a PLACEMENT, read separately and said so. */
+const LOCATION_KEYS = /^(locations?|locationsDetails|locationDetails|origins?|originsDetails|entities|geoIds?|regions?)$/;
+
+/** ISO 3166-2 subdivision id (`UA-30`, `US-PA`) → its country. */
+const GEO_ID_RX = /^([A-Za-z]{2})-[A-Za-z0-9]{1,3}$/;
+
+/** Countries named anywhere under the given sources, walking only the
+ *  location-shaped keys (never names, descriptions or ASN lists): a string
+ *  code, a `{ code | alpha2 | iso2, name }` object, arrays of either, and
+ *  nested containers such as `entities.locations`. A geo id yields its
+ *  country. Nothing is guessed from prose. */
 function countriesOf(...sources: unknown[]): { code: string; name: string }[] {
   const out = new Map<string, string>();
   const take = (code: unknown, name?: unknown) => {
@@ -76,15 +98,32 @@ function countriesOf(...sources: unknown[]): { code: string; name: string }[] {
     const n = str(name);
     if (!out.has(c) || (n && out.get(c) === c)) out.set(c, n || out.get(c) || c);
   };
-  for (const src of sources) {
-    if (typeof src === "string") take(src);
-    else if (Array.isArray(src)) for (const d of src) {
-      if (typeof d === "string") take(d);
-      else if (d && typeof d === "object") { const o = d as Record<string, unknown>; take(o.code ?? o.alpha2 ?? o.location ?? o.iso2, o.name ?? o.locationName); }
+  const walk = (v: unknown, depth: number): void => {
+    if (v == null || depth > 4) return;
+    if (typeof v === "string") {
+      if (/^[A-Za-z]{2}$/.test(v)) take(v);
+      else { const m = GEO_ID_RX.exec(v.trim()); if (m) take(m[1]); }
+      return;
     }
-    else if (src && typeof src === "object") { const o = src as Record<string, unknown>; take(o.code ?? o.alpha2, o.name); }
-  }
+    if (Array.isArray(v)) { for (const d of v) walk(d, depth + 1); return; }
+    if (typeof v !== "object") return;
+    const o = v as Record<string, unknown>;
+    const code = o.code ?? o.alpha2 ?? o.iso2;
+    if (typeof code === "string") take(code, o.name ?? o.locationName);
+    for (const [k, x] of Object.entries(o)) if (LOCATION_KEYS.test(k)) walk(x, depth + 1);
+  };
+  for (const s of sources) walk(s, 0);
   return [...out.entries()].map(([code, name]) => ({ code, name }));
+}
+
+/** The registration countries of the networks an annotation / anomaly names
+ *  (`asnsDetails[].location{s}` / `asnDetails.location`). A placement, not a
+ *  statement of where the outage is — the caller marks it `via: "asn"`. */
+function asnCountriesOf(...sources: unknown[]): { code: string; name: string }[] {
+  const places: unknown[] = [];
+  const push = (d: unknown) => { if (d && typeof d === "object") { const o = d as Record<string, unknown>; places.push(o.location, o.locations, o.locationDetails, o.locationsDetails); } };
+  for (const s of sources) { if (Array.isArray(s)) s.forEach(push); else push(s); }
+  return countriesOf(...places);
 }
 
 /** `result.annotations[]` → outages. A row with no start date or no id is
@@ -101,12 +140,15 @@ export function parseRadarOutages(json: unknown): RadarOutage[] {
     const outage = (r.outage ?? {}) as { outageCause?: unknown; outageType?: unknown };
     const scopeRaw = str(outage.outageType).toUpperCase();
     const scope: RadarScope = scopeRaw === "NATIONWIDE" || scopeRaw === "REGIONAL" || scopeRaw === "NETWORK" || scopeRaw === "PLATFORM" ? scopeRaw : "UNKNOWN";
+    const named = countriesOf(r.locationsDetails, r.locations, r.locationDetails, r.location, r.originsDetails, r.origins, r.entities, r.geoIds);
+    const placed = named.length ? [] : asnCountriesOf(r.asnsDetails);
     out.push({
       id,
       description: str(r.description).slice(0, 400),
       scope,
       cause: str(outage.outageCause).toUpperCase().slice(0, 40),
-      countries: countriesOf(r.locationsDetails, r.locations, r.locationDetails, r.location),
+      countries: named.length ? named : placed,
+      countriesVia: named.length ? "named" : placed.length ? "asn" : null,
       asns: Array.isArray(r.asns) ? (r.asns as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0) : [],
       startMs,
       endMs: ms(r.endDate),
@@ -131,10 +173,13 @@ export function parseRadarAnomalies(json: unknown): RadarAnomaly[] {
     const code = str(ld?.code).toUpperCase();
     const ad = r.asnDetails as { asn?: unknown } | undefined;
     const asn = Number(ad?.asn);
+    const own = /^[A-Z]{2}$/.test(code) ? { code, name: str(ld?.name) || code } : null;
+    const viaAsn = own ? null : asnCountriesOf(ad)[0] ?? null;
     out.push({
       id, type: typeRaw,
       status: str(r.status).toUpperCase() === "VERIFIED" ? "VERIFIED" : "UNVERIFIED",
-      country: /^[A-Z]{2}$/.test(code) ? { code, name: str(ld?.name) || code } : null,
+      country: own ?? viaAsn,
+      countryVia: own ? "location" : viaAsn ? "asn" : null,
       asn: Number.isInteger(asn) && asn > 0 ? asn : null,
       startMs, endMs: ms(r.endDate),
     });
@@ -197,24 +242,28 @@ export function radarReadsFor(outages: RadarOutage[], anomalies: RadarAnomaly[],
       if (RANK[lvl] > RANK[r.level] || !r.why) {
         r.level = lvl;
         const ongoing = lvl !== "note";
-        r.why = `${o.scope === "UNKNOWN" ? "outage" : o.scope.toLowerCase() + " outage"} · ${niceCause(o.cause)} · ${ongoing ? `since ${fmtDay(o.startMs)}` : `ended ${fmtDay(o.endMs!)}`}`;
+        r.why = `${o.scope === "UNKNOWN" ? "outage" : o.scope.toLowerCase() + " outage"} · ${niceCause(o.cause)} · ${ongoing ? `since ${fmtDay(o.startMs)}` : `ended ${fmtDay(o.endMs!)}`}${o.countriesVia === "asn" ? " · placed by the network's registration — the annotation names no country" : ""}`;
         r.ongoing = r.ongoing || ongoing;
         r.url = o.url ?? r.url;
       }
     }
   }
   for (const a of anomalies) {
-    if (a.type !== "LOCATION" || !a.country || !want.has(a.country.code)) continue;
+    if (!a.country || !want.has(a.country.code)) continue;
     if (a.startMs < since && a.endMs != null && a.endMs < since) continue;
     const r = get(a.country.code, a.country.name);
     r.anomalies.push(a);
     const ongoing = a.endMs == null || a.endMs > nowMs;
-    if (a.status === "VERIFIED" && ongoing && RANK.amber > RANK[r.level]) {
+    // Only a LOCATION anomaly (the country's own traffic) colours; an AS
+    // anomaly placed at the network's registration country is one ISP among
+    // many and is listed, never a level.
+    if (a.type === "LOCATION" && a.countryVia === "location" && a.status === "VERIFIED" && ongoing && RANK.amber > RANK[r.level]) {
       r.level = "amber";
       r.why = `verified traffic anomaly · since ${fmtDay(a.startMs)}`;
       r.ongoing = true;
     } else if (!r.why) {
-      r.why = `${a.status.toLowerCase()} traffic anomaly · ${ongoing ? `since ${fmtDay(a.startMs)}` : `ended ${fmtDay(a.endMs!)}`}`;
+      const subject = a.type === "AS" ? `network anomaly${a.asn != null ? ` (AS${a.asn})` : ""}` : "traffic anomaly";
+      r.why = `${a.status.toLowerCase()} ${subject} · ${ongoing ? `since ${fmtDay(a.startMs)}` : `ended ${fmtDay(a.endMs!)}`}${a.countryVia === "asn" ? " · placed by the network's registration" : ""}`;
     }
   }
   return [...by.values()].sort((a, b) => RANK[b.level] - RANK[a.level] || a.name.localeCompare(b.name));
