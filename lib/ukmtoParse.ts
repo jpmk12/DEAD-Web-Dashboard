@@ -462,6 +462,25 @@ export function apiRecords(json: unknown, depth = 0): Rec[] {
 
 const REF_RX = /\b(\d{1,4})\s*-\s*(\d{2})\b/;
 
+/** A packed degrees-minutes-seconds pair ("DDMMSS[N]" / "DDDMMSS[E]", the
+ *  SCCD `location*DDDMMSS` spelling — layout UNVERIFIED, the first row with
+ *  a value pins it). Digits with an optional sign or hemisphere letter;
+ *  anything else → null. Exported for the test. */
+export function parseDddmmss(latRaw: string, lonRaw: string): { lat: number; lon: number } | null {
+  const one = (s: string, degDigits: number, neg: RegExp): number | null => {
+    const m = new RegExp(`^\\s*([+-])?\\s*(\\d{${degDigits}})(\\d{2})(\\d{2}(?:\\.\\d+)?)\\s*([NSEW])?\\s*$`, "i").exec(s);
+    if (!m) return null;
+    const deg = Number(m[2]), min = Number(m[3]), sec = Number(m[4]);
+    if (min >= 60 || sec >= 60) return null;
+    const v = deg + min / 60 + sec / 3600;
+    return m[1] === "-" || (m[5] && neg.test(m[5])) ? -v : v;
+  };
+  const lat = one(latRaw, 2, /s/i) ?? one(latRaw, 3, /s/i);
+  const lon = one(lonRaw, 3, /w/i) ?? one(lonRaw, 2, /w/i);
+  if (lat == null || lon == null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
+}
+
 /** One API record → an incident, or null when it carries no reference. */
 export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | null {
   // GeoJSON: the fields live under `properties`, the position under `geometry`.
@@ -488,7 +507,25 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
   let time = str(pick(props, ["incidentTime", "incident_time", "timeOfIncident", "time"])) || null;
   if (!time && /T\d{2}:\d{2}/.test(dateRaw) && Number.isFinite(Date.parse(dateRaw))) time = `${new Date(Date.parse(dateRaw)).toISOString().slice(11, 16).replace(":", "")} UTC`;
   const reportedBy = str(pick(props, ["source", "reportedBy", "reporter", "reportSource", "sourceOfReport", "incidentIssuer", "issuer"])) || null;
-  const text = str(pick(props, ["description", "narrative", "summary", "details", "text", "body", "remarks", "comment", "comments", "message", "incidentDescription", "navigationLinkText"])).replace(/\s+/g, " ").slice(0, 2000);
+  // The live SCCD row (second 1.2.6 run, 2026-10-27) keeps its narrative in
+  // `otherDetails`, names the water in `region` / `place`, and carries the
+  // vessel as `vesselName` / `vesselType` (plus the piracy fields
+  // `vesselUnderPirateControl` / `dateVesselTaken` / `crewHeld`). The
+  // narrative leads; the vessel and the piracy facts are appended so the
+  // grammar and the popup both see them; the region / place name the sea
+  // area when the narrative does not.
+  const narrative = str(pick(props, ["description", "narrative", "summary", "details", "text", "body", "remarks", "comment", "comments", "message", "incidentDescription", "otherDetails", "navigationLinkText"])).replace(/\s+/g, " ");
+  const vesselName = str(pick(props, ["vesselName", "vessel", "shipName"]));
+  const vesselType = str(pick(props, ["vesselType", "shipType"]));
+  const pirate = pick(props, ["vesselUnderPirateControl"]);
+  const crewHeld = str(pick(props, ["crewHeld"]));
+  const region = str(pick(props, ["region", "area", "sea", "water"]));
+  const place = str(pick(props, ["place", "locationName", "nearest"]));
+  const extras: string[] = [];
+  if (vesselName || vesselType) extras.push(`Vessel: ${[vesselName, vesselType ? `(${vesselType})` : ""].filter(Boolean).join(" ")}`);
+  if (pirate === true || (typeof pirate === "string" && /^(true|yes|y|1)$/i.test(pirate))) extras.push(`Vessel under pirate control${crewHeld ? ` — crew held: ${crewHeld}` : ""}`);
+  if (!narrative && (place || region)) extras.unshift([place, region].filter(Boolean).join(", "));
+  const text = [narrative, ...extras].filter(Boolean).map((s) => s.replace(/[.\s]+$/, "")).join(". ").slice(0, 2000);
   // The page anchors each incident by its Sitecore id (`/recent-incidents#<id>`,
   // the ticker's own navigationLink) — the per-incident door, when present.
   const sitecore = str(pick(props, ["sitecoreId", "sitecoreID", "itemId"]));
@@ -497,8 +534,16 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
 
   // Position: numeric fields, a nested location object, GeoJSON geometry
   // ([lon, lat]), or a string in the page's spellings.
-  let lat = num(pick(props, ["latitude", "lat", "y", "incidentLatitude", "latitudeDecimal", "decimalLatitude", "latDd", "lat_dd"]));
-  let lon = num(pick(props, ["longitude", "lng", "lon", "long", "x", "incidentLongitude", "longitudeDecimal", "decimalLongitude", "lonDd", "lon_dd", "lngDd"]));
+  let lat = num(pick(props, ["latitude", "lat", "y", "locationLatitude", "incidentLatitude", "latitudeDecimal", "decimalLatitude", "latDd", "lat_dd"]));
+  let lon = num(pick(props, ["longitude", "lng", "lon", "long", "x", "locationLongitude", "incidentLongitude", "longitudeDecimal", "decimalLongitude", "lonDd", "lon_dd", "lngDd"]));
+  // The DMS spelling SCCD carries beside the decimals (`locationLatitudeDDDMMSS`)
+  // is the fallback when the decimals are absent or zero — through the same
+  // position parser the page's text goes through, never a guess at its layout.
+  if (lat == null || lon == null || (lat === 0 && lon === 0)) {
+    const dmsLat = str(pick(props, ["locationLatitudeDDDMMSS", "latitudeDMS", "latDms"]));
+    const dmsLon = str(pick(props, ["locationLongitudeDDDMMSS", "longitudeDMS", "lonDms"]));
+    if (dmsLat && dmsLon) { const p = parseUkmtoPosition(`${dmsLat} ${dmsLon}`) ?? parseDddmmss(dmsLat, dmsLon); if (p) { lat = p.lat; lon = p.lon; } }
+  }
   const loc = pick(props, ["location", "position", "coordinates", "coords", "geo"]);
   if ((lat == null || lon == null) && isRec(loc)) { lat = num(pick(loc, ["latitude", "lat", "y"])); lon = num(pick(loc, ["longitude", "lng", "lon", "long", "x"])); }
   if ((lat == null || lon == null) && isRec(r.geometry) && Array.isArray((r.geometry as Rec).coordinates)) {
@@ -514,7 +559,10 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
   if ((lat == null || lon == null) && typeof loc === "string") { const p = parseUkmtoPosition(loc); if (p) { lat = p.lat; lon = p.lon; } }
   if ((lat == null || lon == null) && text) { const p = parseUkmtoPosition(text); if (p) { lat = p.lat; lon = p.lon; } }
   const pos = lat != null && lon != null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0) ? { lat, lon } : null;
-  const area = seaAreaIn(text);
+  // The sea area from the narrative first, else from the row's own region /
+  // place fields (the SCCD `region` is the incident filters' own vocabulary —
+  // "Arabian Sea", "Bab el Mandeb", "Central Arabian Gulf").
+  const area = seaAreaIn(text) ?? seaAreaIn([place, region].filter(Boolean).join(", "));
   const placement: UkmtoIncident["placement"] = pos ? "reported" : area ? "area" : null;
   return {
     id: `ukmto-${ref}`, ref: ref.slice(0, 16), label, date, time, reportedBy,

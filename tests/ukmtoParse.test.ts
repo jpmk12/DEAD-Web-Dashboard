@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   htmlToText, parseUkmtoDate, parseUkmtoPosition, seaAreaIn, parseUkmtoText, parseUkmtoHtml,
   gradeUkmto, ukmtoGeoEvents, ukmtoTextsFor, parseUkmtoCapture, mergeUkmto, UKMTO_URL,
-  fitUkmtoRow, UKMTO_COLUMN_WIDTHS, parseUkmtoApi, apiRecords, apiRecordToIncident,
+  fitUkmtoRow, UKMTO_COLUMN_WIDTHS, parseUkmtoApi, apiRecords, apiRecordToIncident, parseDddmmss,
 } from "../lib/ukmtoParse";
 import { readActivity, readInterdiction } from "../lib/chokepointSignals";
 
@@ -274,7 +274,32 @@ describe("parseUkmtoApi — the SCCD feed, read tolerantly (shape unverified)", 
     expect(r.label).toBe("SUSPICIOUS ACTIVITY");
     expect(r.reportedBy).toBe("UKMTO");
     expect(r.url).toBe("https://www.ukmto.org/recent-incidents#a5b33f9d-6c8e-43fc-9af0-3936d61bf55d");
-    expect(r.placement).toBeNull();                    // no position field seen yet — never guessed
+    expect(r.placement).toBeNull();                    // no position field on this row — never guessed
+    // The second run's full key list: positions in locationLatitude / locationLongitude (decimal) with a
+    // DDDMMSS spelling beside them, the narrative in otherDetails, the water in region / place, the vessel.
+    const full = { ...live, incidentTypeLevel: 2, locationLatitude: 12.6667, locationLongitude: 43.3333, locationLatitudeDDDMMSS: "124000N", locationLongitudeDDDMMSS: "0432000E", region: "Bab el Mandeb", place: "15NM west of Mocha", vesselName: "MV EXAMPLE", vesselType: "Bulk carrier", vesselUnderPirateControl: false, dateVesselTaken: null, crewHeld: null, otherDetails: "A vessel was struck by an unknown projectile.", hideFromTicker: false, extendTickerTime: false };
+    const f = apiRecordToIncident(full)!;
+    expect(f.placement).toBe("reported");
+    expect(f.lat).toBeCloseTo(12.6667, 3);
+    expect(f.lon).toBeCloseTo(43.3333, 3);
+    expect(f.text).toBe("A vessel was struck by an unknown projectile. Vessel: MV EXAMPLE (Bulk carrier)");
+    expect(gradeUkmto(f)?.cls).toBe("approach");       // the page's LABEL (Suspicious Activity) grades first, the narrative second
+    expect(gradeUkmto({ ...f, label: "ATTACK" })?.cls).toBe("strike");
+    // Decimals absent → the DDDMMSS spelling; none → the region names the water (area-placed, said).
+    const dms = apiRecordToIncident({ ...full, locationLatitude: null, locationLongitude: null })!;
+    expect(dms.placement).toBe("reported");
+    expect(dms.lat).toBeCloseTo(12.6667, 3);
+    expect(dms.lon).toBeCloseTo(43.3333, 3);
+    const areaOnly = apiRecordToIncident({ ...full, locationLatitude: 0, locationLongitude: 0, locationLatitudeDDDMMSS: "", locationLongitudeDDDMMSS: "", otherDetails: "" })!;
+    expect(areaOnly.placement).toBe("area");
+    expect(areaOnly.area).toBe("Mocha");               // the first-named water wins (the port is the more precise placement); the region is the fallback
+    expect(apiRecordToIncident({ ...full, locationLatitude: 0, locationLongitude: 0, locationLatitudeDDDMMSS: "", locationLongitudeDDDMMSS: "", otherDetails: "", place: "" })!.area).toBe("Bab el Mandeb");
+    expect(areaOnly.text).toMatch(/^15NM west of Mocha, Bab el Mandeb/);
+    const piracy = apiRecordToIncident({ ...full, vesselUnderPirateControl: true, crewHeld: "19" })!;
+    expect(piracy.text).toMatch(/Vessel under pirate control — crew held: 19/);
+    expect(parseDddmmss("124000N", "0432000E")).toEqual({ lat: 12 + 40 / 60, lon: 43 + 20 / 60 });
+    expect(parseDddmmss("124000S", "0432000W")).toEqual({ lat: -(12 + 40 / 60), lon: -(43 + 20 / 60) });
+    expect(parseDddmmss("abc", "0432000E")).toBeNull();
     // A December row keeps its own year; a bare number with no date at all is skipped.
     expect(apiRecordToIncident({ incidentNumber: 201, utcDateOfIncident: "2025-12-30T01:00:00Z" })?.ref).toBe("201-25");
     expect(apiRecordToIncident({ incidentNumber: 7 })).toBeNull();

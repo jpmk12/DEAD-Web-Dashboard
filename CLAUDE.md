@@ -3152,6 +3152,28 @@ reachability from production nor its record shape is known yet):
   run says whether positions came through and, if not, names the field.
   The `/ticker` rows (`navigationLink`, `navigationLinkText`, `date`,
   `type`) carry no reference and are skipped, never keyed on the link.
+- **The second run (1.2.6, 14:19 local) printed the WHOLE key list** —
+  `incidentIssuer, incidentNumber, sitecoreId, utcDateCreated,
+  utcDateOfIncident, pinColour, incidentTypeName, incidentTypeLevel,
+  locationLatitude, locationLongitude, locationLatitudeDDDMMSS,
+  locationLongitudeDDDMMSS, region, place, vesselName, vesselType,
+  vesselUnderPirateControl, dateVesselTaken, crewHeld, otherDetails,
+  hideFromTicker, extendTickerTime` — and "40 parsed · 0 with a reported
+  position", because the reader had never tried `locationLatitude`. Now:
+  the decimals `locationLatitude` / `locationLongitude` are read first;
+  the packed `location*DDDMMSS` spelling is the fallback through
+  `parseUkmtoPosition` then `parseDddmmss` (PURE: `DDMMSS[N]` /
+  `DDDMMSS[E]`, sign or hemisphere letter — its layout is still
+  UNVERIFIED, a 0/0 decimal pair is treated as absent); the narrative is
+  `otherDetails` with `Vessel: <name> (<type>)` and, when
+  `vesselUnderPirateControl` is true, "Vessel under pirate control — crew
+  held: N" appended so the grammar and the popup see them; `region` /
+  `place` name the sea area when the narrative does not (SCCD's `region`
+  is the incident filters' vocabulary — "Arabian Sea", "Bab el Mandeb",
+  "Central Arabian Gulf"). Pinned in `tests/ukmtoParse.test.ts` with the
+  real key list and plausible values. The next run's "N with a reported
+  position" is the verification; a 0 there with the keys present means
+  the decimals are strings in a form `num()` refuses — paste one row.
 
 ### Declared themes — what your own sources are saying (2026-10-27, "declare certain key words or sentiment that I want to see what the X or other opensource are seeing")
 The operator asked for keywords and sentiment over the own sources. Built
