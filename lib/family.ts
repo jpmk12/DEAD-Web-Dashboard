@@ -113,11 +113,6 @@ ${PROPOSALS_PROMPT}`;
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
-/** The ids the last digest for this user read (any roster), or null when none. */
-export function lastMailIdsFor(userEmail: string): string[] | null {
-  return lastIds.get(userEmail) ?? null;
-}
-
 /** New-mail check: one messages.list call, no bodies, no model. */
 export async function countNewFamilyMail(accessToken: string, userEmail: string): Promise<{ newMail: number; known: boolean }> {
   const profile = await getFamilyProfile();

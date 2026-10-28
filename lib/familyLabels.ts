@@ -9,8 +9,6 @@
 
 import type { ProposalCategory } from "./senderDiscovery";
 
-export const FAMILY_LABEL_PARENT = "Family";
-
 export const FAMILY_LABELS: { category: ProposalCategory; name: string; hint: string }[] = [
   { category: "school",   name: "Family/School",     hint: "newsletters, forms, report cards" },
   { category: "activity", name: "Family/Activities", hint: "sports, music, scouts, camps" },
@@ -28,8 +26,4 @@ export function labelForCategory(category: ProposalCategory): string | null {
 export function categoryForLabel(name: string): ProposalCategory | null {
   const n = name.trim().toLowerCase();
   return FAMILY_LABELS.find((l) => l.name.toLowerCase() === n)?.category ?? null;
-}
-
-export function isFamilyLabelName(name: string): boolean {
-  return categoryForLabel(name) !== null;
 }

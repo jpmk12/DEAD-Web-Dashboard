@@ -22,7 +22,6 @@
 import { gradedRead, hasPhrase, type InterdictionRead, type ChokepointText } from "./chokepointSignals";
 
 export const MARAD_FEED_URL = "https://www.maritime.dot.gov/taxonomy/term/441/feed";
-export const MARAD_ADVISORIES_URL = "https://www.maritime.dot.gov/msci-advisories";
 /** An advisory older than this is treated as expired (MARAD's own auto-expiry is ~6 months). */
 export const MARAD_MAX_AGE_DAYS = 185;
 

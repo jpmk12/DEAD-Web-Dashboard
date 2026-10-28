@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   const { id, ...rest } = body;
-  const err = validateLineDraft({ ...rest, ...(id !== undefined ? { id } : {}) });
+  const err = validateLineDraft({ ...rest, ...(id !== undefined ? { id } : {}) }, { nowMs: Date.now() });
   if (err) return NextResponse.json({ error: err }, { status: 422 });
   const draft = normalizeLineDraft(rest);
   // Placement is checked, never guessed: an ICAO the app cannot place still

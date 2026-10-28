@@ -96,8 +96,9 @@ async function assemble(): Promise<DemandHorizonBody> {
     // not the bbox centre, so the horizon and the command board agree.
     activeWarningProblems().then(async (ps) => {
       sources.iw = true;
-      for (const p of ps) {
-        const a = await assessWarning(p.def.id).catch(() => null);
+      const as = await Promise.all(ps.map((p) => assessWarning(p.def.id).catch(() => null)));
+      for (let i = 0; i < ps.length; i++) {
+        const p = ps[i], a = as[i];
         if (!a) continue;
         input.boards.push({ label: a.label, aor: p.geo.aor, level: a.level, trajectory: a.trajectory, learning: a.learning });
       }

@@ -37,7 +37,8 @@ export default function WhereYouAre({ onOpen }: { onOpen: () => void }) {
       .then((j: HereWeather | null) => { if (alive) setD(j); })
       .catch(() => { if (alive) setD(null); });
     load();
-    const t = setInterval(load, 10 * 60_000);
+    // Every 10 min while the window is visible (code review 2026-10-28).
+    const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 10 * 60_000);
     const on = () => load();
     window.addEventListener("tracking:changed", on);
     window.addEventListener("dashboard-cache-cleared", on);

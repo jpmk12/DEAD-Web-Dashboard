@@ -1,6 +1,6 @@
 // Gathers the convergence signals — server-only. Extracted from
-// /api/osint/convergence so the OSINT command board's primer can read the same
-// join without an HTTP hop (the "Forming" fold retired into the primer,
+// the retired /api/osint/convergence route so the OSINT command board's primer
+// reads the join without an HTTP hop (the "Forming" fold retired into the primer,
 // REVIEW-2026-10 §6). The judgement is in lib/convergence.ts (pure, tested).
 //
 // Every source here is ALREADY CACHED and already fetched by panes the user

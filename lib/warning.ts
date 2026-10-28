@@ -213,4 +213,3 @@ export function deriveWarning(
   };
 }
 
-export const LEVEL_RANK: Record<WarningLevel, number> = { calm: 0, watch: 1, warning: 2, alert: 3 };

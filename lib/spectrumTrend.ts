@@ -1,9 +1,9 @@
 // Spectrum inputs along the series — PURE, client-safe, unit-tested (PLAN
-// §7 E1). The spectrum summary records the day's peak NOAA scale (swx:G/R/S),
-// KEVs added per declared vendor (kev:<vendor>) and the worst IODA alert per
-// tracked country (outage:<country>); this reads them: G-scale share of
-// observed days, KEV cadence per vendor against its own normal, and one
-// direction for the Glance tile. Environment and exposure stay environment
+// §7 E1). The spectrum summary records the day's peak NOAA scale (swx:G/R/S)
+// and KEVs added per declared vendor (kev:<vendor>); this reads the G-scale
+// share of observed days and the KEV cadence per vendor against its own
+// normal, and gives one direction for the Glance tile. (The IODA outage:<c>
+// series is recorded by lib/alerts.ts and not read here yet.) Environment and exposure stay environment
 // and exposure — nothing here raises an I&W level.
 
 import { direction, shareOfObserved, type SeriesPoint } from "./series";

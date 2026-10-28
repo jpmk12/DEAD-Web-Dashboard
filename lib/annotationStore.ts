@@ -36,9 +36,14 @@ const toEntry = (r: Row): Annotation => ({
 export async function listAnnotations(problemId: string, limit = 60): Promise<Annotation[] | null> {
   try {
     const pool = await getDb();
+    // EVERY open note, then the newest resolved ones up to the limit — an old
+    // standing note must never fall off behind newer resolved ones (code
+    // review 2026-10-28: a plain newest-60 dropped it).
     const [rows] = await pool.query<Row[]>(
-      `SELECT * FROM warning_annotations WHERE problem_id = ? ORDER BY created_at DESC LIMIT ?`,
-      [problemId, Math.min(200, Math.max(1, limit))],
+      `(SELECT * FROM warning_annotations WHERE problem_id = ? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 200)
+       UNION ALL
+       (SELECT * FROM warning_annotations WHERE problem_id = ? AND resolved_at IS NOT NULL ORDER BY created_at DESC LIMIT ?)`,
+      [problemId, problemId, Math.min(200, Math.max(1, limit))],
     );
     return rows.map(toEntry);
   } catch {

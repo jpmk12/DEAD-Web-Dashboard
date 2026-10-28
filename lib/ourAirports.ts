@@ -64,8 +64,15 @@ function splitCsvLine(line: string): string[] {
 
 // Fetch + parse once; keep only C-17/C-130-class fields (large/medium airports).
 // large_airport ≈ long hard runway (C-17 capable); medium ≈ C-130 capable.
+// A failed load is held five minutes (code review 2026-10-28): without it,
+// every resolveAirfield / SITREP / crosswind call re-downloaded the ~12 MB
+// file while upstream was down. The last good list still answers meanwhile.
+const FAIL_HOLD_MS = 5 * 60_000;
+let airportsHoldUntil = 0, runwaysHoldUntil = 0;
+
 async function load(): Promise<OaAirfield[]> {
   if (cache && cache.expires > Date.now()) return cache.fields;
+  if (Date.now() < airportsHoldUntil) return cache?.fields ?? [];
   if (loading) return loading;
   loading = (async () => {
     try {
@@ -95,6 +102,7 @@ async function load(): Promise<OaAirfield[]> {
       return cache?.fields ?? [];
     } finally {
       loading = null;
+      if (!cache || cache.expires <= Date.now()) airportsHoldUntil = Date.now() + FAIL_HOLD_MS;
     }
   })();
   return loading;
@@ -111,6 +119,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 // ident, with surface + lighting, classed for mobility airframes.
 async function loadRunways(): Promise<Map<string, RunwayCap>> {
   if (rwCache && rwCache.expires > Date.now()) return rwCache.map;
+  if (Date.now() < runwaysHoldUntil) return rwCache?.map ?? new Map();
   if (rwLoading) return rwLoading;
   rwLoading = (async () => {
     try {
@@ -163,6 +172,7 @@ async function loadRunways(): Promise<Map<string, RunwayCap>> {
       return rwCache?.map ?? new Map();
     } finally {
       rwLoading = null;
+      if (!rwCache || rwCache.expires <= Date.now()) runwaysHoldUntil = Date.now() + FAIL_HOLD_MS;
     }
   })();
   return rwLoading;

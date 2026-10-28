@@ -1,4 +1,4 @@
-import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import type { ThreadsResult } from "./types";
 
@@ -458,5 +458,3 @@ export async function getLabelHeatmap(
     .sort((a, b) => b.occurrences.length - a.occurrences.length);
 }
 
-// Silence unused-import warning on platforms that strip types aggressively
-export type _unused_ResultSetHeader = ResultSetHeader;

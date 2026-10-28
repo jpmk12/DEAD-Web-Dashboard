@@ -25,7 +25,7 @@ interface Aircraft {
 
 interface CacheEntry { items: Aircraft[]; bbox: string; fetchedAt: number }
 let cache: CacheEntry | null = null;
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 5 * 60_000;   // matches the 5-min client poll (OpenSky credits)
 
 // Military detection (ICAO 24-bit range + callsign prefixes) lives in the
 // pure lib/openskySignals.ts, shared with the I&W mobility fallback.

@@ -29,7 +29,6 @@ export const RADAR_BASE = "https://api.cloudflare.com/client/v4/radar";
 export const RADAR_QUERY = "limit=100&offset=0&dateRange=7d&format=json";
 export const RADAR_OUTAGES_URL = `${RADAR_BASE}/annotations/outages?${RADAR_QUERY}`;
 export const RADAR_ANOMALIES_URL = `${RADAR_BASE}/traffic_anomalies?${RADAR_QUERY}`;
-export const RADAR_ATTRIBUTION = "Cloudflare Radar — radar.cloudflare.com (CC BY-NC 4.0)";
 // BGP events, newest first, one page of 100. `minConfidence=5` keeps the
 // mid and high bands (1–4 is mostly misconfiguration by Cloudflare's own
 // banding); the parser still bands what arrives. Pinned from the published
@@ -56,6 +55,10 @@ export interface RadarBody {
 }
 
 const TTL = 15 * 60 * 1000;
+// A failed read is held a minute (it carries the last good rows forward),
+// so an outage upstream does not refetch on every caller (code review
+// 2026-10-28).
+const FAIL_HOLD_MS = 60_000;
 let cache: { at: number; body: RadarBody } | null = null;
 let inflight: Promise<RadarBody> | null = null;
 
@@ -71,7 +74,7 @@ export function radarToken(): string | null {
 export async function getRadar(): Promise<RadarBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
   if (inflight) return inflight;
-  inflight = load().then((b) => { if (b.live) cache = { at: Date.now(), body: b }; return b; }).finally(() => { inflight = null; });
+  inflight = load().then((b) => { cache = { at: b.live ? Date.now() : Date.now() - TTL + FAIL_HOLD_MS, body: b }; return b; }).finally(() => { inflight = null; });
   return inflight;
 }
 
@@ -161,7 +164,7 @@ export function resetRadarBgpCache(): void { bgpCache = null; }
 export async function getRadarBgp(): Promise<RadarBgpBody> {
   if (bgpCache && Date.now() - bgpCache.at < TTL) return bgpCache.body;
   if (bgpInflight) return bgpInflight;
-  bgpInflight = loadBgp().then((b) => { if (b.live) bgpCache = { at: Date.now(), body: b }; return b; }).finally(() => { bgpInflight = null; });
+  bgpInflight = loadBgp().then((b) => { bgpCache = { at: b.live ? Date.now() : Date.now() - TTL + FAIL_HOLD_MS, body: b }; return b; }).finally(() => { bgpInflight = null; });
   return bgpInflight;
 }
 

@@ -54,10 +54,11 @@ export default function DemandHorizonCard() {
 
   useEffect(() => {
     try { setFolded(localStorage.getItem("glance.demandFolded") === "1"); } catch { /* ignore */ }
-    fetch("/api/demand-horizon")
+    const loadHorizon = () => fetch("/api/demand-horizon")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (j && Array.isArray(j.outlooks)) setBody(j); })
       .catch(() => {});
+    loadHorizon();
     const loadCrew = () => fetch("/api/team/crew")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
@@ -71,7 +72,12 @@ export default function DemandHorizonCard() {
     // The counts are edited HERE (the editor below the Crews line) — re-read
     // the posture line when they change.
     window.addEventListener("crew:changed", loadCrew);
-    return () => window.removeEventListener("crew:changed", loadCrew);
+    // A line saved or removed on the strip above changes this card's "N
+    // lines" chips and the crews-vs-lines sentence (code review 2026-10-28:
+    // they stayed stale until the next load).
+    const onLines = () => { loadHorizon(); loadCrew(); };
+    window.addEventListener("lines:changed", onLines);
+    return () => { window.removeEventListener("crew:changed", loadCrew); window.removeEventListener("lines:changed", onLines); };
   }, []);
   const [crewEdit, setCrewEdit] = useState(false);
 

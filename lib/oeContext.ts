@@ -18,6 +18,7 @@ import { getDemandHorizon } from "./demandAssemble";
 import { getDemandSkill } from "./demandVerifyAssemble";
 import { listCrewRows, getCrewHistory } from "./crewStore";
 import { deriveAvailability, postureAgainstDemand } from "./crewState";
+import { getDeclaredLinesBounded } from "./lineReadAssemble";
 import { getDemandOutlookHistory } from "./demandStore";
 import { crewTrend } from "./crewTrend";
 import { AOR_LABELS } from "./aor";
@@ -72,8 +73,9 @@ async function gather(): Promise<OeSnapshot> {
 
   const boardsP = settle(activeWarningProblems().then(async (ps): Promise<OeBoardRow[]> => {
     const out: OeBoardRow[] = [];
-    for (const p of ps) {
-      const a = await assessWarning(p.def.id).catch(() => null);
+    const as = await Promise.all(ps.map((p) => assessWarning(p.def.id).catch(() => null)));
+    for (let i = 0; i < ps.length; i++) {
+      const a = as[i];
       if (!a) continue;
       out.push({
         problemId: a.problemId,
@@ -94,9 +96,9 @@ async function gather(): Promise<OeSnapshot> {
     aor: o.aor, direction: o.direction, score: o.score, confidence: o.confidence, line: o.line,
   }))));
 
-  const crewP = settle(Promise.all([listCrewRows(), getDemandHorizon().catch(() => null), getCrewHistory(60).catch(() => []), getDemandOutlookHistory(60).catch(() => [])]).then(([rows, d, hist, dh]) => {
+  const crewP = settle(Promise.all([listCrewRows(), getDemandHorizon().catch(() => null), getCrewHistory(60).catch(() => []), getDemandOutlookHistory(60).catch(() => []), getDeclaredLinesBounded(2_000)]).then(([rows, d, hist, dh, declared]) => {
     const summary = deriveAvailability(rows);
-    const posture = postureAgainstDemand(summary, (d?.outlooks ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })), AOR_LABELS as Record<string, string>);
+    const posture = postureAgainstDemand(summary, (d?.outlooks ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })), AOR_LABELS as Record<string, string>, declared);
     const today = new Date().toISOString().slice(0, 10);
     const trend = crewTrend([...hist.filter((h) => h.day !== today), ...rows.map((r) => ({ day: today, qual: r.qual, total: r.total, crewRest: r.crewRest, onMission: r.onMission, dnif: r.dnif, other: r.other }))], dh.map((x) => ({ day: x.day, aor: x.aor, direction: x.direction })), today);
     return {

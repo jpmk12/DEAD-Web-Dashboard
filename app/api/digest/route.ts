@@ -28,6 +28,13 @@ Be concrete and reference the actual keywords / sources from the user data — v
 // largest source of silent AI spend.
 const DIGEST_TTL_MS = 24 * 60 * 60 * 1000;
 const digestCache = new Map<string, { digest: unknown; day: string; expires: number }>();
+// One generation per user at a time (two devices loading at once join it),
+// and a failure is held five minutes — the client re-primes on every focus,
+// so an error used to re-spend a Sonnet call on each tab switch (code review
+// 2026-10-28).
+const inflight = new Map<string, Promise<unknown>>();
+const failedAt = new Map<string, number>();
+const FAIL_HOLD_MS = 5 * 60_000;
 
 export async function GET() {
   const session = await auth();
@@ -91,7 +98,16 @@ export async function GET() {
     );
   }
 
-  try {
+  const failed = failedAt.get(email);
+  if (failed && Date.now() - failed < FAIL_HOLD_MS) {
+    return NextResponse.json({ error: "Digest generation failed a moment ago — it will retry in a few minutes" }, { status: 503 });
+  }
+  const running = inflight.get(email);
+  if (running) {
+    try { return NextResponse.json({ digest: await running }); }
+    catch { return NextResponse.json({ error: "Digest generation failed" }, { status: 500 }); }
+  }
+  const job = (async () => {
     const modelStart = Date.now();
     const response = await anthropic.messages.create({
       // Sonnet handles structured JSON from already-scored data well and
@@ -125,9 +141,18 @@ export async function GET() {
       nextWeekRecommendations: Array.isArray(p.nextWeekRecommendations) ? (p.nextWeekRecommendations as unknown[]).map((s) => String(s).slice(0, 400)) : [],
     };
     digestCache.set(email, { digest, day, expires: Date.now() + DIGEST_TTL_MS });
+    return digest;
+  })();
+  inflight.set(email, job);
+  try {
+    const digest = await job;
+    failedAt.delete(email);
     return NextResponse.json({ digest });
   } catch (err) {
     console.error("Digest failed:", err);
+    failedAt.set(email, Date.now());
     return NextResponse.json({ error: "Digest generation failed" }, { status: 500 });
+  } finally {
+    inflight.delete(email);
   }
 }

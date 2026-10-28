@@ -53,15 +53,3 @@ export function openBoosts(rows: OpenRow[], nowMs = Date.now()): Record<string, 
   return out;
 }
 
-/** The most-opened palette ids, strongest first — for the empty-query
- *  "Recent" group. Rows with no decayed weight left (or a single ancient
- *  open) fall off; the list is short by design. */
-export function topOpened(rows: OpenRow[], limit = 4, nowMs = Date.now()): string[] {
-  return rows
-    .filter((r) => isOpenSurface(r.surface) && !!r.id && r.opens > 0)
-    .map((r) => ({ id: paletteIdFor(r), w: decayedOpens(r, nowMs) }))
-    .filter((x) => x.w >= 0.5)
-    .sort((a, b) => b.w - a.w || a.id.localeCompare(b.id))
-    .slice(0, limit)
-    .map((x) => x.id);
-}

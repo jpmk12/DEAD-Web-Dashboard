@@ -385,10 +385,10 @@ This app is a **Next.js 15 (App Router)** dashboard. The notes below record how 
 complies with the platform requirements above so future changes stay compliant.
 
 ### Entry point & port
-- `main` / `start` → `server.js`, a custom Next.js server that listens on
-  `process.env.PORT` (see Port Binding). `next start` would also work, but the
-  custom server makes the PORT binding explicit and keeps `main` consistent.
-- `build` → `next build`. The platform runs the build before `npm start`.
+- `main` / `start` → `start.js`, which runs Next.js's own production server
+  (`next start`) bound to `0.0.0.0` on `process.env.PORT` (see Port Binding).
+- `build` → `node build.js` (wipes `.next`, then `next build`). The platform
+  runs the build before `npm start`.
 
 ### Critical: build toolchain must live in `dependencies`
 The platform installs with `npm install --production`, which **skips
@@ -980,7 +980,7 @@ Stored in `user_prefs.timezone_mode` (`VARCHAR(16)`, default `'auto'`).
 ### Database
 - Uses the managed MySQL via `mysql2` (`lib/db.ts`), reading
   `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` from `process.env`.
-- All 7 tables are created automatically on first connection
+- Every table (50+) is created automatically on first connection
   (`CREATE TABLE IF NOT EXISTS`), so no manual schema import is needed.
 - All queries are parameterized (`?` placeholders) — never interpolate input.
 
@@ -4097,7 +4097,7 @@ exact-email match). The surfaces are exactly the palette's entity kinds
 `lib/openSignal.ts` (PURE, tested): `openBoosts` = recency-decayed opens
 (half-life 30 d) × 4 points, **capped at 20 — below the smallest positive
 token score (30)**, so a boost reorders matches but can never manufacture
-one; `topOpened` feeds the empty-query **"You open these"** group
+one; the same boosts order the empty-query **"You open these"** group
 (`CommandGroup "recent"`), after navigation/actions. The palette is the
 first and only consumer; hooks live in `WatchPane` (strip clicks +
 `watch:focus`) and `GroundTruthTab` (rail click + `regional:select`).
@@ -5061,6 +5061,119 @@ only; every tracked airfield has a register of its own by command.
   Profile, read by the registry and the assembler).
 No new npm dep (esbuild `0`).
 
+### Review 2026-10-28 (loose ends · bugs · performance · coherence) — what changed and the rules it left behind
+Four parallel reviews after the October feature run (≈45 commits, 206
+files), each finding confirmed by reading the code path before it was
+fixed. Keep the RULE, not just the patch:
+- **Loose ends.** Orphans deleted: `ChatRail`, `MetarPanel`,
+  `MapAOIControls`, `EventCard`, the drawer's feed-tester panel, and the
+  routes `/api/osint/test-feed`, `/api/documents/backlinks`,
+  `/api/osint/convergence` (the primer reads `lib/convergenceAssemble.ts`
+  directly). ~20 dead exports removed (`topOpened`, `isAisConnected`,
+  `extractWikiLinks`, `recentUsageRows`, `MoreIcon`, `LEVEL_RANK`, …).
+  **The CSP is narrowed to what the app loads**: self, Windy (frame),
+  Google fonts, the Google OAuth hosts — TradingView, Twitter and the
+  retired aircraft/maritime iframe hosts are gone. Re-adding a third-party
+  script or frame means adding its host here deliberately. **The three
+  prunes now run** (`pruneOldUsage` 90 d, `pruneOldTrips` a year after
+  end, `pruneHouseholdBills` 500 d) from the 6-hourly heartbeat — they were
+  written with their tables and never called. `.env.example` documents
+  `DB_*`, `AUTH_URL`, `DOD_CA_PEM`/`DOD_CA_PATH` and no longer carries a
+  real address (it remains in git history).
+- **One LED rollup order** — `LED_SEVERITY` / `worstLedOf` in
+  `lib/levelTokens.ts`: green < UNKNOWN < amber < red, empty → UNKNOWN. The
+  Weather tab's COCOM header read GREEN for one green field among UNKNOWN
+  ones (a reducer starting at "u" ranked green above it). New rollups use
+  it; "worse than yesterday" still skips an UNKNOWN yesterday instead.
+- **Ask the board follows the latency rule**: the pack's surfaces gather
+  IN PARALLEL (fixed order kept), POST starts one background job per (user
+  × model × question) and answers 202 `{ pending, ticket }` after 20 s;
+  the client polls `GET /api/ask?ticket=` (user-scoped, 10-min jobs, a
+  finished job is handed over for 2 min on a re-ask). **The answer cache
+  key carries the user** — the pack holds per-user deltas and docs, so a
+  crew member was served the owner's cached answer.
+- **Alerts run their stages at once** (force · weather · advisories ·
+  boards · spectrum · outages/Radar/BGP/NetFlows · UKMTO · lines),
+  concatenated in a fixed order; the four outage reads start together.
+  New predicates: `ukmto-<strait>-<day>` (a UKMTO-reported ACT ≤72 h at a
+  strait a board watches, amber) and `line-<id>-<day>` (a declared line
+  reading RED today or tomorrow, amber, kind `line`). The NetFlows collapse
+  alert was unreachable under MIN0_MAX (a `ratio == null` guard ran first):
+  the alert reads the STATE, and a range-unit drop records under its own
+  key **`nflowdrop:`** so the two units never mix. `bgp-` / `traffic-cf-`
+  alerts are now placed on a command row.
+- **A dead own-source pool is UNOBSERVED.** `getOwnSourcePool()` (memo
+  60 s, four doors in parallel) reports `answered`; themes read
+  `ownAnswered` only when a door answered (the gatherer never returns null,
+  so a fully dead pool read "quiet" and wrote 0s into every baseline).
+- **In-flight dedupe on the heavy passes**: `assessWarning` (per board) and
+  `assembleSitrep` (per base) — every caller of a cold board or base now
+  shares one pass; `resetWarningCache` / `resetSitrepCache` drop the
+  in-flight map too. **Writes bump a generation** in the line-read and
+  theme assemblers, so a read that started before a save is never cached
+  over it. Line reads assemble at their own 8-s family wait whatever the
+  caller's bound, and a read with a dead family is kept 60 s, not 5 min.
+  Concurrent shared-prefs reads share one query (`getTeamPrefs`, in-flight
+  only, each caller gets a `structuredClone`) — never a TTL, because
+  several routes write the row and read it back at once.
+- **Shared caches where a single slot thrashed**: TAFs are cached per ICAO
+  (`getTafReports`, 30 min — the outlook and the H-hour planner read the
+  same reports; only misses are fetched); DAIP LOCATION NOTAMs keep their
+  RAW answer per ICAO for 10 min (time state re-judged each read);
+  Space-Track's satcat / history / current caches are keyed maps (the RUS
+  and CHN passes evicted each other and re-queried hourly) with one login
+  at a time; an empty resolved fleet reads not-live (never an observed
+  calm `rpo:` day); the global mil ADS-B picture is fetched once a minute
+  for all boards; UKMTO's store cache honours its limit; failed Radar /
+  BGP / MARAD reads are held 60 s; a failed OurAirports load 5 min; a
+  failed digest 5 min with one generation per user at a time.
+- **Nothing polls a hidden window, nothing heavy mounts unopened.** The
+  command board's 5-min poll and Glance's seven polls (and WhereYouAre,
+  ThemesCard) run only while visible and catch up on return (Glance:
+  `useVisibleTick`); the OSINT contacts strip polls every 5 min, not 60 s
+  (each OpenSky bbox spends the IP's anonymous credits the I&W fallback
+  shares). **Weather and Tools mount on first activation** (`seenTabs` in
+  TabShell) — no Windy embed, forecasts or H-hour read for a tab nobody
+  opened; Email's Sonnet action extraction waits for the Email tab.
+- **Time**: `wallToMs` picks between the offsets a day either side —
+  the doubled fall-back hour resolves to the FIRST instant, a spring-gap
+  time to the instant after the gap — and `localIsoToMs` (the H-hour
+  forecast hour, the lunar cloud) goes through it, so a DST day is right
+  for every hour. SCCD's zone-less stamps parse as UTC (`parseUtc`). The
+  H-hour holiday check uses H's LOCAL day (`localYmd`). Past
+  `NOTAM_HORIZON_H` (7 d) a quiet NOTAM read is UNKNOWN "not published
+  yet", never "no closure at H". `lunarNight` names **polar night**
+  (`polarNight`, the budget over the whole window) apart from polar day.
+- **Smaller correctness**: UKMTO's decimal regex keeps a leading minus;
+  every open analyst note is listed (UNION with the newest resolved); the
+  line validator refuses a day outside today…+3 Zulu when given a clock;
+  the Routing cell is UNKNOWN with nothing tracked; ThemesCard shows its
+  invitation only when the store answered with none; the radar fetch
+  ignores its own abort and drops stale frames on an empty index; lift
+  chatter reads a region phrase by its cue (an origin region never places
+  a post); ToolsTab treats a different place as a stale read; LunarCard
+  falls back to the longitude zone, not the device's.
+- **Coherence joins built**: declared lines reach every crew-posture caller
+  (`getDeclaredLinesBounded` — the primer and the assistant now see "lines
+  against thin crews"); the Demand card re-reads on `lines:changed`; a RED
+  functional-command cell with a placeable door joins primer tier 4 (`fc:`
+  keys); the SITREP Lift row shows tankers beside airlift (the `tanker:`
+  series had no reader); LinesStrip's no-slot door is `openTrackPicker`;
+  the fleet catalogue date shows on the Posture card; ▸ fold glyphs became
+  ▾/▴ and the lunar chart's moonrise/set use ↑/↓ (▲ means worse).
+- **Found, NOT built (open)**: the assistant OE context has no lines
+  section (Ask has one); lines do not feed the Tools Where picker (a line
+  carries no coordinates); `chatter:`, `outage:`, `swx:R/S`, `cfout:`,
+  `bgp:` series are still written without a reader (a `precedes` /
+  chronicity read is the intended consumer); ~12 private LED / severity
+  rank copies, 17 `withTimeout` copies and 8 haversines remain (only the
+  one that folded UNKNOWN into green was a bug); bundle: all tab bodies
+  except the lazy ones are in the first-load chunk (~312 KB gzip) — a
+  `lazyClient` split of Markets / Docs / Email / Calendar is the next step,
+  to be checked with `tools/ui-sweep/lazy-check.cjs`; `lib/db.ts` runs ~150
+  schema statements on a cold process.
+No new npm dep (esbuild `0`).
+
 ### Code review 2026-10-07 (security · correctness · performance · UI) — what changed and the rules it left behind
 Five parallel reviews over the whole tree (140 routes, 108 components, 248
 libs), each finding confirmed by reading the code path before it was fixed.
@@ -5154,7 +5267,8 @@ patch:
   run only while their pane is active AND the window is visible (an
   open-but-hidden desktop kept every fan-out warm 24/7). Glance memoises
   the posture-move scan; CalendarTab's 5-s tick keeps a stable empty
-  array. `PreferencesDrawer` and `FamilyTab` are `next/dynamic` and the
+  array. `PreferencesDrawer` and `FamilyTab` are lazy (`lazyClient` since
+  2026-10-27 — see "Lazy components render on arrival") and the
   drawer mounts only while open (`?prefs=` is written to the URL BEFORE
   opening so the on-demand drawer lands on the section). Email action
   extraction uses Sonnet, not Opus.
@@ -5785,8 +5899,8 @@ no new fetch** (the AI-spend rule: nothing pays for a derived insight).
   in a mobility corpus contains. Dismissal is per **interest+term** (muting one
   term doesn't mute the item forever), stored as a third prefixed namespace in
   `dismissed_watch_suggestions` — no migration.
-- **Convergence** (`lib/convergence.ts` → `/api/osint/convergence` →
-  `ConvergenceCard` on Watch). The Crisis map's convergence strip sees only map
+- **Convergence** (`lib/convergence.ts` → `lib/convergenceAssemble.ts` → the
+  command board's primer; the route and `ConvergenceCard` are retired). The Crisis map's convergence strip sees only map
   layers and groups by AOR (a whole COCOM); this spans feeds / I&W / disasters /
   posture / base status and groups by SUBJECT. **Convergence means DISTINCT
   KINDS** — three disaster alerts in one country is one story told three times,

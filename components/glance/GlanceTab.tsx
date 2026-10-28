@@ -199,12 +199,28 @@ function taskDueState(due?: string): "overdue" | "today" | "future" | "none" {
 // Re-read the module-level caches on an interval so Glance fills in as the
 // other tabs finish loading in the background. Peeks happen during render;
 // the tick just forces re-evaluation. Only runs while Glance is visible.
+// Polls skip a hidden window and catch up when it returns: every polling
+// effect below takes `visTick`, which bumps on becoming visible, so the
+// effect re-runs (one load) instead of loading on a timer for nobody (code
+// review 2026-10-28 — Glance is the default tab and an open-but-hidden
+// window kept the SITREP, posture and threats fan-outs warm).
+const docVisible = () => typeof document === "undefined" || document.visibilityState === "visible";
+function useVisibleTick(): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const on = () => { if (docVisible()) setN((x) => x + 1); };
+    document.addEventListener("visibilitychange", on);
+    return () => document.removeEventListener("visibilitychange", on);
+  }, []);
+  return n;
+}
+
 function useCacheTick(active: boolean): void {
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!active) return;
     const bump = () => setTick((t) => t + 1);
-    const id = setInterval(bump, 4000);
+    const id = setInterval(() => { if (docVisible()) bump(); }, 4000);
     window.addEventListener("focus", bump);
     return () => {
       clearInterval(id);
@@ -263,6 +279,7 @@ export default function GlanceTab({
 }: GlanceTabProps) {
   const { status } = useSession();
   useCacheTick(active);
+  const visTick = useVisibleTick();
   // The effective zone (pin › active trip › device): Today/Tomorrow are
   // bucketed in it and every time is labelled with it.
   const zone = useEffectiveZone();
@@ -313,9 +330,9 @@ export default function GlanceTab({
       } catch { /* the card on OSINT › Feeds carries the status */ }
     };
     load();
-    const id = setInterval(() => load(), 5 * 60 * 1000);
+    const id = setInterval(() => { if (docVisible()) load(); }, 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
-  }, [active]);
+  }, [visTick, active]);
   // Rising threads from the News tab's latest stored session (today or
   // yesterday) — one row at the top of Breaking & critical (REVIEW-2026-10
   // N11). Stored rows, no model call, one cheap GET when Glance is active.
@@ -344,9 +361,9 @@ export default function GlanceTab({
       } catch { /* the client-side detector still runs */ }
     };
     load();
-    const id = setInterval(() => load(), 5 * 60 * 1000);
+    const id = setInterval(() => { if (docVisible()) load(); }, 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
-  }, [active]);
+  }, [visTick, active]);
 
   // Header greeting + date are LOCAL-time derived. Rendering them during SSR
   // computes them in the server's (UTC) zone/locale, then the client recomputes
@@ -375,9 +392,9 @@ export default function GlanceTab({
         .catch(() => {});
     };
     load();
-    const id = setInterval(load, 3 * 60 * 1000);
+    const id = setInterval(() => { if (docVisible()) load(); }, 3 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [active, status]);
+  }, [visTick, active, status]);
 
   // NEO / evacuation watch — State Dept Level-4 + embassy-departure advisories,
   // fused into "Global Reach Watch". Cached 30 min server-side, so poll slowly.
@@ -412,10 +429,10 @@ export default function GlanceTab({
         .catch(() => {});
     };
     load();
-    const id = setInterval(() => load(), 5 * 60 * 1000);
+    const id = setInterval(() => { if (docVisible()) load(); }, 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); if (retry) clearTimeout(retry); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, status]);
+  }, [visTick, active, status]);
 
   // Force Protection Watch — fused per-base posture. Cached 10 min server-side,
   // so poll slowly; only elevated (red/amber) locations reach needs-you-now.
@@ -431,9 +448,9 @@ export default function GlanceTab({
         .catch(() => {});
     };
     load();
-    const id = setInterval(load, 5 * 60 * 1000);
+    const id = setInterval(() => { if (docVisible()) load(); }, 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [active, status]);
+  }, [visTick, active, status]);
 
   // Tasks are the one "needs you now" source with no shared client cache, so
   // Glance fetches them itself (lightweight) and stashes the result so a later
@@ -455,12 +472,12 @@ export default function GlanceTab({
         .catch(() => {});
     };
     load();
-    const id = setInterval(load, 5 * 60 * 1000);
+    const id = setInterval(() => { if (docVisible()) load(); }, 5 * 60 * 1000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [active, status]);
+  }, [visTick, active, status]);
 
   // ── Peek shared caches (recomputed each tick / render) ──
   const briefing = clientCache.peek<Briefing>(BRIEFING_CACHE_KEY);

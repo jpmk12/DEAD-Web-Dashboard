@@ -9,7 +9,7 @@
 // decides. Classes follow the aviation sky-cover ladder so the line reads
 // like a METAR: CLR < 6 % · FEW < 31 % · SCT < 56 % · BKN < 88 % · OVC.
 
-import { zoneDayStartMs } from "./effectiveZone";
+import { wallToMs } from "./plannerTools";
 import type { LunarNight } from "./moon";
 
 export interface HourlyCloud { time: string; pct: number | null }
@@ -52,12 +52,14 @@ export function parseHourlyCloud(json: unknown): HourlyCloud[] {
   });
 }
 
-/** A local ISO hour in `zone` → ms. Planning-grade: a DST step at midnight
- *  shifts that night's hours by one, which a cloud mean survives. */
+/** A local ISO hour in `zone` → ms, honouring a DST change on that day for
+ *  every hour after it (code review 2026-10-28: day start + hours was an
+ *  hour off for the rest of a change day — the H-hour forecast picks its
+ *  hour through this, and one hour can be the thunderstorm hour). */
 export function localIsoToMs(iso: string, zone: string): number | null {
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(iso);
   if (!m) return null;
-  try { return zoneDayStartMs(m[1], zone) + Number(m[2]) * 3_600_000 + Number(m[3]) * 60_000; } catch { return null; }
+  try { return wallToMs(m[1], `${m[2]}:${m[3]}`, zone); } catch { return null; }
 }
 
 /** Cloud over the night's dark interval (EENT → BMNT). null when the night

@@ -24,7 +24,6 @@ import { Users,
   Bot,
   List,
   Network,
-  History,
   Menu,
   Globe,
   Coins,
@@ -36,7 +35,6 @@ import { Users,
   FolderHeart,
   X,
   ExternalLink,
-  MoreHorizontal,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -89,12 +87,10 @@ export const CloseIcon = X;
 // I&W "deteriorating" trajectory, so external links carry this instead.
 export const ExternalLinkIcon = ExternalLink;
 // "More actions" overflow menus.
-export const MoreIcon = MoreHorizontal;
 
 // News view-mode toggles.
 export const FeedViewIcon = List;
 export const ThreadsViewIcon = Network;
-export const HistoryViewIcon = History;
 
 // Individual tab icons, re-exported so a tab's in-panel header can match its
 // nav icon directly.

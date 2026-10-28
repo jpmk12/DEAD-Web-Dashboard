@@ -22,7 +22,7 @@
 // with nothing to say as "absence of signal, not evidence of calm" and any
 // source that is down, so a short list never reads as a quiet world.
 
-import { AOR_LABELS, type Aor } from "./aor";
+import { AOR_LABELS, aorFromCountry, type Aor } from "./aor";
 import { escalatedToday, type CommandInput, type CbSitrep, type Led } from "./commandBoard";
 
 export interface PrimerDoor {
@@ -50,7 +50,17 @@ export interface PrimerItem {
 export interface PrimerConvergence { subject: string; breadth: number; kinds: string[]; aor: Aor | null; country?: string | null }
 export interface PrimerDecision { problemId: string; label: string; aor: Aor | null; call: string; dueISO: string }
 
+/** A functional-command row as the primer reads it (structural — the
+ *  primer does not import lib/functionalCommands). */
+export interface PrimerFunctionalRow {
+  label: string;
+  cells: { label: string; led: Led; text: string; door?: { kind: string; id?: string } }[];
+}
+
 export interface PrimerInput extends CommandInput {
+  /** USTRANSCOM / USSPACECOM / USCYBERCOM rows — a RED cell that can be
+   *  placed on a command joins tier 4 (code review 2026-10-28). */
+  functional?: PrimerFunctionalRow[] | null;
   convergence: PrimerConvergence[] | null;
   decisionsDue: PrimerDecision[] | null;
   /** Names of sources that did not answer (free text, from the assembler). */
@@ -153,6 +163,28 @@ export function primer(input: PrimerInput, max = PRIMER_MAX): Primer {
       note: aorNote(b.aor),
       door: { aor: b.aor, problemId: b.problemId },
     });
+  }
+
+  // 4b — a functional-command cell at RED (a reported act at a strait, a
+  // routing hijack, an outage, a red en-route field), placed through its own
+  // door: a board's command, a country's, a field's. One that cannot be
+  // placed stays on its row — the primer never guesses a command.
+  for (const row of input.functional ?? []) {
+    for (const c of row.cells) {
+      if (c.led !== "r" || !c.door?.id) continue;
+      let door: PrimerDoor | null = null;
+      if (c.door.kind === "board") { const b = (input.boards ?? []).find((x) => x.problemId === c.door!.id); if (b) door = { aor: b.aor, problemId: b.problemId }; }
+      else if (c.door.kind === "country") { const a = aorFromCountry(c.door.id); if (a !== "UNKNOWN") door = { aor: a, country: c.door.id }; }
+      else if (c.door.kind === "field") { const s = (input.sitreps ?? []).find((x) => x.icao === c.door!.id); if (s) door = { aor: s.aor, country: s.country || undefined, icao: s.icao }; }
+      if (!door) continue;
+      push({
+        key: `fc:${row.label}:${c.label}`, tier: 4, star: starAor(door.aor), tone: "red",
+        subject: `${row.label} · ${c.label}`,
+        text: `${c.text}.`,
+        note: aorNote(door.aor, door.country),
+        door,
+      });
+    }
   }
 
   // 5 — demand rising against thin crews.

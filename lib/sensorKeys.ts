@@ -43,6 +43,7 @@ export const SENSOR_KEYS: readonly SensorKeyDef[] = [
   { prefix: "cfout",    policy: "peak", what: "Cloudflare Radar outage level ordinal (3 red · 2 amber · 1 ended note · 0 nothing), per tracked country ISO2" },
   { prefix: "bgp",      policy: "peak", what: "Cloudflare Radar BGP routing level ordinal (3 red high-confidence hijack · 2 amber · 1 note · 0 nothing), per tracked country ISO2" },
   { prefix: "nflow",    policy: "last", what: "Cloudflare Radar NetFlows hour-matched traffic ratio ×100 (100 = normal), per tracked country ISO2 — nothing written while learning / stale / dead" },
+  { prefix: "nflowdrop", policy: "last", what: "Cloudflare Radar NetFlows drop below the hour-matched normal ×100 in RANGE units (MIN0_MAX series; 0 = normal, 70+ = collapsed), per tracked country ISO2" },
   { prefix: "px",       policy: "last", what: "daily close, per symbol" },
   // Counterspace posture (docs/PLAN-SPACE-CYBER-ASK.md §2)
   { prefix: "rpo",      policy: "peak", what: "inspector-fleet manoeuvres detected that day, per actor ISO3" },

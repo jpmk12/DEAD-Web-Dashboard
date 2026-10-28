@@ -158,12 +158,20 @@ export function wallToMs(ymd: string, hhmm: string, zone: string): number | null
   if (!p || !t || !isValidTz(zone)) return null;
   const hh = Number(t[1]), mm = Number(t[2]);
   if (hh > 23 || mm > 59) return null;
+  // The offsets a day either side are the ones in force before and after any
+  // change that day. A candidate is valid when the zone really shows that
+  // wall time at it. Both valid = the doubled fall-back hour → the FIRST
+  // instant; neither = the spring-forward gap → the instant after the gap
+  // (the before-offset carries the clock past it). Code review 2026-10-28:
+  // the earlier two-pass guess landed BEFORE the gap and on the SECOND
+  // occurrence in some zones.
   const guess = Date.UTC(p.y, p.m - 1, p.d, hh, mm);
-  const off1 = utcOffsetMinutes(new Date(guess), zone);
-  let ms = guess - off1 * 60_000;
-  const off2 = utcOffsetMinutes(new Date(ms), zone);
-  if (off2 !== off1) ms = guess - off2 * 60_000;
-  return ms;
+  const before = utcOffsetMinutes(new Date(guess - 86_400_000), zone);
+  const after = utcOffsetMinutes(new Date(guess + 86_400_000), zone);
+  const cands = [...new Set([before, after])].map((off) => ({ off, ms: guess - off * 60_000 }));
+  const valid = cands.filter((c) => utcOffsetMinutes(new Date(c.ms), zone) === c.off).map((c) => c.ms);
+  if (valid.length) return Math.min(...valid);
+  return guess - before * 60_000;
 }
 
 export interface ZoneTime {

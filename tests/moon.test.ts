@@ -138,3 +138,19 @@ describe("moon — the night budget", () => {
     expect(n.illumPct).toBeGreaterThan(90);
   });
 });
+
+describe("polar night is dark, not 'no darkness'", () => {
+  it("85°N in December (the sun never reaches −12°): dark all window, budget over the whole window", () => {
+    const n = lunarNight(85, 15.65, "Arctic/Longyearbyen", "2026-12-20");
+    expect(n.polar).toBe(true);
+    expect(n.polarNight).toBe(true);
+    expect(n.darkH).toBe(24);
+    expect(lunarTonightLine(n)).toMatch(/polar night/);
+  });
+  it("Longyearbyen in June stays polar DAY", () => {
+    const n = lunarNight(78.22, 15.65, "Arctic/Longyearbyen", "2026-06-20");
+    expect(n.polar).toBe(true);
+    expect(n.polarNight).toBe(false);
+    expect(n.darkH).toBeNull();
+  });
+});

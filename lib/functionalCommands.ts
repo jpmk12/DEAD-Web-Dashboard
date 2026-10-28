@@ -28,7 +28,6 @@ import type { ObservedState } from "./warning";
 import type { CrewPosture } from "./crewState";
 
 export type FunctionalCommand = "TRANSCOM" | "SPACECOM" | "CYBERCOM";
-export const FUNCTIONAL_COMMANDS: FunctionalCommand[] = ["TRANSCOM", "SPACECOM", "CYBERCOM"];
 export const FC_LABELS: Record<FunctionalCommand, string> = { TRANSCOM: "USTRANSCOM", SPACECOM: "USSPACECOM", CYBERCOM: "USCYBERCOM" };
 export const FC_DOMAIN: Record<FunctionalCommand, string> = {
   TRANSCOM: "global mobility — demand, crews, the straits, the en route system",
@@ -293,6 +292,8 @@ function cybercom(i: FcInput): FcRow {
   if (rt === undefined) cells.push({ key: "routing", label: "Routing", led: "u", text: "UNKNOWN — BGP read unavailable", live: false, detail: [] });
   else if (!rt || !rt.configured) cells.push({ key: "routing", label: "Routing", led: "u", text: "Cloudflare Radar not configured — BGP hijacks UNKNOWN, not clear (CLOUDFLARE_RADAR_TOKEN)", live: false, detail: [] });
   else if (!rt.live) cells.push({ key: "routing", label: "Routing", led: "u", text: `UNKNOWN — Cloudflare BGP did not answer (${rt.reason ?? "unknown"})`, live: false, detail: rt.reads.map((r) => `${r.name} [${r.level}]: ${r.why}`) });
+  // Watching nothing is not "nothing touched" (code review 2026-10-28).
+  else if (rt.tracked === 0) cells.push({ key: "routing", label: "Routing", led: "u", text: "UNKNOWN — no tracked country to read routing for (track one, or a field abroad)", live: true, detail: [] });
   else {
     const red = rt.reads.filter((r) => r.level === "red");
     const amber = rt.reads.filter((r) => r.level === "amber");

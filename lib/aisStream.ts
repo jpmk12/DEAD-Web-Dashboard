@@ -133,7 +133,6 @@ function handleMessage(raw: string) {
 
 export interface AisStatus { configured: boolean; connected: boolean; error?: string }
 
-export function isAisConnected(): boolean { return !!ws && ws.readyState === WS.OPEN; }
 
 /** Home-centred subscription (the Crisis map's Vessels layer). */
 export function ensureAisConnection(lat: number, lon: number, radiusKm: number): AisStatus {

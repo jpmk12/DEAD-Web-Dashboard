@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readChatter, clusterChatter, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn, placesWithOwn, chatterForIcao, fieldChatterLine, type OwnPlace } from "../lib/mobilityChatter";
+import { readChatter, clusterChatter, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn, placesWithOwn, chatterForIcao, fieldChatterLine, resolveChatterAor, type OwnPlace } from "../lib/mobilityChatter";
 import { mobilityWithChatter } from "../lib/warningRules";
 import { demandHorizon, type DemandInput } from "../lib/demandHorizon";
 import { mergePostureMoves, detectPostureMoves } from "../lib/postureMoves";
@@ -225,5 +225,11 @@ describe("mobilityWithChatter — reported beside observed, never in place of it
     expect(r.state).toBe("watching");
     expect(r.confidence).toBe(0.35);
     expect(r.note).toMatch(/ADS-B unreachable.*reported only, capped at watching/);
+  });
+});
+
+describe("a region after an origin cue never places the post (review 2026-10-28)", () => {
+  it("from the Middle East to Europe is EUCOM, not CENTCOM", () => {
+    expect(resolveChatterAor("6x C-17 flying from the Middle East to Europe tonight", null, null)).toBe("EUCOM");
   });
 });

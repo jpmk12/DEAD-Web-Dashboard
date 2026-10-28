@@ -32,6 +32,10 @@ export interface MaradBody {
 }
 
 const TTL = 60 * 60 * 1000;
+// A failed read is held a minute (it carries the last good rows forward),
+// so an outage upstream does not refetch on every caller (code review
+// 2026-10-28).
+const FAIL_HOLD_MS = 60_000;
 let cache: { at: number; body: MaradBody } | null = null;
 let inflight: Promise<MaradBody> | null = null;
 
@@ -40,7 +44,7 @@ export function resetMaradCache(): void { cache = null; pageCache.clear(); }
 export async function getMaradAdvisories(): Promise<MaradBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
   if (inflight) return inflight;
-  inflight = load().then((b) => { if (b.live) cache = { at: Date.now(), body: b }; return b; }).finally(() => { inflight = null; });
+  inflight = load().then((b) => { cache = { at: b.live ? Date.now() : Date.now() - TTL + FAIL_HOLD_MS, body: b }; return b; }).finally(() => { inflight = null; });
   return inflight;
 }
 

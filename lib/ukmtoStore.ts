@@ -10,7 +10,7 @@ import { getDb } from "./db";
 import { fitUkmtoRow, sortUkmto, type UkmtoIncident } from "./ukmtoParse";
 
 const READ_TTL = 60_000;
-let cache: { at: number; items: UkmtoIncident[] } | null = null;
+let cache: { at: number; items: UkmtoIncident[]; limit: number } | null = null;
 
 export async function upsertUkmto(incidents: UkmtoIncident[], via: "fetch" | "capture", userEmail = ""): Promise<{ imported: number }> {
   if (!incidents.length) return { imported: 0 };
@@ -59,7 +59,9 @@ interface Row extends RowDataPacket {
 export interface StoredUkmto extends UkmtoIncident { via: "fetch" | "capture"; capturedAt: string }
 
 export async function getStoredUkmto(limit = 400): Promise<StoredUkmto[]> {
-  if (cache && Date.now() - cache.at < READ_TTL) return cache.items as StoredUkmto[];
+  // The cache holds the widest read; a smaller limit is sliced from it, a
+  // larger one reads through (code review 2026-10-28: the limit was ignored).
+  if (cache && Date.now() - cache.at < READ_TTL && cache.limit >= limit) return (cache.items as StoredUkmto[]).slice(0, limit);
   const pool = await getDb();
   const [rows] = await pool.query<Row[]>(
     "SELECT ref, label, incident_on, incident_at, reported_by, lat, lon, placement, area, body, url, via, captured_at FROM captured_ukmto ORDER BY COALESCE(incident_on, '') DESC, captured_at DESC LIMIT ?",
@@ -74,7 +76,7 @@ export async function getStoredUkmto(limit = 400): Promise<StoredUkmto[]> {
     capturedAt: r.captured_at.toISOString(),
   }));
   const sorted = sortUkmto(items) as StoredUkmto[];
-  cache = { at: Date.now(), items: sorted };
+  cache = { at: Date.now(), items: sorted, limit };
   return sorted;
 }
 

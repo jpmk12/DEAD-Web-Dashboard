@@ -66,36 +66,65 @@ const aorRelevant = (geo: Pick<ProblemGeo, "terms">, n: NewsItem): boolean => ge
 // `sources` set drives provenance. Bounded so the fan-out can't hang the request.
 // Exported (mention gate only) so the economic-warfare assembler reads the
 // same sources under the same cap.
-export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Promise<{ items: NewsItem[]; sources: Set<string>; /** The whole pool before the mention gate — the lift-chatter grammar places a post by its own destination, not by the AOI's terms. */ all: NewsItem[] }> {
-  const sources = new Set<string>();
+export interface OwnSourcePool {
+  /** The whole pool before any mention gate. */
+  all: NewsItem[];
+  /** How many of the own-source doors answered (X store, newsletters,
+   *  captured articles, OSINT feeds) — 0 means the pool is UNOBSERVED, not
+   *  empty. An answered store with nothing in it still counts. */
+  answered: number;
+  asked: number;
+}
+
+// The raw pool is the same for every caller (boards, economy, themes,
+// posture moves), so it is memoised for a minute and gathered with its four
+// doors IN PARALLEL (code review 2026-10-28: four serial awaits per board,
+// per actor, per theme pass).
+const POOL_TTL = 60_000;
+let poolCache: { at: number; pool: OwnSourcePool } | null = null;
+let poolInflight: Promise<OwnSourcePool> | null = null;
+
+async function gatherOwnPool(): Promise<OwnSourcePool> {
+  const [xs, nls, arts, prefs] = await Promise.all([
+    withTimeout(getXItems(), 6000),
+    withTimeout(getAllCachedSummaries(), 6000),
+    withTimeout(getCapturedArticles(200), 6000),
+    withTimeout(getUserPrefs(), 6000),
+  ]);
   const items: NewsItem[] = [];
-
-  const xs = await withTimeout(getXItems(), 6000);
   if (xs) for (const x of xs) items.push({ id: `x-${x.id}`, title: x.text, source: `𝕏 @${x.handle}`, category: "social", pubDate: x.postedAt ?? x.importedAt, summary: "", link: x.url });
-
-  const nls = await withTimeout(getAllCachedSummaries(), 6000);
   if (nls) for (const s of nls) items.push({ id: `nl-${s.id}`, title: s.subject, source: `✉ ${s.source}`, category: "newsletter", pubDate: s.date, summary: s.bullets.join(" · "), link: "" });
-
   // Captured analysis articles (reader-capture, e.g. WSJ via DoD MWR). A bigger
   // body slice so escalation phrasing deeper in the piece still scores.
-  const arts = await withTimeout(getCapturedArticles(200), 6000);
   if (arts) for (const a of arts) items.push({ ...articleToNewsItem(a, 2000), source: `📄 ${a.source}` });
-
-  const prefs = await withTimeout(getUserPrefs(), 6000);
   const feeds = (prefs?.osintFeeds ?? []).slice(0, 12);
+  let feedsAnswered = false;
   if (feeds.length) {
     const results = await Promise.all(feeds.map((f) => withTimeout(fetchFeed(f.url, f.label, f.kind), 8000)));
-    for (const r of results) if (r?.items) for (const it of r.items) items.push(it);
+    for (const r of results) if (r?.items) { feedsAnswered = true; for (const it of r.items) items.push(it); }
   }
+  const answered = [xs, nls, arts].filter((x) => x !== null).length + (feedsAnswered ? 1 : 0);
+  return { all: items, answered, asked: 3 + (feeds.length ? 1 : 0) };
+}
 
-  const relevant = items.filter((n) => aorRelevant(geo, n));
+export async function getOwnSourcePool(): Promise<OwnSourcePool> {
+  if (poolCache && Date.now() - poolCache.at < POOL_TTL) return poolCache.pool;
+  if (poolInflight) return poolInflight;
+  poolInflight = gatherOwnPool().then((pool) => { poolCache = { at: Date.now(), pool }; return pool; }).finally(() => { poolInflight = null; });
+  return poolInflight;
+}
+
+export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Promise<{ items: NewsItem[]; sources: Set<string>; /** The whole pool before the mention gate — the lift-chatter grammar places a post by its own destination, not by the AOI's terms. */ all: NewsItem[]; /** Own-source doors that answered; 0 = unobserved. */ answered: number }> {
+  const sources = new Set<string>();
+  const pool = await getOwnSourcePool();
+  const relevant = pool.all.filter((n) => aorRelevant(geo, n));
   for (const n of relevant) {
     if (n.source.startsWith("𝕏")) sources.add("X");
     else if (n.source.startsWith("✉")) sources.add("newsletters");
     else if (n.source.startsWith("📄")) sources.add("analysis");
     else sources.add("OSINT feeds");
   }
-  return { items: relevant, sources, all: items };
+  return { items: relevant, sources, all: pool.all, answered: pool.answered };
 }
 
 const nowIso = () => new Date().toISOString();
@@ -134,7 +163,21 @@ export interface GatherResult {
 // ── Keyless community mil ADS-B (same source as the Crisis-map layer) ─────────
 interface MilAc { type: string; lat: number; lon: number }
 const MIL_SOURCES = ["https://api.airplanes.live/v2/mil", "https://api.adsb.lol/v2/mil"];
+// The global /v2/mil picture is the same for every board: one fetch a minute
+// shared across boards (code review 2026-10-28 — it was fetched per board
+// per pass, hundreds of KB each). A failed fetch is not cached.
+const MIL_TTL = 60_000;
+let milCache: { at: number; list: MilAc[] } | null = null;
+let milInflight: Promise<MilAc[] | null> | null = null;
+
 async function fetchMilAircraft(): Promise<MilAc[] | null> {
+  if (milCache && Date.now() - milCache.at < MIL_TTL) return milCache.list;
+  if (milInflight) return milInflight;
+  milInflight = fetchMilAircraftOnce().then((l) => { if (l) milCache = { at: Date.now(), list: l }; return l; }).finally(() => { milInflight = null; });
+  return milInflight;
+}
+
+async function fetchMilAircraftOnce(): Promise<MilAc[] | null> {
   for (const url of MIL_SOURCES) {
     try {
       const r = await fetch(url, { headers: { "User-Agent": "DEAD-Dashboard/1.0" }, cache: "no-store", signal: AbortSignal.timeout(9000) });

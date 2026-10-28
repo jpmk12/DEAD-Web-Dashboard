@@ -34,6 +34,9 @@ export interface ThemesBody {
 const TTL = 5 * 60 * 1000;
 let cache: { at: number; body: ThemesBody } | null = null;
 let inflight: Promise<ThemesBody> | null = null;
+// Bumped on a write (see lib/lineReadAssemble): an older in-flight read must
+// not be cached over a theme just saved.
+let gen = 0;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return new Promise((resolve) => {
@@ -45,12 +48,16 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 export async function getThemeReadsFull(): Promise<ThemesBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
   if (inflight) return inflight;
-  inflight = assemble().then((body) => { cache = { at: Date.now(), body }; return body; }).finally(() => { inflight = null; });
-  return inflight;
+  const mine = gen;
+  const p: Promise<ThemesBody> = assemble()
+    .then((body) => { if (mine === gen) cache = { at: Date.now(), body }; return body; })
+    .finally(() => { if (inflight === p) inflight = null; });
+  inflight = p;
+  return p;
 }
 
 export async function getThemeReads(opts: { maxWaitMs?: number; force?: boolean } = {}): Promise<ThemesBody> {
-  if (opts.force) cache = null;
+  if (opts.force) { cache = null; inflight = null; gen++; }
   if (cache && Date.now() - cache.at < TTL) return cache.body;
   const settled = await withTimeout(getThemeReadsFull(), opts.maxWaitMs ?? 8_000);
   if (settled) return settled;
@@ -58,7 +65,7 @@ export async function getThemeReads(opts: { maxWaitMs?: number; force?: boolean 
   return { generatedAt: new Date().toISOString(), themes: null, reads: [], pool: { own: 0, ownAnswered: false, wires: 0, wireFeeds: 0, wireFeedsTotal: 0 }, pending: true, note: "reading your sources — ask again shortly" };
 }
 
-export function resetThemesCache(): void { cache = null; }
+export function resetThemesCache(): void { cache = null; inflight = null; gen++; }
 
 async function assemble(): Promise<ThemesBody> {
   const now = Date.now();
@@ -78,7 +85,11 @@ async function assemble(): Promise<ThemesBody> {
   ]);
   // The whole pool, not the mention-gated slice — a theme's phrases ARE its gate.
   const own: NewsItem[] = ownRes?.all ?? [];
-  const ownAnswered = ownRes !== null;
+  // Answered only when at least one own-source door did (code review
+  // 2026-10-28: the gatherer never returns null — every door swallows its
+  // own failure — so a fully dead pool read as "quiet" and wrote 0s into
+  // every theme's baseline).
+  const ownAnswered = ownRes !== null && ownRes.answered > 0;
   const wires: NewsItem[] = [];
   let wireFeeds = 0;
   for (const r of wireRes) { if (!r || !r.ok) continue; wireFeeds++; wires.push(...r.items); }

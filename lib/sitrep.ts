@@ -261,7 +261,7 @@ const TTL_MS = 10 * 60 * 1000;
 const cache = new Map<string, { payload: SitrepPayload; expires: number }>();
 
 /** Lift at a hub against its own normal — null when the field has no series. */
-export function liftRead(series: SeriesPoint[], today: string): LiftRead | null {
+export function liftRead(series: SeriesPoint[], today: string, tankers: SeriesPoint[] = []): LiftRead | null {
   if (!series.length) return null;
   const b = bestBaseline(series, today, 30);
   const hw = highWater(series, today, 30);
@@ -273,11 +273,19 @@ export function liftRead(series: SeriesPoint[], today: string): LiftRead | null 
     const pct = Math.round((todayV / Math.max(b.mean, 0.5) - 1) * 100);
     label = `${todayV} mobility aircraft within 600 km today vs ${b.kind === "weekday" ? "same-weekday" : "30-day"} normal ~${b.mean.toFixed(0)} (${pct >= 0 ? "+" : ""}${pct}%)${hw.isHigh ? " — 30-day high" : ""}`;
   }
+  // Tankers beside the airlift (the `tanker:` series was written and never
+  // read — code review 2026-10-28). Their own normal once one exists.
+  const tToday = tankers.find((p) => p.day === today)?.value ?? null;
+  if (tToday != null) {
+    const tb = bestBaseline(tankers, today, 30);
+    label += ` · tankers ${tToday}${tb.mean != null ? ` vs ~${tb.mean.toFixed(0)}` : ""}`;
+  }
   return { today: todayV, normal: b.mean, kind: b.kind, samples: b.samples, high: hw.isHigh, label };
 }
 
 export function resetSitrepCache(): void {
   cache.clear();
+  sitrepInflight.clear();
 }
 
 const AWC = "https://aviationweather.gov/api/data";
@@ -336,12 +344,25 @@ async function fetchOutlook(lat: number, lon: number): Promise<SitrepOutlookDay[
   }
 }
 
+// One assembly per base at a time — summary, commands, the brief, line reads,
+// Ask and the heartbeat ask for the same base together (code review
+// 2026-10-28: each ran its own ~20-call fan-out).
+const sitrepInflight = new Map<string, Promise<SitrepPayload>>();
+
 export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   // Key includes the ARTCC so setting/changing the center via the inline
   // editor takes effect immediately instead of waiting out the TTL.
   const cacheKey = `${base.icao}|${base.artcc ?? ""}`;
   const hit = cache.get(cacheKey);
   if (hit && hit.expires > Date.now()) return hit.payload;
+  const running = sitrepInflight.get(cacheKey);
+  if (running) return running;
+  const p = assembleSitrepOnce(base, cacheKey).finally(() => { if (sitrepInflight.get(cacheKey) === p) sitrepInflight.delete(cacheKey); });
+  sitrepInflight.set(cacheKey, p);
+  return p;
+}
+
+async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<SitrepPayload> {
 
   const icao = base.icao.toUpperCase();
   const now = Date.now();
@@ -548,13 +569,13 @@ export async function assembleSitrep(base: SitrepBase): Promise<SitrepPayload> {
   recordSensorDay(tafKey, today, catOrdinal(tafWorst?.worst)).catch(() => {});
   try {
     const limfacKeys = payload.mission.functions.map((f) => sensorKey("limfac", icao, f.key));
-    const [fcSeries, tafSeries, liftSeries, notamSeries, rwySeries, xwSeries, limfacSeries, allManual] = await Promise.all([
-      getSensorSeries(fcKey, 90), getSensorSeries(tafKey, 90), getSensorSeries(sensorKey("mob", icao), 90),
+    const [fcSeries, tafSeries, liftSeries, tankerSeries, notamSeries, rwySeries, xwSeries, limfacSeries, allManual] = await Promise.all([
+      getSensorSeries(fcKey, 90), getSensorSeries(tafKey, 90), getSensorSeries(sensorKey("mob", icao), 90), getSensorSeries(sensorKey("tanker", icao), 90),
       getSensorSeries(sensorKey("notam", icao), 60), getSensorSeries(sensorKey("rwyclose", icao), 60), getSensorSeries(sensorKey("xwind", icao), 60),
       getSensorSeriesMany(limfacKeys, 30), listLimfacs(icao, true).catch(() => [] as ManualLimfac[]),
     ]);
     payload.weather.tafSkill = tafVerification(fcSeries, tafSeries);
-    payload.ops.lift = liftRead(liftSeries, today);
+    payload.ops.lift = liftRead(liftSeries, today, tankerSeries);
     payload.tempo = baseTempo({ fc: fcSeries, notam: notamSeries, rwyclose: rwySeries, xwind: xwSeries }, today);
     const chronicity: Record<string, { state: string; label: string | null }> = {};
     for (const f of payload.mission.functions) {

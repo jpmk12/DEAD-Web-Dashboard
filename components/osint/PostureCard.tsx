@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { clientCache } from "@/lib/clientCache";
 import { LED_HEX } from "@/lib/levelTokens";
-import { ASSET_CLASS_LABEL } from "@/lib/counterspace";
+import { ASSET_CLASS_LABEL, FLEET_AS_OF } from "@/lib/counterspace";
 import { relTime } from "@/lib/relTime";
 import { AssetsOfInterestInline } from "@/components/preferences/SpectrumInline";
 
@@ -200,7 +200,7 @@ export default function PostureCard({ country, compact = false }: { country: str
             <div className="mt-1"><AssetsOfInterestInline /></div>
           </details>
         )}
-        <p className="text-[9px] text-slate-600">Posture is the standing programme; warning is the change — a manoeuvre, a plane match with a declared asset, a closing range, a corroborated report. Intent is never inferred here. Space-Track element sets · SGP4 · GDELT + own sources · USSF statements. UNKNOWN ≠ clear.</p>
+        <p className="text-[9px] text-slate-600">Posture is the standing programme; warning is the change — a manoeuvre, a plane match with a declared asset, a closing range, a corroborated report. Intent is never inferred here. Fleet catalogue as of {FLEET_AS_OF} (open reporting; refreshed quarterly). Space-Track element sets · SGP4 · GDELT + own sources · USSF statements. UNKNOWN ≠ clear.</p>
       </div>
     </section>
   );

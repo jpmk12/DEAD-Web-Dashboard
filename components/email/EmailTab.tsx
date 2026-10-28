@@ -49,9 +49,11 @@ const GROUP_STYLE: Record<EmailPriority, { label: string; chip: string; chipOn: 
 interface EmailTabProps {
   previousSeen?: number;
   onPriorityCount?: (n: number) => void;
+  /** The Email tab is the one being shown. */
+  active?: boolean;
 }
 
-export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTabProps) {
+export default function EmailTab({ previousSeen = 0, onPriorityCount, active = true }: EmailTabProps) {
   const { status, data: session } = useSession();
   const primaryEmail = session?.user?.email ?? undefined;
   const [emails, setEmails] = useState<EmailMessage[]>([]);
@@ -161,7 +163,12 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
   const emailIdsKey = useMemo(() => emails.map((e) => e.id).sort().join("|"), [emails]);
   const lastActionsKey = useRef<string>("");
   const lastExtractedIds = useRef<Set<string>>(new Set());
+  // Action items are a Sonnet extraction the Email tab shows and nothing else
+  // reads — run it only once the tab is open (code review 2026-10-28: it ran
+  // at app load behind a hidden tab). The triage itself still loads at mount
+  // because Glance reads it.
   useEffect(() => {
+    if (!active) return;
     if (emails.length === 0) return;
     if (emailIdsKey === lastActionsKey.current) return;
     const ids = new Set(emails.map((e) => e.id));
@@ -180,7 +187,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount }: EmailTab
       .catch(() => {})
       .finally(() => setActionsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emailIdsKey]);
+  }, [emailIdsKey, active]);
 
   const persistActionsDone = (next: Set<string>) => patchUiState({ [UI_KEYS.emailActionsDone]: [...next].slice(-300) });
   const toggleActionDone = (key: string) => {

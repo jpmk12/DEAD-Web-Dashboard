@@ -94,9 +94,6 @@ export function functionLabel(key: string): string { return FN_LABEL[key] ?? key
 const CAP_RANK: Record<Capability, number> = { fmc: 0, unknown: 1, pmc: 2, nmc: 3 };
 const worse = (a: Capability, b: Capability): Capability => (CAP_RANK[a] >= CAP_RANK[b] ? a : b);
 
-export const CAP_LABEL: Record<Capability, string> = {
-  fmc: "FMC", pmc: "PMC", nmc: "NMC", unknown: "UNKNOWN",
-};
 export const CAP_LONG: Record<Capability, string> = {
   fmc: "Fully Mission Capable",
   pmc: "Partially Mission Capable",

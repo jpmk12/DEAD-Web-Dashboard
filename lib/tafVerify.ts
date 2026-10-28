@@ -16,16 +16,11 @@ import type { SeriesPoint } from "./series";
 import { verdict } from "./series";
 
 export const CAT_ORDINAL: Record<FlightCategory, number> = { VFR: 0, MVFR: 1, IFR: 2, LIFR: 3, UNKNOWN: -1 };
-const CAT_BY_ORDINAL: FlightCategory[] = ["VFR", "MVFR", "IFR", "LIFR"];
 
 export function catOrdinal(cat: FlightCategory | string | null | undefined): number | null {
   if (!cat) return null;
   const o = CAT_ORDINAL[cat as FlightCategory];
   return o == null || o < 0 ? null : o;
-}
-
-export function catFromOrdinal(o: number): FlightCategory | null {
-  return CAT_BY_ORDINAL[Math.round(o)] ?? null;
 }
 
 export const TAF_MIN_PAIRED = 10;

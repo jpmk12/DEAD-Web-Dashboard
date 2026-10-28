@@ -7,7 +7,7 @@ import { CAT_RANK } from "@/lib/aviationWx";
 import { COCOM_LABEL, type Aor } from "@/lib/aor";
 import { openTrackPicker } from "@/lib/trackClient";
 import { ExternalLinkIcon } from "@/lib/icons";
-import { LED_CLASS, FLIGHT_CAT_HEX } from "@/lib/levelTokens";
+import { LED_CLASS, FLIGHT_CAT_HEX, worstLedOf } from "@/lib/levelTokens";
 import { relTime } from "@/lib/relTime";
 import { lunarNight, lunarTonightLine, hhmmZ, zoneForLongitude, MOON_USEFUL_ALT_DEG, type LunarNight } from "@/lib/moon";
 import { ymdInZone } from "@/lib/effectiveZone";
@@ -40,7 +40,6 @@ const obsAge = (iso: string) => relTime(iso);
 
 type Led = "r" | "a" | "g" | "u";
 const LED_DOT: Record<Led, string> = LED_CLASS;
-const worstLed = (a: Led, b: Led): Led => (["r", "a", "g", "u"] as Led[]).find((l) => a === l || b === l) ?? "u";
 
 interface Read {
   a: RegAirfield; wx: StationWx | undefined; cat: FlightCategory; segs: TafSegment[];
@@ -187,7 +186,7 @@ export default function AirfieldsByCommand({ airfields, stations, awcDown, loadi
     for (const r of reads) { const k = r.a.aor; if (!by.has(k)) by.set(k, []); by.get(k)!.push(r); }
     return AOR_ORDER.filter((aor) => by.has(aor)).map((aor) => {
       const rows = by.get(aor)!.sort((x, y) => ownRank(x.a) - ownRank(y.a) || x.a.label.localeCompare(y.a.label));
-      const led = rows.reduce<Led>((acc, r) => worstLed(acc, r.led), "u");
+      const led = worstLedOf(rows.map((r) => r.led));
       const worst = rows.slice().sort((x, y) => ["r", "a", "u", "g"].indexOf(x.led) - ["r", "a", "u", "g"].indexOf(y.led))[0];
       return { aor, rows, led, worst };
     });

@@ -37,7 +37,7 @@ export default function FunctionalCommands({ rows, open, onOpen, onDoor }: {
               <span className="flex items-center gap-2 min-w-0">
                 <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${LED_CLASS[r.worst]}`} title={LED_WORD[r.worst]} />
                 <span className="font-mono font-bold text-slate-100 text-[12px]">{r.label}</span>
-                <span className="text-slate-600 text-[10px]">{isOpen ? "▾" : "▸"}</span>
+                <span className="text-slate-600 text-[10px]">{isOpen ? "▴" : "▾"}</span>
               </span>
               <span className="min-w-0">
                 <span className="flex flex-wrap gap-1.5 items-center">

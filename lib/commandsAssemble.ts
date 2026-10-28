@@ -28,6 +28,7 @@ import { getConvergence } from "./convergenceAssemble";
 import { listDueDecisions } from "./decisionStore";
 import { listCrewRows } from "./crewStore";
 import { deriveAvailability, postureAgainstDemand } from "./crewState";
+import { getDeclaredLinesBounded } from "./lineReadAssemble";
 import { getAllLastSeen } from "./surfaceState";
 import { buildOeSeries } from "./oeDeltaAssemble";
 import { computeDelta } from "./oeDelta";
@@ -147,8 +148,10 @@ async function gatherShared(): Promise<Shared> {
   // Boards — the declared command from ProblemGeo.aor.
   const boardsP = settle(activeWarningProblems().then(async (ps): Promise<CbBoard[]> => {
     const out: CbBoard[] = [];
-    for (const p of ps) {
-      const a = await assessWarning(p.def.id).catch(() => null);
+    // All boards at once, in declaration order (code review 2026-10-28).
+    const as = await Promise.all(ps.map((p) => assessWarning(p.def.id).catch(() => null)));
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i], a = as[i];
       if (!a) continue;
       out.push({ problemId: a.problemId, label: a.label, aor: p.geo.aor, level: a.level, anomaly: a.anomaly, trajectory: a.trajectory, learning: a.learning, drivers: (a.drivers ?? []).map((d) => d.description) });
     }
@@ -204,6 +207,9 @@ async function gatherShared(): Promise<Shared> {
     else if (a.id.startsWith("neo-")) { const c = a.id.slice(4).replace(/-ordered$/, ""); aor = classifyAor({ name: c }); }
     else if (a.id.startsWith("iw-")) aor = boards?.find((b) => a.id.startsWith(`iw-${b.problemId}-`))?.aor ?? null;
     else if (a.id.startsWith("outage-")) aor = classifyAor({ name: a.id.slice(7).replace(/^cf-/, "") });
+    // Routing and traffic alerts name their country too (code review 2026-10-28).
+    else if (a.id.startsWith("bgp-")) aor = classifyAor({ name: a.id.slice(4) });
+    else if (a.id.startsWith("traffic-cf-")) aor = classifyAor({ name: a.id.slice(11) });
     return { id: a.id, severity: a.severity, kind: a.kind, title: a.title, sub: a.sub, aor: aor === "UNKNOWN" ? null : aor };
   })));
 
@@ -211,9 +217,9 @@ async function gatherShared(): Promise<Shared> {
   const crewMismatchAors: Aor[] = [];
   let crew: FcCrew | null = null;
   try {
-    const rows = await listCrewRows();
+    const [rows, declared] = await Promise.all([listCrewRows(), getDeclaredLinesBounded(3_000)]);
     const summary = deriveAvailability(rows);
-    const p = postureAgainstDemand(summary, (demand ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })), AOR_LABELS as Record<string, string>);
+    const p = postureAgainstDemand(summary, (demand ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })), AOR_LABELS as Record<string, string>, declared);
     for (const l of p.lines) if (l.mismatch && isAor(l.aor)) crewMismatchAors.push(l.aor);
     crew = { declared: rows.length > 0, line: summary.line, stale: summary.stale, staleHours: summary.staleHours, lines: p.lines.map((l) => ({ aor: l.aor, direction: l.direction, posture: l.posture, mismatch: l.mismatch, line: l.line })) };
   } catch { /* no crew state → no mismatch claim */ }
@@ -331,7 +337,7 @@ function bodyFrom(shared: Shared, sinceMs: number, delta: CbDelta[] | null, pend
   const placed = placeDeltas(delta, shared);
   const input: CommandInput = { ...shared.input, nowMs: Date.now(), sinceMs, delta: placed };
   const board = commandBoard(input);
-  const pr = primer({ ...input, convergence: shared.convergence, decisionsDue: shared.decisionsDue, sourcesDown: shared.sourcesDown });
+  const pr = primer({ ...input, convergence: shared.convergence, decisionsDue: shared.decisionsDue, sourcesDown: shared.sourcesDown, functional: shared.functional });
   return { generatedAt: new Date(shared.at).toISOString(), sinceMs, board, primer: pr, functional: shared.functional, mustTrack: shared.input.mustTrack, ownFields: shared.input.ownFields, ...(pending ? { pending: true } : {}) };
 }
 

@@ -42,13 +42,28 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
 const TTL_MS = 5 * 60 * 1000;
 let cache: { at: number; body: LineReadsBody } | null = null;
 let inflight: Promise<LineReadsBody> | null = null;
+// Bumped on every write: a read that STARTED before a save must not be cached
+// over it (code review 2026-10-28 — the new line vanished for five minutes).
+let gen = 0;
+/** The per-family wait the ASSEMBLY uses. Callers bound their own wait from
+ *  outside; a short caller (the demand card's 3 s) must not cut every SITREP
+ *  family short and then cache that degraded read for everyone. */
+const FAMILY_WAIT_MS = 8_000;
+/** A read with a dead family is kept a minute, not five. */
+const DEGRADED_TTL_MS = 60_000;
 
-export function resetLineReadsCache(): void { cache = null; }
+export function resetLineReadsCache(): void { cache = null; inflight = null; gen++; }
 
 export async function getLineReads(opts: { maxWaitMs?: number; force?: boolean } = {}): Promise<LineReadsBody> {
-  const wait = opts.maxWaitMs ?? 8_000;
-  if (!opts.force && cache && Date.now() - cache.at < TTL_MS) return cache.body;
-  if (!inflight) inflight = assemble(wait).then((b) => { cache = { at: Date.now(), body: b }; return b; }).finally(() => { inflight = null; });
+  if (opts.force) { cache = null; inflight = null; gen++; }
+  if (cache && Date.now() - cache.at < (cache.body.unavailable.length ? DEGRADED_TTL_MS : TTL_MS)) return cache.body;
+  if (!inflight) {
+    const mine = gen;
+    const p: Promise<LineReadsBody> = assemble(FAMILY_WAIT_MS)
+      .then((b) => { if (mine === gen) cache = { at: Date.now(), body: b }; return b; })
+      .finally(() => { if (inflight === p) inflight = null; });
+    inflight = p;
+  }
   return inflight;
 }
 
@@ -145,4 +160,16 @@ export async function getLinesByCommandBounded(maxWaitMs = 3_000): Promise<{ byC
   const body = await within(getLineReads({ maxWaitMs }), maxWaitMs + 500);
   if (!body || body.lines === null) return null;
   return { byCommand: body.byCommand, total: body.reads.length };
+}
+
+/** The declared lines in the shape crew posture takes (lib/crewState
+ *  `postureAgainstDemand`'s fourth argument), bounded. Null when nothing is
+ *  declared or the store did not answer — the posture rule then reads
+ *  exactly as without lines. One door for every caller (code review
+ *  2026-10-28: only the crew route passed it, so the primer and the
+ *  assistant never saw "7 lines against 6 available crews"). */
+export async function getDeclaredLinesBounded(maxWaitMs = 3_000): Promise<{ total: number; byAor: Record<string, number> } | null> {
+  const d = await getLinesByCommandBounded(maxWaitMs).catch(() => null);
+  if (!d || d.total <= 0) return null;
+  return { total: d.total, byAor: Object.fromEntries(Object.entries(d.byCommand).map(([k, v]) => [k, v.count])) };
 }

@@ -18,7 +18,6 @@ export const DOC_TYPES = [
 
 export type DocType = (typeof DOC_TYPES)[number]["key"];
 
-export const DEFAULT_DOC_TYPE: DocType = "note";
 
 export function isDocType(v: unknown): v is DocType {
   return typeof v === "string" && DOC_TYPES.some((t) => t.key === v);

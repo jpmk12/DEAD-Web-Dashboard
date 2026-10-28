@@ -241,7 +241,17 @@ function asMetarStations(v: unknown): MetarStation[] {
   }).slice(0, 12);
 }
 
+// Concurrent reads share ONE query (code review 2026-10-28: an assembly pass
+// read the shared row dozens of times at once). In-flight only — no TTL — so
+// a read that starts after a write always sees it; each caller gets its own
+// copy, so a caller that mutates its prefs cannot touch another's.
+let teamInflight: Promise<UserPrefs> | null = null;
 async function getTeamPrefs(): Promise<UserPrefs> {
+  if (!teamInflight) teamInflight = readTeamPrefs().finally(() => { teamInflight = null; });
+  return structuredClone(await teamInflight);
+}
+
+async function readTeamPrefs(): Promise<UserPrefs> {
   const pool = await getDb();
   const [rows] = await pool.query<PrefsRow[]>(
     "SELECT role, priority_topics, deprioritize_topics, watchlist, vip_senders, mute_senders, dismissed_vip_suggestions, dismissed_watch_suggestions, tracked_locations, force_locations, sitrep_bases, countries_of_interest, markets_watchlist, osint_feeds, newsletter_sources, metar_stations, disabled_news_sources, ai_enabled, ai_feature_toggles, local_feed_key, local_city, local_lat, local_lon, theme, timezone, timezone_mode, mission_profile, last_updated FROM user_prefs WHERE id = 1"

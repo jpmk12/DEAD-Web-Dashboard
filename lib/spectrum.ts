@@ -125,8 +125,9 @@ async function compute(): Promise<SpectrumSummary> {
   const boards: SpectrumSummary["boards"] = [];
   let pnt: SpectrumIndicatorRead | null = null, cyber: SpectrumIndicatorRead | null = null, space: SpectrumIndicatorRead | null = null, counterspace: SpectrumIndicatorRead | null = null;
   const actorBoards = new Map<SpaceActor, { problemId: string; label: string; read: SpectrumIndicatorRead | null }>();
-  for (const p of problems) {
-    const a = await withTimeout(assessWarning(p.def.id), 25_000);
+  const assessed = await Promise.all(problems.map((p) => withTimeout(assessWarning(p.def.id), 25_000)));
+  for (let i = 0; i < problems.length; i++) {
+    const p = problems[i], a = assessed[i];
     if (!a) continue;
     const pp = pick(a, PNT_ID), cc = pick(a, CYBER_ID), ss = pick(a, SPACE_ID), cs = pick(a, COUNTERSPACE_ID);
     boards.push({ problemId: a.problemId, label: a.label, level: a.level, pnt: pp?.state ?? null, cyber: cc?.state ?? null, space: ss?.state ?? null, counterspace: cs?.state ?? null });

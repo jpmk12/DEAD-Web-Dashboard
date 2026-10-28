@@ -70,11 +70,18 @@ export function parseFieldsText(text: string): string[] {
 
 /** The validator's sentence, or null when the draft is a line. Every rule
  *  states its refusal in words the editor shows as-is. */
-export function validateLineDraft(input: Record<string, unknown>): string | null {
+export function validateLineDraft(input: Record<string, unknown>, opts: { nowMs?: number } = {}): string | null {
   for (const k of Object.keys(input)) {
     if (!(LINE_KEYS as readonly string[]).includes(k)) return `A line holds no “${k}” — a day, an airframe, the fields and a status, nothing finer.`;
   }
   if (!isValidDay(input.day)) return "Day must be a calendar date (YYYY-MM-DD, Zulu).";
+  // With a clock, a day outside the horizon is refused by name — it would
+  // save and then never appear (code review 2026-10-28).
+  if (opts.nowMs != null) {
+    const today = todayZulu(opts.nowMs), last = addDaysYmd(today, LINE_HORIZON_DAYS - 1);
+    if (String(input.day) < today) return `That day has passed — lines are for today through ${last} (Zulu).`;
+    if (String(input.day) > last) return `Lines reach ${LINE_HORIZON_DAYS} days ahead — today through ${last} (Zulu).`;
+  }
   if (typeof input.airframe !== "string" || !(LINE_AIRFRAMES as readonly string[]).includes(input.airframe)) return `Airframe must be one of ${LINE_AIRFRAMES.join(", ")}.`;
   if (typeof input.status !== "string" || !(LINE_STATUSES as readonly string[]).includes(input.status)) return "Status must be planned or execution.";
   const raw = Array.isArray(input.fields) ? input.fields : typeof input.fields === "string" ? parseFieldsText(input.fields) : null;

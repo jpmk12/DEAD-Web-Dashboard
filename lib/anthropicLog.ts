@@ -1,19 +1,7 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
-import { AiUsageRow, AiUsageSummary, AiUsageDay } from "./types";
+import { AiUsageSummary, AiUsageDay } from "./types";
 import { costMicrosFor } from "./aiFeatures";
-
-interface UsageRow extends RowDataPacket {
-  id: number;
-  route: string;
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_tokens: number;
-  cache_read_tokens: number;
-  cost_micros: string | number; // BIGINT can come back as string from mysql2
-  created_at: string | number;
-}
 
 // Anthropic usage shape — what response.usage looks like from the SDK.
 // Cache fields are optional and only present on cached calls.
@@ -245,22 +233,3 @@ export async function pruneOldUsage(): Promise<void> {
   }
 }
 
-// Detailed row dump for diagnostics (rarely used by UI).
-export async function recentUsageRows(n: number = 50): Promise<AiUsageRow[]> {
-  const pool = await getDb();
-  const [rows] = await pool.query<UsageRow[]>(
-    "SELECT id, route, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_micros, created_at FROM anthropic_usage ORDER BY created_at DESC LIMIT ?",
-    [n]
-  );
-  return rows.map((r) => ({
-    id: Number(r.id),
-    route: r.route,
-    model: r.model,
-    inputTokens: r.input_tokens,
-    outputTokens: r.output_tokens,
-    cacheCreationTokens: r.cache_creation_tokens,
-    cacheReadTokens: r.cache_read_tokens,
-    costMicros: Number(r.cost_micros),
-    createdAt: Number(r.created_at),
-  }));
-}

@@ -379,3 +379,14 @@ describe("fitUkmtoRow — a parsed row always fits the table", () => {
     expect(row.time).toBeNull();
   });
 });
+
+describe("review 2026-10-28 — sign and zone-less stamps", () => {
+  it("a negative decimal latitude keeps its sign", () => {
+    expect(parseUkmtoPosition("-2.05 45.35")).toEqual({ lat: -2.05, lon: 45.35 });
+  });
+  it("a zone-less SCCD stamp is UTC whatever the host's zone", () => {
+    const inc = apiRecordToIncident({ incidentNumber: 9, utcDateOfIncident: "2026-10-27T23:30:00", incidentTypeName: "Attack", otherDetails: "Vessel attacked in the Gulf of Aden." });
+    expect(inc?.date).toBe("2026-10-27");
+    expect(inc?.time).toBe("2330 UTC");
+  });
+});

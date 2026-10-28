@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { fetchWithTimeout } from "@/lib/fetchTimeout";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getCurrentConditions, type HourlyForecast, type DailyOutlook } from "@/lib/currentConditions";
 import { fetchLocationHazards } from "@/lib/severeWeather";
 import { getFlightCategories } from "@/lib/aviationWx";
-import { decodeTaf } from "@/lib/metar";
 import { getNotams } from "@/lib/notams";
+import { getTafReports } from "@/lib/aviationWx";
 import { closureWindows, fieldClosureState, type ClosureWindow } from "@/lib/sitrepSignals";
 import { getForceProtectionCached } from "@/lib/forceProtectionCached";
 import { getCountryHolidaysLive } from "@/lib/holidays";
@@ -31,8 +30,6 @@ export const dynamic = "force-dynamic";
 // reading itself is lib/hHour (PURE). Cached 10 min per place + H (to the
 // 10-minute step).
 
-const AWC = "https://aviationweather.gov/api/data";
-const UA = { "User-Agent": "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)", Accept: "application/json" };
 const HAZARD_WINDOW_H = 30;
 const FORECAST_DAYS = 7;
 const TTL_MS = 10 * 60 * 1000;
@@ -77,13 +74,12 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
+// Through the shared per-ICAO TAF cache (lib/aviationWx) — the SITREP, the
+// line reads and force protection fill it too (code review 2026-10-28).
 async function fetchTaf(icao: string): Promise<{ live: boolean; taf: TafReport | null }> {
-  try {
-    const res = await fetchWithTimeout(`${AWC}/taf?ids=${icao}&format=json`, { headers: UA, cache: "no-store" }, 10_000);
-    if (!res.ok) return { live: false, taf: null };
-    const rows = await res.json();
-    return { live: true, taf: Array.isArray(rows) && rows.length ? decodeTaf(rows[0] as Parameters<typeof decodeTaf>[0]) : null };
-  } catch { return { live: false, taf: null }; }
+  const r = await getTafReports([icao]);
+  const id = icao.toUpperCase();
+  return { live: r.live || id in r.byIcao, taf: r.byIcao[id] ?? null };
 }
 
 const num = (v: string | null): number | null => { const n = Number(v); return v != null && v !== "" && Number.isFinite(n) ? n : null; };
@@ -184,8 +180,8 @@ export async function GET(request: Request) {
     }
   } catch { posture = null; }
 
-  const hYmd = new Date(hMs).toISOString().slice(0, 10);
-  const hols = (holidays?.holidays ?? []).map((h) => ({ date: h.date, label: h.label })).filter((h) => Math.abs(Date.parse(`${h.date}T00:00:00Z`) - Date.parse(`${hYmd}T00:00:00Z`)) <= 86_400_000);
+  // Holidays are local dates: compare against H's day IN THE PLACE'S ZONE.
+  const hols = (holidays?.holidays ?? []).map((h) => ({ date: h.date, label: h.label })).filter((h) => Math.abs(Date.parse(`${h.date}T00:00:00Z`) - Date.parse(`${hYmdLocal}T00:00:00Z`)) <= 86_400_000);
   // Known only when the country is mapped AND the calendar answered.
   const holidaysKnown = !!country && !!holidays?.live;
   const scaleDay = scales?.live ? scaleDayFor(scales, hMs, now) : null;

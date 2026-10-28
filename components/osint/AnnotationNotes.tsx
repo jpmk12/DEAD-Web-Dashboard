@@ -130,7 +130,7 @@ export function BoardNotes({ api, indicatorLabel }: { api: AnnotationsApi; indic
         {api.unavailable && (
           <span className="text-[8px] font-bold uppercase tracking-wider px-1 rounded border text-amber-300 border-amber-500/45 bg-amber-500/10" title="The notes store did not answer — there may be notes you cannot see">unavailable</span>
         )}
-        <span className="ml-auto text-[10px] text-slate-600">{open ? "▾" : "▸"}</span>
+        <span className="ml-auto text-[10px] text-slate-600">{open ? "▴" : "▾"}</span>
       </button>
       {open && (
         <div className="mt-2 space-y-2">

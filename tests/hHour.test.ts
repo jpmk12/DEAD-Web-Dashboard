@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lightAt, nearestLightEvent, nightDateFor, forecastHourAt, wmoWord, forecastLine, tafAt, windowsAt, scaleDayFor, summarize, type ConsiderationInput } from "../lib/hHour";
+import { localYmd, lightAt, nearestLightEvent, nightDateFor, forecastHourAt, wmoWord, forecastLine, tafAt, windowsAt, scaleDayFor, summarize, type ConsiderationInput } from "../lib/hHour";
 import { lunarNight } from "../lib/moon";
 import { parseHourlyForecast } from "../lib/currentConditions";
 import type { TafPeriod } from "../lib/types";
@@ -141,6 +141,19 @@ describe("summarize — ranked, and a dead source reads UNKNOWN", () => {
     const s2 = summarize({ ...base, hMs: far, forecast: { live: true, hour: null, horizonDays: 7 }, airfield: null, scaleDay: null });
     expect(s2.find((c) => c.source === "Open-Meteo")?.text).toMatch(/beyond the 7-day forecast/);
     expect(s2.find((c) => c.source === "SWPC")?.text).toMatch(/beyond the 3-day/);
+  });
+  it("a quiet NOTAM read past a week reads UNKNOWN, never clear", () => {
+    const s = summarize({ ...base, hMs: now + 21 * 86_400_000 });
+    const d = s.find((c) => c.source === "DAIP");
+    expect(d?.tone).toBe("u");
+    expect(d?.text).toMatch(/not published yet/);
+  });
+  it("a holiday is matched on H's LOCAL day, not its UTC day", () => {
+    // 22:00Z on the 29th is the 30th in Amman (UTC+3).
+    const late = Date.UTC(2026, 9, 29, 22, 0);
+    const s = summarize({ ...base, hMs: late, holidays: [{ date: "2026-10-30", label: "Test Day" }] });
+    expect(s.find((c) => c.source === "Nager.Date")?.tone).toBe("a");
+    expect(localYmd(late, "Asia/Amman")).toBe("2026-10-30");
   });
   it("a holiday on H day is amber; a TAF that ends before H says so", () => {
     const s = summarize({ ...base, holidays: [{ date: "2026-10-30", label: "Independence Day" }], airfield: { ...base.airfield!, taf: null, tafValidToMs: H - 6 * 3_600_000 } });

@@ -23,6 +23,9 @@ import { getEnergyQuotes, backfillEnergyCloses } from "./energyPrices";
 import { getSpectrumSummary } from "./spectrum";
 import { listCrewRows, snapshotCrewDay } from "./crewStore";
 import { warmCounterspace } from "./counterspaceAssemble";
+import { pruneOldUsage } from "./anthropicLog";
+import { pruneOldTrips } from "./trips";
+import { pruneHouseholdBills } from "./householdStore";
 
 export const HEARTBEAT_INTERVAL_MS = 6 * 60 * 60_000;
 const STEP_TIMEOUT_MS = 60_000;
@@ -60,5 +63,14 @@ async function runPass(): Promise<void> {
     // sweep, so the rpo:/prox: series accrue on days nobody opens the board.
     bounded(warmCounterspace(), 90_000),
     ...((prefs?.sitrepBases ?? []).map((b) => bounded(assembleSitrep(b).then(sitrepSummary)))),
+  ]);
+  // Retention: each store states its window (usage 90 d, trips a year after
+  // they end, bills 500 d — longer than the silence watch's longest cadence).
+  // The prunes were written with the tables and never called, so every one
+  // grew without bound (code review 2026-10-28). Each is best-effort.
+  await Promise.all([
+    bounded(pruneOldUsage(), 20_000),
+    bounded(pruneOldTrips(), 20_000),
+    bounded(pruneHouseholdBills(), 20_000),
   ]);
 }

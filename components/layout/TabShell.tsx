@@ -46,6 +46,12 @@ const VALID_TABS: Tab[] = ["glance", "news", "calendar", "email", "family", "doc
 
 export default function TabShell() {
   const [activeTab, setActiveTab] = useState<Tab>("glance");
+  // Weather and Tools mount on FIRST activation and stay mounted after (code
+  // review 2026-10-28): hidden-mounted at load they fetched places, METARs,
+  // three forecasts per place, space weather, a multi-MB Windy embed and a
+  // stored H-hour's whole considerations read for a tab nobody had opened.
+  const [seenTabs, setSeenTabs] = useState<ReadonlySet<Tab>>(() => new Set<Tab>(["glance"]));
+  useEffect(() => { setSeenTabs((s) => (s.has(activeTab) ? s : new Set(s).add(activeTab))); }, [activeTab]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   // Whether the calendar has reported at least once (even with []). The morning
   // brief must wait for this before generating, or it races the calendar fetch
@@ -453,7 +459,7 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "email" ? "hidden" : ""}>
-          <EmailTab previousSeen={previousSeen.email} onPriorityCount={setEmailHigh} />
+          <EmailTab previousSeen={previousSeen.email} onPriorityCount={setEmailHigh} active={activeTab === "email"} />
         </div>
 
         <div className={activeTab !== "docs" ? "hidden" : ""}>
@@ -483,12 +489,13 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "weather" ? "hidden" : ""}>
-          <WeatherTab />
+          {seenTabs.has("weather") && <WeatherTab />}
         </div>
 
-        {/* Tools: pure client-side date-time arithmetic — no fetch, no model. */}
+        {/* Tools: date-time arithmetic in the browser; the place reads and the
+            H-hour considerations are its only requests (none in private mode). */}
         <div className={activeTab !== "tools" ? "hidden" : ""}>
-          <ToolsTab />
+          {seenTabs.has("tools") && <ToolsTab />}
         </div>
       </main>
 

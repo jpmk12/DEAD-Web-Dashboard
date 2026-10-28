@@ -295,7 +295,24 @@ export function placesIn(text: string, places: PlaceDef[] = PLACES): { dest: Pla
  *  else a country named (never the origin's). UNKNOWN is a real answer. */
 export function resolveChatterAor(text: string, dest: PlaceDef | null, origin: PlaceDef | null, actor = "United States"): Aor {
   if (dest) return dest.aor;
-  for (const [re, aor] of REGION_AOR) if (re.test(text)) return aor;
+  // A region phrase is read by its cue, like a place: one after "from / out
+  // of" is the ORIGIN and never places the post; one after a destination cue
+  // wins; else the first bare one (code review 2026-10-28: "from the Middle
+  // East to Europe" filed as CENTCOM).
+  let destRegion: { aor: Aor; i: number } | null = null, bareRegion: { aor: Aor; i: number } | null = null;
+  for (const [re, aor] of REGION_AOR) {
+    const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(text)) !== null) {
+      const before = text.slice(Math.max(0, m.index - 28), m.index);
+      if (ORIGIN_CUE.test(before)) { /* the other end */ }
+      else if (DEST_CUE.test(before)) { if (!destRegion || m.index < destRegion.i) destRegion = { aor, i: m.index }; }
+      else if (!bareRegion || m.index < bareRegion.i) bareRegion = { aor, i: m.index };
+      if (m[0].length === 0) g.lastIndex++;
+    }
+  }
+  if (destRegion) return destRegion.aor;
+  if (bareRegion) return bareRegion.aor;
   let stripped = text;
   if (origin) stripped = stripped.replace(origin.rx, " ");
   const own = ACTOR_NAMES[actor];

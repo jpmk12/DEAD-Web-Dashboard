@@ -564,7 +564,10 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
       } catch { /* ignore */ }
     };
     poll();
-    const id = setInterval(poll, 60_000);
+    // Every 5 min while visible: each OpenSky bbox costs 1–4 of the IP's 400
+    // daily anonymous credits, shared with the I&W mobility fallback — a
+    // 60-s poll spent the day's quota in ~3 h (code review 2026-10-28).
+    const id = setInterval(() => { if (document.visibilityState === "visible") poll(); }, 5 * 60_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [active, pane, homeLat, homeLon, watchTerms]);
 

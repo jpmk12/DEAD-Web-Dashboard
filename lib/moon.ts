@@ -209,6 +209,10 @@ export interface LunarNight {
   band: IllumBand;
   /** True when the sun never reaches −12° (no nautical darkness) or never rises. */
   polar: boolean;
+  /** Polar NIGHT: the sun stays below −12° all day — dark the whole window,
+   *  the opposite of polar day (code review 2026-10-28: both read "no
+   *  nautical darkness"). The budget is then computed over the whole window. */
+  polarNight?: boolean;
 }
 
 const hours = (ms: number) => Math.round(ms / 360_000) / 10;
@@ -250,9 +254,17 @@ export function lunarNight(lat: number, lon: number, zone: string, date: string,
 
   const phase = moonPhase(nextMidnight);
   const polar = eent == null || bmnt == null;
+  const polarNight = polar && eent == null && bmnt == null && sunAlt(noon) < H0_NAUTICAL && sunAlt(nextMidnight) < H0_NAUTICAL;
   let darkH: number | null = null, moonlitDarkH: number | null = null, usefulMoonH: number | null = null, moonFreeDarkH: number | null = null;
   let moonUp: Interval[] = [], moonHigh: Interval[] = [];
-  if (!polar && bmnt! > eent!) {
+  if (polarNight) {
+    moonUp = aboveIntervals(moonAlt, H0_MOON, noon, nextNoon, 5 * 60_000);
+    moonHigh = aboveIntervals((ms) => moonAltitudeTopo(ms, lat, lon), MOON_USEFUL_ALT_DEG, noon, nextNoon, 5 * 60_000);
+    darkH = hours(nextNoon - noon);
+    moonlitDarkH = sumH(moonUp);
+    usefulMoonH = sumH(moonHigh);
+    moonFreeDarkH = Math.max(0, Math.round((darkH - moonlitDarkH) * 10) / 10);
+  } else if (!polar && bmnt! > eent!) {
     moonUp = aboveIntervals(moonAlt, H0_MOON, eent!, bmnt!, 5 * 60_000);
     moonHigh = aboveIntervals((ms) => moonAltitudeTopo(ms, lat, lon), MOON_USEFUL_ALT_DEG, eent!, bmnt!, 5 * 60_000);
     darkH = hours(bmnt! - eent!);
@@ -270,7 +282,7 @@ export function lunarNight(lat: number, lon: number, zone: string, date: string,
     date, zone, sunset, eent, bmnt, sunrise, moonrise, moonset,
     illumPct: phase.illumPct, waxing: phase.waxing, phaseName: phase.phaseName,
     darkH, moonlitDarkH, usefulMoonH, moonFreeDarkH, moonUp, moonHigh, daylightH,
-    band: illumBand(phase.illumPct, thresholds), polar,
+    band: illumBand(phase.illumPct, thresholds), polar, polarNight,
   };
 }
 
@@ -323,6 +335,7 @@ export const hhmmZ = (ms: number | null): string => (ms == null ? "—" : `${hhm
  *  instant — the night's own zone by default, Zulu on an airfield card. */
 export function lunarTonightLine(n: LunarNight, fmt: (ms: number | null) => string = (ms) => hhmmIn(ms, n.zone)): string {
   const pct = `${n.illumPct}% ${n.phaseName}`;
+  if (n.polarNight) return `${pct} · dark all day (polar night) · moon up ${n.moonlitDarkH} h · ${n.moonFreeDarkH} h moon-free`;
   if (n.polar) return `${pct} · no nautical darkness tonight (polar)`;
   const dark = `${n.darkH} h dark ${fmt(n.eent)}–${fmt(n.bmnt)}`;
   if (n.moonUp.length === 0) return `${pct} · ${dark} · moon down all night`;

@@ -275,6 +275,23 @@ function extractNotamTexts(raw: string): string[] {
   return raw.split(/\n{2,}|(?=\b[A-Z]\d{4}\/\d{2}\b)/).map((s) => s.trim()).filter((s) => s.length > 10);
 }
 
+// The raw DAIP answer per ICAO, kept 10 min (code review 2026-10-28): force
+// protection, every SITREP, every board's hubs and the H-hour planner ask for
+// the same fields on overlapping cycles, and each was a fresh DAIP POST. The
+// RAW text is cached, so active/upcoming/expired is re-judged on every read.
+// Only a successful read is kept; a failure retries next call.
+const NOTAM_RAW_TTL = 10 * 60_000;
+const notamRaw = new Map<string, { at: number; raw: string }>();
+
+async function daipRawCached(icao: string, ca: string): Promise<string> {
+  const hit = notamRaw.get(icao);
+  if (hit && Date.now() - hit.at < NOTAM_RAW_TTL) return hit.raw;
+  const raw = await daipPost(daipPayload(icao), ca);
+  notamRaw.set(icao, { at: Date.now(), raw });
+  if (notamRaw.size > 300) { const oldest = [...notamRaw.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) notamRaw.delete(oldest[0]); }
+  return raw;
+}
+
 // NOTAMs by ICAO. `live:false` whenever the CA isn't configured or the call
 // fails — the caller MUST treat that as UNKNOWN, not "no NOTAMs / clear".
 export async function getNotams(icaosRaw: string[]): Promise<{ configured: boolean; live: boolean; byIcao: Record<string, Notam[]> }> {
@@ -291,7 +308,7 @@ export async function getNotams(icaosRaw: string[]): Promise<{ configured: boole
   let anyOk = false;
   await Promise.all(icaos.map(async (icao) => {
     try {
-      const raw = await daipPost(daipPayload(icao), ca);
+      const raw = await daipRawCached(icao, ca);
       const parsed = parseDaipNotams(icao, raw) ?? extractNotamTexts(raw).map((t) => buildNotam(icao, t));
       // Drop expired NOTAMs; order by significance (rank), then active-before-
       // upcoming, then soonest start — so a live closure outranks a next-week one.

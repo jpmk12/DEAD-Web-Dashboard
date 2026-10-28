@@ -45,7 +45,3 @@ export const toast = {
     notify({ tone: "error", text, detail: err instanceof Error ? err.message : typeof err === "string" ? err : undefined }),
 };
 
-/** Hook form, for components that prefer it. Stable identity — no deps. */
-export function useFeedback() {
-  return toast;
-}

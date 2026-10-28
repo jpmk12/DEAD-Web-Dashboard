@@ -81,6 +81,11 @@ describe("zones and the DTG", () => {
     expect(wallToMs("2026-10-27", "1930", "UTC")).toBe(Date.UTC(2026, 9, 27, 19, 30));
     // 1 Nov 2026 01:30 happens twice in New York; the first (EDT) instant is 05:30Z.
     expect(wallToMs("2026-11-01", "01:30", "America/New_York")).toBe(Date.UTC(2026, 10, 1, 5, 30));
+    // London's doubled hour → the first (BST) instant; New York's spring gap → after it.
+    expect(wallToMs("2026-10-25", "01:30", "Europe/London")).toBe(Date.UTC(2026, 9, 25, 0, 30));
+    expect(wallToMs("2026-03-08", "02:30", "America/New_York")).toBe(Date.UTC(2026, 2, 8, 7, 30));
+    expect(wallToMs("2026-03-08", "03:30", "America/New_York")).toBe(Date.UTC(2026, 2, 8, 7, 30));
+    expect(wallToMs("2026-03-08", "01:30", "America/New_York")).toBe(Date.UTC(2026, 2, 8, 6, 30));
     expect(wallToMs("2026-10-27", "24:00", "UTC")).toBeNull();
     expect(wallToMs("2026-10-27", "19:30", "Nope/Zone")).toBeNull();
   });

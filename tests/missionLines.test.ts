@@ -58,3 +58,14 @@ describe("days and labels", () => {
     expect(runwayClassFor("C-130")).toBe("C-130");
   });
 });
+
+describe("the horizon is enforced when a clock is given", () => {
+  it("refuses a past day and a fifth day, by name", () => {
+    const now = Date.UTC(2026, 9, 28, 12);
+    const ok = { day: "2026-10-28", airframe: "C-17", fields: ["OJAQ"], status: "planned" };
+    expect(validateLineDraft(ok, { nowMs: now })).toBeNull();
+    expect(validateLineDraft({ ...ok, day: "2026-10-31" }, { nowMs: now })).toBeNull();
+    expect(validateLineDraft({ ...ok, day: "2026-10-27" }, { nowMs: now })).toMatch(/has passed/);
+    expect(validateLineDraft({ ...ok, day: "2026-11-01" }, { nowMs: now })).toMatch(/4 days ahead/);
+  });
+});

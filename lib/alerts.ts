@@ -27,11 +27,14 @@ import { bgpReadsFor, BGP_LEVEL_ORDINAL } from "./radarBgp";
 import { countryIso2 } from "./holidays";
 import { recordSensorDay } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
+import { getLineReads } from "./lineReadAssemble";
+import { getChokepointReads } from "./chokepointReads";
+import { todayZulu, addDaysYmd } from "./missionLines";
 
 export interface AlertItem {
   id: string;                 // stable across polls while the condition holds
   severity: "red" | "amber";
-  kind: "force" | "weather" | "neo" | "warning" | "spectrum";
+  kind: "force" | "weather" | "neo" | "warning" | "spectrum" | "line";
   title: string;
   sub: string;
 }
@@ -60,15 +63,24 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
 }
 
 async function build(): Promise<AlertCheck> {
-  const alerts: AlertItem[] = [];
   const prefs = await getUserPrefs().catch(() => null);
+  // The stages are independent, so they run AT ONCE and their alerts are
+  // concatenated in a fixed order (code review 2026-10-28: run one after
+  // another — force protection, weather, advisories, boards, spectrum, IODA,
+  // Radar, BGP, NetFlows — a cold pass could pass a minute on a request
+  // path). Each stage fails alone; a dead stage raises nothing this cycle.
+  const stage = (fn: (out: AlertItem[]) => Promise<void>): Promise<AlertItem[]> => {
+    const out: AlertItem[] = [];
+    return fn(out).then(() => out, () => out);
+  };
 
+  const parts = await Promise.all([
   // Force-protection RED (escalations flagged in the title).
-  try {
+  stage(async (out) => {
     const fp = await getForceProtection(prefs?.countriesOfInterest ?? [], prefs?.forceLocations ?? []);
     for (const a of fp.assessments.filter((x) => x.composite === "red")) {
       const escalated = !!a.previousComposite;
-      alerts.push({
+      out.push({
         id: `force-${a.label}-red`,
         severity: "red",
         kind: "force",
@@ -76,17 +88,16 @@ async function build(): Promise<AlertCheck> {
         sub: a.topDriver,
       });
     }
-  } catch { /* feed down → no force alerts this cycle */ }
-
+  }),
   // Life-threatening / extreme weather at home + tracked points.
-  try {
+  stage(async (out) => {
     const locations: NamedPoint[] = [];
     if (prefs?.localLat != null && prefs?.localLon != null) locations.push({ label: prefs.localCity || "Home", lat: prefs.localLat, lon: prefs.localLon });
     for (const t of prefs?.trackedLocations ?? []) locations.push({ label: t.label, lat: t.lat, lon: t.lon });
     if (locations.length) {
       const wx = await getWeatherThreats(locations);
       for (const t of wx.threats.filter((x) => x.lifeThreatening || x.severity === "Extreme")) {
-        alerts.push({
+        out.push({
           id: `wx-${t.id}`,
           severity: "red",
           kind: "weather",
@@ -95,13 +106,12 @@ async function build(): Promise<AlertCheck> {
         });
       }
     }
-  } catch { /* ignore */ }
-
+  }),
   // In-effect ordered departures (the classic NEO trigger).
-  try {
+  stage(async (out) => {
     const adv = await getAllStateAdvisories();
     for (const a of adv.filter((x) => x.orderedDeparture)) {
-      alerts.push({
+      out.push({
         id: `neo-${a.country}-ordered`,
         severity: "red",
         kind: "neo",
@@ -109,10 +119,9 @@ async function build(): Promise<AlertCheck> {
         sub: "State Dept ordered-departure advisory in effect",
       });
     }
-  } catch { /* ignore */ }
-
+  }),
   // I&W boards at warning/alert (calm/watch stay quiet — color is earned).
-  try {
+  stage(async (out) => {
     const problems = await activeWarningProblems();
     // In parallel and bounded — this used to run the boards one after another
     // on the request path (code review 2026-10-07). A board past the wait
@@ -122,7 +131,7 @@ async function build(): Promise<AlertCheck> {
       const p = problems[i];
       const a = assessed[i];
       if (a && (a.level === "warning" || a.level === "alert")) {
-        alerts.push({
+        out.push({
           id: `iw-${p.def.id}-${a.level}`,
           severity: a.level === "alert" ? "red" : "amber",
           kind: "warning",
@@ -131,37 +140,44 @@ async function build(): Promise<AlertCheck> {
         });
       }
     }
-  } catch { /* ignore */ }
-
+  }),
   // Spectrum (REVIEW-CYBER-SPACE §4.9), four predicates with stable ids:
   // SWPC scale at 3+; PNT / cyber indicator at active or confirmed on a
   // board; KEV entry on a declared vendor; a critical connectivity outage
   // in a tracked country. Bounded: a cold summary is skipped this cycle.
-  try {
+  stage(async (out) => {
     const sp = await getSpectrumSummary({ maxWaitMs: 5_000 });
     if (!sp.pending) {
       for (const s of sp.spaceWx.severe) {
         const imp = sp.spaceWx.impacts.find((i) => i.led === "r") ?? sp.spaceWx.impacts[0];
-        alerts.push({ id: `swx-${s.scale}${s.level}`, severity: s.level >= 4 ? "red" : "amber", kind: "spectrum", title: `Space weather ${s.scale}${s.level} — ${imp?.label ?? "ops impact"}`, sub: imp?.now ?? "NOAA SWPC scale at 3 or above" });
+        out.push({ id: `swx-${s.scale}${s.level}`, severity: s.level >= 4 ? "red" : "amber", kind: "spectrum", title: `Space weather ${s.scale}${s.level} — ${imp?.label ?? "ops impact"}`, sub: imp?.now ?? "NOAA SWPC scale at 3 or above" });
       }
       for (const [label, key, r] of [["PNT denial", "pnt", sp.pnt], ["Cyber pressure", "cyber", sp.cyber], ["Counterspace", "counterspace", sp.counterspace ?? null]] as const) {
         if (r && r.live && (r.state === "active" || r.state === "confirmed")) {
-          alerts.push({ id: `iw-${r.problemId}-${key}-${r.state}`, severity: r.state === "confirmed" ? "red" : "amber", kind: "spectrum", title: `${label} ${r.state.toUpperCase()} — ${r.board}`, sub: r.why.slice(0, 160) });
+          out.push({ id: `iw-${r.problemId}-${key}-${r.state}`, severity: r.state === "confirmed" ? "red" : "amber", kind: "spectrum", title: `${label} ${r.state.toUpperCase()} — ${r.board}`, sub: r.why.slice(0, 160) });
         }
       }
       for (const h of sp.edge.hits) {
-        alerts.push({ id: `kev-${h.cve}`, severity: h.ransomware ? "red" : "amber", kind: "spectrum", title: `KEV — ${h.vendor} ${h.product}`, sub: `${h.cve}: ${h.name.slice(0, 120)}${h.ransomware ? " · known ransomware use" : ""}` });
+        out.push({ id: `kev-${h.cve}`, severity: h.ransomware ? "red" : "amber", kind: "spectrum", title: `KEV — ${h.vendor} ${h.product}`, sub: `${h.cve}: ${h.name.slice(0, 120)}${h.ransomware ? " · known ransomware use" : ""}` });
       }
     }
-  } catch { /* ignore */ }
-  try {
+  }),
+  stage(async (out) => {
     const tracked = [...(prefs?.countriesOfInterest ?? []).map((c) => c.country), ...(prefs?.forceLocations ?? []).map((l) => l.country).filter((c): c is string => !!c)];
     if (tracked.length) {
-      const io = await getIodaOutageAlerts(24);
+      const byCode = new Map<string, string>();
+      for (const c of new Set(tracked)) { const code = countryIso2(c); if (code) byCode.set(code, c); }
+      // All four outage reads start together; each is consumed in order below.
+      const ioP = getIodaOutageAlerts(24);
+      const radarP = getRadar();
+      const bgpP = byCode.size ? getRadarBgp() : null;
+      const trP = byCode.size ? getRadarTraffic([...byCode.keys()]) : null;
+      for (const p of [ioP, radarP, bgpP, trP]) p?.catch(() => {});
+      const io = await ioP;
       if (io.live) {
         const hits = outageAlertsFor(io.alerts, tracked);
         for (const o of hits.filter((x) => x.level === "critical")) {
-          alerts.push({ id: `outage-${o.country}`, severity: "amber", kind: "spectrum", title: `Connectivity outage — ${o.country}`, sub: `IODA critical alert (${o.sources} source${o.sources === 1 ? "" : "s"}, 24 h)` });
+          out.push({ id: `outage-${o.country}`, severity: "amber", kind: "spectrum", title: `Connectivity outage — ${o.country}`, sub: `IODA critical alert (${o.sources} source${o.sources === 1 ? "" : "s"}, 24 h)` });
         }
         // Outage series per tracked country (PLAN §7 E1): worst level ordinal
         // that day, 0 when the feed answered and named nothing — an observed
@@ -179,10 +195,8 @@ async function build(): Promise<AlertCheck> {
       // regional / network reads stay on the country room. Not configured or
       // dead → nothing here (the Outages cell says UNKNOWN), never a fake
       // quiet day in the series.
-      const byCode = new Map<string, string>();
-      for (const c of new Set(tracked)) { const code = countryIso2(c); if (code) byCode.set(code, c); }
       const day = new Date().toISOString().slice(0, 10);
-      const radar = await getRadar();
+      const radar = await radarP;
       if (radar.configured && radar.live) {
         const reads = radarReadsFor(radar.outages, radar.anomalies, [...byCode.keys()], Date.now());
         for (const code of byCode.keys()) {
@@ -192,16 +206,16 @@ async function build(): Promise<AlertCheck> {
         for (const r of reads) {
           const name = byCode.get(r.code) ?? r.name;
           const nationwide = r.outages.some((o) => o.scope === "NATIONWIDE" && (o.endMs == null || o.endMs > Date.now()));
-          if (r.level === "red") alerts.push({ id: `outage-cf-${name}`, severity: "red", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
-          else if (r.level === "amber" && nationwide) alerts.push({ id: `outage-cf-${name}`, severity: "amber", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
+          if (r.level === "red") out.push({ id: `outage-cf-${name}`, severity: "red", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
+          else if (r.level === "amber" && nationwide) out.push({ id: `outage-cf-${name}`, severity: "amber", kind: "spectrum", title: `Nationwide outage — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
         }
       }
       // Cloudflare Radar BGP — a HIGH-confidence, recent hijack of a tracked
       // country's prefixes is an amber alert (a routing event, not a life
       // signal — never red here); the `bgp:` series takes the day-peak level
       // ordinal. Dead or not configured → nothing written.
-      if (byCode.size) {
-        const bgp = await getRadarBgp();
+      if (bgpP && trP) {
+        const bgp = await bgpP;
         if (bgp.configured && bgp.live) {
           const reads = bgpReadsFor(bgp.hijacks, bgp.leaks, bgp.asnInfo, [...byCode.keys()], Date.now());
           for (const code of byCode.keys()) {
@@ -211,7 +225,7 @@ async function build(): Promise<AlertCheck> {
           for (const r of reads) {
             if (r.level !== "red") continue;
             const name = byCode.get(r.code) ?? r.code;
-            alerts.push({ id: `bgp-${name}`, severity: "amber", kind: "spectrum", title: `BGP hijack — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
+            out.push({ id: `bgp-${name}`, severity: "amber", kind: "spectrum", title: `BGP hijack — ${name}`, sub: `Cloudflare Radar: ${r.why}` });
           }
         }
         // Cloudflare NetFlows — the raw traffic. `nflow:` takes the hour-
@@ -219,20 +233,60 @@ async function build(): Promise<AlertCheck> {
         // one (learning / stale / dead write nothing); a COLLAPSED read is an
         // amber alert — raw evidence of a shutdown-class drop before (or
         // without) a curated annotation.
-        const tr = await getRadarTraffic([...byCode.keys()]);
+        const tr = await trP;
         if (tr.configured) {
           for (const [code, r] of Object.entries(tr.reads)) {
-            if (!r || r.ratio == null) continue;
-            recordSensorDay(sensorKey("nflow", code), day, Math.round(r.ratio * 100)).catch(() => {});
+            if (!r) continue;
+            // A RAW_VALUES read records its ratio; a MIN0_MAX read (what
+            // production negotiates) has no ratio — it records its drop in
+            // range units under its own key, so the two units never mix.
+            // The collapse alert is the STATE, read whichever way (code
+            // review 2026-10-28: the ratio guard made it unreachable).
+            if (r.ratio != null) recordSensorDay(sensorKey("nflow", code), day, Math.round(r.ratio * 100)).catch(() => {});
+            else if (r.drop != null) recordSensorDay(sensorKey("nflowdrop", code), day, Math.round(r.drop * 100)).catch(() => {});
             if (r.state === "collapsed") {
               const name = byCode.get(code) ?? code;
-              alerts.push({ id: `traffic-cf-${name}`, severity: "amber", kind: "spectrum", title: `Internet traffic collapsed — ${name}`, sub: `Cloudflare NetFlows: ${r.why}` });
+              out.push({ id: `traffic-cf-${name}`, severity: "amber", kind: "spectrum", title: `Internet traffic collapsed — ${name}`, sub: `Cloudflare NetFlows: ${r.why}` });
             }
           }
         }
       }
     }
-  } catch { /* ignore */ }
+  }),
+  // A UKMTO-reported ACT (attack, seizure, boarding) at a strait a board
+  // watches, in the last 72 h — the authority's own record, so it alerts
+  // without waiting for the board to climb (code review 2026-10-28). Keyed
+  // by strait + day so a second incident the same day joins the first.
+  stage(async (out) => {
+    const problems = await activeWarningProblems();
+    const ids = [...new Set(problems.map((p) => p.geo.chokepoint?.id).filter((x): x is string => !!x))];
+    if (!ids.length) return;
+    const body = await within(getChokepointReads(ids), 8_000);
+    for (const sig of body?.signals ?? []) {
+      const l = sig.lead;
+      if (!l || l.modality !== "act" || l.source !== "UKMTO") continue;
+      const t = l.pubDate ? Date.parse(l.pubDate) : NaN;
+      if (!Number.isFinite(t) || Date.now() - t > 72 * 3_600_000) continue;
+      out.push({ id: `ukmto-${sig.id}-${new Date(t).toISOString().slice(0, 10)}`, severity: "amber", kind: "warning", title: `UKMTO — ${l.cls} reported near ${sig.name}`, sub: l.title.slice(0, 160) });
+    }
+  }),
+  // A declared line whose read is RED today or tomorrow (code review
+  // 2026-10-28: a line through a field closed NOW raised nothing). Amber at
+  // the alert level — the line is the crew's own declaration, and the
+  // field's own condition alerts through its own predicate. Bounded: a cold
+  // line read raises nothing this cycle.
+  stage(async (out) => {
+    const lr = await within(getLineReads(), 6_000);
+    if (!lr || !lr.reads.length) return;
+    const today = todayZulu(), tomorrow = addDaysYmd(today, 1);
+    for (const r of lr.reads) {
+      if (r.worst !== "r" || (r.day !== today && r.day !== tomorrow)) continue;
+      const lead = r.drivers[0];
+      out.push({ id: `line-${r.id}-${r.day}`, severity: "amber", kind: "line", title: `Line RED — ${r.label} (${r.dayLabel})`, sub: lead ? `${lead.icao}: ${lead.text}` : r.summary });
+    }
+  }),
+  ]);
+  const alerts: AlertItem[] = parts.flat();
 
   const body: AlertCheck = { now: Date.now(), alerts };
   cache = { at: Date.now(), body };

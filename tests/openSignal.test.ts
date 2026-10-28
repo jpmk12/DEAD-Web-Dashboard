@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openBoosts, topOpened, decayedOpens, MAX_BOOST, POINTS_PER_OPEN, HALF_LIFE_DAYS, type OpenRow } from "../lib/openSignal";
+import { openBoosts, decayedOpens, MAX_BOOST, POINTS_PER_OPEN, HALF_LIFE_DAYS, type OpenRow } from "../lib/openSignal";
 
 const NOW = Date.UTC(2026, 8, 29);
 const day = 86_400_000;
@@ -29,14 +29,4 @@ describe("openSignal", () => {
     expect(b).toEqual({});
   });
 
-  it("orders recent by decayed weight, drops what has faded, honours the limit", () => {
-    const ids = topOpened([
-      row("base", "OTBH", 1, 400),     // one open, over a year ago — faded
-      row("base", "KWRI", 3, 1),
-      row("country", "Iran", 10, 90),  // 10 × 0.125 = 1.25
-      row("board", "mp-1", 2, 0),
-    ], 2, NOW);
-    expect(ids).toEqual(["base:KWRI", "board:mp-1"]);
-    expect(topOpened([row("base", "OTBH", 1, 400)], 4, NOW)).toEqual([]);
-  });
 });

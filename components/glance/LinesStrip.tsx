@@ -8,6 +8,7 @@
 // never changes a level, and UNKNOWN (no SITREP slot, a dead feed) is its own
 // value, never folded into green.
 
+import { openTrackPicker } from "@/lib/trackClient";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "@/lib/feedback";
 import { LED_CLASS, type LedKey } from "@/lib/levelTokens";
@@ -28,8 +29,11 @@ const TONE: Record<LedKey, string> = {
 const WORD: Record<LedKey, string> = { r: "RED", a: "AMBER", u: "UNKNOWN", g: "quiet" };
 
 function openField(icao: string, hasSlot: boolean) {
+  // No SITREP slot → the ONE Track door (the picker lives in TabShell, so
+  // nothing navigates); a slot → the field's room on the command board.
+  if (!hasSlot) { openTrackPicker({ kind: "airfield", icao }); return; }
   window.dispatchEvent(new CustomEvent("app:navigate", { detail: "osint" }));
-  setTimeout(() => window.dispatchEvent(new CustomEvent(hasSlot ? "watch:focus" : "track:open", { detail: hasSlot ? { kind: "sitrep", id: icao } : { kind: "airfield", query: icao } })), 150);
+  setTimeout(() => window.dispatchEvent(new CustomEvent("watch:focus", { detail: { kind: "sitrep", id: icao } })), 150);
 }
 
 export default function LinesStrip({ active = true }: { active?: boolean }) {
@@ -120,7 +124,7 @@ export default function LinesStrip({ active = true }: { active?: boolean }) {
                     ))}
                   </span>
                   <span className="text-[10px] text-slate-500 truncate min-w-0 hidden sm:inline">{lead && r.worst !== "g" ? `${lead.icao}: ${lead.text}` : "quiet — absence of signal, not evidence of calm"}</span>
-                  <span className="ml-auto text-[10px] text-slate-600">{isOpen ? "▾" : "▸"}</span>
+                  <span className="ml-auto text-[10px] text-slate-600">{isOpen ? "▴" : "▾"}</span>
                 </button>
                 {l && (
                   <>
@@ -166,9 +170,9 @@ function LineForm({ today, busy, onSave, onCancel }: { today: string; busy: bool
   const [lineStatus, setLineStatus] = useState<LineStatus>("planned");
   const [err, setErr] = useState<string | null>(null);
   const draft = { day, airframe, fields: parseFieldsText(fields), status: lineStatus };
-  const liveErr = fields.trim() ? validateLineDraft(draft) : null;
+  const liveErr = fields.trim() ? validateLineDraft(draft, { nowMs: Date.now() }) : null;
   return (
-    <form onSubmit={async (e) => { e.preventDefault(); const v = validateLineDraft(draft); if (v) { setErr(v); return; } setErr(null); await onSave(draft); }} className="rounded-md border border-violet-500/30 bg-violet-500/[0.04] p-2.5 space-y-2">
+    <form onSubmit={async (e) => { e.preventDefault(); const v = validateLineDraft(draft, { nowMs: Date.now() }); if (v) { setErr(v); return; } setErr(null); await onSave(draft); }} className="rounded-md border border-violet-500/30 bg-violet-500/[0.04] p-2.5 space-y-2">
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-[9px] uppercase tracking-wider text-slate-500 flex flex-col gap-0.5">Day (Zulu)
           <input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-200" />

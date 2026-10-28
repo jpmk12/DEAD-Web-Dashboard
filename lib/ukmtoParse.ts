@@ -34,6 +34,7 @@
 // area is PLACED at that area's centroid and says so (`placement: "area"`),
 // the same convention as ReliefWeb situations at a country centroid.
 
+import { parseUtc } from "./radarNetflows";
 import {
   gradedRead, hasPhrase, isReversal, haversineKm,
   type GeoEvent, type ChokepointText, type InterdictionClass, type InterdictionRead, type Modality,
@@ -128,7 +129,9 @@ export function parseUkmtoDate(raw: string | null | undefined): string | null {
 const DMS = /(\d{1,2})\s*(?:°|º|deg|-|\s)\s*(\d{1,2}(?:\.\d+)?)\s*['’′]?\s*([NS])\b[\s,/;]*(\d{1,3})\s*(?:°|º|deg|-|\s)\s*(\d{1,2}(?:\.\d+)?)\s*['’′]?\s*([EW])\b/i;
 const DMS_DEG_ONLY = /(\d{1,2}(?:\.\d+)?)\s*(?:°|º)\s*([NS])\b[\s,/;]*(\d{1,3}(?:\.\d+)?)\s*(?:°|º)\s*([EW])\b/i;
 const COMPACT = /\b(\d{2})(\d{2})(?:\.\d+)?\s*([NS])\b[\s,/;]*(\d{3})(\d{2})(?:\.\d+)?\s*([EW])\b/i;
-const DECIMAL = /\b(-?\d{1,2}\.\d{2,})\s*°?\s*([NS])?[\s,/;]+(-?\d{1,3}\.\d{2,})\s*°?\s*([EW])?\b/;
+// The sign must be inside the match: `\b` before "-2.05" sits AFTER the minus
+// (no word boundary between a space and "-"), so "-2.05 45.35" read 2.05°N.
+const DECIMAL = /(?<![\w.])(-?\d{1,2}\.\d{2,})\s*°?\s*([NS])?[\s,/;]+(-?\d{1,3}\.\d{2,})\s*°?\s*([EW])?\b/;
 
 function finish(lat: number, lon: number): { lat: number; lon: number } | null {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -494,7 +497,11 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
   // year, so the reference is "<n>-<yy>" with yy from the incident's own
   // date — never the current year, which would re-key last December's rows.
   const dateRaw = str(pick(props, ["incidentDate", "incident_date", "dateOfIncident", "utcDateOfIncident", "dateOfIncidentUtc", "date", "occurredAt", "eventDate", "incidentDateTime", "dateTime", "reportedAt", "reportDate", "utcDateCreated", "dateCreated", "createdAt", "created"]));
-  const date = parseUkmtoDate(dateRaw) ?? (Number.isFinite(Date.parse(dateRaw)) ? new Date(Date.parse(dateRaw)).toISOString().slice(0, 10) : null);
+  // SCCD stamps are zone-less ("2026-10-27T07:15:30") and UTC by name, so they
+  // are read through parseUtc — `Date.parse` would take them as HOST-local
+  // time and shift the date and the "HHMM UTC" by the host's offset.
+  const dateMs = parseUtc(dateRaw);
+  const date = parseUkmtoDate(dateRaw) ?? (dateMs != null ? new Date(dateMs).toISOString().slice(0, 10) : null);
   const refM = REF_RX.exec(refRaw) ?? REF_RX.exec(title) ?? (REF_RX.test(idRaw) ? REF_RX.exec(idRaw) : null);
   // The reference is the store's key: a row with none is skipped, never
   // keyed on a bare numeric id (a later fix to the field name would then
@@ -505,7 +512,7 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
   const labelRaw = str(pick(props, ["category", "incidentType", "incidentTypeName", "incident_type", "typeName", "incidentCategory", "categoryName", "type", "classification", "label", "eventType", "kind"])) || (title && !REF_RX.test(title) ? title : "") || (title.replace(REF_RX, "").replace(/^[\s\-–—:|]+/, ""));
   const label = (labelRaw || "INCIDENT").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 40);
   let time = str(pick(props, ["incidentTime", "incident_time", "timeOfIncident", "time"])) || null;
-  if (!time && /T\d{2}:\d{2}/.test(dateRaw) && Number.isFinite(Date.parse(dateRaw))) time = `${new Date(Date.parse(dateRaw)).toISOString().slice(11, 16).replace(":", "")} UTC`;
+  if (!time && /T\d{2}:\d{2}/.test(dateRaw) && dateMs != null) time = `${new Date(dateMs).toISOString().slice(11, 16).replace(":", "")} UTC`;
   const reportedBy = str(pick(props, ["source", "reportedBy", "reporter", "reportSource", "sourceOfReport", "incidentIssuer", "issuer"])) || null;
   // The live SCCD row (second 1.2.6 run, 2026-10-27) keeps its narrative in
   // `otherDetails`, names the water in `region` / `place`, and carries the

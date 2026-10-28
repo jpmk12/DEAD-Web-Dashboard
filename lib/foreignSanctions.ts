@@ -35,7 +35,6 @@ export const EU_FSF_CSV_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files
 // the EU list — never res.text().
 export const UK_SANCTIONS_LIST_CSV_URL = "https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv";
 /** @deprecated the OFSI Consolidated List closed 28 Jan 2026 — kept as the name the diag history used. */
-export const UK_CONLIST_CSV_URL = UK_SANCTIONS_LIST_CSV_URL;
 
 export interface ForeignSanctionsResult {
   rows: ForeignDesignation[];

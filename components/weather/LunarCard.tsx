@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  lunarNights, lunarWindows, hhmmIn, sanitizeThresholds, illumBand, DEFAULT_LUNAR_THRESHOLDS, MOON_USEFUL_ALT_DEG,
+  lunarNights, lunarWindows, hhmmIn, zoneForLongitude, sanitizeThresholds, illumBand, DEFAULT_LUNAR_THRESHOLDS, MOON_USEFUL_ALT_DEG,
   type LunarNight, type LunarThresholds, type LunarWindow, type IllumBand,
 } from "@/lib/moon";
 import { renderLunarHtml } from "@/lib/lunarExport";
@@ -70,7 +70,7 @@ function loadThresholds(): LunarThresholds {
 }
 
 export default function LunarCard({ lat, lon, label }: { lat: number; lon: number; label: string }) {
-  const [zone, setZone] = useState<{ zone: string; source: "place" | "device" } | null>(null);
+  const [zone, setZone] = useState<{ zone: string; source: "place" | "longitude" } | null>(null);
   // The model's hourly cloud for the place (the same Open-Meteo read that
   // gives the zone); null = no forecast → the overlay says UNKNOWN, never clear.
   const [cloud, setCloud] = useState<HourlyCloud[] | null>(null);
@@ -78,7 +78,6 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
   const [editThr, setEditThr] = useState(false);
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const deviceZone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })();
 
   useEffect(() => {
     setThresholds(loadThresholds());
@@ -102,14 +101,14 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
         if (!alive) return;
         const tz = j?.current?.timezone;
         if (tz) { clientCache.set(key, tz, 24 * 3_600_000); setZone({ zone: tz, source: "place" }); }
-        else setZone({ zone: deviceZone, source: "device" });
+        else setZone({ zone: zoneForLongitude(lon), source: "longitude" });
         const hc = Array.isArray(j?.current?.hourlyCloud) ? j!.current!.hourlyCloud! : [];
         if (hc.length) clientCache.set(cloudKey, hc, 60 * 60_000);
         setCloud(hc);
       })
-      .catch(() => { if (alive) { setZone({ zone: deviceZone, source: "device" }); setCloud([]); } });
+      .catch(() => { if (alive) { setZone({ zone: zoneForLongitude(lon), source: "longitude" }); setCloud([]); } });
     return () => { alive = false; };
-  }, [lat, lon, deviceZone]);
+  }, [lat, lon]);
 
   const nights = useMemo<LunarNight[]>(() => {
     if (!zone) return [];
@@ -142,7 +141,7 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
     <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
       <div className="flex items-center gap-2 flex-wrap px-4 py-2.5 border-b border-slate-800">
         <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">☾ Lunar windows · {label}</h3>
-        {tonight && <span className="text-[10px] text-slate-600">tonight {dayShort(tonight.date)} · times {zone?.zone}{zone?.source === "device" ? " (device zone — the place's zone was unavailable)" : ""} · night = EENT → BMNT</span>}
+        {tonight && <span className="text-[10px] text-slate-600">tonight {dayShort(tonight.date)} · times {zone?.zone}{zone?.source === "longitude" ? " (placed by longitude — the place's zone was unavailable; no DST or borders)" : ""} · night = EENT → BMNT</span>}
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <button type="button" onClick={() => setEditThr((v) => !v)} className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200" aria-expanded={editThr}>
             LOW &lt; {thresholds.low}% · HIGH ≥ {thresholds.high}% {editThr ? "▴" : "▾"}
@@ -181,7 +180,7 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
             ))}
           </div>
           <p className="text-[11px] text-slate-300">
-            <span className="font-semibold text-slate-100">Tonight:</span> {tonight.polar ? "no nautical darkness (polar)" : <>
+            <span className="font-semibold text-slate-100">Tonight:</span> {tonight.polarNight ? `dark all day (polar night) · ${tonight.illumPct}% ${tonight.phaseName} · moon up ${tonight.moonlitDarkH} h · ${tonight.moonFreeDarkH} h moon-free` : tonight.polar ? "no nautical darkness (polar)" : <>
               <span className="text-amber-200">{tonight.illumPct}% {tonight.phaseName}</span> · {tonight.darkH} h dark · moon up <b className="text-slate-100">{tonight.moonlitDarkH} h</b> of it ({tonight.usefulMoonH} h at ≥{MOON_USEFUL_ALT_DEG}°) · <b className="text-indigo-200">{tonight.moonFreeDarkH} h moon-free</b>
               {tonight.moonUp.length === 0 ? " · moon down all night" : tonight.moonUp[0][0] > (tonight.eent ?? 0) ? ` · moon-free until ${hhmmIn(tonight.moonUp[0][0], tonight.zone)}` : tonight.moonUp[tonight.moonUp.length - 1][1] < (tonight.bmnt ?? Infinity) ? ` · moon-free after ${hhmmIn(tonight.moonUp[tonight.moonUp.length - 1][1], tonight.zone)}` : " · moon up all night"}
               {" · "}{tonight.daylightH} h daylight today
@@ -244,7 +243,7 @@ export default function LunarCard({ lat, lon, label }: { lat: number; lon: numbe
                 <span><i className="inline-block w-3 h-2 rounded-sm bg-slate-700/60 align-middle mr-1" />daylight / twilight</span>
                 <span><i className="inline-block w-3 h-2 rounded-sm bg-slate-800 align-middle mr-1" />darkness (EENT→BMNT)</span>
                 <span><i className="inline-block w-3 h-2 rounded-sm align-middle mr-1" style={{ background: "linear-gradient(90deg,rgba(253,230,138,.3),#fde68a)" }} />moon up during darkness · brighter = more lit · solid = ≥{MOON_USEFUL_ALT_DEG}°, faint = lower</span>
-                <span>▲ moonrise · ▼ moonset</span>
+                <span>↑ moonrise · ↓ moonset</span>
                 <span className="ml-auto">● new ◐ first quarter ○ full ◑ last quarter</span>
               </div>
               <div>
@@ -364,8 +363,8 @@ export function MonthChart({ nights, windows, thresholds }: { nights: LunarNight
           {!n.polar && <rect x={cx} y={clampY(lh(n.eent!))} width={cw} height={Math.max(0, clampY(lh(n.bmnt!)) - clampY(lh(n.eent!)))} fill="#1e293b" />}
           {n.moonUp.map(([a, b]) => <rect key={a} x={cx} y={clampY(lh(a))} width={cw} height={Math.max(1, clampY(lh(b)) - clampY(lh(a)))} fill={moonCol(n.illumPct)} opacity={0.25 + 0.35 * n.illumPct / 100} />)}
           {n.moonHigh.map(([a, b]) => <rect key={`h${a}`} x={cx} y={clampY(lh(a))} width={cw} height={Math.max(1, clampY(lh(b)) - clampY(lh(a)))} fill={moonCol(n.illumPct)} opacity={0.5 + 0.5 * n.illumPct / 100} />)}
-          {n.moonrise.map((m) => { const hr = lh(m); return hr > 17 && hr < 31 ? <text key={m} x={cx + cw / 2} y={yT(hr) + 3} fontSize="7" textAnchor="middle" fill="#fde68a">▲</text> : null; })}
-          {n.moonset.map((m) => { const hr = lh(m); return hr > 17 && hr < 31 ? <text key={m} x={cx + cw / 2} y={yT(hr) + 3} fontSize="7" textAnchor="middle" fill="#fde68a">▼</text> : null; })}
+          {n.moonrise.map((m) => { const hr = lh(m); return hr > 17 && hr < 31 ? <text key={m} x={cx + cw / 2} y={yT(hr) + 3} fontSize="7" textAnchor="middle" fill="#fde68a">↑</text> : null; })}
+          {n.moonset.map((m) => { const hr = lh(m); return hr > 17 && hr < 31 ? <text key={m} x={cx + cw / 2} y={yT(hr) + 3} fontSize="7" textAnchor="middle" fill="#fde68a">↓</text> : null; })}
           {i % 3 === 0 && <text x={cx + cw / 2} y={H - 4} fontSize="9" textAnchor="middle" fill="#64748b" fontFamily="ui-monospace,Menlo,monospace">{String(d).padStart(2, "0")} {MON[Number(n.date.slice(5, 7)) - 1]}</text>}
           {i === 0 && <><rect x={cx - 1} y={top - 8} width={cw + 2} height={chartH + gap + nightH + 14} fill="none" stroke="#38bdf8" strokeWidth="1.2" rx="2" /><text x={cx + cw / 2} y={top - 26} fontSize="8" textAnchor="middle" fill="#7dd3fc" fontWeight="800" letterSpacing="1">TONIGHT</text></>}
         </g>);

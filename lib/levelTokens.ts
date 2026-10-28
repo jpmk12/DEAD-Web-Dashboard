@@ -15,8 +15,8 @@
 // Disciplines, in the words of the house rules:
 //   · colour is EARNED — calm is slate, red is reserved for ALERT / red;
 //   · UNKNOWN is its own tone (slate-600), never folded into green;
-//   · these are DISPLAY tokens only. Nothing here ranks or compares levels —
-//     that is lib/warning (I&W) and lib/severity (force posture).
+//   · these are DISPLAY tokens, plus the one LED rollup order (worstLedOf).
+//     I&W levels rank in lib/warning, force posture in lib/severity.
 
 /** The I&W warning level vocabulary (mirrors `WarningLevel` in lib/warning;
  *  declared here so this module imports nothing). */
@@ -42,6 +42,21 @@ export const CARD_ACCENT: Record<Level, string> = {
 
 /** SITREP LED letters: g green · a amber · r red · u unknown. */
 export type LedKey = "g" | "a" | "r" | "u";
+
+/** The ONE rollup order for "worst LED across several": green < UNKNOWN <
+ *  amber < red. UNKNOWN beats green on purpose — one field we cannot see
+ *  beside a green one is not a green command (code review 2026-10-28: the
+ *  Weather tab's COCOM header read GREEN for one green field among UNKNOWN
+ *  ones). The single exception is "worse than yesterday", which skips an
+ *  UNKNOWN yesterday entirely rather than ranking it. */
+export const LED_SEVERITY: Record<LedKey, number> = { g: 0, u: 1, a: 2, r: 3 };
+
+/** Worst of the given LEDs by LED_SEVERITY; empty → UNKNOWN, never green. */
+export function worstLedOf(leds: Iterable<LedKey>): LedKey {
+  let w: LedKey | null = null;
+  for (const l of leds) if (w == null || LED_SEVERITY[l] > LED_SEVERITY[w]) w = l;
+  return w ?? "u";
+}
 
 /** Tailwind background for an LED dot. */
 export const LED_CLASS: Record<LedKey, string> = {

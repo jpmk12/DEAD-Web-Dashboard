@@ -307,12 +307,6 @@ export async function deleteDocument(id: string): Promise<boolean> {
 // ─── Link extraction (wiki-style [[Doc Title]]) ──────────────────────────────
 
 
-// Distinct link target titles (pipe segments stripped) — kept for callers
-// that only care about WHAT is linked, not how.
-export function extractWikiLinks(content: string): string[] {
-  return [...new Set(extractWikiLinkRefs(content).map((r) => r.title))];
-}
-
 // Re-scan the doc's content, drop any existing doc-target edges from it, and
 // re-create them based on the [[Doc Title | relation: note]] markers currently
 // present. Titles resolve case-insensitively against doc titles AND aliases

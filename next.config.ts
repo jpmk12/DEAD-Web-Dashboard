@@ -30,30 +30,24 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              // TradingView widget loader scripts + Twitter embeds
-              `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""} https://platform.twitter.com https://abs.twimg.com https://x.com https://s3.tradingview.com https://*.tradingview.com https://*.tradingview-widget.com`,
-              // Windy map embed + TradingView widget iframes + Twitter +
-              // OSINT aircraft/maritime iframe providers (the page blocks any
-              // frame whose origin isn't listed here — without these the
-              // maritime/aircraft "Iframe provider" panes render blank even
-              // though the providers allow embedding).
-              // NOTE: TradingView widgets iframe from tradingview-widget.com,
-              // a different registrable domain that *.tradingview.com does NOT
-              // match — it must be listed explicitly or the widgets are blocked.
+              // No third-party scripts: the TradingView widgets, the Twitter
+              // embeds and the aircraft/maritime iframe panes were all retired
+              // (code review 2026-10-28 narrowed every directive to what the
+              // app still loads).
+              `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
               // 'self' first: the Docs tab frames /api/files/:id/inline for the
               // PDF preview — without it (and with frame-ancestors 'none' on
               // the file response itself) our own CSP refused our own PDFs
-              // (REVIEW-2026-10 D1).
-              "frame-src 'self' https://platform.twitter.com https://syndication.twitter.com https://twitter.com https://x.com https://embed.windy.com https://*.tradingview.com https://www.tradingview.com https://*.tradingview-widget.com https://globe.adsb.fi https://globe.airplanes.live https://globe.adsb.lol https://globe.adsbexchange.com https://www.vesselfinder.com https://www.marinetraffic.com https://map.openseamap.org",
-              // TradingView injects styles + Twitter
-              "style-src 'self' 'unsafe-inline' https://platform.twitter.com https://abs.twimg.com https://x.com https://*.tradingview.com",
-              "img-src 'self' data: https:",
-              // TradingView market data feed + zipcode lookup + existing sources
-              "connect-src 'self' https://api.anthropic.com https://www.googleapis.com https://accounts.google.com https://syndication.twitter.com https://cdn.syndication.twimg.com https://twitter.com https://x.com https://api.x.com https://t.co https://*.tradingview.com https://*.tradingview-widget.com https://api.zippopotam.us",
-              "font-src 'self' https://fonts.gstatic.com https://*.tradingview.com",
-              // TradingView uses blob: web workers internally
+              // (REVIEW-2026-10 D1). Windy is the Weather tab's radar map.
+              "frame-src 'self' https://embed.windy.com",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https:",
+              // The browser talks only to our own routes; every external feed
+              // is fetched server-side. Google stays for the OAuth hops.
+              "connect-src 'self' https://www.googleapis.com https://accounts.google.com",
+              "font-src 'self' https://fonts.gstatic.com",
               "worker-src 'self' blob:",
-              "child-src 'self' blob: https://*.tradingview.com https://*.tradingview-widget.com",
+              "child-src 'self' blob:",
               // 'self', not 'none': the inline file route is framed by the Docs
               // tab; no other origin may frame the app.
               "frame-ancestors 'self'",

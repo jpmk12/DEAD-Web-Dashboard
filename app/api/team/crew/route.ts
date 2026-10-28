@@ -6,7 +6,7 @@ import { getDemandOutlookHistory } from "@/lib/demandStore";
 import { crewTrend } from "@/lib/crewTrend";
 import { deriveAvailability, postureAgainstDemand, DEFAULT_QUALS } from "@/lib/crewState";
 import { getDemandHorizon } from "@/lib/demandAssemble";
-import { getLinesByCommandBounded } from "@/lib/lineReadAssemble";
+import { getDeclaredLinesBounded } from "@/lib/lineReadAssemble";
 import { AOR_LABELS } from "@/lib/aor";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export async function GET() {
     listCrewRows().catch(() => []), getDemandHorizon().catch(() => null),
     getCrewHistory(60).catch(() => []), getDemandOutlookHistory(60).catch(() => []),
     // Declared lines beside the forecast — bounded; null / empty changes nothing.
-    getLinesByCommandBounded(3_000).catch(() => null),
+    getDeclaredLinesBounded(3_000).catch(() => null),
   ]);
   // Today's snapshot rides the read so the series exists on days nobody edits.
   snapshotCrewDay(rows).catch(() => {});
@@ -36,7 +36,7 @@ export async function GET() {
     summary,
     (demand?.outlooks ?? []).map((o) => ({ aor: o.aor, direction: o.direction, score: o.score })),
     AOR_LABELS as Record<string, string>,
-    declared && declared.total > 0 ? { total: declared.total, byAor: Object.fromEntries(Object.entries(declared.byCommand).map(([k, v]) => [k, v.count])) } : null,
+    declared,
   );
   const today = new Date().toISOString().slice(0, 10);
   const todayRows = rows.map((r) => ({ day: today, qual: r.qual, total: r.total, crewRest: r.crewRest, onMission: r.onMission, dnif: r.dnif, other: r.other }));

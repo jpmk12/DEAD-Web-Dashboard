@@ -26,9 +26,24 @@ export interface WarningAssessmentPlus extends WarningAssessment {
 const TTL = 10 * 60 * 1000;
 const cache = new Map<string, { at: number; data: WarningAssessmentPlus }>();
 
-export function resetWarningCache(): void { cache.clear(); }
+export function resetWarningCache(): void { cache.clear(); inflight.clear(); }
+
+// One pass per board at a time: a cold board is asked for by /api/warning,
+// alerts, commands, demand, spectrum, the OE context and Ask at once, and
+// each used to run its own full sensor pass (code review 2026-10-28).
+const inflight = new Map<string, Promise<WarningAssessmentPlus | null>>();
 
 export async function assessWarning(problemId: string): Promise<WarningAssessmentPlus | null> {
+  const hit = cache.get(problemId);
+  if (hit && Date.now() - hit.at < TTL) return hit.data;
+  const running = inflight.get(problemId);
+  if (running) return running;
+  const p = assessWarningOnce(problemId).finally(() => { if (inflight.get(problemId) === p) inflight.delete(problemId); });
+  inflight.set(problemId, p);
+  return p;
+}
+
+async function assessWarningOnce(problemId: string): Promise<WarningAssessmentPlus | null> {
   const resolved = await resolveWarningProblem(problemId);
   if (!resolved) return null;
   const { def, geo } = resolved;

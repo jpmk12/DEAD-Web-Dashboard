@@ -476,7 +476,10 @@ function PrivateAtH({ place, hMs, priv }: { place: HPlace; hMs: number; priv: bo
 // ── At H: the considerations panel ──────────────────────────────────────────
 
 function ConsiderationsPanel({ cons, state, place, hMs }: { cons: HConsiderations | null; state: "idle" | "loading" | "error"; place: HPlace; hMs: number }) {
-  const stale = cons && cons.hMs !== hMs;
+  // The read belongs to an H AND a place: switching the place keeps the old
+  // read off screen until the new one lands (code review 2026-10-28).
+  const samePlace = !!cons && Math.abs(cons.place.lat - place.lat) < 1e-4 && Math.abs(cons.place.lon - place.lon) < 1e-4 && (cons.place.icao ?? null) === (place.icao ?? null);
+  const stale = !!cons && (cons.hMs !== hMs || !samePlace);
   const hLocal = cons ? inZone(hMs, cons.place.zone) : null;
   const zLabel = (ms: number | null) => (ms == null ? "—" : `${hhmmZ(ms)}${cons ? ` (${inZone(ms, cons.place.zone).hhmm} local)` : ""}`);
   return (

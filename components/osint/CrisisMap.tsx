@@ -597,11 +597,17 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
           setRadarNowIdx(d!.nowIdx ?? 0); setRadarIdx(d!.nowIdx ?? 0);
           setRadarReason(null);
         } else {
+          // An empty index drops the old loop — stale frames are not radar.
+          setRadarFrames([]);
           setRadarReason(d?.reason || "no frames in the index");
         }
         markSrc("Radar", frames.length === 0);
       })
-      .catch(() => { setRadarReason("index unreachable"); markSrc("Radar", true); });
+      .catch((e) => {
+        // Our own abort (a refresh or unmount) is not an outage.
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setRadarReason("index unreachable"); markSrc("Radar", true);
+      });
     return () => ctrl.abort();
   }, [refreshKey]);
 

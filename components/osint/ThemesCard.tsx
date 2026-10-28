@@ -30,6 +30,8 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
   const [editing, setEditing] = useState<Theme | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const tries = useRef(0);
+  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (retry.current) clearTimeout(retry.current); }, []);
 
   const load = useCallback(async (refresh = false) => {
     setStatus((s) => (s === "ok" ? s : "loading"));
@@ -40,7 +42,12 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
       if (r.status === 202 || j.pending) {
         if (j.reads?.length || j.themes) setBody(j);
         setStatus("pending");
-        if (tries.current < 6) { tries.current++; setTimeout(() => load(), 6_000); }
+        if (tries.current < 6) {
+          tries.current++;
+          if (retry.current) clearTimeout(retry.current);
+          // Re-ask only while the pane is open and the window visible.
+          retry.current = setTimeout(() => { if (activeRef.current && document.visibilityState === "visible") load(); }, 6_000);
+        }
         return;
       }
       tries.current = 0;
@@ -49,10 +56,12 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
     } catch { setStatus("error"); }
   }, []);
 
+  const activeRef = useRef(active);
+  useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { if (active) load(); }, [active, load]);
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(() => load(), 5 * 60 * 1000);
+    const id = setInterval(() => { if (document.visibilityState === "visible") load(); }, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, [active, load]);
 
@@ -106,7 +115,9 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
 
       {status === "error" && <p className="px-3.5 py-2 text-[11px] text-red-400 border-b border-slate-800">Could not read the themes.</p>}
 
-      {themes.length === 0 && status !== "unavailable" && status !== "loading" && !adding && (
+      {/* The invitation only when the store ANSWERED with none — a pending or
+          failed read is not "nothing declared" (code review 2026-10-28). */}
+      {themes.length === 0 && status === "ok" && !adding && (
         <p className="px-3.5 py-3 text-[11px] text-slate-500 leading-relaxed">
           Declare a theme — a name and a few phrases (“tanker surge”, “KC-135 wave”, “refueling bridge”) — and this card reads your X captures,
           newsletters, captured articles and OSINT feeds for it: how much against the theme&apos;s own normal, who is saying it, how it is framed

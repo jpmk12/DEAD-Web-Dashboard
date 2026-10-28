@@ -58,3 +58,16 @@ describe("flight categories", () => {
     expect(FLIGHT_CAT_HEX.UNKNOWN).toBe(LED_HEX.u);
   });
 });
+
+import { worstLedOf, LED_SEVERITY } from "../lib/levelTokens";
+
+describe("worstLedOf — one rollup order, UNKNOWN beats green", () => {
+  it("green among UNKNOWN is UNKNOWN; amber and red win; empty is UNKNOWN", () => {
+    expect(worstLedOf(["g", "u", "u"])).toBe("u");
+    expect(worstLedOf(["g", "g"])).toBe("g");
+    expect(worstLedOf(["u", "a", "g"])).toBe("a");
+    expect(worstLedOf(["a", "r", "u"])).toBe("r");
+    expect(worstLedOf([])).toBe("u");
+    expect(LED_SEVERITY.u).toBeGreaterThan(LED_SEVERITY.g);
+  });
+});

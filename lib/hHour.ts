@@ -209,6 +209,18 @@ export interface ConsiderationInput {
   scalesLive: boolean;
 }
 
+/** NOTAMs are published days ahead, not weeks: past this a quiet NOTAM read
+ *  says nothing about H, so it reads UNKNOWN, never "no closure" (code
+ *  review 2026-10-28: H three weeks out read green). */
+export const NOTAM_HORIZON_H = 7 * 24;
+
+/** H's calendar day in the place's zone — host-nation holidays are LOCAL
+ *  dates, so "holiday on H day" compares in the place's zone, not in UTC. */
+export function localYmd(ms: number, zone: string): string {
+  try { return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms)); }
+  catch { return new Date(ms).toISOString().slice(0, 10); }
+}
+
 const fmtH = (h: number) => (h >= 48 ? `${(h / 24).toFixed(1)} d` : `${h.toFixed(1)} h`);
 
 export function summarize(i: ConsiderationInput): Consideration[] {
@@ -216,7 +228,7 @@ export function summarize(i: ConsiderationInput): Consideration[] {
   const push = (tone: Tone, text: string, source: string) => out.push({ tone, text, source });
   const hoursOut = (i.hMs - i.nowMs) / HOUR_MS;
   const hPast = hoursOut < 0;
-  const hYmd = new Date(i.hMs).toISOString().slice(0, 10);
+  const hYmd = localYmd(i.hMs, i.zone);
 
   // Airfield: closures first — they decide the plan.
   if (i.airfield) {
@@ -232,7 +244,10 @@ export function summarize(i: ConsiderationInput): Consideration[] {
         if (w.kind === "closure" && !(a.fieldClosed && /^Airfield/i.test(w.label))) push(rwy ? "r" : "a", `${a.icao}: ${w.label} closed at H${w.openEnded ? " (UFN)" : ""}`, "DAIP");
         else if (w.kind !== "closure") push("a", `${a.icao}: ${w.label} ${w.kind === "limited" ? "limited" : "unserviceable"} at H`, "DAIP");
       }
-      if (!a.fieldClosed && a.windows.length === 0) push("g", `${a.icao}: no closure or outage window at H`, "DAIP");
+      if (!a.fieldClosed && a.windows.length === 0) {
+        if (hoursOut > NOTAM_HORIZON_H) push("u", `${a.icao}: NOTAMs for H are not published yet (H is ${fmtH(hoursOut)} out) — closures at H UNKNOWN; the standing ones read none`, "DAIP");
+        else push("g", `${a.icao}: no closure or outage window at H`, "DAIP");
+      }
     }
     if (!a.tafLive) push("u", `${a.icao}: TAF unreachable — forecast category at H UNKNOWN`, "AWC");
     else if (a.taf) {

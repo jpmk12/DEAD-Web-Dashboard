@@ -8,7 +8,7 @@
 
 import { decodeMetar, decodeTaf } from "./metar";
 import { fetchWithTimeout } from "./fetchTimeout";
-import type { FlightCategory } from "./types";
+import type { FlightCategory, TafReport } from "./types";
 
 export const CAT_RANK: Record<FlightCategory, number> = { VFR: 0, MVFR: 1, IFR: 2, LIFR: 3, UNKNOWN: -1 };
 
@@ -85,41 +85,68 @@ export async function getFlightCategories(icaosRaw: string[]): Promise<{ live: b
 export interface TafOutlook { worst: FlightCategory; fromISO: string }
 
 const tafTtl = 30 * 60 * 1000;
-let tafCache: { key: string; data: Record<string, TafOutlook>; expires: number } | null = null;
+// Decoded TAFs PER ICAO (code review 2026-10-28): the old single slot was
+// keyed by the whole ICAO set + horizon, and force protection, each SITREP,
+// the line reads, weather/here and the H-hour planner all ask for different
+// sets — the hit rate was near zero. Now a call fetches only its misses in
+// one request, and the horizon is applied per call over the shared reports.
+const tafReports = new Map<string, { report: TafReport | null; expires: number }>();
 
-export async function getTafOutlook(icaosRaw: string[], horizonH = 18): Promise<Record<string, TafOutlook>> {
+/** Decoded TAF reports for the ICAOs (null = the station issued none).
+ *  `live` is false when the fetch for the misses failed; cached stations
+ *  still answer. */
+export async function getTafReports(icaosRaw: string[]): Promise<{ live: boolean; byIcao: Record<string, TafReport | null> }> {
   const icaos = Array.from(new Set(icaosRaw.map((s) => s.trim().toUpperCase()).filter(isIcao))).slice(0, 12);
-  if (icaos.length === 0) return {};
-  const key = icaos.slice().sort().join(",") + `|${horizonH}`;
-  if (tafCache && tafCache.key === key && tafCache.expires > Date.now()) return tafCache.data;
-
+  const byIcao: Record<string, TafReport | null> = {};
+  const now = Date.now();
+  const miss: string[] = [];
+  for (const id of icaos) {
+    const hit = tafReports.get(id);
+    if (hit && hit.expires > now) byIcao[id] = hit.report; else miss.push(id);
+  }
+  if (!miss.length) return { live: true, byIcao };
   try {
-    const res = await fetchWithTimeout(`${AWC}/taf?ids=${icaos.join(",")}&format=json`, { headers: HEADERS, cache: "no-store" }, 10_000);
+    const res = await fetchWithTimeout(`${AWC}/taf?ids=${miss.join(",")}&format=json`, { headers: HEADERS, cache: "no-store" }, 10_000);
     if (!res.ok) throw new Error(`taf ${res.status}`);
     const rows = await res.json();
     const list: unknown[] = Array.isArray(rows) ? rows : [];
-    const now = Date.now();
-    const horizon = now + horizonH * 3600_000;
-    const out: Record<string, TafOutlook> = {};
+    const got = new Map<string, TafReport>();
     for (const row of list) {
       const t = decodeTaf(row as Parameters<typeof decodeTaf>[0]);
       const id = t.icao.toUpperCase();
-      if (!id || out[id]) continue;
-      let worst: FlightCategory = "VFR";
-      let fromISO = "";
-      for (const p of t.periods) {
-        const pf = p.from ? Date.parse(p.from) : NaN;
-        const pt = p.to ? Date.parse(p.to) : NaN;
-        // Period overlaps [now, now+horizon]?
-        if (!(Number.isFinite(pf) && pf < horizon && (!Number.isFinite(pt) || pt > now))) continue;
-        if (CAT_RANK[p.flightCategory] > CAT_RANK[worst]) { worst = p.flightCategory; fromISO = p.from; }
-      }
-      if (CAT_RANK[worst] >= CAT_RANK.IFR) out[id] = { worst, fromISO };
+      if (id && !got.has(id)) got.set(id, t);
     }
-    tafCache = { key, data: out, expires: Date.now() + tafTtl };
-    return out;
+    for (const id of miss) {
+      const report = got.get(id) ?? null;
+      tafReports.set(id, { report, expires: now + tafTtl });
+      byIcao[id] = report;
+    }
+    if (tafReports.size > 400) for (const [k, v] of tafReports) if (v.expires <= now) tafReports.delete(k);
+    return { live: true, byIcao };
   } catch {
-    if (tafCache && tafCache.key === key) return tafCache.data;
-    return {};
+    // Stale entries still answer for their station; the rest are unknown.
+    for (const id of miss) { const old = tafReports.get(id); if (old) byIcao[id] = old.report; }
+    return { live: false, byIcao };
   }
+}
+
+export async function getTafOutlook(icaosRaw: string[], horizonH = 18): Promise<Record<string, TafOutlook>> {
+  const { byIcao } = await getTafReports(icaosRaw);
+  const now = Date.now();
+  const horizon = now + horizonH * 3600_000;
+  const out: Record<string, TafOutlook> = {};
+  for (const [id, t] of Object.entries(byIcao)) {
+    if (!t) continue;
+    let worst: FlightCategory = "VFR";
+    let fromISO = "";
+    for (const p of t.periods) {
+      const pf = p.from ? Date.parse(p.from) : NaN;
+      const pt = p.to ? Date.parse(p.to) : NaN;
+      // Period overlaps [now, now+horizon]?
+      if (!(Number.isFinite(pf) && pf < horizon && (!Number.isFinite(pt) || pt > now))) continue;
+      if (CAT_RANK[p.flightCategory] > CAT_RANK[worst]) { worst = p.flightCategory; fromISO = p.from; }
+    }
+    if (CAT_RANK[worst] >= CAT_RANK.IFR) out[id] = { worst, fromISO };
+  }
+  return out;
 }

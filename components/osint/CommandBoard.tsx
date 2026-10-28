@@ -142,10 +142,22 @@ export default function CommandBoard({ active }: { active: boolean }) {
       })
       .catch(() => setError("could not reach /api/commands"));
   }, []);
+  // The 5-min refresh runs only while the pane is shown and the window is
+  // visible — once armed it used to poll forever and keep the whole commands
+  // gather warm for nobody (code review 2026-10-28). Returning to the pane or
+  // the window catches up at once.
+  const activeRef = useRef(active);
+  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { if (armed && active) load(); }, [armed, active, load]);
   useEffect(() => {
     if (!armed) return;
-    load();
-    const id = setInterval(load, 5 * 60 * 1000);
+    const onVis = () => { if (document.visibilityState === "visible" && activeRef.current) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [armed, load]);
+  useEffect(() => {
+    if (!armed) return;
+    const id = setInterval(() => { if (activeRef.current && document.visibilityState === "visible") load(); }, 5 * 60 * 1000);
     // A Track anywhere (picker, Weather ✕, Preferences, this board) drops the
     // server's commands cache; re-read so the strip and the rows agree.
     window.addEventListener("tracking:changed", load);

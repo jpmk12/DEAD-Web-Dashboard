@@ -611,9 +611,17 @@ export default function ChatPanel({
     setMessages([...newMessages, { role: "assistant", content: "" }]);
     setStreaming(true);
     try {
-      const res = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: text, model: askModel }) });
-      const d = await res.json().catch(() => null);
-      if (!res.ok || !d?.answer) throw new Error(d?.error ?? (res.status === 401 ? "Signed out — sign in again." : `HTTP ${res.status}`));
+      // The server answers 202 { pending, ticket } while it reads the board
+      // and asks the model in the background; poll the ticket until it lands.
+      let res = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: text, model: askModel }) });
+      let d = await res.json().catch(() => null);
+      for (let tries = 0; res.status === 202 && d?.ticket && tries < 20; tries++) {
+        setMessages((prev) => { const u = [...prev]; u[idx] = { role: "assistant", content: `_${d?.note ?? "Reading the board…"}_` }; return u; });
+        res = await fetch(`/api/ask?ticket=${encodeURIComponent(d.ticket)}`, { cache: "no-store" });
+        d = await res.json().catch(() => null);
+      }
+      if (res.status === 202) throw new Error("Still reading the board — ask again in a minute and the answer will be waiting.");
+      if (!res.ok || !d?.answer) throw new Error(d?.error ?? (res.status === 401 ? "Signed out — sign in again." : d === null ? `HTTP ${res.status} — the server did not answer with JSON` : `HTTP ${res.status}`));
       const note = auto ? "\n\n_Answered from the board (the question looked like a warning question). Turn ◉ Board off in the header to chat freely._" : "";
       setMessages((prev) => { const u = [...prev]; u[idx] = { role: "assistant", content: `${d.answer}${note}` }; return u; });
       setAskMap((prev) => new Map(prev).set(idx, {

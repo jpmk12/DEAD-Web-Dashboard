@@ -41,8 +41,17 @@ function cookieHeaderFrom(res: Response): string | null {
   return pairs.length ? pairs.join("; ") : null;
 }
 
+let loginInflight: Promise<string | null> | null = null;
+
+/** One login at a time — concurrent passes share it (code review 2026-10-28). */
 async function login(): Promise<string | null> {
   if (session && Date.now() < session.expires) return session.cookie;
+  if (loginInflight) return loginInflight;
+  loginInflight = doLogin().finally(() => { loginInflight = null; });
+  return loginInflight;
+}
+
+async function doLogin(): Promise<string | null> {
   const user = process.env.SPACETRACK_USER, pass = process.env.SPACETRACK_PASS;
   if (!user || !pass) return null;
   try {
@@ -97,7 +106,16 @@ function parseSatcat(json: unknown): SatcatRow[] {
   return out;
 }
 
-let satcatCache: { at: number; rows: SatcatRow[]; key: string } | null = null;
+// Keyed caches, not single slots (code review 2026-10-28): the fleet and the
+// assets resolve different pattern sets, and the RUS and CHN passes ask for
+// different id sets, so one slot per kind evicted the other every hour and
+// re-queried Space-Track several times an hour against "≤3 per pass, a day".
+const CACHE_CAP = 16;
+function putCapped<V extends { at: number }>(m: Map<string, V>, key: string, v: V): void {
+  m.set(key, v);
+  if (m.size > CACHE_CAP) { const oldest = [...m.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) m.delete(oldest[0]); }
+}
+const satcatCache = new Map<string, { at: number; rows: SatcatRow[] }>();
 const SATCAT_TTL = 7 * 86_400_000;
 
 /** Catalogue rows whose OBJECT_NAME starts with any of the patterns
@@ -106,19 +124,20 @@ const SATCAT_TTL = 7 * 86_400_000;
 export async function resolveByName(patterns: string[]): Promise<StResult<SatcatRow[]>> {
   const key = [...new Set(patterns.map((p) => p.trim().toUpperCase()).filter(Boolean))].sort().join("|");
   if (!key) return { live: true, status: 200, data: [], reason: null };
-  if (satcatCache && satcatCache.key === key && Date.now() - satcatCache.at < SATCAT_TTL) return { live: true, status: 200, data: satcatCache.rows, reason: null };
+  const sc = satcatCache.get(key);
+  if (sc && Date.now() - sc.at < SATCAT_TTL) return { live: true, status: 200, data: sc.rows, reason: null };
   // OBJECT_NAME/~~A,~~B is not supported in one predicate; the OR form is a
   // comma list of LIKE values on the same field.
   const names = key.split("|").map((p) => `~~${encodeURIComponent(p)}`).join(",");
   const r = await query<SatcatRow[]>(`class/satcat/OBJECT_NAME/${names}/DECAY/null-val/OBJECT_TYPE/PAYLOAD/orderby/LAUNCH%20desc/limit/400/format/json`, parseSatcat, []);
-  if (r.live) satcatCache = { at: Date.now(), rows: r.data, key };
+  if (r.live) putCapped(satcatCache, key, { at: Date.now(), rows: r.data });
   return r;
 }
 
 // ─── element sets ─────────────────────────────────────────────────────────────
 
-let historyCache: { at: number; key: string; sets: ElementSet[] } | null = null;
-let currentCache: { at: number; key: string; sets: ElementSet[] } | null = null;
+const historyCache = new Map<string, { at: number; sets: ElementSet[] }>();
+const currentCache = new Map<string, { at: number; sets: ElementSet[] }>();
 const GP_TTL = 20 * 3600_000;   // one pull a day; the heartbeat drives it
 
 /** Element-set HISTORY for the fleet ids over the trailing `days`
@@ -126,11 +145,14 @@ const GP_TTL = 20 * 3600_000;   // one pull a day; the heartbeat drives it
  *  90-day cadence after three pulls). */
 export async function fleetHistory(ids: number[], days = 35): Promise<StResult<ElementSet[]>> {
   const list = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
-  if (!list.length) return { live: true, status: 200, data: [], reason: null };
+  // No fleet object resolved = nothing was observed, never an observed calm
+  // day (the caller writes the rpo: series only from a live read).
+  if (!list.length) return { live: false, status: 0, data: [], reason: "no fleet object resolved in the catalogue" };
   const key = list.join(",");
-  if (historyCache && historyCache.key === key && Date.now() - historyCache.at < GP_TTL) return { live: true, status: 200, data: historyCache.sets, reason: null };
+  const hc = historyCache.get(key);
+  if (hc && Date.now() - hc.at < GP_TTL) return { live: true, status: 200, data: hc.sets, reason: null };
   const r = await query<ElementSet[]>(`class/gp_history/NORAD_CAT_ID/${key}/EPOCH/%3Enow-${days}/orderby/EPOCH%20asc/format/json`, parseGpRows, [], 40_000);
-  if (r.live) historyCache = { at: Date.now(), key, sets: r.data };
+  if (r.live) putCapped(historyCache, key, { at: Date.now(), sets: r.data });
   return r;
 }
 
@@ -139,13 +161,14 @@ export async function currentSets(ids: number[]): Promise<StResult<ElementSet[]>
   const list = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
   if (!list.length) return { live: true, status: 200, data: [], reason: null };
   const key = list.join(",");
-  if (currentCache && currentCache.key === key && Date.now() - currentCache.at < GP_TTL) return { live: true, status: 200, data: currentCache.sets, reason: null };
+  const cc = currentCache.get(key);
+  if (cc && Date.now() - cc.at < GP_TTL) return { live: true, status: 200, data: cc.sets, reason: null };
   const r = await query<ElementSet[]>(`class/gp/NORAD_CAT_ID/${key}/orderby/NORAD_CAT_ID/format/json`, parseGpRows, [], 30_000);
-  if (r.live) currentCache = { at: Date.now(), key, sets: r.data };
+  if (r.live) putCapped(currentCache, key, { at: Date.now(), sets: r.data });
   return r;
 }
 
-export function resetSpaceTrackCaches(): void { session = null; satcatCache = null; historyCache = null; currentCache = null; }
+export function resetSpaceTrackCaches(): void { session = null; satcatCache.clear(); historyCache.clear(); currentCache.clear(); }
 
 // ─── resolution of the catalogue ─────────────────────────────────────────────
 
