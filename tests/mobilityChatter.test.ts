@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readChatter, clusterChatter, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn, placesWithOwn, chatterForIcao, fieldChatterLine, resolveChatterAor, type OwnPlace } from "../lib/mobilityChatter";
+import { readChatter, clusterChatter, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn, placesWithOwn, chatterForIcao, fieldChatterLine, resolveChatterAor, explainChatter, type OwnPlace } from "../lib/mobilityChatter";
 import { mobilityWithChatter } from "../lib/warningRules";
 import { demandHorizon, type DemandInput } from "../lib/demandHorizon";
 import { mergePostureMoves, detectPostureMoves } from "../lib/postureMoves";
@@ -231,5 +231,57 @@ describe("mobilityWithChatter — reported beside observed, never in place of it
 describe("a region after an origin cue never places the post (review 2026-10-28)", () => {
   it("from the Middle East to Europe is EUCOM, not CENTCOM", () => {
     expect(resolveChatterAor("6x C-17 flying from the Middle East to Europe tonight", null, null)).toBe("EUCOM");
+  });
+});
+
+describe("spotter route notation — the field before the arrow is the origin", () => {
+  it("reads KDOV → OKAS as Dover to Ali Al Salem, not a NORTHCOM destination", () => {
+    const [p] = readChatter([post("C-17 RCH431 KDOV → OKAS wheels up 0400Z")], NOW);
+    expect(p.origin).not.toBeNull();
+    expect(p.icao).toBe("OKAS");
+    expect(p.aor).toBe("CENTCOM");
+    const [q] = readChatter([post("2x KC-46 ETAR -> OTBH airborne")], NOW);
+    expect(q.icao).toBe("OTBH");
+    expect(q.count).toBe(2);
+  });
+  it("reads an ICAO-ICAO dash as a route, but a hyphen in prose is not one", () => {
+    const [p] = readChatter([post("Pair of C-17s KDOV-OKAS this morning, airborne")], NOW);
+    expect(p.icao).toBe("OKAS");
+    const { dest } = placesIn("C-17 landed at Al Udeid - busy night");
+    expect(dest?.name).toBe("Al Udeid");
+  });
+});
+
+describe("explainChatter — the owner's tuning read", () => {
+  const items = [
+    post("6x KC-135 landing at Al Udeid per ADS-B", { id: "a", source: "𝕏 @spotter1" }),
+    post("C-17 heading to Brize Norton tonight, airborne", { id: "b", source: "𝕏 @spotter2" }),
+    post("The KC-46 program is over budget", { id: "c", source: "𝕏 @spotter2" }),
+    post("Tanker seized by IRGC in the strait", { id: "d", source: "📄 Reuters" }),
+    post("E-3 and RC-135V orbiting over the Black Sea, P-8 airborne", { id: "e", source: "𝕏 @spotter3" }),
+    post("old one: 4x C-17 landed at Al Udeid", { id: "f", pubDate: "2026-09-01T00:00:00Z" }),
+  ];
+  const r = explainChatter(items, NOW);
+  it("counts the window, the matches and each near-miss class", () => {
+    expect(r.window.items).toBe(6);
+    expect(r.window.inWindow).toBe(5);
+    expect(r.window.bySource).toEqual({ x: 4, article: 1 });
+    expect(r.matched).toBe(2);
+    expect(r.placed).toBe(1);
+    expect(r.unplaced).toBe(1);
+    expect(r.nearMiss.noMovement.count).toBe(1);
+    expect(r.nearMiss.genericGated.count).toBe(1);
+    expect(r.matchedExamples[0].note).toContain("Al Udeid");
+  });
+  it("names the place phrases after a cue that match nothing, and the designators it does not carry", () => {
+    expect(r.unknownPlaces.map((u) => u.phrase)).toContain("Brize Norton");
+    expect(r.unknownPlaces.find((u) => u.phrase === "Brize Norton")?.role).toBe("dest");
+    const toks = r.unknownTypes.map((u) => u.token);
+    expect(toks).toEqual(expect.arrayContaining(["E-3", "RC-135V", "P-8"]));
+    expect(toks).not.toContain("KC-135");
+    expect(toks).not.toContain("C-17");
+    expect(r.places.find((p) => p.name === "Al Udeid")?.dest).toBe(1);
+    expect(r.handles[0].source).toBe("𝕏 @spotter2");
+    expect(r.lines).toHaveLength(8);
   });
 });

@@ -24,7 +24,7 @@ import { fetchFeed } from "./rss";
 import { BASE_NEWS_SOURCES } from "./newsSources";
 import { gdeltSearch } from "./localNews";
 import { detectPostureMoves, mergePostureMoves, POSTURE_GDELT_QUERY, type PostureMove } from "./postureMoves";
-import { readChatter, clusterChatter, chatterToMoves, chatterSurge, chatterForIcao, type ChatterCluster, type FieldChatter } from "./mobilityChatter";
+import { readChatter, clusterChatter, chatterToMoves, chatterSurge, chatterForIcao, explainChatter, type ChatterCluster, type ChatterExplain, type FieldChatter } from "./mobilityChatter";
 import { getOwnPlaces } from "./ownPlaces";
 import { getXItems } from "./xStore";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
@@ -88,6 +88,17 @@ async function ownSourceItems(): Promise<NewsItem[]> {
   if (xs) for (const x of xs) items.push({ id: `x-${x.id}`, title: x.text.replace(/\s+/g, " ").trim(), source: `𝕏 @${x.handle}`, category: "social", pubDate: x.postedAt ?? x.importedAt, summary: x.quoted?.text ?? "", link: x.url });
   if (arts) for (const a of arts) items.push({ ...articleToNewsItem(a, 1200), source: `📄 ${a.source}` });
   return items;
+}
+
+/** The owner's tuning read: what the chatter grammar made of the own-source
+ *  pool right now (matches, near misses, unknown places and designators). Runs
+ *  the same two reads the sweep does; never touches the cache or a series. */
+export async function diagnoseChatter(): Promise<ChatterExplain & { ownFields: number }> {
+  const [own, ownPlaces] = await Promise.all([
+    ownSourceItems().catch(() => [] as NewsItem[]),
+    withTimeout(getOwnPlaces(), 4_000).then((p) => p ?? []),
+  ]);
+  return { ...explainChatter(own, Date.now(), { ownPlaces }), ownFields: ownPlaces.length };
 }
 
 async function sweep(): Promise<PostureMovesBody> {

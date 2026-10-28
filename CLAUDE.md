@@ -3050,8 +3050,31 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   not observed"); the Glance chatter lines carry a violet `mine` chip. A
   field the registry cannot place (command UNKNOWN) still matches and the
   post reads UNKNOWN rather than falling through to a region guess.
-- Not built: tuning the grammar on real posts (which bases the user's
-  lists actually name).
+- **The tuning read (2026-10-28, "yes" to "a check page for the lift
+  chatter")**: `GET /api/posture-moves?diag=chatter` (owner-only) →
+  `diagnoseChatter()` → `explainChatter(items, now, {ownPlaces})` (PURE,
+  tested) over the SAME own-source pool and place list the sweep reads;
+  never touches the cache or a series. It returns `lines` (eight summary
+  lines to paste), the window (items / in the 14-day window / by source
+  kind), matches by command and airframe with ≤10 examples each carrying
+  a `note` ("KC-135 ×6 · Mildenhall → Al Udeid · CENTCOM · toward ·
+  "landing""), the NEAR MISSES (a type named with no movement phrase; a
+  generic "tanker" / "airlifter" refused by the context gate; a match
+  with no place → UNKNOWN), the known places named with their
+  dest / origin / bare counts, **unknown place phrases** (a capitalised
+  phrase or ICAO after a cue that matches no place, region or country —
+  the list of fields to add), **designators the grammar does not carry**
+  (E-3, RC-135V, P-8 … in every item — the list of types to decide on),
+  and the top handles with items vs matched. `readChatter` now runs
+  through `readOne`, which also says WHY an item was not chatter.
+  **Spotter route notation** fixed on the way: "KDOV → OKAS",
+  "ETAR -> OTBH" and an ICAO-dash-ICAO "KDOV-OKAS" read the field BEFORE
+  the arrow as the origin (`placeHits`, `ARROW_AFTER` / `ARROW_BEFORE` /
+  `ICAO_DASH_*`); before, the first bare ICAO — the origin — became the
+  destination and a Dover → Ali Al Salem C-17 read as NORTHCOM. A hyphen in
+  prose is not a route (the dash rule needs two ICAO-shaped tokens). Next:
+  one paste of the diag → add the unknown fields to the place list and
+  decide the designators.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

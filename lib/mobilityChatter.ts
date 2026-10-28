@@ -270,21 +270,45 @@ export function statedCount(text: string, airframes: AirframeDef[]): number | nu
   return best;
 }
 
+// Spotter route notation: "KDOV → OKAS", "ETAR -> OJKA", "KDOV-OKAS". The
+// field BEFORE the arrow is the origin, the one after it the destination —
+// without this a bare first ICAO (the origin) was read as the destination.
+const ARROW_AFTER = /^\s*(?:→|->|=>|⟶|➡️?|>)/;
+const ARROW_BEFORE = /(?:→|->|=>|⟶|➡️?|>)\s*$/;
+const ICAO_DASH_AFTER = /^\s*[-–—]\s*[A-Z]{4}\b/;
+const ICAO_DASH_BEFORE = /\b[A-Z]{4}\s*[-–—]\s*$/;
+
+type PlaceRole = "dest" | "origin" | "bare";
+/** Every place a text names, with the role its cue gives it. */
+function placeHits(text: string, places: PlaceDef[]): { p: PlaceDef; i: number; role: PlaceRole }[] {
+  const out: { p: PlaceDef; i: number; role: PlaceRole }[] = [];
+  for (const p of places) {
+    const g = new RegExp(p.rx.source, "ig");
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(text)) !== null) {
+      if (m[0].length === 0) { g.lastIndex++; continue; }
+      const before = text.slice(Math.max(0, m.index - 28), m.index);
+      const after = text.slice(m.index + m[0].length, m.index + m[0].length + 12);
+      const icaoShaped = /^[A-Z]{4}$/.test(m[0]);
+      const role: PlaceRole =
+        ORIGIN_CUE.test(before) || ARROW_AFTER.test(after) || (icaoShaped && ICAO_DASH_AFTER.test(after)) ? "origin"
+        : DEST_CUE.test(before) || ARROW_BEFORE.test(before) || (icaoShaped && ICAO_DASH_BEFORE.test(before)) ? "dest"
+        : "bare";
+      out.push({ p, i: m.index, role });
+    }
+  }
+  return out;
+}
+
 /** Destination / origin places named in a text, by the cue words before them. */
 export function placesIn(text: string, places: PlaceDef[] = PLACES): { dest: PlaceDef | null; origin: PlaceDef | null } {
   let dest: { p: PlaceDef; i: number } | null = null;
   let origin: { p: PlaceDef; i: number } | null = null;
   let bare: { p: PlaceDef; i: number } | null = null;
-  for (const p of places) {
-    const g = new RegExp(p.rx.source, "ig");
-    let m: RegExpExecArray | null;
-    while ((m = g.exec(text)) !== null) {
-      const before = text.slice(Math.max(0, m.index - 28), m.index);
-      if (ORIGIN_CUE.test(before)) { if (!origin || m.index < origin.i) origin = { p, i: m.index }; }
-      else if (DEST_CUE.test(before)) { if (!dest || m.index < dest.i) dest = { p, i: m.index }; }
-      else if (!bare || m.index < bare.i) bare = { p, i: m.index };
-      if (m[0].length === 0) g.lastIndex++;
-    }
+  for (const h of placeHits(text, places)) {
+    if (h.role === "origin") { if (!origin || h.i < origin.i) origin = h; }
+    else if (h.role === "dest") { if (!dest || h.i < dest.i) dest = h; }
+    else if (!bare || h.i < bare.i) bare = h;
   }
   // A bare base name ("4x C-17 Al Udeid tonight") is read as the destination
   // only when no origin was cued — else it is more likely the other end.
@@ -329,41 +353,205 @@ export function readChatter(items: NewsItem[], nowMs: number = Date.now(), opts:
   const out: ChatterPost[] = [];
   const places = placesWithOwn(opts.ownPlaces);
   for (const it of items) {
-    const t = Date.parse(it.pubDate);
-    if (!Number.isFinite(t) || nowMs - t > CHATTER_WINDOW_DAYS * DAY || t - nowMs > DAY) continue;
-    const text = hay(it);
-    const frames = airframesIn(text);
-    if (!frames.length) continue;
-    const move = MOVEMENT.map((re) => re.exec(text)).filter((m): m is RegExpExecArray => !!m).sort((a, b) => a.index - b.index)[0];
-    if (!move) continue;
-    const { dest, origin } = placesIn(text, places);
-    // The side is the most specific airframe's: a named Russian or allied
-    // type wins over the generic "tanker"; a US type wins over an ally's
-    // generic mention. Ties go to the first declared.
-    const specific = frames.filter((f) => !f.generic);
-    const lead = (specific.length ? specific : frames)[0];
-    const away = AWAY.test(text);
-    // A return wave is placed by the command it LEAVES — "returning home
-    // from Al Udeid" is CENTCOM lift going away.
-    const aor = away && !dest && origin ? origin.aor : resolveChatterAor(text, dest, origin, lead.actor);
-    const direction: ChatterDirection = away ? "away" : dest || aor !== "UNKNOWN" ? "toward" : "unclear";
-    // A return wave is about the field it LEAVES — that field's SITREP row
-    // should see "3 tankers departing", so the ICAO and the mine flag follow
-    // the origin when the wave is placed by it.
-    const field = away && !dest && origin ? origin : dest;
-    out.push({
-      id: `ch-${it.id}`,
-      icao: field?.icao ?? null,
-      mine: !!field?.mine,
-      airframes: [...new Set(frames.map((f) => f.id))],
-      classes: [...new Set(frames.map((f) => f.cls))],
-      count: statedCount(text, frames),
-      side: lead.side, actor: lead.actor,
-      place: dest?.name ?? null, origin: origin?.name ?? null,
-      aor, direction, phrase: move[0], text: text.slice(0, 280), link: it.link, source: (it.source || "").trim() || "unknown", pubDate: new Date(t).toISOString(),
-    });
+    const r = readOne(it, nowMs, places);
+    if (r.post) out.push(r.post);
   }
   return out.sort((a, b) => Date.parse(b.pubDate) - Date.parse(a.pubDate));
+}
+
+type SkipReason = "outside-window" | "no-airframe" | "generic-gated" | "no-movement";
+
+/** One item through the grammar: the post, or why it was not one. */
+function readOne(it: NewsItem, nowMs: number, places: PlaceDef[]): { post: ChatterPost | null; skip: SkipReason | null } {
+  const t = Date.parse(it.pubDate);
+  if (!Number.isFinite(t) || nowMs - t > CHATTER_WINDOW_DAYS * DAY || t - nowMs > DAY) return { post: null, skip: "outside-window" };
+  const text = hay(it);
+  const frames = airframesIn(text);
+  if (!frames.length) {
+    // A generic "tanker" / "airlifter" the context gate refused is the near
+    // miss worth seeing — the rest of the pool simply names no airframe.
+    const gated = AIRFRAMES.some((a) => a.generic && a.rx.test(text));
+    return { post: null, skip: gated ? "generic-gated" : "no-airframe" };
+  }
+  const move = MOVEMENT.map((re) => re.exec(text)).filter((m): m is RegExpExecArray => !!m).sort((a, b) => a.index - b.index)[0];
+  if (!move) return { post: null, skip: "no-movement" };
+  const { dest, origin } = placesIn(text, places);
+  // The side is the most specific airframe's: a named Russian or allied
+  // type wins over the generic "tanker"; a US type wins over an ally's
+  // generic mention. Ties go to the first declared.
+  const specific = frames.filter((f) => !f.generic);
+  const lead = (specific.length ? specific : frames)[0];
+  const away = AWAY.test(text);
+  // A return wave is placed by the command it LEAVES — "returning home
+  // from Al Udeid" is CENTCOM lift going away.
+  const aor = away && !dest && origin ? origin.aor : resolveChatterAor(text, dest, origin, lead.actor);
+  const direction: ChatterDirection = away ? "away" : dest || aor !== "UNKNOWN" ? "toward" : "unclear";
+  // A return wave is about the field it LEAVES — that field's SITREP row
+  // should see "3 tankers departing", so the ICAO and the mine flag follow
+  // the origin when the wave is placed by it.
+  const field = away && !dest && origin ? origin : dest;
+  return { skip: null, post: {
+    id: `ch-${it.id}`,
+    icao: field?.icao ?? null,
+    mine: !!field?.mine,
+    airframes: [...new Set(frames.map((f) => f.id))],
+    classes: [...new Set(frames.map((f) => f.cls))],
+    count: statedCount(text, frames),
+    side: lead.side, actor: lead.actor,
+    place: dest?.name ?? null, origin: origin?.name ?? null,
+    aor, direction, phrase: move[0], text: text.slice(0, 280), link: it.link, source: (it.source || "").trim() || "unknown", pubDate: new Date(t).toISOString(),
+  } };
+}
+
+// ── The tuning read (owner diag) ───────────────────────────────────────────
+// What the grammar made of the operator's OWN pool, so it can be tuned to the
+// handles they actually follow: what matched, the near misses (a type named
+// but no movement phrase; a generic "tanker" refused by context; a post with
+// no place the app knows), the places named, the place-shaped phrases after a
+// cue that match nothing, and the designators named that the grammar does
+// not carry. Read-only; never feeds a level.
+
+export interface ChatterExample { source: string; text: string; link: string; pubDate: string; note?: string }
+export interface ChatterExplain {
+  generatedAt: string;
+  window: { days: number; items: number; inWindow: number; bySource: Record<string, number> };
+  matched: number;
+  placed: number;
+  unplaced: number;
+  away: number;
+  mine: number;
+  byAor: Record<string, number>;
+  byAirframe: Record<string, number>;
+  matchedExamples: ChatterExample[];
+  nearMiss: {
+    noMovement: { count: number; examples: ChatterExample[] };
+    genericGated: { count: number; examples: ChatterExample[] };
+    unplaced: { count: number; examples: ChatterExample[] };
+  };
+  places: { name: string; icao: string | null; mine: boolean; aor: Aor; dest: number; origin: number; bare: number }[];
+  unknownPlaces: { phrase: string; role: "dest" | "origin"; count: number; example: string }[];
+  unknownTypes: { token: string; count: number; example: string }[];
+  handles: { source: string; items: number; matched: number }[];
+  lines: string[];
+}
+
+const EXAMPLE_CAP = 10;
+const ex = (it: NewsItem, note?: string): ChatterExample =>
+  ({ source: (it.source || "").trim() || "unknown", text: hay(it).slice(0, 220), link: it.link, pubDate: it.pubDate, ...(note ? { note } : {}) });
+const sourceKind = (s: string) => (s.startsWith("𝕏") ? "x" : s.startsWith("📄") ? "article" : "other");
+
+// A capitalised phrase (or an ICAO) right after a cue — the shape a place
+// takes in a spotter post. Up to four words, "RAF / AB / AFB" allowed inside.
+const CUE_PLACE = /\b(to|into|toward|towards|for|at|bound for|inbound to|heading to|heading for|landed at|landed in|arrived at|arrived in|on the ground at|staging at|over|from|out of|departed|departing|leaving|ex)\s+(?:the\s+)?((?:RAF\s+)?(?:[A-Z][\w'’.]*|[A-Z]{4})(?:[ -](?:[A-Z][\w'’.]*|AB|AFB|NAS))?(?:[ -](?:[A-Z][\w'’.]*|AB|AFB|NAS))?)/g;
+const ORIGIN_WORDS = new Set(["from", "out of", "departed", "departing", "leaving", "ex"]);
+const PLACE_STOP = new Set(["the", "a", "an", "i", "us", "u.s.", "usaf", "amc", "nato", "ads-b", "adsb", "today", "tonight", "this", "that", "these", "those", "twitter", "x", "icymi", "breaking", "update", "raf", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "least", "it", "we", "they", "he", "she", "you", "my", "our", "their", "his", "her", "its", "one", "two", "three", "four", "five", "six"]);
+// Designators: "E-3", "RC-135V", "P-8A", "MQ-9" and the Russian / Chinese forms.
+const DESIGNATOR = /\b(?:[A-Z]{1,3}-\d{1,3}[A-Z]{0,2}|(?:Il|Tu|An|Su|Mi|Ka|Yak|KJ|Y)-\d{1,3}[A-Z]?)\b/g;
+const DESIGNATOR_STOP = /^(?:COVID-|G-\d|K-12$|UN-|EU-|MH-17$)/i;
+
+function isKnownPlacePhrase(phrase: string, places: PlaceDef[]): boolean {
+  if (places.some((p) => p.rx.test(phrase))) return true;
+  if (REGION_AOR.some(([re]) => re.test(phrase))) return true;
+  return aorFromName(phrase) !== "UNKNOWN";
+}
+
+/** The tuning read over the own-source pool. PURE. */
+export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), opts: { ownPlaces?: OwnPlace[] } = {}): ChatterExplain {
+  const places = placesWithOwn(opts.ownPlaces);
+  const bySource: Record<string, number> = {};
+  const byAor: Record<string, number> = {};
+  const byAirframe: Record<string, number> = {};
+  const handles = new Map<string, { items: number; matched: number }>();
+  const placeCount = new Map<string, { name: string; icao: string | null; mine: boolean; aor: Aor; dest: number; origin: number; bare: number }>();
+  const unknownPlaces = new Map<string, { phrase: string; role: "dest" | "origin"; count: number; example: string }>();
+  const unknownTypes = new Map<string, { token: string; count: number; example: string }>();
+  const matchedEx: ChatterExample[] = [], noMove: ChatterExample[] = [], gated: ChatterExample[] = [], unplacedEx: ChatterExample[] = [];
+  let inWindow = 0, matched = 0, placed = 0, unplaced = 0, away = 0, mine = 0, noMoveN = 0, gatedN = 0;
+
+  for (const it of items) {
+    const r = readOne(it, nowMs, places);
+    if (r.skip === "outside-window") continue;
+    inWindow++;
+    const src = (it.source || "").trim() || "unknown";
+    bySource[sourceKind(src)] = (bySource[sourceKind(src)] ?? 0) + 1;
+    const h = handles.get(src) ?? { items: 0, matched: 0 };
+    h.items++;
+    handles.set(src, h);
+    const text = hay(it);
+
+    // Designators the grammar does not carry — in every item, so a type the
+    // operator's lists talk about shows up even when no movement phrase does.
+    const seenTok = new Set<string>();
+    for (const m of text.matchAll(DESIGNATOR)) {
+      const tok = /^[A-Z]/.test(m[0]) && !/^(?:Il|Tu|An|Su|Mi|Ka|Yak)-/.test(m[0]) ? m[0].toUpperCase() : m[0];
+      if (seenTok.has(tok) || DESIGNATOR_STOP.test(tok) || AIRFRAMES.some((a) => !a.generic && a.rx.test(tok))) continue;
+      seenTok.add(tok);
+      const u = unknownTypes.get(tok) ?? { token: tok, count: 0, example: text.slice(0, 160) };
+      u.count++;
+      unknownTypes.set(tok, u);
+    }
+
+    if (r.skip === "generic-gated") { gatedN++; if (gated.length < EXAMPLE_CAP) gated.push(ex(it)); continue; }
+    if (r.skip === "no-airframe") continue;
+
+    // An airframe was named: count the places and the unknown place phrases.
+    for (const hit of placeHits(text, places)) {
+      const key = hit.p.name.toLowerCase();
+      const pc = placeCount.get(key) ?? { name: hit.p.name, icao: hit.p.icao ?? null, mine: !!hit.p.mine, aor: hit.p.aor, dest: 0, origin: 0, bare: 0 };
+      pc[hit.role]++;
+      placeCount.set(key, pc);
+    }
+    for (const m of text.matchAll(CUE_PLACE)) {
+      const phrase = m[2].replace(/[.’']+$/, "").trim();
+      const first = phrase.split(/[ -]/)[0].toLowerCase();
+      if (phrase.length < 3 || PLACE_STOP.has(phrase.toLowerCase()) || PLACE_STOP.has(first)) continue;
+      if (AIRFRAMES.some((a) => a.rx.test(phrase)) || isKnownPlacePhrase(phrase, places)) continue;
+      const role: "dest" | "origin" = ORIGIN_WORDS.has(m[1].toLowerCase()) ? "origin" : "dest";
+      const key = `${role}|${phrase.toLowerCase()}`;
+      const u = unknownPlaces.get(key) ?? { phrase, role, count: 0, example: text.slice(0, 160) };
+      u.count++;
+      unknownPlaces.set(key, u);
+    }
+
+    if (r.skip === "no-movement") { noMoveN++; if (noMove.length < EXAMPLE_CAP) noMove.push(ex(it)); continue; }
+    const p = r.post!;
+    matched++;
+    h.matched++;
+    byAor[p.aor] = (byAor[p.aor] ?? 0) + 1;
+    for (const f of p.airframes) byAirframe[f] = (byAirframe[f] ?? 0) + 1;
+    if (p.direction === "away") away++;
+    if (p.mine) mine++;
+    const note = `${p.airframes.join("/")}${p.count ? ` ×${p.count}` : ""} · ${p.origin ? `${p.origin} → ` : ""}${p.place ?? "?"} · ${p.aor} · ${p.direction} · "${p.phrase}"`;
+    if (p.aor === "UNKNOWN") { unplaced++; if (unplacedEx.length < EXAMPLE_CAP) unplacedEx.push(ex(it, note)); }
+    else { placed++; if (matchedEx.length < EXAMPLE_CAP) matchedEx.push(ex(it, note)); }
+  }
+
+  const top = <T extends { count: number }>(m: Map<string, T>, n: number) => [...m.values()].sort((a, b) => b.count - a.count).slice(0, n);
+  const placeList = [...placeCount.values()].sort((a, b) => (b.dest + b.origin + b.bare) - (a.dest + a.origin + a.bare)).slice(0, 25);
+  const uPlaces = top(unknownPlaces, 25);
+  const uTypes = top(unknownTypes, 25);
+  const handleList = [...handles.entries()].map(([source, v]) => ({ source, ...v })).sort((a, b) => b.items - a.items).slice(0, 20);
+  const fmt = (r: Record<string, number>) => Object.entries(r).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(" · ") || "none";
+
+  const lines = [
+    `${items.length} own items read · ${inWindow} in the ${CHATTER_WINDOW_DAYS}-day window (${fmt(bySource)})`,
+    `${matched} chatter posts: ${placed} placed · ${unplaced} unplaced · ${away} returning · ${mine} naming your fields`,
+    `by command: ${fmt(byAor)}`,
+    `by airframe: ${fmt(byAirframe)}`,
+    `near misses: ${noMoveN} named a type with no movement phrase · ${gatedN} generic "tanker"/"airlifter" refused by context`,
+    `places named (dest/origin/bare): ${placeList.slice(0, 8).map((p) => `${p.name} ${p.dest}/${p.origin}/${p.bare}`).join(" · ") || "none"}`,
+    `unknown places after a cue: ${uPlaces.slice(0, 8).map((u) => `"${u.phrase}" ×${u.count} (${u.role})`).join(" · ") || "none"}`,
+    `designators not in the grammar: ${uTypes.slice(0, 10).map((u) => `${u.token} ×${u.count}`).join(" · ") || "none"}`,
+  ];
+
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    window: { days: CHATTER_WINDOW_DAYS, items: items.length, inWindow, bySource },
+    matched, placed, unplaced, away, mine, byAor, byAirframe,
+    matchedExamples: matchedEx,
+    nearMiss: { noMovement: { count: noMoveN, examples: noMove }, genericGated: { count: gatedN, examples: gated }, unplaced: { count: unplaced, examples: unplacedEx } },
+    places: placeList, unknownPlaces: uPlaces, unknownTypes: uTypes, handles: handleList, lines,
+  };
 }
 
 /** One cluster per (AOR, side, direction): distinct sources corroborate. */
