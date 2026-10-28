@@ -5,17 +5,11 @@ import TabBar, { Tab } from "./TabBar";
 import MobileNavDrawer from "./MobileNavDrawer";
 import SessionExpiredBanner from "@/components/SessionExpiredBanner";
 import { BriefIcon, DigestIcon, CaptureIcon, PreferencesIcon, MenuIcon, SearchIcon } from "@/lib/icons";
-import CommandPalette from "@/components/CommandPalette";
 import NewsShell from "@/components/news/NewsShell";
-import CalendarTab from "@/components/calendar/CalendarTab";
-import EmailTab from "@/components/email/EmailTab";
-import MarketsTab from "@/components/markets/MarketsTab";
-import WeatherTab from "@/components/weather/WeatherTab";
 import OSINTTab from "@/components/osint/OSINTTab";
-import DocumentsTab from "@/components/documents/DocumentsTab";
 import GlanceTab from "@/components/glance/GlanceTab";
-import ToolsTab from "@/components/tools/ToolsTab";
 import { lazyClient } from "@/lib/lazyClient";
+import { installDoorBuffer } from "@/lib/doorBuffer";
 // Loaded on demand: neither is needed for Glance's first paint — the drawer
 // is a 150 KB component rendered only while open, and the Family tab mounts
 // only when opened (code review 2026-10-07: one 1.2 MB page chunk).
@@ -32,8 +26,27 @@ const PreferencesDrawer = lazyClient(() => import("@/components/PreferencesDrawe
     <div className="fixed top-0 right-0 h-full w-full max-w-md lg:max-w-3xl bg-slate-950 border-l border-slate-800 z-50 flex items-center justify-center text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading preferences…</div>
   </>
 ));
-import BriefingModal from "@/components/BriefingModal";
-import QuickCaptureModal from "@/components/QuickCaptureModal";
+// The tab bodies Glance's first paint does not need (review 2026-10-28: the
+// page chunk was 306 KB gzip because every tab was a static import). Email
+// and Calendar still MOUNT at load — Glance reads the triage and the brief
+// waits on the calendar — but their code arrives as its own chunk right
+// after hydration. Markets, Docs, Weather and Tools mount on first open.
+const tabLoading = (label: string) => function TabLoading() {
+  return <div className="px-4 py-6 text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading {label}…</div>;
+};
+const CalendarTab = lazyClient(() => import("@/components/calendar/CalendarTab"), tabLoading("Calendar"));
+const EmailTab = lazyClient(() => import("@/components/email/EmailTab"), tabLoading("Email"));
+const MarketsTab = lazyClient(() => import("@/components/markets/MarketsTab"), tabLoading("Economy"));
+const WeatherTab = lazyClient(() => import("@/components/weather/WeatherTab"), tabLoading("Weather"));
+const DocumentsTab = lazyClient(() => import("@/components/documents/DocumentsTab"), tabLoading("Docs"));
+const ToolsTab = lazyClient(() => import("@/components/tools/ToolsTab"), tabLoading("Tools"));
+// Doors into a tab that mounts late are parked until it takes them.
+if (typeof window !== "undefined") installDoorBuffer(["docs:open", "docs:search", "watch:focus", "regional:select"]);
+// Dialogs that mount on FIRST open and stay mounted after (their state then
+// survives a close, as before); none is needed for the first paint.
+const BriefingModal = lazyClient(() => import("@/components/BriefingModal"));
+const QuickCaptureModal = lazyClient(() => import("@/components/QuickCaptureModal"));
+const CommandPalette = lazyClient(() => import("@/components/CommandPalette"));
 import TrackPicker from "@/components/TrackPicker";
 import AppendPicker from "@/components/AppendPicker";
 import SelectionChip from "@/components/SelectionChip";
@@ -152,6 +165,12 @@ export default function TabShell() {
   // Global ⌘K / Ctrl+K opens the command palette from anywhere. Quick
   // capture (which used to own ⌘K) is an entry inside it.
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Each dialog mounts the first time it opens and stays mounted after.
+  const [seenDialogs, setSeenDialogs] = useState({ brief: false, capture: false, palette: false });
+  useEffect(() => {
+    setSeenDialogs((d) => (d.brief || !briefingOpen) && (d.capture || !captureOpen) && (d.palette || !paletteOpen)
+      ? d : { brief: d.brief || briefingOpen, capture: d.capture || captureOpen, palette: d.palette || paletteOpen });
+  }, [briefingOpen, captureOpen, paletteOpen]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -422,7 +441,7 @@ export default function TabShell() {
         onSearch={() => setPaletteOpen(true)}
       />
 
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {seenDialogs.palette && <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />}
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 pb-safe">
         {/* All tabs stay mounted — CSS hidden keeps them alive for instant switching and parallel pre-fetch */}
@@ -463,7 +482,7 @@ export default function TabShell() {
         </div>
 
         <div className={activeTab !== "docs" ? "hidden" : ""}>
-          <DocumentsTab />
+          {seenTabs.has("docs") && <DocumentsTab />}
         </div>
 
         <div className={activeTab !== "osint" ? "hidden" : ""}>
@@ -485,7 +504,7 @@ export default function TabShell() {
         )}
 
         <div className={activeTab !== "markets" ? "hidden" : ""}>
-          <MarketsTab articles={articles} active={activeTab === "markets"} />
+          {seenTabs.has("markets") && <MarketsTab articles={articles} active={activeTab === "markets"} />}
         </div>
 
         <div className={activeTab !== "weather" ? "hidden" : ""}>
@@ -507,7 +526,7 @@ export default function TabShell() {
         />
       )}
 
-      <BriefingModal
+      {seenDialogs.brief && <BriefingModal
         open={briefingOpen}
         mode={briefingMode}
         onClose={() => setBriefingOpen(false)}
@@ -517,9 +536,9 @@ export default function TabShell() {
         osintTop={osintTop}
         tasks={tasks}
         previousSeenNews={previousSeen.news}
-      />
+      />}
 
-      <QuickCaptureModal
+      {seenDialogs.capture && <QuickCaptureModal
         open={captureOpen}
         onClose={() => setCaptureOpen(false)}
         onCaptured={(kind) => {
@@ -527,7 +546,7 @@ export default function TabShell() {
           // happens on tab switch.
           if (kind === "task") setTasksRefreshKey((k) => k + 1);
         }}
-      />
+      />}
 
       {/* The one Track dialog — opens on `track:open` from ⌘K, Preferences,
           map popups, board rows, situation rooms and Glance rows. */}

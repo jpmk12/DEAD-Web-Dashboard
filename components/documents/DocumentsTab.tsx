@@ -1,5 +1,6 @@
 "use client";
 
+import { takeDoor } from "@/lib/doorBuffer";
 import { useEffect, useState } from "react";
 import DocList from "./DocList";
 import DocEditor from "./DocEditor";
@@ -86,6 +87,10 @@ export default function DocumentsTab() {
     const onChanged = () => setListRefreshKey((k) => k + 1);
     window.addEventListener("docs:open", onOpen);
     window.addEventListener("docs:changed", onChanged);
+    // A door fired before this tab mounted (it mounts on first open, as a
+    // lazy chunk) was parked by the shell — take it now.
+    const parked = takeDoor("docs:open");
+    if (typeof parked === "string" && parked) { switchPane("docs"); select(parked); }
     return () => { window.removeEventListener("docs:open", onOpen); window.removeEventListener("docs:changed", onChanged); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

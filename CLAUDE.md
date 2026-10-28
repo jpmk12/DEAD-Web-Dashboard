@@ -5169,10 +5169,41 @@ fixed. Keep the RULE, not just the patch:
   rank copies, 17 `withTimeout` copies and 8 haversines remain (only the
   one that folded UNKNOWN into green was a bug); bundle: all tab bodies
   except the lazy ones are in the first-load chunk (~312 KB gzip) — a
-  `lazyClient` split of Markets / Docs / Email / Calendar is the next step,
-  to be checked with `tools/ui-sweep/lazy-check.cjs`; `lib/db.ts` runs ~150
-  schema statements on a cold process.
+  `lazyClient` split followed the same day — see "First-load split"
+  below; `lib/db.ts` runs ~150 schema statements on a cold process.
 No new npm dep (esbuild `0`).
+
+### First-load split (2026-10-28, "press with the lazy load")
+The dashboard page's first-load JS went from **423 KB gzip (1,557 KB raw)
+to 231 KB gzip (795 KB raw)**; the page chunk from 306 → 117 KB gzip
+(measured from `.next/app-build-manifest.json`, `/layout` + `/page` JS,
+gzipped). Every split uses `lazyClient` (never `next/dynamic` — see "Lazy
+components render on arrival"):
+- **Mount on FIRST open, stay mounted** (`seenTabs` in TabShell): Economy
+  (Markets), Docs, Weather, Tools. **Mount at load, code as its own chunk**:
+  Calendar (the brief waits on its events) and Email (Glance reads the
+  triage) — their chunks arrive right after hydration.
+- **Dialogs mount on first open** (`seenDialogs`): the Morning Brief, Quick
+  capture, the ⌘K palette — every effect in them is `open`-gated, so a late
+  mount changes nothing. The assistant's `ChatPanel` loads with the first
+  open of the floating assistant (the launcher is all the first paint
+  needs). The command board is lazy inside the OSINT tab.
+- **Doors into a late tab are parked** — `lib/doorBuffer.ts` (tested):
+  TabShell installs a window listener for `docs:open`, `docs:search`,
+  `watch:focus`, `regional:select` and keeps the newest of each for 15 s;
+  `DocumentsTab`, `DocList` and `CommandBoard` take it on mount. Without it
+  a palette / chat / Append door fired 60–120 ms after `app:navigate` would
+  open an empty tab, because the tab's chunk was still in flight. **A new
+  door event into a lazily mounted surface must be added to that list and
+  taken on mount.**
+- Still in the first chunk by need: Glance, News (its articles feed the
+  brief), the OSINT tab shell (its feed loads at mount for the brief), the
+  Track and Append pickers and the selection chip (they listen for doors at
+  all times), the framework.
+- `tools/ui-sweep/lazy-check.cjs` now also checks, on one page after a
+  35-s idle: the docs door before mount (the editor must fetch the parked
+  id), the five lazy tabs, the assistant panel and the palette, each within
+  2.5 s. Run it after touching TabShell, a `lazyClient` site or a door.
 
 ### Code review 2026-10-07 (security · correctness · performance · UI) — what changed and the rules it left behind
 Five parallel reviews over the whole tree (140 routes, 108 components, 248

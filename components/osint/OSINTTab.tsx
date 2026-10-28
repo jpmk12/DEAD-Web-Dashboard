@@ -5,7 +5,13 @@ import { openAppend } from "@/lib/appendClient";
 import { relTime } from "@/lib/relTime";
 import { Crosshair } from "@/lib/icons";
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
-import CommandBoard from "@/components/osint/CommandBoard";
+import { lazyClient } from "@/lib/lazyClient";
+// The command board (boards, SITREPs, rooms, the map) arrives as its own
+// chunk right after hydration (review 2026-10-28); it arms only on first
+// activation anyway. Doors fired before it arrives are parked by the shell.
+const CommandBoard = lazyClient(() => import("@/components/osint/CommandBoard"), function BoardLoading() {
+  return <div className="px-4 py-6 text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading the command board…</div>;
+});
 import SourcesPane from "@/components/osint/SourcesPane";
 import ThemesCard from "@/components/osint/ThemesCard";
 

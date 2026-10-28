@@ -1,5 +1,6 @@
 "use client";
 
+import { takeDoor } from "@/lib/doorBuffer";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import TagManagerModal from "./TagManagerModal";
@@ -157,6 +158,8 @@ export default function DocList({ selectedId, onSelect, onCreate, refreshKey, on
       if (typeof q === "string") setSearch(q);
     };
     window.addEventListener("docs:search", onSearch);
+    const parked = takeDoor("docs:search");
+    if (typeof parked === "string") setSearch(parked);
     return () => window.removeEventListener("docs:search", onSearch);
   }, []);
 

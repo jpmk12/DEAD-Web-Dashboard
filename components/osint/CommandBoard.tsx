@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openTrackPicker, postTrack, roleBody, untrackAirfieldBody, untrackCountryBody, type TrackResponse } from "@/lib/trackClient";
 import { lazyClient } from "@/lib/lazyClient";
+import { takeDoor } from "@/lib/doorBuffer";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ReactivationCard from "@/components/osint/ReactivationCard";
 import RoomDrawer from "@/components/osint/RoomDrawer";
@@ -245,6 +246,11 @@ export default function CommandBoard({ active }: { active: boolean }) {
       const ref = parseRoomParam(new URLSearchParams(window.location.search).get("room"));
       if (ref) { parked.current = { kind: ref.kind === "field" ? "sitrep" : ref.kind === "board" ? "iw" : "country", id: ref.id }; setArmed(true); }
     } catch { /* ignore */ }
+    // A door fired before this board's chunk arrived (it is lazy inside the
+    // OSINT tab) was parked by the shell — take the newer of the two now.
+    const f = takeDoor("watch:focus"), sel = takeDoor("regional:select");
+    if (f && typeof f === "object") onFocus(new CustomEvent("watch:focus", { detail: f }));
+    else if (typeof sel === "string") onSel(new CustomEvent("regional:select", { detail: sel }));
     return () => { window.removeEventListener("watch:focus", onFocus); window.removeEventListener("regional:select", onSel); };
   }, []);
   useEffect(() => {

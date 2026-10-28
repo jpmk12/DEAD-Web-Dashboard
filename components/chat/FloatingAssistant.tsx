@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CalendarEvent, GoogleTask, NewsItem, NewsletterSummary, ThreadsResult } from "@/lib/types";
-import ChatPanel from "./ChatPanel";
+import { lazyClient } from "@/lib/lazyClient";
+// The panel arrives with the first open (review 2026-10-28) — the launcher
+// button is all the first paint needs.
+const ChatPanel = lazyClient(() => import("./ChatPanel"), function ChatLoading() {
+  return <div className="h-full flex items-center justify-center text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading the assistant…</div>;
+});
 import { AssistantIcon, CloseIcon } from "@/lib/icons";
 
 interface FloatingAssistantProps {
