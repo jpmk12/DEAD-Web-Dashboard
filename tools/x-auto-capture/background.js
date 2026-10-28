@@ -338,7 +338,7 @@ async function captureOne(url, c) {
           const needIds = capture.items.filter((i) => i.lat == null && i.eid).map((i) => i.eid);
           if (needIds.length) {
             try {
-              const r2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: clickProbeLiveuamap, args: [needIds, 25000] });
+              const r2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: clickProbeLiveuamap, args: [needIds, Math.min(90000, 5000 + 1500 * needIds.length)] });
               const cp = r2 && r2[0] && r2[0].result;
               if (cp) {
                 clickDiag = cp.diag;
@@ -357,7 +357,7 @@ async function captureOne(url, c) {
           capture.diag = {
             ...(capture.diag || {}),
             placed: capture.items.filter((i) => i.lat != null).length,
-            mapProbe: [d.map || "no map lib", "markers " + d.markers + " (linked " + d.markersLinked + ")", "objects " + d.objects + " (linked " + d.objectsLinked + ")", "ids " + (d.byId || 0) + " · titles " + (d.byTitle || 0), d.layerMaps && d.layerMaps.length ? "id→marker tables " + d.layerMaps.join(" ; ") : "no id→marker table", "joined " + joined + (joined ? " (path " + how.path + " · id " + how.id + " · title " + how.title + (how.click != null ? " · click " + how.click : "") + ")" : ""), clickDiag ? "click probe " + (clickDiag.error ? "failed: " + clickDiag.error : (clickDiag.map ? "clicked " + clickDiag.clicked + " · popups " + clickDiag.opened + " · map moved " + clickDiag.moved + (clickDiag.sample && clickDiag.sample.length ? " e.g. " + clickDiag.sample.join(" ; ") : "") : "no map found")) : "", d.markerSample ? "marker " + d.markerSample : "", d.arrays && d.arrays.length ? "arrays " + d.arrays.join(" ; ") : "", d.scriptPairs ? "script lat/lng pairs " + d.scriptPairs + " e.g. " + d.scriptSample : ""].filter(Boolean).join(" · "),
+            mapProbe: [d.map || "no map lib", "markers " + d.markers + " (linked " + d.markersLinked + ")", "objects " + d.objects + " (linked " + d.objectsLinked + ")", "ids " + (d.byId || 0) + " · titles " + (d.byTitle || 0), d.layerMaps && d.layerMaps.length ? "id→marker tables " + d.layerMaps.join(" ; ") : "no id→marker table", "joined " + joined + (joined ? " (path " + how.path + " · id " + how.id + " · title " + how.title + (how.click != null ? " · click " + how.click : "") + ")" : ""), clickDiag ? "click probe " + (clickDiag.error ? "failed: " + clickDiag.error : (clickDiag.map ? "clicked " + clickDiag.clicked + " · of " + clickDiag.asked + " · flew to " + (clickDiag.flew || 0) + " · popups " + clickDiag.opened + " · map moved " + clickDiag.moved + (clickDiag.sample && clickDiag.sample.length ? " e.g. " + clickDiag.sample.join(" ; ") : "") : "no map found")) : "", d.markerSample ? "marker " + d.markerSample : "", d.arrays && d.arrays.length ? "arrays " + d.arrays.join(" ; ") : "", d.scriptPairs ? "script lat/lng pairs " + d.scriptPairs + " e.g. " + d.scriptSample : ""].filter(Boolean).join(" · "),
           };
         }
       } catch (e) { /* the probe is best-effort */ }

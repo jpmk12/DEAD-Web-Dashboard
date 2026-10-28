@@ -3384,6 +3384,24 @@ the markup at all.
   mid-pan. The diag carries `e.g. <eid>→lat,lng` (three samples) so a run
   log shows the positions to sanity-check. Tested on a stand-in with an
   animated pan and two consecutive same-place events (both placed exactly).
+- **1.2.13, from the 1:32 PM run log**: the sample positions were right
+  (iran: Kuwait City, Tehran, the Pentagon; centralasia: Astana, Islamabad,
+  Tashkent) but only 13 entries per page were clicked (26 / 20 before) — the
+  site's re-centre is ANIMATED, the 1.2.12 settle-wait spent ~2 s per click
+  and the 25-s budget ran out (iran 11, centralasia 20; the store kept 50
+  because a capture without a position never erases one, and a newer
+  position replaces an older one, `COALESCE(VALUES(lat), lat)`). Now, for the
+  probe's duration only, the map instance's own `setView` / `flyTo` /
+  `panTo` are wrapped to RECORD the place the site's click handler asks for
+  and to force `animate:false`; the first recorded place that is not the
+  pre-click centre is the event's position (a zoom-only call re-centres on
+  the current point and is skipped); the originals are restored in
+  `finally` (deleted when they were prototype methods). Popup and settled
+  centre stay as fallbacks. The budget scales with the work (5 s + 1.5 s per
+  entry, ≤90 s); the diag reads `clicked N · of M · flew to N · popups N ·
+  map moved N`. Tested on a stand-in with Leaflet-shaped prototype methods
+  and a 2-s flyTo: 3 of 3 exact, a zoom-first handler and a same-place pair
+  handled, 4 clicks in 1.8 s, no own properties left behind.
 
 
 

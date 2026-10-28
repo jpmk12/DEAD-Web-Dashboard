@@ -297,16 +297,16 @@ export function probeLiveuamapCoords() {
 
 // Last resort, run in the page's world when the joins above leave events
 // unplaced: do what a reader does — click each feed entry. LiveUAMap answers
-// a click on an entry by opening that event's popup on the map, and the
-// popup's position IS the event's position (opening a popup needs no
-// animation, so this works in a background tab). Only entries whose
+// a click on an entry by sending the map to the event; the place it asks for
+// (recorded from the map's own setView / flyTo / panTo) IS the event's
+// position, else a popup's position, else the settled centre. Only entries whose
 // data-id the worker still needs are clicked; nothing is typed, submitted
 // or followed; a click on a link inside an entry is prevented. Returns
 // { byId: [[id, lat, lng]], diag }.
 export async function clickProbeLiveuamap(ids, maxMs) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ok = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 && !(a === 0 && b === 0);
-  const diag = { asked: (ids || []).length, clicked: 0, opened: 0, moved: 0, map: false, sample: [] };
+  const diag = { asked: (ids || []).length, clicked: 0, flew: 0, opened: 0, moved: 0, map: false, sample: [] };
   let map = null;
   try {
     for (const k of Object.keys(window)) {
@@ -322,6 +322,33 @@ export async function clickProbeLiveuamap(ids, maxMs) {
   const out = [];
   const end = Date.now() + (maxMs || 20000);
   const llOfPopup = () => { const p = map._popup; return p && p._latlng ? [p._latlng.lat, p._latlng.lng] : null; };
+  // The site answers a click by sending the map to the event (the 1.2.11 /
+  // 1.2.12 runs: popups 0, map moved). While the probe runs, the map's own
+  // setView / flyTo / panTo are wrapped on THIS map instance to record the
+  // place the site asks for and to make the move instant (no animation to
+  // wait out); the originals are restored in `finally`.
+  const toLL = (a) => {
+    if (!a) return null;
+    if (Array.isArray(a) && a.length >= 2) return [Number(a[0]), Number(a[1])];
+    if (typeof a === "object" && a.lat != null) return [Number(a.lat), Number(a.lng != null ? a.lng : a.lon)];
+    return null;
+  };
+  const calls = [];
+  const saved = [];
+  for (const name of ["setView", "flyTo", "panTo"]) {
+    const orig = map[name];
+    if (typeof orig !== "function") continue;
+    saved.push([name, Object.prototype.hasOwnProperty.call(map, name), orig]);
+    map[name] = function (...args) {
+      try { const ll = toLL(args[0]); if (ll) calls.push(ll); } catch (e) { /* record is best-effort */ }
+      try {
+        const i = name === "panTo" ? 1 : 2;
+        args[i] = Object.assign({}, args[i] || {}, { animate: false });
+      } catch (e) { /* leave the arguments */ }
+      return orig.apply(this, args);
+    };
+  }
+  const origSetView = (saved.find((s) => s[0] === "setView") || [])[2];
   try {
     const entries = Array.from(document.querySelectorAll("div.event[data-id], [class*='event'][data-id]"))
       .filter((el) => want.has(String(el.getAttribute("data-id"))));
@@ -335,22 +362,35 @@ export async function clickProbeLiveuamap(ids, maxMs) {
       // a Leaflet popup — the 1.2.11 run read popups 0, moved 21).
       try {
         const c = map.getCenter(), z = map.getZoom ? map.getZoom() : undefined;
-        if (map.setView) map.setView([c.lat + 0.37, c.lng + 0.41], z, { animate: false });
+        if (origSetView) origSetView.call(map, [c.lat + 0.37, c.lng + 0.41], z, { animate: false });
       } catch (e) { /* the shift is best-effort */ }
       let c0 = null; try { const c = map.getCenter(); c0 = [c.lat, c.lng]; } catch (e) { /* none */ }
+      const sameAsC0 = (p) => c0 && Math.abs(p[0] - c0[0]) < 1e-4 && Math.abs(p[1] - c0[1]) < 1e-4;
+      const mark = calls.length;
       try { el.click(); diag.clicked++; } catch (e) { continue; }
-      // Wait until the centre stops moving (an animated pan read mid-flight
-      // would be a wrong position): two equal reads 150 ms apart, ≤2.5 s.
-      await sleep(300);
-      let last = null;
-      for (let t = 0; t < 15; t++) {
-        let cur = null; try { const c = map.getCenter(); cur = [c.lat, c.lng]; } catch (e) { break; }
-        if (last && Math.abs(cur[0] - last[0]) < 1e-7 && Math.abs(cur[1] - last[1]) < 1e-7) break;
-        last = cur;
-        await sleep(150);
+      // First: the place the site asked the map to go (≤1.2 s). A zoom-only
+      // call re-centres on where the map already is and is skipped.
+      let flew = null;
+      for (let t = 0; t < 12 && !flew; t++) {
+        await sleep(100);
+        for (let k = mark; k < calls.length; k++) { if (!sameAsC0(calls[k])) { flew = calls[k]; break; } }
       }
-      let ll = llOfPopup();
-      if (ll && (!before || Math.abs(ll[0] - before[0]) > 1e-6 || Math.abs(ll[1] - before[1]) > 1e-6)) diag.opened++;
+      let ll = null, last = null;
+      if (flew) { ll = flew; diag.flew++; }
+      else {
+        // Else read the centre once it stops moving (an animated pan read
+        // mid-flight would be a wrong position): two equal reads 150 ms
+        // apart, ≤1.5 s.
+        for (let t = 0; t < 10; t++) {
+          let cur = null; try { const c = map.getCenter(); cur = [c.lat, c.lng]; } catch (e) { break; }
+          if (last && Math.abs(cur[0] - last[0]) < 1e-7 && Math.abs(cur[1] - last[1]) < 1e-7) break;
+          last = cur;
+          await sleep(150);
+        }
+        ll = llOfPopup();
+      }
+      if (flew) { /* placed above */ }
+      else if (ll && (!before || Math.abs(ll[0] - before[0]) > 1e-6 || Math.abs(ll[1] - before[1]) > 1e-6)) diag.opened++;
       else {
         ll = null;
         if (last && c0 && (Math.abs(last[0] - c0[0]) > 1e-4 || Math.abs(last[1] - c0[1]) > 1e-4)) { ll = last; diag.moved++; }
@@ -362,6 +402,9 @@ export async function clickProbeLiveuamap(ids, maxMs) {
     }
   } finally {
     document.removeEventListener("click", stopLinks, true);
+    for (const [name, own, orig] of saved) {
+      try { if (own) map[name] = orig; else delete map[name]; } catch (e) { /* ignore */ }
+    }
     try { if (map.closePopup) map.closePopup(); } catch (e) { /* ignore */ }
   }
   return { byId: out, diag };
