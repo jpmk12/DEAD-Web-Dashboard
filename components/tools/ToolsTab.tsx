@@ -9,8 +9,9 @@ import {
   ymdToJulian, parseJulianInput, daysBetween, isoWeek, parseYmd,
   wallToMs, inZone, dtgZulu, parseDtg, DEFAULT_H_OFFSETS, hLabel, parseOffsetInput, hHourTable, hTableText, hCountdown,
 } from "@/lib/plannerTools";
-import { lightAt, forecastLine, SUN_STATE_LABEL, type Tone } from "@/lib/hHour";
-import { hhmmZ } from "@/lib/moon";
+import { lightAt, forecastLine, nearestLightEvent, nightDateFor, SUN_STATE_LABEL, type Tone } from "@/lib/hHour";
+import { hhmmZ, lunarNight, lunarTonightLine, zoneForLongitude, MOON_USEFUL_ALT_DEG } from "@/lib/moon";
+import { readPrivate, writePrivate, parseLatLon, PRIVATE_BLOCKS } from "@/lib/toolsPrivacy";
 import type { HConsiderations } from "@/app/api/tools/hhour/route";
 
 // The Tools tab — planner date-time arithmetic, ALL of it in the browser
@@ -23,13 +24,32 @@ import type { HConsiderations } from "@/app/api/tools/hhour/route";
 // arithmetic. The zones offered are the ones the Glance clock row already
 // shows plus Zulu, this device and the effective zone — one list, no
 // second editor; the places are the ones the app already tracks.
+//
+// PRIVATE MODE (lib/toolsPrivacy): the tab has exactly ONE network door
+// (`toolsFetch`) and ONE storage door (`saveH`), both of which refuse while
+// the switch is on — tests/toolsPrivacy.test.ts pins them as the only
+// network call and the only storage write in this file. While private: no
+// request leaves the tab (the zone hook, which fetches /api/zone, is not
+// mounted), nothing is written, the place is typed as coordinates, and the
+// At-H panel shows only what the browser computes itself. The scope is
+// this tab; the rest of the dashboard keeps its own polling, and the
+// header says so.
 
 const H_KEY = "tools.hhour";
 const CLOCKS_KEY = "glance.clocks";
 
 interface ZoneCol { zone: string; label: string }
-export interface HPlace { kind: "airfield" | "home" | "tdy" | "place"; id: string; label: string; lat: number; lon: number; icao: string | null; country: string | null; own?: "hub" | "spoke" | null }
+export interface HPlace { kind: "airfield" | "home" | "tdy" | "place" | "manual"; id: string; label: string; lat: number; lon: number; icao: string | null; country: string | null; own?: "hub" | "spoke" | null }
 interface HState { hMs: number | null; offsets: number[]; hidden: string[]; place: HPlace | null }
+
+/** The tab's ONLY network door. Private → null, and nothing is sent. */
+async function toolsFetch<T>(path: string, priv: boolean): Promise<T | null> {
+  if (priv) return null;
+  try {
+    const r = await fetch(path, { cache: "no-store" });
+    return r.ok ? ((await r.json()) as T) : null;
+  } catch { return null; }
+}
 
 function loadClocks(): ClockDef[] {
   try {
@@ -60,8 +80,15 @@ function loadH(): HState {
   } catch { return EMPTY_H; }
 }
 
-function saveH(s: HState): void {
+/** The tab's ONLY storage door. Private → nothing is written. */
+function saveH(s: HState, priv: boolean): void {
+  if (priv) return;
   try { localStorage.setItem(H_KEY, JSON.stringify(s)); } catch { /* per-browser convenience only */ }
+}
+
+/** Remove what an earlier, non-private session left behind. */
+function forgetStoredH(): boolean {
+  try { const had = localStorage.getItem(H_KEY) != null; localStorage.removeItem(H_KEY); return had; } catch { return false; }
 }
 
 const todayYmd = (zone: string): string => inZone(Date.now(), zone).ymd;
@@ -150,41 +177,41 @@ const TONE_TEXT: Record<Tone, string> = { r: "text-red-200", a: "text-amber-100"
 const CAT_CLS: Record<string, string> = { VFR: "text-emerald-300", MVFR: "text-sky-300", IFR: "text-red-300", LIFR: "text-fuchsia-300", UNKNOWN: "text-slate-400" };
 const SUN_GLYPH: Record<string, string> = { day: "☀", civil: "◐", nautical: "◑", night: "●" };
 
-/** The tracked places a planner may anchor H at, in the order they matter. */
-function usePlaces(): HPlace[] | null {
+/** The tracked places a planner may anchor H at, in the order they matter.
+ *  Private → an empty list and no request. */
+function usePlaces(priv: boolean): HPlace[] | null {
   const [places, setPlaces] = useState<HPlace[] | null>(null);
   useEffect(() => {
+    if (priv) { setPlaces([]); return; }
     let alive = true;
     const load = async () => {
       const out: HPlace[] = [];
       try {
-        const [track, prefs, trips] = await Promise.all([
-          fetch("/api/track").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch("/api/user-prefs").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch("/api/trips").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        ]);
-        const p = prefs?.prefs ?? prefs ?? {};
+        type Track = { registry?: { airfields?: Array<{ icao: string; label: string; lat: number; lon: number; country: string; own: "hub" | "spoke" | null; roles?: { star?: boolean } }>; places?: Array<{ id: string; label: string; lat: number; lon: number }> } };
+        type Prefs = { prefs?: { localCity?: string; localLat?: number; localLon?: number } };
+        type Trips = { active?: { id?: string; label: string; lat: number; lon: number } | null };
+        const [track, prefs, trips] = await Promise.all([toolsFetch<Track>("/api/track", priv), toolsFetch<Prefs>("/api/user-prefs", priv), toolsFetch<Trips>("/api/trips", priv)]);
+        const p = prefs?.prefs ?? {};
         const active = trips?.active;
         if (active && Number.isFinite(active.lat) && Number.isFinite(active.lon)) out.push({ kind: "tdy", id: `tdy:${active.id ?? active.label}`, label: `TDY · ${active.label}`, lat: active.lat, lon: active.lon, icao: null, country: null });
-        if (Number.isFinite(p.localLat) && Number.isFinite(p.localLon)) out.push({ kind: "home", id: "home", label: `Home · ${p.localCity?.trim() || "home"}`, lat: p.localLat, lon: p.localLon, icao: null, country: null });
-        const af: Array<{ icao: string; label: string; lat: number; lon: number; country: string; own: "hub" | "spoke" | null; roles?: { star?: boolean } }> = track?.registry?.airfields ?? [];
+        if (Number.isFinite(p.localLat) && Number.isFinite(p.localLon)) out.push({ kind: "home", id: "home", label: `Home · ${p.localCity?.trim() || "home"}`, lat: p.localLat!, lon: p.localLon!, icao: null, country: null });
+        const af = track?.registry?.airfields ?? [];
         const rank = (a: typeof af[number]) => (a.own === "hub" ? 0 : a.own === "spoke" ? 1 : a.roles?.star ? 2 : 3);
         for (const a of [...af].filter((a) => a.icao && (a.lat || a.lon)).sort((x, y) => rank(x) - rank(y) || x.icao.localeCompare(y.icao))) {
           out.push({ kind: "airfield", id: `af:${a.icao}`, label: `${a.icao} · ${a.label}${a.own ? ` (${a.own})` : ""}`, lat: a.lat, lon: a.lon, icao: a.icao, country: a.country || null, own: a.own });
         }
-        const pl: Array<{ id: string; label: string; lat: number; lon: number }> = track?.registry?.places ?? [];
-        for (const x of pl) if (Number.isFinite(x.lat) && Number.isFinite(x.lon)) out.push({ kind: "place", id: `pl:${x.id}`, label: x.label, lat: x.lat, lon: x.lon, icao: null, country: null });
+        for (const x of track?.registry?.places ?? []) if (Number.isFinite(x.lat) && Number.isFinite(x.lon)) out.push({ kind: "place", id: `pl:${x.id}`, label: x.label, lat: x.lat, lon: x.lon, icao: null, country: null });
       } catch { /* an empty list is fine — the picker says so */ }
       if (alive) setPlaces(out);
     };
     load();
     window.addEventListener("tracking:changed", load);
     return () => { alive = false; window.removeEventListener("tracking:changed", load); };
-  }, []);
+  }, [priv]);
   return places;
 }
 
-function HHourCard({ cols, effective }: { cols: ZoneCol[]; effective: ZoneCol }) {
+function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: ZoneCol; priv: boolean }) {
   const [st, setSt] = useState<HState | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [inZoneId, setInZoneId] = useState("UTC");
@@ -192,16 +219,20 @@ function HHourCard({ cols, effective }: { cols: ZoneCol[]; effective: ZoneCol })
   const [timeIn, setTimeIn] = useState("");
   const [dtgIn, setDtgIn] = useState("");
   const [offIn, setOffIn] = useState("");
+  const [coordIn, setCoordIn] = useState("");
   const [copied, setCopied] = useState(false);
   // When the clipboard is refused (a locked-down browser), the text is shown
   // selected in a box instead — the planner copies it by hand.
   const [copyFallback, setCopyFallback] = useState<string | null>(null);
-  const places = usePlaces();
+  const places = usePlaces(priv);
   const [cons, setCons] = useState<HConsiderations | null>(null);
   const [consState, setConsState] = useState<"idle" | "loading" | "error">("idle");
   const consSeq = useRef(0);
 
   useEffect(() => {
+    // Private: the stored anchor is still READ (no trail in reading) so a
+    // planner who flips the switch mid-session keeps their H; nothing new
+    // is written from here on.
     const s = loadH();
     setSt(s);
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -213,30 +244,32 @@ function HHourCard({ cols, effective }: { cols: ZoneCol[]; effective: ZoneCol })
     const z = inZone(st.hMs, inZoneId);
     setDateIn(z.ymd); setTimeIn(z.hhmm);
   }, [st?.hMs, inZoneId]);
+  // Flipping private ON drops any answer already on screen — a cached read
+  // is still a read — and cancels one in flight.
+  useEffect(() => { if (priv) { consSeq.current++; setCons(null); setConsState("idle"); } }, [priv]);
 
   const update = useCallback((patch: Partial<HState>) => {
-    setSt((prev) => { const next = { ...(prev ?? EMPTY_H), ...patch }; saveH(next); return next; });
-  }, []);
+    setSt((prev) => { const next = { ...(prev ?? EMPTY_H), ...patch }; saveH(next, priv); return next; });
+  }, [priv]);
 
   // The considerations at H for the chosen place — re-read when either
   // moves (debounced: a date input fires per keystroke), bounded by a
-  // sequence so a slow earlier answer cannot land over a newer one.
+  // sequence so a slow earlier answer cannot land over a newer one. Never
+  // while private.
   const hMs = st?.hMs ?? null, place = st?.place ?? null;
   useEffect(() => {
-    if (!hMs || !place) { setCons(null); setConsState("idle"); return; }
+    if (priv || !hMs || !place || place.kind === "manual") { if (!priv) { setCons(null); setConsState("idle"); } return; }
     const seq = ++consSeq.current;
     setConsState("loading");
     const t = setTimeout(() => {
       const q = new URLSearchParams({ at: String(hMs), lat: String(place.lat), lon: String(place.lon), label: place.label.replace(/^(TDY|Home) · /, "") });
       if (place.icao) q.set("icao", place.icao);
       if (place.country) q.set("country", place.country);
-      fetch(`/api/tools/hhour?${q}`, { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-        .then((j: HConsiderations) => { if (seq === consSeq.current) { setCons(j); setConsState("idle"); } })
-        .catch(() => { if (seq === consSeq.current) setConsState("error"); });
+      toolsFetch<HConsiderations>(`/api/tools/hhour?${q}`, priv)
+        .then((j) => { if (seq !== consSeq.current) return; if (j) { setCons(j); setConsState("idle"); } else setConsState("error"); });
     }, 400);
     return () => clearTimeout(t);
-  }, [hMs, place?.id, place?.lat, place?.lon, place?.icao, place?.country]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [priv, hMs, place?.id, place?.lat, place?.lon, place?.icao, place?.country, place?.kind]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const setFromForm = (ymd: string, hhmm: string, zone: string) => {
     const ms = wallToMs(ymd, hhmm, zone);
@@ -252,6 +285,12 @@ function HHourCard({ cols, effective }: { cols: ZoneCol[]; effective: ZoneCol })
     const o = parseOffsetInput(offIn);
     if (o == null) { toast.warn("Not an offset", "H-72 · +36 · 2d · 90m · H-1:30"); return; }
     update({ offsets: [...new Set([...(st?.offsets ?? []), o])].sort((a, b) => a - b) }); setOffIn("");
+  };
+  const setManualPlace = () => {
+    const ll = parseLatLon(coordIn);
+    if (!ll) { toast.warn("Not a position", "31.826, 36.782 · 31°49'N 36°47'E · N31 49.5 E036 47.2"); return; }
+    update({ place: { kind: "manual", id: `manual:${ll.lat},${ll.lon}`, label: `${ll.lat.toFixed(3)}, ${ll.lon.toFixed(3)}`, lat: ll.lat, lon: ll.lon, icao: null, country: null } });
+    setCoordIn("");
   };
   const toggleZone = (zone: string) => {
     const hidden = st?.hidden ?? [];
@@ -276,7 +315,7 @@ function HHourCard({ cols, effective }: { cols: ZoneCol[]; effective: ZoneCol })
   const tableCols = placeZone ? [...shown, placeZone] : shown;
 
   return (
-    <Card title="H-hour" sub={hZone ? `H = ${hZone.dtg} · ${countdown?.text}` : "set an anchor — every offset below follows it"}>
+    <Card title="H-hour" sub={hZone ? `H = ${hZone.dtg} · ${countdown?.text}${priv ? " · private — in memory only" : ""}` : "set an anchor — every offset below follows it"}>
       <div className="grid md:grid-cols-[1fr_auto_1fr] gap-3 items-end">
         <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
           <div><Label>H date</Label><input type="date" value={dateIn} onChange={(e) => { setDateIn(e.target.value); if (timeIn) setFromForm(e.target.value, timeIn, inZoneId); }} className={`${inputCls} w-full`} aria-label="H-hour date" /></div>
@@ -296,14 +335,25 @@ function HHourCard({ cols, effective }: { cols: ZoneCol[]; effective: ZoneCol })
         </div>
       </div>
 
-      {/* Where: the tracked places — airfields (hub › spokes › ★ › rest), home, TDY, civil points. */}
+      {/* Where: the tracked places — airfields (hub › spokes › ★ › rest), home, TDY, civil points — or, private, typed coordinates. */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Where</span>
-        <select value={st?.place?.id ?? ""} onChange={(e) => update({ place: places?.find((p) => p.id === e.target.value) ?? null })} className={`${inputCls} min-w-[220px] max-w-full`} aria-label="Place the H-hour is read at" disabled={!places}>
-          <option value="">{places ? (places.length ? "— no place (times only)" : "— nothing tracked yet") : "loading places…"}</option>
-          {places?.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-        </select>
-        <span className="text-[10px] text-slate-600">a place turns on the light column and the considerations at H · Track a field on the Weather tab or the command board to add one</span>
+        {priv ? (
+          <>
+            <input value={coordIn} onChange={(e) => setCoordIn(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") setManualPlace(); }} placeholder="31.826, 36.782 · 31°49'N 36°47'E" className={`${inputCls} min-w-[240px]`} aria-label="Coordinates of the place" />
+            <button type="button" onClick={setManualPlace} className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-300">set</button>
+            {place && <span className="text-[10px] font-mono text-sky-200">{place.label}{place.kind !== "manual" ? " (from before)" : ""} <button type="button" onClick={() => update({ place: null })} className="text-slate-600 hover:text-red-400" aria-label="clear the place">✕</button></span>}
+            <span className="text-[10px] text-slate-600">private — coordinates by hand; nothing looked up</span>
+          </>
+        ) : (
+          <>
+            <select value={st?.place?.id ?? ""} onChange={(e) => update({ place: places?.find((p) => p.id === e.target.value) ?? null })} className={`${inputCls} min-w-[220px] max-w-full`} aria-label="Place the H-hour is read at" disabled={!places}>
+              <option value="">{places ? (places.length ? "— no place (times only)" : "— nothing tracked yet") : "loading places…"}</option>
+              {places?.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+            <span className="text-[10px] text-slate-600">a place turns on the light column and the considerations at H · Track a field on the Weather tab or the command board to add one</span>
+          </>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -387,13 +437,39 @@ function HHourCard({ cols, effective }: { cols: ZoneCol[]; effective: ZoneCol })
           )}
         </div>
       ) : (
-        <p className="text-[11px] text-slate-500 font-mono">No H-hour set. Type a date and time in a zone, paste a DTG, or press H = now. Remembered in this browser only.</p>
+        <p className="text-[11px] text-slate-500 font-mono">No H-hour set. Type a date and time in a zone, paste a DTG, or press H = now. {priv ? "Private: kept in memory only — a reload clears it." : "Remembered in this browser only."}</p>
       )}
 
-      {hMs && place && (
-        <ConsiderationsPanel cons={cons} state={consState} place={place} hMs={hMs} />
-      )}
+      {hMs && place && (priv || place.kind === "manual"
+        ? <PrivateAtH place={place} hMs={hMs} priv={priv} />
+        : <ConsiderationsPanel cons={cons} state={consState} place={place} hMs={hMs} />)}
     </Card>
+  );
+}
+
+// ── At H, computed here: the light and the moon only ────────────────────────
+
+function PrivateAtH({ place, hMs, priv }: { place: HPlace; hMs: number; priv: boolean }) {
+  // The night window is placed by a fixed offset from longitude (no zone
+  // lookup) and every time prints in Zulu — the airfield-card rule.
+  const zone = zoneForLongitude(place.lon);
+  const light = lightAt(hMs, place.lat, place.lon);
+  const night = lunarNight(place.lat, place.lon, zone, nightDateFor(hMs, zone));
+  const rel = nearestLightEvent(night, hMs);
+  return (
+    <div className="mt-2 pt-3 border-t border-slate-800">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+        <h4 className="text-[11px] font-bold uppercase tracking-widest text-slate-300">At H — {place.label}</h4>
+        <span className="text-[10px] font-mono text-slate-600">{priv ? "private — computed here, nothing asked" : "typed coordinates — computed here, nothing asked"}</span>
+      </div>
+      <ul className="space-y-1 text-[11px] leading-snug text-slate-200">
+        <li className="flex items-start gap-2"><span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${TONE_DOT.i}`} aria-hidden /><span>H in {SUN_STATE_LABEL[light.sun]}{rel ? ` — ${rel}` : ""}{light.sun === "day" ? ` (sun ${light.sunAltDeg}°)` : ""}</span></li>
+        {light.sun !== "day" && <li className="flex items-start gap-2"><span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${TONE_DOT.i}`} aria-hidden /><span>{light.moonUp ? `Moon UP at H — ${light.illumPct}% ${light.phaseName}, ${light.moonAltDeg}° above the horizon${light.moonUseful ? " (useful light)" : " (low — little useful light)"}` : `Moon DOWN at H — ${light.illumPct}% ${light.phaseName}, no moonlight`}</span></li>}
+        <li className="flex items-start gap-2"><span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${TONE_DOT.i}`} aria-hidden /><span>{night.polar ? "No nautical darkness on the night of H (polar)" : `The night of ${night.date}: ${lunarTonightLine(night, hhmmZ)}`}</span></li>
+        <li className="flex items-start gap-2 text-slate-400"><span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${TONE_DOT.u}`} aria-hidden /><span>Weather, TAF, NOTAMs, posture, holidays and space weather: NOT READ — {priv ? "private mode asks nothing" : "a typed position has no feeds attached"}. UNKNOWN by choice, never clear.</span></li>
+      </ul>
+      <p className="mt-1.5 text-[9px] text-slate-600">EENT {hhmmZ(night.eent)} · BMNT {hhmmZ(night.bmnt)} · moon ≥{MOON_USEFUL_ALT_DEG}° counts as useful · night window placed by longitude · planning-grade · cloud not included</p>
+    </div>
   );
 }
 
@@ -515,9 +591,13 @@ function DaysCard({ zone }: { zone: string }) {
   );
 }
 
-export default function ToolsTab() {
-  const eff = useEffectiveZone();
+// ── The tab ─────────────────────────────────────────────────────────────────
+
+interface ZoneInfo { zone: string; label: string; source: string }
+
+function ToolsBody({ eff, priv, onPrivate }: { eff: ZoneInfo; priv: boolean; onPrivate: (on: boolean) => void }) {
   const [clocks, setClocks] = useState<ClockDef[] | null>(null);
+  const [forgot, setForgot] = useState<string | null>(null);
   useEffect(() => {
     setClocks(loadClocks());
     const onStorage = (e: StorageEvent) => { if (e.key === CLOCKS_KEY) setClocks(loadClocks()); };
@@ -548,13 +628,49 @@ export default function ToolsTab() {
           </div>
           <div>
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Tools</h2>
-            <p className="text-[10px] text-slate-600 font-mono">planner date-time tools · the arithmetic is in this browser · effective zone {eff.label} ({eff.source})</p>
+            <p className="text-[10px] text-slate-600 font-mono">planner date-time tools · the arithmetic is in this browser · zone {eff.label} ({eff.source})</p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          {priv && <button type="button" onClick={() => { setForgot(forgetStoredH() ? "stored H-hour forgotten" : "nothing was stored"); }} className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-red-300" title="remove the H-hour and place an earlier, non-private session saved in this browser">{forgot ?? "forget stored H-hour"}</button>}
+          <button type="button" onClick={() => onPrivate(!priv)} aria-pressed={priv}
+            className={`px-2.5 py-1.5 rounded-md border text-[11px] font-bold uppercase tracking-wider ${priv ? "border-violet-400/60 text-violet-200 bg-violet-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
+            title={PRIVATE_BLOCKS.join(" · ")}>
+            {priv ? "🔒 Private — on" : "Private"}
+          </button>
+        </div>
       </div>
+      {priv && (
+        <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.06] px-3 py-2 text-[10.5px] text-violet-100/90">
+          <span className="font-bold uppercase tracking-wider text-[9px] text-violet-300 mr-2">Private mode</span>
+          {PRIVATE_BLOCKS.join(" · ")}. <span className="text-violet-200/70">Scope: this tab only — the rest of the dashboard keeps its own polling. The switch lives in this tab's session and ends when it closes.</span>
+        </div>
+      )}
       <JulianCard zone={eff.zone} zoneLabel={eff.label} />
-      {clocks && <HHourCard cols={cols} effective={{ zone: eff.zone, label: eff.label }} />}
+      {clocks && <HHourCard cols={cols} effective={{ zone: eff.zone, label: eff.label }} priv={priv} />}
       <DaysCard zone={eff.zone} />
     </div>
   );
+}
+
+/** Not private: the effective-zone hook (one /api/zone read, cached 10 min). */
+function LiveTools({ priv, onPrivate }: { priv: boolean; onPrivate: (on: boolean) => void }) {
+  const eff = useEffectiveZone();
+  return <ToolsBody eff={{ zone: eff.zone, label: eff.label, source: eff.source }} priv={priv} onPrivate={onPrivate} />;
+}
+
+/** Private: the device's own zone, no hook, no request. */
+function PrivateTools({ priv, onPrivate }: { priv: boolean; onPrivate: (on: boolean) => void }) {
+  const dev = deviceZone();
+  return <ToolsBody eff={{ zone: dev, label: dev, source: "device · private" }} priv={priv} onPrivate={onPrivate} />;
+}
+
+export default function ToolsTab() {
+  // Read after mount (sessionStorage is the browser's) so the server render
+  // and the first client render agree; until then nothing fetches.
+  const [priv, setPriv] = useState<boolean | null>(null);
+  useEffect(() => { setPriv(readPrivate()); }, []);
+  const onPrivate = (on: boolean) => { writePrivate(on); setPriv(on); toast.info(on ? "Tools: private mode on" : "Tools: private mode off", on ? "no requests, nothing written, from this tab" : "places and the At-H read are back"); };
+  if (priv == null) return <div className="px-4 py-6 text-[11px] font-mono uppercase tracking-wider text-slate-500">Tools…</div>;
+  return priv ? <PrivateTools priv={priv} onPrivate={onPrivate} /> : <LiveTools priv={priv} onPrivate={onPrivate} />;
 }

@@ -3350,6 +3350,39 @@ is `lib/plannerTools.ts` (PURE, client-safe, tested in
   call. The panel: the ranked list, then Light / Weather / Airfield (METAR
   now, TAF at H, NOTAM windows) / Host nation + space cards; the place's
   own clock joins the table columns once Open-Meteo names its zone.
+- **Private mode (2026-10-28, "a safeguard that disables any external
+  calls or communication and only does the calculations in the tab without
+  a trail")** — `lib/toolsPrivacy.ts` (PURE, tested in
+  `tests/toolsPrivacy.test.ts`). The tab has exactly ONE network door,
+  `toolsFetch(path, priv)` (every request: places, forecast, TAF, NOTAMs,
+  posture, holidays, space weather), and ONE storage door, `saveH(state,
+  priv)` (every write); both REFUSE while the switch is on, and **the test
+  reads the component's source and fails the suite if `fetch(` or
+  `localStorage.setItem(` appears anywhere else**, or if `XMLHttpRequest`
+  / `sendBeacon` / `WebSocket` / `EventSource` / `indexedDB` /
+  `document.cookie` appear at all — the rule is a build failure, not a
+  comment. The effective-zone hook fetches `/api/zone`, so the tab is split
+  at the top: `priv ? <PrivateTools>` (the device zone, no hook) `:
+  <LiveTools>` (the hook) — pinned by the test too. While private: the
+  place is typed as coordinates (`parseLatLon`: a decimal pair or
+  degrees-minutes with hemisphere letters, never guessed), the **At H**
+  panel is `PrivateAtH` — light, moon and the night's budget computed in
+  the browser (the night window placed by longitude, times in Zulu) and
+  one UNKNOWN line naming what is NOT READ ("UNKNOWN by choice, never
+  clear"); flipping the switch on drops any answer already on screen and
+  cancels one in flight (a cached read is still a read); the stored
+  anchor is still READ on mount (reading leaves no trail) and a "forget
+  stored H-hour" button removes what an earlier session saved; the
+  H-hour then lives in React state only — a reload clears it, and the
+  copy says so. The flag is in **sessionStorage** (`tools.private`): it
+  survives a reload (a reload must not silently fall back to fetching)
+  and dies with the tab, so the switch itself leaves no trail. **Scope is
+  this tab** — the banner says the rest of the dashboard keeps its own
+  polling (observed in the probe: `/api/mission-profile` from Glance
+  while the Tools tab was private). Verified in headless Chromium: with
+  the switch on, driving the DTG, a typed position and an offset produced
+  no `/api/tools/hhour` request and no localStorage change; after a reload
+  the switch was still on; flipping it off re-asked for the places.
 No new npm dep (esbuild `0`). Offered and not built (the operator picks):
 ETA / enroute-time across the clocks, a DST-change table for a zone and date
 range, a sunrise/sunset-relative offset ("BMNT-30" as an offset row), unit
