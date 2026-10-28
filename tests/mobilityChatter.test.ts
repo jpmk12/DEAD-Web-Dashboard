@@ -285,3 +285,14 @@ describe("explainChatter — the owner's tuning read", () => {
     expect(r.lines).toHaveLength(8);
   });
 });
+
+describe("the REACH callsign is capitals only (first production tuning read)", () => {
+  it("does not read 'reach 61' in prose as an airlift callsign", () => {
+    expect(airframesIn("If no one can reach 61 seats the president gives the parties 28 days")).toHaveLength(0);
+    expect(readChatter([post("Parties need to reach 61 seats; the vote is flying through the Knesset")], NOW)).toEqual([]);
+  });
+  it("still reads RCH / REACH callsigns as written by spotters", () => {
+    expect(airframesIn("REACH 123 inbound").map((a) => a.id)).toContain("REACH");
+    expect(airframesIn("RCH431 airborne").map((a) => a.id)).toContain("REACH");
+  });
+});

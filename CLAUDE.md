@@ -3095,6 +3095,18 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   deployment) is read first and filed as `withdraw`. Known, not fixed:
   an actor named only inside an event title ("Africa-France Summit") can
   be credited as the mover when it is the nearest name before the phrase.
+- **The tuning read, run (2026-10-28, 403 own items in the window, 400 X
+  posts from 20 handles): 0 chatter, 1 near miss, 0 unknown places.**
+  The grammar is not what is missing — the POOL is: the lists are news
+  and conflict aggregators (FaytuksNetwork, WSJ, visegrad24,
+  RapidResponse47, WarMonitor, casusbellii, EuromaidanPR…), and the only
+  designators named are fighters / missiles / SAMs (Su-35, S-400, F-16,
+  B-52, AGM-183A, PAC-3) — none is lift and none should join the airframe
+  list. Lift chatter needs a spotter list in the X capture targets. The
+  one near miss was a FALSE match the read caught: the `REACH` callsign
+  pattern was case-insensitive, so "reach 61 seats" (an Israeli coalition
+  post) read as callsign REACH 61 and only the missing movement phrase
+  kept it out. The pattern is capitals-only now (tested).
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

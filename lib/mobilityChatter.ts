@@ -113,7 +113,9 @@ const AIRFRAMES: AirframeDef[] = [
   { id: "C-17", cls: "airlift", ...US, rx: /\bC-?17[A]?s?\b|\bglobemasters?\b/i },
   { id: "C-5", cls: "airlift", ...US, rx: /\bC-?5[MAB]?s?\b(?!\s*(?:galaxy\s+)?(?:phone|tablet|note))|\bC-5 galaxy\b/i },
   { id: "C-130", cls: "airlift", ...US, rx: /\b(?:[A-Z]{0,2}-?)?C-?130[JH]?s?\b|\bsuper hercules\b/i },
-  { id: "REACH", cls: "airlift", ...US, rx: /\b(?:RCH|REACH)\s?\d{2,4}\b/i },
+  // Case-SENSITIVE: a callsign is written in capitals. Case-insensitive, "to
+  // reach 61 seats" read as REACH 61 (the first production tuning read).
+  { id: "REACH", cls: "airlift", ...US, rx: /\b(?:RCH|REACH)\s?\d{2,4}\b/ },
   { id: "A400M", cls: "airlift", side: "ally", actor: "ally", rx: /\bA400M?s?\b|\batlas transports?\b/i },
   { id: "Voyager", cls: "tanker", side: "ally", actor: "ally", rx: /\b(?:RAF|royal air force)\s+voyagers?\b|\bvoyager tankers?\b|\bA330 MRTTs?\b|\bMRTTs?\b/i },
   { id: "Il-76", cls: "airlift", side: "adversary", actor: "Russia", rx: /\bIl-?76s?\b/i },
