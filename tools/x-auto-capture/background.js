@@ -203,6 +203,20 @@ const X_HOOK_ID = "dead-x-graphql-hook";
 // to the front" opens a FOCUSED window instead, so X can also render and
 // load further batches as the collector scrolls; it takes the keyboard for
 // the length of the capture, which is why it is off by default.
+// Windows this worker is closing. A background tab created right after an X
+// window closed landed in that window as it went away — "No tab with id" on
+// the next target (2026-10-28 run log) — so a tab is always opened into a
+// named window that is not on this list.
+const closingWindows = new Set();
+async function backgroundWindowId() {
+  try {
+    const wins = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    const usable = wins.filter((w) => !closingWindows.has(w.id) && w.state !== "minimized");
+    const pick = usable.find((w) => w.focused) || usable[0] || wins.find((w) => !closingWindows.has(w.id));
+    return pick ? pick.id : undefined;
+  } catch (e) { return undefined; }
+}
+
 async function openCaptureTab(url, kind, c) {
   if (kind === "x" && c.xFront) {
     try {
@@ -211,7 +225,8 @@ async function openCaptureTab(url, kind, c) {
       if (t && t.id != null) return { ...t, windowId: w.id, _ownWindow: true };
     } catch (e) { /* fall back to a tab */ }
   }
-  return await chrome.tabs.create({ url, active: false });
+  const windowId = await backgroundWindowId();
+  return await chrome.tabs.create(windowId != null ? { url, active: false, windowId } : { url, active: false });
 }
 
 // The response hook runs only for the capture target's own URL and only
@@ -292,19 +307,26 @@ async function captureOne(url, c) {
         const probe = r && r[0] && r[0].result;
         if (probe) {
           const byPath = new Map(probe.found.map(([p, la, ln]) => [p, [la, ln]]));
-          let joined = 0;
+          const byId = new Map((probe.byId || []).map(([id, la, ln]) => [id, [la, ln]]));
+          const byTitle = new Map((probe.byTitle || []).map(([t, la, ln]) => [t, [la, ln]]));
+          // Same normalisation as the probe's textKey.
+          const textKey = (t) => String(t || "").replace(/<[^>]*>/g, " ").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff\u0400-\u04ff]+/g, " ").trim().slice(0, 60);
+          const how = { path: 0, id: 0, title: 0 };
           for (const it of capture.items) {
             if (it.lat != null) continue;
             let path = "";
-            try { path = new URL(it.url).pathname; } catch (e) { continue; }
-            const c2 = byPath.get(path);
-            if (c2) { it.lat = c2[0]; it.lng = c2[1]; joined++; }
+            try { path = new URL(it.url).pathname; } catch (e) { /* no path */ }
+            let c2 = path ? byPath.get(path) : null, via = "path";
+            if (!c2 && it.eid) { c2 = byId.get(String(it.eid)); via = "id"; }
+            if (!c2) { const tk = textKey(it.title); if (tk.length >= 20) { c2 = byTitle.get(tk); via = "title"; } }
+            if (c2) { it.lat = c2[0]; it.lng = c2[1]; how[via]++; }
           }
+          const joined = how.path + how.id + how.title;
           const d = probe.diag || {};
           capture.diag = {
             ...(capture.diag || {}),
             placed: capture.items.filter((i) => i.lat != null).length,
-            mapProbe: [d.map || "no map lib", "markers " + d.markers + " (linked " + d.markersLinked + ")", "objects " + d.objects + " (linked " + d.objectsLinked + ")", "joined " + joined, d.arrays && d.arrays.length ? "arrays " + d.arrays.join(" ; ") : "", d.scriptPairs ? "script lat/lng pairs " + d.scriptPairs + " e.g. " + d.scriptSample : ""].filter(Boolean).join(" · "),
+            mapProbe: [d.map || "no map lib", "markers " + d.markers + " (linked " + d.markersLinked + ")", "objects " + d.objects + " (linked " + d.objectsLinked + ")", "ids " + (d.byId || 0) + " · titles " + (d.byTitle || 0), "joined " + joined + (joined ? " (path " + how.path + " · id " + how.id + " · title " + how.title + ")" : ""), d.markerSample ? "marker " + d.markerSample : "", d.arrays && d.arrays.length ? "arrays " + d.arrays.join(" ; ") : "", d.scriptPairs ? "script lat/lng pairs " + d.scriptPairs + " e.g. " + d.scriptSample : ""].filter(Boolean).join(" · "),
           };
         }
       } catch (e) { /* the probe is best-effort */ }
@@ -366,7 +388,12 @@ async function captureOne(url, c) {
     return { ok: false, error: String((e && e.message) || e), url };
   } finally {
     if (hooked) await disarmXHook();
-    if (winId != null) { try { await chrome.windows.remove(winId); } catch (e) { /* already gone */ } }
+    if (winId != null) {
+      closingWindows.add(winId);
+      try { await chrome.windows.remove(winId); } catch (e) { /* already gone */ }
+      await new Promise((r) => setTimeout(r, 600));
+      closingWindows.delete(winId);
+    }
     else if (created && tab && tab.id != null) { try { await chrome.tabs.remove(tab.id); } catch (e) { /* already gone */ } }
   }
 }
@@ -381,7 +408,14 @@ async function runCapture() {
   let anyOk = false, firstErr = null, collected = 0, imported = 0, updated = 0, total = null;
   // Sequential — one background tab at a time is gentler and looks less automated.
   for (const url of c.listUrls) {
-    const r = await captureOne(url, c);
+    let r = await captureOne(url, c);
+    // The tab went away under the capture (closed, discarded, or opened into
+    // a window that was closing) — one more try in a fresh tab.
+    if (!r.ok && /No tab with id|tab was closed|Frame with ID/i.test(r.error || "")) {
+      await new Promise((res) => setTimeout(res, 1500));
+      r = await captureOne(url, c);
+      if (r.ok) r.note = ((r.note || "") + " [retried: the first tab went away]").trim();
+    }
     results.push({ url, ok: r.ok, collected: r.collected, imported: r.imported, source: r.source, error: r.error, note: r.note, hints: r.hints });
     if (r.ok) { anyOk = true; collected += r.collected || 0; imported += r.imported || 0; updated += r.updated || 0; if (r.total != null) total = r.total; }
     else if (!firstErr) firstErr = r.error;

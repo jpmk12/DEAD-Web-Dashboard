@@ -45,6 +45,12 @@ export async function collectLiveuamap(durationMs, maxItems) {
         lng = pick(coordNode, ["data-lng", "data-lon", "data-long", "data-longitude", "data-x"]);
         const item = { url: href, title: title.slice(0, 300), time: time.slice(0, 40), sourceUrl };
         if (lat != null && lng != null) { item.lat = lat; item.lng = lng; }
+        // The feed entry's own id (the map's objects carry the same numeric
+        // id — 1.2.8's probe showed "id":21878298 beside lat/lng), used by the
+        // worker to join a map position onto this event.
+        const idNode = a.closest("[data-id]");
+        const eid = idNode ? idNode.getAttribute("data-id") : (ev && /^\d{5,}$/.test(ev.id || "") ? ev.id : "");
+        if (eid && /^\d{4,}$/.test(String(eid))) item.eid = String(eid);
         store.set(href, item);
       } catch (e) { /* one bad node never kills the capture */ }
     });
@@ -76,7 +82,9 @@ export async function collectLiveuamap(durationMs, maxItems) {
   const items = Array.from(store.values());
   const diag = { placed: items.filter((i) => i.lat != null).length };
   try {
-    const first = Array.from(document.querySelectorAll('a[href*="/en/20"]')).find((a) => EVENT_HREF.test(a.href));
+    const links = Array.from(document.querySelectorAll('a[href*="/en/20"]')).filter((a) => EVENT_HREF.test(a.href));
+    const first = links.find((a) => !a.closest(".popup-text, .leaflet-popup, [class*='popup']")) || links[0];
+    diag.withEid = items.filter((i) => i.eid).length;
     if (first) {
       const chain = [];
       let el = first;
@@ -143,7 +151,26 @@ export function probeLiveuamapCoords() {
     } catch (e) { /* unreadable */ }
     return null;
   };
-  const diag = { markers: 0, markersLinked: 0, objects: 0, objectsLinked: 0, arrays: [], scriptPairs: 0, scriptSample: "", map: "" };
+  const diag = { markers: 0, markersLinked: 0, objects: 0, objectsLinked: 0, arrays: [], scriptPairs: 0, scriptSample: "", map: "", markerSample: "" };
+  // Second and third joins when no permalink is in reach: the object's numeric
+  // id (the feed entry carries the same one as data-id) and its title text.
+  const byId = new Map(), byTitle = new Map();
+  const idOf = (o) => {
+    if (!o || typeof o !== "object") return null;
+    for (const k of ["id", "eid", "event_id", "eventId", "venue_id", "pid"]) {
+      const v = o[k];
+      if ((typeof v === "number" || typeof v === "string") && /^\d{4,}$/.test(String(v))) return String(v);
+    }
+    return null;
+  };
+  const textKey = (t) => String(t || "").replace(/<[^>]*>/g, " ").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff\u0400-\u04ff]+/g, " ").trim().slice(0, 60);
+  const titleOf = (o) => (o && (o.title || o.name || o.text || o.description)) || "";
+  const note = (o, la, ln) => {
+    const id = idOf(o);
+    if (id && !byId.has(id)) byId.set(id, [la, ln]);
+    const tk = textKey(titleOf(o));
+    if (tk.length >= 20 && !byTitle.has(tk)) byTitle.set(tk, [la, ln]);
+  };
   const scanObjects = (name, list) => {
     let withCoords = 0, linked = 0, keys = "";
     for (const o of list) {
@@ -154,6 +181,7 @@ export function probeLiveuamapCoords() {
       if (!keys) keys = Object.keys(o).slice(0, 10).join(",");
       const link = linkIn(o);
       if (link) { linked++; if (!found.has(link)) found.set(link, [la, ln]); }
+      note(o, la, ln);
     }
     if (withCoords) { diag.objects += withCoords; diag.objectsLinked += linked; diag.arrays.push(name + "×" + withCoords + (linked ? "(linked " + linked + ")" : "") + "{" + keys + "}"); }
   };
@@ -176,6 +204,19 @@ export function probeLiveuamapCoords() {
             const m = html.match(EV);
             const link = m ? m[0] : (layer.options ? linkIn(layer.options) : null);
             if (link && ok(ll.lat, ll.lng)) { diag.markersLinked++; if (!found.has(link)) found.set(link, [ll.lat, ll.lng]); }
+            if (ok(ll.lat, ll.lng)) {
+              const o = layer.options || {};
+              note(o, ll.lat, ll.lng);
+              if (layer.feature && layer.feature.properties) note(layer.feature.properties, ll.lat, ll.lng);
+              const tip = layer._tooltip && layer._tooltip._content;
+              const tk = textKey(html || (typeof tip === "string" ? tip : ""));
+              if (tk.length >= 20 && !byTitle.has(tk)) byTitle.set(tk, [ll.lat, ll.lng]);
+              if (!diag.markerSample) {
+                let opts = "";
+                try { opts = JSON.stringify(o, (k, v) => (typeof v === "object" && v !== null && k && !Array.isArray(v) && Object.keys(v).length > 8 ? "[obj]" : typeof v === "function" ? "[fn]" : v)).slice(0, 300); } catch (e) { opts = Object.keys(o).join(","); }
+                diag.markerSample = "options " + opts + " · popup " + (p ? (typeof p._content) + " " + String(html).length + " chars" : "none") + (layer.feature ? " · feature" : "");
+              }
+            }
           }
         }
         if (Array.isArray(v) && v.length >= 3 && v[0] && typeof v[0] === "object") scanObjects(k, v.slice(0, 2000));
@@ -197,5 +238,12 @@ export function probeLiveuamapCoords() {
     }
   } catch (e) { /* best effort */ }
   diag.arrays = diag.arrays.slice(0, 5);
-  return { found: Array.from(found.entries()).slice(0, 600).map(([path, c]) => [path, c[0], c[1]]), diag };
+  diag.byId = byId.size;
+  diag.byTitle = byTitle.size;
+  return {
+    found: Array.from(found.entries()).slice(0, 600).map(([path, c]) => [path, c[0], c[1]]),
+    byId: Array.from(byId.entries()).slice(0, 1500).map(([id, c]) => [id, c[0], c[1]]),
+    byTitle: Array.from(byTitle.entries()).slice(0, 1500).map(([t, c]) => [t, c[0], c[1]]),
+    diag,
+  };
 }

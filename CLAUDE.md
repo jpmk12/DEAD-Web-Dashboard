@@ -3302,6 +3302,39 @@ the markup at all.
   every path it owns, so a bodiless 503 is the host's — the next log says
   which.
 
+### Extension 1.2.9 — X verified, LiveUAMap joins by id / title, the closing-window race (2026-10-28, from the 06:19 run log)
+- **X: VERIFIED from x.com.** With "Bring the X capture to the front" on,
+  both lists ended on the post cap: `posts 200 · tab visible · drawn 200 ·
+  fromResponses 200 posts in 3 responses`; the Sources card read 445 posts.
+  The response hook and `xgraphql.js` work against the live timeline
+  (ListLatestTweetsTimeline). 200 is the per-list cap on both ends
+  (`maxPosts` in the options, `X_MAX_ITEMS` in `lib/xImport.ts`).
+- **LiveUAMap: the probe found the map — 31 Leaflet markers — but no
+  marker popup carried a permalink** (`linked 0`; popups are built lazily),
+  and the inline script showed map objects keyed by a numeric `id` beside
+  `lat` / `lng`. Two more joins, in order after the permalink path: the
+  feed entry's `data-id` (`item.eid`, now captured by the collector) against
+  a marker's / object's id (`id` / `eid` / `event_id` / `eventId` /
+  `venue_id` / `pid`, ≥4 digits), then the event TITLE normalised
+  (`textKey`: tags stripped, lower-case, non-alphanumerics collapsed incl.
+  Arabic / Cyrillic, first 60 chars, ≥20 to count) against a marker's
+  title / name / popup / tooltip text. The probe returns `byId` / `byTitle`
+  beside `found`; the run log says `joined N (path · id · title)` and
+  `marker options {…} · popup <type> <chars>` — the sample of the first
+  marker's options names the field if the joins still read 0. The diag
+  `entry` now prefers a feed link outside a popup and counts `withEid`.
+  Tested in headless Chromium on a stand-in (two joined by id, one by
+  title); NOT yet on liveuamap.com.
+- **`No tab with id` on the target after an X list**: the background tab
+  was created into the "current" window — the X capture window that was
+  closing. `backgroundWindowId()` now names a normal window not in
+  `closingWindows` (a closing window is held there 600 ms past
+  `windows.remove`), and a target whose tab went away (`No tab with id` /
+  `tab was closed` / `Frame with ID`) is retried once in a fresh tab, noted
+  "[retried: the first tab went away]".
+- MOFCOM uploaded on this run (the 503s were transient, the retry path
+  untested in anger).
+
 ### Declared themes — what your own sources are saying (2026-10-27, "declare certain key words or sentiment that I want to see what the X or other opensource are seeing")
 The operator asked for keywords and sentiment over the own sources. Built
 as KEYWORDS with COUNTS AND FRAMING, deliberately not a sentiment score —
