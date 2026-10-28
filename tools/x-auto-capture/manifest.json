@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DEAD X Auto-Capture",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "description": "Unattended capture of your X lists / LiveUAMap regions / MOFCOM notices / UKMTO incidents into the DEAD dashboard, one-click article capture, and dashboard alert notifications. Runs in your own logged-in browser; sends nothing to the sites and reads no credentials.",
   "permissions": [
     "alarms",

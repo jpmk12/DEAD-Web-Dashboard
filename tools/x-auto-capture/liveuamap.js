@@ -85,6 +85,8 @@ export async function collectLiveuamap(durationMs, maxItems) {
     const links = Array.from(document.querySelectorAll('a[href*="/en/20"]')).filter((a) => EVENT_HREF.test(a.href));
     const first = links.find((a) => !a.closest(".popup-text, .leaflet-popup, [class*='popup']")) || links[0];
     diag.withEid = items.filter((i) => i.eid).length;
+    const firstEid = items.find((i) => i.eid);
+    if (firstEid) diag.eidSample = firstEid.eid;
     if (first) {
       const chain = [];
       let el = first;
@@ -165,6 +167,35 @@ export function probeLiveuamapCoords() {
   };
   const textKey = (t) => String(t || "").replace(/<[^>]*>/g, " ").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff\u0400-\u04ff]+/g, " ").trim().slice(0, 60);
   const titleOf = (o) => (o && (o.title || o.name || o.text || o.description)) || "";
+  const ID_RX = /(?:^|\D)(\d{6,10})(?:\D|$)/;
+  const noteLayerIds = (layer, la, ln) => {
+    try {
+      for (const k of ["id", "eid", "eventId", "event_id", "pid", "_id", "_eid"]) {
+        const v = layer[k];
+        if ((typeof v === "number" || typeof v === "string") && /^\d{4,}$/.test(String(v)) && !byId.has(String(v))) byId.set(String(v), [la, ln]);
+      }
+      const io = layer.options && layer.options.icon && layer.options.icon.options;
+      if (io) for (const k of ["className", "iconUrl", "html", "id"]) { const m = typeof io[k] === "string" ? io[k].match(ID_RX) : null; if (m && !byId.has(m[1])) byId.set(m[1], [la, ln]); }
+      const el = layer._icon;
+      if (el && el.attributes) for (const x of Array.from(el.attributes)) { const m = String(x.value).match(ID_RX); if (m && !byId.has(m[1])) byId.set(m[1], [la, ln]); }
+    } catch (e) { /* best effort */ }
+  };
+  // A table the page keeps from an event id to its marker — the key is the id.
+  diag.layerMaps = [];
+  const scanLayerMap = (name, obj) => {
+    let n = 0;
+    try {
+      for (const k of Object.keys(obj).slice(0, 5000)) {
+        const v = obj[k];
+        const ll = v && v._latlng;
+        if (!ll || !ok(ll.lat, ll.lng)) continue;
+        n++;
+        if (/^\d{4,}$/.test(k) && !byId.has(k)) byId.set(k, [ll.lat, ll.lng]);
+        noteLayerIds(v, ll.lat, ll.lng);
+      }
+    } catch (e) { /* unreadable */ }
+    if (n) diag.layerMaps.push(name + "×" + n);
+  };
   const note = (o, la, ln) => {
     const id = idOf(o);
     if (id && !byId.has(id)) byId.set(id, [la, ln]);
@@ -207,6 +238,9 @@ export function probeLiveuamapCoords() {
             if (ok(ll.lat, ll.lng)) {
               const o = layer.options || {};
               note(o, ll.lat, ll.lng);
+              // An id the page set on the marker itself, or one in its icon's
+              // (inherited) options or rendered element (class / id / data-*).
+              noteLayerIds(layer, ll.lat, ll.lng);
               if (layer.feature && layer.feature.properties) note(layer.feature.properties, ll.lat, ll.lng);
               const tip = layer._tooltip && layer._tooltip._content;
               const tk = textKey(html || (typeof tip === "string" ? tip : ""));
@@ -214,9 +248,21 @@ export function probeLiveuamapCoords() {
               if (!diag.markerSample) {
                 let opts = "";
                 try { opts = JSON.stringify(o, (k, v) => (typeof v === "object" && v !== null && k && !Array.isArray(v) && Object.keys(v).length > 8 ? "[obj]" : typeof v === "function" ? "[fn]" : v)).slice(0, 300); } catch (e) { opts = Object.keys(o).join(","); }
-                diag.markerSample = "options " + opts + " · popup " + (p ? (typeof p._content) + " " + String(html).length + " chars" : "none") + (layer.feature ? " · feature" : "");
+                const iconOpts = [];
+                try { const io = o.icon && o.icon.options; if (io) for (const k in io) { const v = io[k]; if (typeof v === "string" || typeof v === "number") iconOpts.push(k + "=" + String(v).slice(0, 40)); } } catch (e) { /* none */ }
+                const el = layer._icon;
+                const elAttrs = el && el.attributes ? Array.from(el.attributes).map((x) => x.name + "=" + String(x.value).slice(0, 40)).slice(0, 6).join(" ") : "";
+                const own = Object.keys(layer).filter((k) => !/^_(map|leaflet_id|latlng|icon|shadow|popup|tooltip|events|initHooksCalled|zoomAnimated|mapToAdd|firingCount|eventParents|zIndex|dragging)$/.test(k) && k !== "options" && k !== "dragging").slice(0, 10).join(",");
+                diag.markerSample = "options " + opts + " · popup " + (p ? (typeof p._content) + " " + String(html).length + " chars “" + String(html).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 50) + "”" : "none") + (layer.feature ? " · feature" : "") + (iconOpts.length ? " · icon " + iconOpts.slice(0, 5).join(" ") : "") + (elAttrs ? " · el " + elAttrs : "") + (own ? " · own " + own : "");
               }
             }
+          }
+        }
+        if (!v._layers && !Array.isArray(v) && !(v instanceof Node)) {
+          scanLayerMap(k, v);
+          for (const k2 of Object.keys(v).slice(0, 200)) {
+            let v2; try { v2 = v[k2]; } catch (e) { continue; }
+            if (v2 && typeof v2 === "object" && !v2._layers && !(v2 instanceof Node) && v2 !== window) scanLayerMap(k + "." + k2, v2);
           }
         }
         if (Array.isArray(v) && v.length >= 3 && v[0] && typeof v[0] === "object") scanObjects(k, v.slice(0, 2000));
@@ -238,6 +284,7 @@ export function probeLiveuamapCoords() {
     }
   } catch (e) { /* best effort */ }
   diag.arrays = diag.arrays.slice(0, 5);
+  diag.layerMaps = diag.layerMaps.slice(0, 5);
   diag.byId = byId.size;
   diag.byTitle = byTitle.size;
   return {

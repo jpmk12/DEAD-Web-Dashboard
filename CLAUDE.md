@@ -3334,6 +3334,26 @@ the markup at all.
   "[retried: the first tab went away]".
 - MOFCOM uploaded on this run (the 503s were transient, the retry path
   untested in anger).
+- **1.2.10, from the 06:26 run log**: centralasia placed 9 of 33 by TITLE;
+  iran 0. The log named the shapes: feed entries are `div.event.catN
+  [data-link, data-twitpic, data-id, id]` with an `a.comment-link[data-id]`
+  (30 of 33 carry an id); the 25 `ids` came from **`fvObjects` — the map's
+  standing VENUES** ("Strait of Hormuz", "Kant Air Base", `{svg, id, name,
+  lat, lng, …}`), never events, so an id join against them cannot hit; the
+  event markers carry only `options.icon` and a 16–28-char popup string.
+  The event-id → marker link therefore lives in a page table or on the
+  marker's icon: the probe now also scans every page global (and one level
+  down) for an OBJECT WHOSE VALUES ARE LEAFLET LAYERS and takes the numeric
+  KEY as the event id (`layerMaps` in the diag: "id→marker tables
+  name×N"), reads id-shaped numbers (6–10 digits) from a marker's own
+  `id`-like props, its icon's inherited options (`className` / `iconUrl` /
+  `html`) and its rendered `_icon` element's attributes, and the marker
+  sample now shows the popup's text, the icon options, the element
+  attributes and the marker's own keys. The collector reports `eidSample`
+  so the id formats can be compared on the log. Tested on a stand-in
+  (one joined through a table keyed by id, one through an icon class).
+
+
 
 ### Declared themes — what your own sources are saying (2026-10-27, "declare certain key words or sentiment that I want to see what the X or other opensource are seeing")
 The operator asked for keywords and sentiment over the own sources. Built
