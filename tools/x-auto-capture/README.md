@@ -86,21 +86,37 @@ it to Claude to tune.
 ## How it works
 
 - `background.js` sets a `chrome.alarms` daily trigger. On fire it opens your
-  list URL in a **small unfocused window of its own** (1.2.7 — Chrome pauses
-  rendering in a background tab, and X only loads the next few posts as the
-  list renders, so a hidden tab stalled at 4–9 posts), waits for X to render,
-  injects `collector.js` to scroll + accumulate posts, closes the window, then
-  POSTs the `dead-x-capture` JSON to `<dashboard>/api/osint/x-import` with
-  `Authorization: Bearer <token>`. X gets at least 45 s whatever the
-  duration setting. Other sites still use a background tab.
-- `collector.js` is the same capture logic as the bookmarklet (deduped by post
-  id, capped at 200). It scrolls to consume: progress is new posts, and it
-  only stops after 12 s with none (nudging and pressing X's Retry meanwhile).
-  The run log line `[collector: ended … · posts … · scrolls … · tab visible]`
-  says why it stopped and whether the tab was visible. Re-uploading the same
-  posts is safe — the dashboard dedupes by id.
-- An upload answered 502/503/504 **with no body** (the host's gateway, not the
-  dashboard) is retried once after 8 s.
+  list URL in a background tab, waits for X to render, injects `collector.js`
+  to scroll + accumulate the posts X draws, then POSTs the `dead-x-capture`
+  JSON to `<dashboard>/api/osint/x-import` with `Authorization: Bearer <token>`.
+- **X's own responses (1.2.8).** Chrome pauses rendering in a tab that is
+  not on screen — and a window behind another window counts as not on
+  screen — so X only ever DRAWS a handful of posts (4–9 in the run logs).
+  For the seconds a capture runs, and only for the target's own URL,
+  `xhook.js` is registered at document start in the page's world: it keeps a
+  copy of the timeline responses X's code already fetched (each holds ~20
+  posts). Nothing is sent to X and no credential is read. `xgraphql.js`
+  reads the posts out of them (full text, exact time, quoted and reposted
+  posts folded into their parent) and merges them with what was drawn. The
+  run log says `drawn N · fromResponses M posts in K responses`.
+- **"Bring the X capture to the front"** (options, off by default) opens each
+  X list in a focused window instead, so X keeps rendering and loading more
+  batches as the collector scrolls — more posts, but it takes the keyboard
+  for ~45 s per list.
+- `collector.js` scrolls to consume: progress is new posts, and it only
+  stops after 12 s with none (nudging and pressing X's Retry meanwhile). Its
+  diag says why it stopped and whether the tab was visible. Re-uploading the
+  same posts is safe — the dashboard dedupes by id.
+- **LiveUAMap positions** are not in the page's markup (1.2.7's diag found
+  none), so after collecting, the worker probes the map's own JavaScript in
+  the page (`probeLiveuamapCoords`: Leaflet layers, arrays of objects with a
+  lat / lng and an event permalink, inline-script coordinate pairs) and
+  joins positions onto the events by permalink. The log line `mapProbe …`
+  names what it found when the join is empty.
+- An upload answered 502/503/504 **with no body** (the host's gateway, not
+  the dashboard) is retried after 8 s and again after 30 s; if it still
+  fails, the worker asks the dashboard's alerts check whether the app
+  answers at all and says so.
 
 ## Scheduling reality
 

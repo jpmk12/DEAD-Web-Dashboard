@@ -7,8 +7,9 @@
 // X and never touches credentials — the token only authorizes the upload.
 
 import { collectXPosts } from "./collector.js";
+import { postsFromGraphql, mergeXPosts } from "./xgraphql.js";
 import { extractArticle } from "./article.js";
-import { collectLiveuamap } from "./liveuamap.js";
+import { collectLiveuamap, probeLiveuamapCoords } from "./liveuamap.js";
 import { collectMofcom } from "./mofcom.js";
 import { collectUkmto } from "./ukmto.js";
 
@@ -18,6 +19,7 @@ const DEFAULTS = {
   listUrls: ["https://x.com/i/bookmarks"], // one or more views to sweep each run
   durationSec: 25,
   maxPosts: 200,
+  xFront: false,                            // bring the X capture window to the front (renders more, takes focus)
   intervalHours: 24,                        // how often to capture; 6 = active watching
   hour: 6,                                  // preferred local hour, honored only when intervalHours >= 24
   enabled: true,
@@ -186,19 +188,25 @@ function diagLine(d, requested) {
 }
 
 const X_MIN_DURATION_MS = 45000;
-const UPLOAD_RETRY_MS = 8000;
+// A bodiless 502/503/504 is retried after these waits (a restart of the host
+// takes longer than one short pause), then the dashboard is asked whether it
+// answers at all, so the log can tell "down" from "this route refused".
+const UPLOAD_RETRY_MS = [8000, 30000];
+const X_HOOK_ID = "dead-x-graphql-hook";
 
-// Where a capture runs. Chrome PAUSES rendering in a background tab, and X's
-// timeline loads its next batch from rendering — so in a hidden tab a list
-// stops after the first few posts however long the collector scrolls. An X
-// target therefore opens in its OWN small window, not focused (it does not
-// take the keyboard), whose only tab is active and so counts as visible.
-// Closed again when the capture ends. If the window cannot be made, or for
-// every other site (their feeds load without it), a background tab as before.
-async function openCaptureTab(url, kind) {
-  if (kind === "x") {
+// Where a capture runs. Every site uses a background tab. Chrome pauses
+// RENDERING in a tab that is not on screen — and a window behind another
+// window counts as not on screen (1.2.7 tried an unfocused window of its own;
+// the run log still read "tab hidden") — so on X the page only draws a few
+// posts. 1.2.8 therefore reads X's own timeline responses (xhook.js), which
+// arrive whether or not anything is drawn. The option "bring the X capture
+// to the front" opens a FOCUSED window instead, so X can also render and
+// load further batches as the collector scrolls; it takes the keyboard for
+// the length of the capture, which is why it is off by default.
+async function openCaptureTab(url, kind, c) {
+  if (kind === "x" && c.xFront) {
     try {
-      const w = await chrome.windows.create({ url, focused: false, state: "normal", type: "normal", width: 900, height: 1100 });
+      const w = await chrome.windows.create({ url, focused: true, state: "normal", type: "normal", width: 900, height: 1100 });
       const t = w && w.tabs && w.tabs[0];
       if (t && t.id != null) return { ...t, windowId: w.id, _ownWindow: true };
     } catch (e) { /* fall back to a tab */ }
@@ -206,12 +214,47 @@ async function openCaptureTab(url, kind) {
   return await chrome.tabs.create({ url, active: false });
 }
 
+// The response hook runs only for the capture target's own URL and only
+// while the capture runs; it is removed in `finally`.
+function hookMatches(url) {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\/+$/, "") || "/";
+    return ["https://x.com" + path + "*", "https://twitter.com" + path + "*"];
+  } catch (e) { return null; }
+}
+async function armXHook(url) {
+  const matches = hookMatches(url);
+  if (!matches) return false;
+  try { await chrome.scripting.unregisterContentScripts({ ids: [X_HOOK_ID] }); } catch (e) { /* none registered */ }
+  try {
+    await chrome.scripting.registerContentScripts([{ id: X_HOOK_ID, matches, js: ["xhook.js"], runAt: "document_start", world: "MAIN", persistAcrossSessions: false }]);
+    return true;
+  } catch (e) { return false; }
+}
+async function disarmXHook() {
+  try { await chrome.scripting.unregisterContentScripts({ ids: [X_HOOK_ID] }); } catch (e) { /* already gone */ }
+}
+function readXHook() {
+  const s = window.__deadX;
+  return s ? { responses: s.responses.slice(0, 60), count: s.responses.length } : null;
+}
+
+// Is the dashboard answering at all? (after an upload the host refused)
+async function dashboardAnswers(c) {
+  try {
+    const r = await fetch(c.dashboardUrl.replace(/\/+$/, "") + "/api/alerts/check", { headers: { "Authorization": "Bearer " + c.token } });
+    return r.ok ? "dashboard answers (alerts check " + r.status + ") — this route was refused" : "dashboard alerts check also " + r.status;
+  } catch (e) { return "dashboard unreachable"; }
+}
+
 // Capture + upload ONE target URL. Returns a per-target result.
 async function captureOne(url, c) {
   const kind = targetKind(url);
-  let tab = null, created = false, winId = null;
+  let tab = null, created = false, winId = null, hooked = false;
   try {
-    tab = await openCaptureTab(url, kind);
+    if (kind === "x") hooked = await armXHook(url);
+    tab = await openCaptureTab(url, kind, c);
     created = true;
     if (tab.windowId != null && tab._ownWindow) winId = tab.windowId;
     await waitForTabLoad(tab.id, 20000);
@@ -221,12 +264,52 @@ async function captureOne(url, c) {
     // them; a budget set for the other sites is too short for a list.
     const base = Math.max(5, Number(c.durationSec) || 25) * 1000;
     const dur = kind === "x" ? Math.max(base, X_MIN_DURATION_MS) : base;
+    const max = Number(c.maxPosts) || (kind === "liveuamap" ? 300 : 200);
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: COLLECTORS[kind],
-      args: [dur, Number(c.maxPosts) || (kind === "liveuamap" ? 300 : 200)],
+      args: [dur, max],
     });
-    const capture = results && results[0] && results[0].result;
+    const capture = (results && results[0] && results[0].result) || null;
+
+    // X: the posts in X's own timeline responses, merged with what was drawn.
+    if (kind === "x" && capture) {
+      let read = null;
+      try {
+        const r = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: readXHook });
+        read = r && r[0] && r[0].result;
+      } catch (e) { /* the page may have navigated */ }
+      const apiPosts = read ? postsFromGraphql(read.responses, max) : [];
+      const drawn = Array.isArray(capture.items) ? capture.items.length : 0;
+      capture.items = mergeXPosts(apiPosts, capture.items, max);
+      capture.diag = { ...(capture.diag || {}), drawn, fromResponses: read ? apiPosts.length + " posts in " + read.count + " responses" : (hooked ? "hook saw nothing" : "hook not armed") };
+    }
+
+    // LiveUAMap: positions from the map's own JavaScript, joined by permalink.
+    if (kind === "liveuamap" && capture && Array.isArray(capture.items)) {
+      try {
+        const r = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: probeLiveuamapCoords });
+        const probe = r && r[0] && r[0].result;
+        if (probe) {
+          const byPath = new Map(probe.found.map(([p, la, ln]) => [p, [la, ln]]));
+          let joined = 0;
+          for (const it of capture.items) {
+            if (it.lat != null) continue;
+            let path = "";
+            try { path = new URL(it.url).pathname; } catch (e) { continue; }
+            const c2 = byPath.get(path);
+            if (c2) { it.lat = c2[0]; it.lng = c2[1]; joined++; }
+          }
+          const d = probe.diag || {};
+          capture.diag = {
+            ...(capture.diag || {}),
+            placed: capture.items.filter((i) => i.lat != null).length,
+            mapProbe: [d.map || "no map lib", "markers " + d.markers + " (linked " + d.markersLinked + ")", "objects " + d.objects + " (linked " + d.objectsLinked + ")", "joined " + joined, d.arrays && d.arrays.length ? "arrays " + d.arrays.join(" ; ") : "", d.scriptPairs ? "script lat/lng pairs " + d.scriptPairs + " e.g. " + d.scriptSample : ""].filter(Boolean).join(" · "),
+          };
+        }
+      } catch (e) { /* the probe is best-effort */ }
+    }
+
     // A collector's own diagnostic (what it waited for and what it found)
     // and the data requests it saw, for the run log either way.
     const own = capture && capture.diag ? " [collector: " + Object.entries(capture.diag).map(([k, v]) => k + " " + v).join(" · ") + "]" : "";
@@ -260,17 +343,19 @@ async function captureOne(url, c) {
     let d = await up.json().catch(() => null);
     // A 502/503/504 with NO JSON body is the host's gateway (a restart or a
     // slow moment), not the dashboard's answer — the dashboard always says
-    // why. Wait and send the same capture once more.
-    let retried = false;
-    if (!d && [502, 503, 504].includes(up.status)) {
-      retried = true;
-      await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
+    // why. Wait and send the same capture again, twice.
+    let retries = 0;
+    for (const wait of UPLOAD_RETRY_MS) {
+      if (d || ![502, 503, 504].includes(up.status)) break;
+      retries++;
+      await new Promise((r) => setTimeout(r, wait));
       up = await post();
       d = await up.json().catch(() => null);
     }
     if (!up.ok || !d || !d.ok) {
+      const probe = !d ? " — " + (await dashboardAnswers(c)) : "";
       const why = (d && d.error)
-        || ("Upload failed (HTTP " + up.status + (d ? "" : " with no body — the host's gateway, not the dashboard") + (retried ? ", also on a retry" : "") + ")");
+        || ("Upload failed (HTTP " + up.status + (d ? "" : " with no body — the host's gateway, not the dashboard") + (retries ? ", also on " + retries + " retr" + (retries === 1 ? "y" : "ies") : "") + ", " + Math.round(body.length / 1024) + " kB" + probe + ")");
       return { ok: false, error: why + own, collected: capture.items.length, hints, url };
     }
     const served = d.fromApi != null
@@ -280,6 +365,7 @@ async function captureOne(url, c) {
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e), url };
   } finally {
+    if (hooked) await disarmXHook();
     if (winId != null) { try { await chrome.windows.remove(winId); } catch (e) { /* already gone */ } }
     else if (created && tab && tab.id != null) { try { await chrome.tabs.remove(tab.id); } catch (e) { /* already gone */ } }
   }

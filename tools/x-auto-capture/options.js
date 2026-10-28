@@ -4,7 +4,7 @@
 const DEFAULTS = {
   dashboardUrl: "", token: "", listUrls: ["https://x.com/i/bookmarks"],
   durationSec: 25, maxPosts: 200, intervalHours: 24, hour: 6, enabled: true,
-  alertsEnabled: true, alertIntervalMin: 15,
+  alertsEnabled: true, alertIntervalMin: 15, xFront: false,
 };
 const $ = (id) => document.getElementById(id);
 
@@ -22,6 +22,7 @@ async function load() {
   $("durationSec").value = c.durationSec;
   $("maxPosts").value = c.maxPosts;
   $("enabled").checked = !!c.enabled;
+  $("xFront").checked = !!c.xFront;
   $("alertsEnabled").checked = c.alertsEnabled !== false;
   $("alertIntervalMin").value = c.alertIntervalMin;
   renderStatus(raw.lastRun, raw.lastArticle);
@@ -65,6 +66,7 @@ async function save() {
     maxPosts: Math.max(10, Math.min(200, Number($("maxPosts").value) || 200)),
     hour: Math.max(0, Math.min(23, Number($("hour").value) || 6)),
     enabled: $("enabled").checked,
+    xFront: $("xFront").checked,
     alertsEnabled: $("alertsEnabled").checked,
     alertIntervalMin: Math.max(5, Math.min(120, Number($("alertIntervalMin").value) || 15)),
   };

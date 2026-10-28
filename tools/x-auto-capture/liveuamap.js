@@ -111,3 +111,91 @@ export async function collectLiveuamap(durationMs, maxItems) {
     diag,
   };
 }
+
+// Run in the page's OWN world (executeScript world:"MAIN") after the
+// collector: the 1.2.7 run showed no coordinate-looking attribute anywhere
+// in the markup, so the positions live in the map's JavaScript. This looks
+// in three places, reads only, and returns { found: [[path, lat, lng]],
+// diag } for the background worker to join onto the captured events by
+// permalink path:
+//   1. Leaflet layers — any page global with `_layers` (a map or a layer
+//      group): each layer with `_latlng` and a popup or options naming an
+//      event permalink.
+//   2. Arrays / maps of plain objects carrying a lat + lng and a string
+//      field naming an event permalink.
+//   3. Inline scripts: a count of "lat":…,"lng":… pairs and a sample, so a
+//      shape this misses is named on the run log.
+// Nothing is guessed: an object with coordinates but no permalink is
+// counted, never joined.
+export function probeLiveuamapCoords() {
+  const EV = /\/en\/20\d\d\/[^"'\s<>?#]+/;
+  const found = new Map();
+  const num = (v) => (typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN);
+  const ok = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 && !(a === 0 && b === 0);
+  const latOf = (o) => num(o.lat != null ? o.lat : o.latitude != null ? o.latitude : o.Lat);
+  const lngOf = (o) => num(o.lng != null ? o.lng : o.lon != null ? o.lon : o.long != null ? o.long : o.longitude != null ? o.longitude : o.Lng);
+  const linkIn = (o) => {
+    try {
+      for (const k of Object.keys(o)) {
+        const v = o[k];
+        if (typeof v === "string") { const m = v.match(EV); if (m) return m[0]; }
+      }
+    } catch (e) { /* unreadable */ }
+    return null;
+  };
+  const diag = { markers: 0, markersLinked: 0, objects: 0, objectsLinked: 0, arrays: [], scriptPairs: 0, scriptSample: "", map: "" };
+  const scanObjects = (name, list) => {
+    let withCoords = 0, linked = 0, keys = "";
+    for (const o of list) {
+      if (!o || typeof o !== "object") continue;
+      const la = latOf(o), ln = lngOf(o);
+      if (!ok(la, ln)) continue;
+      withCoords++;
+      if (!keys) keys = Object.keys(o).slice(0, 10).join(",");
+      const link = linkIn(o);
+      if (link) { linked++; if (!found.has(link)) found.set(link, [la, ln]); }
+    }
+    if (withCoords) { diag.objects += withCoords; diag.objectsLinked += linked; diag.arrays.push(name + "×" + withCoords + (linked ? "(linked " + linked + ")" : "") + "{" + keys + "}"); }
+  };
+  try {
+    if (window.L) diag.map = "leaflet";
+    else if (window.google && window.google.maps) diag.map = "google";
+    for (const k of Object.keys(window)) {
+      let v;
+      try { v = window[k]; } catch (e) { continue; }
+      if (!v || typeof v !== "object" || v === window || v === document) continue;
+      try {
+        if (v._layers && typeof v._layers === "object") {
+          for (const layer of Object.values(v._layers)) {
+            const ll = layer && layer._latlng;
+            if (!ll) continue;
+            diag.markers++;
+            let html = "";
+            const p = layer._popup;
+            if (p) html = typeof p._content === "string" ? p._content : (p._content && p._content.innerHTML) || "";
+            const m = html.match(EV);
+            const link = m ? m[0] : (layer.options ? linkIn(layer.options) : null);
+            if (link && ok(ll.lat, ll.lng)) { diag.markersLinked++; if (!found.has(link)) found.set(link, [ll.lat, ll.lng]); }
+          }
+        }
+        if (Array.isArray(v) && v.length >= 3 && v[0] && typeof v[0] === "object") scanObjects(k, v.slice(0, 2000));
+        else if (!Array.isArray(v) && !v._layers && !(v instanceof Node)) {
+          const vals = Object.values(v);
+          if (vals.length >= 3 && vals.length <= 5000 && vals[0] && typeof vals[0] === "object" && !Array.isArray(vals[0])) scanObjects(k + "{}", vals.slice(0, 2000));
+        }
+      } catch (e) { /* one odd global never kills the probe */ }
+    }
+    const PAIR = /"lat"\s*:\s*"?(-?\d{1,2}\.\d+)"?\s*,\s*"(?:lng|lon)"\s*:\s*"?(-?\d{1,3}\.\d+)/g;
+    for (const s of Array.from(document.scripts)) {
+      const t = s.textContent || "";
+      if (!t || t.length > 3000000) continue;
+      const hits = t.match(PAIR);
+      if (hits) {
+        diag.scriptPairs += hits.length;
+        if (!diag.scriptSample) { const i = t.search(PAIR); diag.scriptSample = t.slice(Math.max(0, i - 80), i + 120).replace(/\s+/g, " "); }
+      }
+    }
+  } catch (e) { /* best effort */ }
+  diag.arrays = diag.arrays.slice(0, 5);
+  return { found: Array.from(found.entries()).slice(0, 600).map(([path, c]) => [path, c[0], c[1]]), diag };
+}

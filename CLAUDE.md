@@ -3251,6 +3251,57 @@ reachability from production nor its record shape is known yet):
 - MOFCOM's diag now reports `listAfterMs` (time until the list rendered)
   and `totalMs` instead of the wait BUDGET it printed as `waitedMs`.
 
+### Extension 1.2.8 — X read from its own responses, LiveUAMap map probe (2026-10-28, from the 06:06 run log)
+The 1.2.7 run log answered its own questions: X still read `tab hidden`
+(a window of our own, unfocused, sits behind the browser and Chrome's
+occlusion tracking calls it hidden — rendering paused, 7 and 4 posts), and
+LiveUAMap's `coordAttrs` found no coordinate-looking attribute anywhere on
+the page (`entry a.recd_img … < div.popup-text`), so positions are not in
+the markup at all.
+- **X: the timeline RESPONSES, not the drawing.** `tools/x-auto-capture/
+  xhook.js` is registered (`chrome.scripting.registerContentScripts`,
+  `world: "MAIN"`, `runAt: "document_start"`, `persistAcrossSessions:
+  false`) ONLY for the capture target's own path on x.com / twitter.com and
+  ONLY while the capture runs (removed in `finally`); it wraps `fetch` and
+  `XMLHttpRequest` to keep a COPY of the GraphQL timeline bodies X's own
+  code requested (ListLatestTweetsTimeline, HomeTimeline, Bookmarks,
+  SearchTimeline, UserTweets…; ≤60 bodies, 8 MB). Nothing is sent to X,
+  nothing is changed, no credential is read — the "sends nothing, reads no
+  credentials" promise holds. `tools/x-auto-capture/xgraphql.js` (PURE,
+  tested from the repo in `tests/xGraphql.test.ts`) walks the JSON for
+  objects shaped like a post (`__typename: "Tweet"` + `rest_id` + `legacy`,
+  `TweetWithVisibilityResults` unwrapped) without depending on X's exact
+  nesting, never descends into a post it took (a quoted / reposted post is
+  part of its parent; a repost reads as the original), prefers a long
+  post's `note_tweet` text, expands t.co links and drops media links, and
+  reads `core.user_results.result.core|legacy.screen_name`.
+  `mergeXPosts` puts response posts first (full text, exact time) and
+  appends anything only the DOM had. Diag: `drawn N · fromResponses M posts
+  in K responses` / `hook saw nothing` / `hook not armed`. Verified in
+  headless Chromium against a stand-in page (fetch and XHR both caught, an
+  unrelated request ignored); NOT yet against x.com — the next run log is
+  the check. The 1.2.7 unfocused window is gone; the option **"Bring the X
+  capture to the front"** (`xFront`, default off) opens a FOCUSED window so
+  X also renders and loads further batches as it scrolls (it takes the
+  keyboard ~45 s per list).
+- **LiveUAMap: `probeLiveuamapCoords`** (exported from `liveuamap.js`, run
+  with `world: "MAIN"` after the collector) reads the map's JavaScript:
+  any page global with `_layers` (Leaflet map / group) → layers with
+  `_latlng` whose popup or options name an `/en/20YY/…` permalink; arrays
+  and object maps of plain objects with a lat + lng and a permalink string;
+  inline-script `"lat":…,"lng":…` pairs (count + sample). Positions are
+  joined onto captured events by permalink PATH; an object with coordinates
+  and no permalink is counted, never joined. Diag `mapProbe` names the map
+  library, markers / objects (linked), joined, the arrays found and the
+  script sample — if `joined 0`, that line says where the data is.
+- **Uploads:** a bodiless 502/503/504 is retried after 8 s and 30 s
+  (`UPLOAD_RETRY_MS`); a final failure asks `/api/alerts/check` whether the
+  dashboard answers at all ("this route was refused" vs "dashboard
+  unreachable") and names the body size. MOFCOM failed twice this way on
+  2026-10-28 (it uploaded fine at 04:27); the notices route answers JSON on
+  every path it owns, so a bodiless 503 is the host's — the next log says
+  which.
+
 ### Declared themes — what your own sources are saying (2026-10-27, "declare certain key words or sentiment that I want to see what the X or other opensource are seeing")
 The operator asked for keywords and sentiment over the own sources. Built
 as KEYWORDS with COUNTS AND FRAMING, deliberately not a sentiment score —
