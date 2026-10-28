@@ -9,7 +9,7 @@
 import { collectXPosts } from "./collector.js";
 import { postsFromGraphql, mergeXPosts } from "./xgraphql.js";
 import { extractArticle } from "./article.js";
-import { collectLiveuamap, probeLiveuamapCoords } from "./liveuamap.js";
+import { collectLiveuamap, probeLiveuamapCoords, clickProbeLiveuamap } from "./liveuamap.js";
 import { collectMofcom } from "./mofcom.js";
 import { collectUkmto } from "./ukmto.js";
 
@@ -318,15 +318,46 @@ async function captureOne(url, c) {
             try { path = new URL(it.url).pathname; } catch (e) { /* no path */ }
             let c2 = path ? byPath.get(path) : null, via = "path";
             if (!c2 && it.eid) { c2 = byId.get(String(it.eid)); via = "id"; }
-            if (!c2) { const tk = textKey(it.title); if (tk.length >= 20) { c2 = byTitle.get(tk); via = "title"; } }
+            if (!c2) {
+              const tk = textKey(it.title);
+              if (tk.length >= 20) {
+                c2 = byTitle.get(tk); via = "title";
+                // A popup that shortens or extends the headline: the first 40
+                // normalised characters of one must begin the other.
+                if (!c2) {
+                  const head = tk.slice(0, 40);
+                  for (const [k, v] of byTitle) { if (k.length >= 30 && (k.startsWith(head) || tk.startsWith(k.slice(0, 40)))) { c2 = v; break; } }
+                }
+              }
+            }
             if (c2) { it.lat = c2[0]; it.lng = c2[1]; how[via]++; }
           }
-          const joined = how.path + how.id + how.title;
+          // Still unplaced with an id: click each feed entry and read the
+          // popup the site opens (clickProbeLiveuamap).
+          let clickDiag = null;
+          const needIds = capture.items.filter((i) => i.lat == null && i.eid).map((i) => i.eid);
+          if (needIds.length) {
+            try {
+              const r2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: clickProbeLiveuamap, args: [needIds, 25000] });
+              const cp = r2 && r2[0] && r2[0].result;
+              if (cp) {
+                clickDiag = cp.diag;
+                const got = new Map(cp.byId.map(([id, la, ln]) => [String(id), [la, ln]]));
+                how.click = 0;
+                for (const it of capture.items) {
+                  if (it.lat != null || !it.eid) continue;
+                  const c3 = got.get(String(it.eid));
+                  if (c3) { it.lat = c3[0]; it.lng = c3[1]; how.click++; }
+                }
+              }
+            } catch (e) { clickDiag = { error: String((e && e.message) || e).slice(0, 80) }; }
+          }
+          const joined = how.path + how.id + how.title + (how.click || 0);
           const d = probe.diag || {};
           capture.diag = {
             ...(capture.diag || {}),
             placed: capture.items.filter((i) => i.lat != null).length,
-            mapProbe: [d.map || "no map lib", "markers " + d.markers + " (linked " + d.markersLinked + ")", "objects " + d.objects + " (linked " + d.objectsLinked + ")", "ids " + (d.byId || 0) + " · titles " + (d.byTitle || 0), d.layerMaps && d.layerMaps.length ? "id→marker tables " + d.layerMaps.join(" ; ") : "no id→marker table", "joined " + joined + (joined ? " (path " + how.path + " · id " + how.id + " · title " + how.title + ")" : ""), d.markerSample ? "marker " + d.markerSample : "", d.arrays && d.arrays.length ? "arrays " + d.arrays.join(" ; ") : "", d.scriptPairs ? "script lat/lng pairs " + d.scriptPairs + " e.g. " + d.scriptSample : ""].filter(Boolean).join(" · "),
+            mapProbe: [d.map || "no map lib", "markers " + d.markers + " (linked " + d.markersLinked + ")", "objects " + d.objects + " (linked " + d.objectsLinked + ")", "ids " + (d.byId || 0) + " · titles " + (d.byTitle || 0), d.layerMaps && d.layerMaps.length ? "id→marker tables " + d.layerMaps.join(" ; ") : "no id→marker table", "joined " + joined + (joined ? " (path " + how.path + " · id " + how.id + " · title " + how.title + (how.click != null ? " · click " + how.click : "") + ")" : ""), clickDiag ? "click probe " + (clickDiag.error ? "failed: " + clickDiag.error : (clickDiag.map ? "clicked " + clickDiag.clicked + " · popups " + clickDiag.opened + " · map moved " + clickDiag.moved : "no map found")) : "", d.markerSample ? "marker " + d.markerSample : "", d.arrays && d.arrays.length ? "arrays " + d.arrays.join(" ; ") : "", d.scriptPairs ? "script lat/lng pairs " + d.scriptPairs + " e.g. " + d.scriptSample : ""].filter(Boolean).join(" · "),
           };
         }
       } catch (e) { /* the probe is best-effort */ }

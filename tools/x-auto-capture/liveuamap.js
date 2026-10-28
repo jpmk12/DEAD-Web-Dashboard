@@ -294,3 +294,55 @@ export function probeLiveuamapCoords() {
     diag,
   };
 }
+
+// Last resort, run in the page's world when the joins above leave events
+// unplaced: do what a reader does — click each feed entry. LiveUAMap answers
+// a click on an entry by opening that event's popup on the map, and the
+// popup's position IS the event's position (opening a popup needs no
+// animation, so this works in a background tab). Only entries whose
+// data-id the worker still needs are clicked; nothing is typed, submitted
+// or followed; a click on a link inside an entry is prevented. Returns
+// { byId: [[id, lat, lng]], diag }.
+export async function clickProbeLiveuamap(ids, maxMs) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const ok = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 && !(a === 0 && b === 0);
+  const diag = { asked: (ids || []).length, clicked: 0, opened: 0, moved: 0, map: false };
+  let map = null;
+  try {
+    for (const k of Object.keys(window)) {
+      let v; try { v = window[k]; } catch (e) { continue; }
+      if (v && typeof v === "object" && v._layers && typeof v.getCenter === "function") { map = v; break; }
+    }
+  } catch (e) { /* none */ }
+  if (!map) return { byId: [], diag };
+  diag.map = true;
+  const want = new Set((ids || []).map(String));
+  const stopLinks = (e) => { try { const a = e.target && e.target.closest && e.target.closest("a"); if (a) e.preventDefault(); } catch (x) { /* ignore */ } };
+  document.addEventListener("click", stopLinks, true);
+  const out = [];
+  const end = Date.now() + (maxMs || 20000);
+  const llOfPopup = () => { const p = map._popup; return p && p._latlng ? [p._latlng.lat, p._latlng.lng] : null; };
+  try {
+    const entries = Array.from(document.querySelectorAll("div.event[data-id], [class*='event'][data-id]"))
+      .filter((el) => want.has(String(el.getAttribute("data-id"))));
+    for (const el of entries) {
+      if (Date.now() > end) break;
+      const id = String(el.getAttribute("data-id"));
+      const before = llOfPopup();
+      let c0 = null; try { const c = map.getCenter(); c0 = [c.lat, c.lng]; } catch (e) { /* none */ }
+      try { el.click(); diag.clicked++; } catch (e) { continue; }
+      await sleep(450);
+      let ll = llOfPopup();
+      if (ll && (!before || Math.abs(ll[0] - before[0]) > 1e-6 || Math.abs(ll[1] - before[1]) > 1e-6)) diag.opened++;
+      else {
+        ll = null;
+        try { const c = map.getCenter(); if (c0 && (Math.abs(c.lat - c0[0]) > 1e-4 || Math.abs(c.lng - c0[1]) > 1e-4)) { ll = [c.lat, c.lng]; diag.moved++; } } catch (e) { /* none */ }
+      }
+      if (ll && ok(ll[0], ll[1])) out.push([id, ll[0], ll[1]]);
+    }
+  } finally {
+    document.removeEventListener("click", stopLinks, true);
+    try { if (map.closePopup) map.closePopup(); } catch (e) { /* ignore */ }
+  }
+  return { byId: out, diag };
+}

@@ -3352,6 +3352,24 @@ the markup at all.
   attributes and the marker's own keys. The collector reports `eidSample`
   so the id formats can be compared on the log. Tested on a stand-in
   (one joined through a table keyed by id, one through an icon class).
+- **1.2.11, from the 1:06 PM run log**: iran still read "no id→marker
+  table" with a venue popup ("Strait of Hormuz") as the marker sample, and
+  `joined 0`; centralasia `joined 10 (title 10)`, which the Sources card
+  confirmed ("Map events 81 loaded · 10 with a reported position"). The
+  page holds no event-id → position table at all, so the last door is what a
+  reader does: **`clickProbeLiveuamap(ids, maxMs)`** (MAIN world, after the
+  joins, only for events still unplaced WITH an id, 25-s budget) clicks each
+  `div.event[data-id]`, waits 450 ms, and takes the map's newly opened
+  `_popup._latlng`, else the map centre when the click re-centred it; a click
+  on a link inside an entry is prevented (capture listener), nothing is typed
+  or submitted, the popup is closed at the end. Diag: `click probe clicked N
+  · popups N · map moved N` and `joined … · click N`. The title join also
+  gained a prefix form (the first 40 normalised characters of one must begin
+  the other, ≥30 chars). Tested in headless Chromium on a stand-in (two by
+  popup, one by re-centre, one no-op; the page never navigated). NOT yet on
+  liveuamap.com: if the site's own click handler NAVIGATES (the entry
+  carries `data-link`), the probe reads "failed: …" and the events keep the
+  title joins only.
 
 
 

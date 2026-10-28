@@ -111,8 +111,11 @@ it to Claude to tune.
   none), so after collecting, the worker probes the map's own JavaScript in
   the page (`probeLiveuamapCoords`: Leaflet layers, arrays of objects with a
   lat / lng and an event permalink, inline-script coordinate pairs) and
-  joins positions onto the events by permalink. The log line `mapProbe …`
-  names what it found when the join is empty.
+  joins positions onto the events by permalink, event id or headline. For
+  events still unplaced it then clicks each feed entry, as a reader would,
+  and reads the position of the popup the map opens (links inside an entry
+  are not followed). The log line `mapProbe …` names what it found and
+  ends with `click probe clicked N · popups N`.
 - An upload answered 502/503/504 **with no body** (the host's gateway, not
   the dashboard) is retried after 8 s and again after 30 s; if it still
   fails, the worker asks the dashboard's alerts check whether the app
