@@ -113,9 +113,11 @@ it to Claude to tune.
   lat / lng and an event permalink, inline-script coordinate pairs) and
   joins positions onto the events by permalink, event id or headline. For
   events still unplaced it then clicks each feed entry, as a reader would,
-  and reads the position of the popup the map opens (links inside an entry
-  are not followed). The log line `mapProbe …` names what it found and
-  ends with `click probe clicked N · popups N`.
+  and records the place the site's own handler sends the map to (popup or
+  settled centre as fallbacks; links inside an entry are not followed). An
+  entry with no event id cannot be clicked to a position and stays
+  unplaced — never guessed. The log line `mapProbe …` names what it found
+  and ends with `click probe clicked N · of M · flew to N`.
 - An upload answered 502/503/504 **with no body** (the host's gateway, not
   the dashboard) is retried after 8 s and again after 30 s; if it still
   fails, the worker asks the dashboard's alerts check whether the app
