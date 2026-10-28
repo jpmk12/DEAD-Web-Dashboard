@@ -3402,6 +3402,14 @@ the markup at all.
   map moved N`. Tested on a stand-in with Leaflet-shaped prototype methods
   and a 2-s flyTo: 3 of 3 exact, a zoom-first handler and a same-place pair
   handled, 4 clicks in 1.8 s, no own properties left behind.
+  **VERIFIED on liveuamap.com (run of 2026-10-28, 1:41 PM local)**: iran
+  `clicked 30 · of 30 · flew to 30` → placed 30 of 33; centralasia title 10
+  + flew to 20 → placed 30 of 33; samples unchanged from the 1.2.12 run
+  (the recorded target and the settled centre agree). The 3 unplaced per
+  page are the entries with NO `data-id` (`withEid 30`), which the probe
+  cannot click to a position — they stay unplaced, never guessed. The
+  LiveUAMap placement contract is now pinned; the next change to it should
+  start from a fresh run log.
 
 
 
