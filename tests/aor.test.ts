@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aorFromCoords, aorFromCountry, classifyAor } from "../lib/aor";
+import { aorFromCoords, aorFromCountry, aorFromName, classifyAor } from "../lib/aor";
 
 // The Weather-tab bug of 2026-10-07: Erbil (36.2°N, Iraq) rendered under
 // USEUCOM because the coordinate band puts everything above 36°N between the
@@ -38,5 +38,16 @@ describe("classifyAor", () => {
   it("uses the substring match only as the last resort for free text", () => {
     expect(classifyAor({ name: "Robins AFB, Georgia" })).toBe("EUCOM"); // free text — the Caucasus token; coordinates or a country would win
     expect(classifyAor({ lat: 32.64, lon: -83.59, name: "Robins AFB, Georgia" })).toBe("NORTHCOM");
+  });
+});
+
+describe("aorFromName — a token must start a word", () => {
+  it("does not read 'usa' inside Jerusalem or 'oman' inside woman, but keeps demonyms", () => {
+    expect(aorFromName("The Jerusalem Post")).toBe("UNKNOWN");
+    expect(aorFromName("a woman in the crowd")).toBe("UNKNOWN");
+    expect(aorFromName("Iranian drones over the strait")).toBe("CENTCOM");
+    expect(aorFromName("Syrian army units")).toBe("CENTCOM");
+    expect(aorFromName("Nigerian navy")).toBe("AFRICOM");
+    expect(aorFromName("Iran (Islamic Republic of)")).toBe("CENTCOM");
   });
 });

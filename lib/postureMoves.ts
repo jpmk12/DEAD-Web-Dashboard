@@ -107,6 +107,12 @@ const KIND_PATTERNS: Record<MoveKind, RegExp[]> = {
 // the Gulf" reads as a deployment.
 const KIND_ORDER: MoveKind[] = ["mobilize", "deploy", "surge", "reposition", "exercise", "withdraw"];
 
+// A ship or unit coming HOME is a return, not a deployment, though the
+// headline says "deployment" ("USS McFaul Returns to Norfolk After 332 Day
+// Deployment" was filed as a CENTCOM deploy, 2026-10-28). Read first and
+// filed as `withdraw`: lift leaving a command, the opening it is.
+const HOMECOMING = /\b(?:return(?:s|ed|ing)?\s+home|homecoming|home\s?port(?:ed)?\s+after|return(?:s|ed|ing)?\s+(?:to\s+[A-Z][\w.-]*(?:\s+[A-Z][\w.-]*)?\s+)?(?:after|from)\s+(?:a\s+|an\s+|its\s+|their\s+)?(?:\d+[- ](?:day|month)[- ]|(?:\w+[- ]){0,2}?month[- ]long\s+|historic\s+|extended\s+)?deployment)\b/i;
+
 const FORCE_NOUN = new RegExp(`\\b(?:${UNITS}|sailors|airmen|wings?|divisions?|fleet|navy|army|air force|military|patriot|thaad|pla|irgc|nato|pentagon|ministry of defen[cs]e|defen[cs]e ministry|reservists)\\b`, "i");
 
 interface ActorDef { name: string; side: ActorSide; aliases: RegExp[] }
@@ -171,13 +177,13 @@ function firstMatch(text: string, kind: MoveKind): { index: number; phrase: stri
 function resolveActor(text: string, at: number): { actor: ActorDef | null; spans: [number, number][] } {
   let before: { d: ActorDef; i: number } | null = null;
   let first: { d: ActorDef; i: number } | null = null;
-  const spans: [number, number][] = [];
+  const spans: [number, number, ActorDef][] = [];
   for (const d of ACTORS) {
     for (const re of d.aliases) {
       const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
       let m: RegExpExecArray | null;
       while ((m = g.exec(text)) !== null) {
-        spans.push([m.index, m.index + m[0].length]);
+        spans.push([m.index, m.index + m[0].length, d]);
         if (m.index < at && (!before || m.index > before.i)) before = { d, i: m.index };
         if (!first || m.index < first.i) first = { d, i: m.index };
         if (m[0].length === 0) g.lastIndex++;
@@ -185,7 +191,10 @@ function resolveActor(text: string, at: number): { actor: ActorDef | null; spans
     }
   }
   const pick = before ?? first;
-  return { actor: pick?.d ?? null, spans: pick ? spans : [] };
+  // Only the MOVER's own name is stripped before placing the move. Stripping
+  // every actor also removed the destination when it is itself an actor
+  // ("US deploys Patriot system in Israel" lost Israel and read NORTHCOM).
+  return { actor: pick?.d ?? null, spans: pick ? spans.filter((s) => s[2] === pick.d).map(([a, b]) => [a, b] as [number, number]) : [] };
 }
 
 function resolveAor(text: string, actorSpans: [number, number][]): Aor {
@@ -215,7 +224,9 @@ export function detectPostureMoves(items: NewsItem[], nowMs: number = Date.now()
     const text = hay(it);
     if (!FORCE_NOUN.test(text)) continue;
     let found: { kind: MoveKind; index: number; phrase: string } | null = null;
-    for (const kind of KIND_ORDER) {
+    const home = HOMECOMING.exec(text);
+    if (home) found = { kind: "withdraw", index: home.index, phrase: home[0] };
+    for (const kind of found ? [] : KIND_ORDER) {
       const m = firstMatch(text, kind);
       if (m) { found = { kind, ...m }; break; }
     }

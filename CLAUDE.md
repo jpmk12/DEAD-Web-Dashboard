@@ -3075,6 +3075,26 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   prose is not a route (the dash rule needs two ICAO-shaped tokens). Next:
   one paste of the diag → add the unknown fields to the place list and
   decide the designators.
+- **First production read of the sweep (2026-10-28, the plain
+  `/api/posture-moves` body, 412 own items, 9 own fields): ZERO chatter.**
+  The lists feeding the pool are OSINT news handles (HormuzReport,
+  PolymarketIntel, EuromaidanPR, casusbellii, EndGameWW3), not plane
+  spotters, so lift chatter may be genuinely absent — `?diag=chatter`
+  says which (near misses vs nothing named). The same body showed three
+  posture-move bugs, fixed: (1) **`aorFromName` matched a token anywhere
+  in a word** — "Jerusalem" contains "usa", so a post stripped of
+  "Israel" read NORTHCOM; tokens now must START a word (demonyms still
+  match: Iranian → iran; "woman" no longer finds Oman). Global — every
+  caller of `aorFromName` gets it; tested in `tests/aor.test.ts`.
+  (2) **`resolveActor` returned the spans of EVERY actor**, so the AOR
+  pass stripped the destination when it was itself an actor ("US deploys
+  Patriot system in Israel" lost Israel); only the mover's spans are
+  stripped now. (3) **A homecoming read as a deployment** ("USS McFaul
+  Returns to Norfolk After 332 Day Deployment" → CENTCOM deploy):
+  `HOMECOMING` (returns home / homecoming / returns … after|from …
+  deployment) is read first and filed as `withdraw`. Known, not fixed:
+  an actor named only inside an event title ("Africa-France Summit") can
+  be credited as the mover when it is the nearest name before the phrase.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

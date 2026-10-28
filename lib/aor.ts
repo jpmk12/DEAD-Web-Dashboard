@@ -68,14 +68,19 @@ const COUNTRY_AOR: Record<Aor, string[]> = {
 };
 
 // Pre-sorted [token, aor] pairs, longest first, for unambiguous substring match.
-const NAME_INDEX: { token: string; aor: Aor }[] = (Object.keys(COUNTRY_AOR) as Aor[])
-  .flatMap((aor) => COUNTRY_AOR[aor].map((token) => ({ token, aor })))
+// A token must start a word: "Iranian" still finds "iran" and "Syrian"
+// "syria", but "Jerusalem" no longer finds "usa" (a U.S.-deploys-Patriot-to-
+// Israel post filed under NORTHCOM, 2026-10-28) and "woman" no longer finds
+// "oman". The end stays open on purpose — demonyms are the common case.
+const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const NAME_INDEX: { token: string; aor: Aor; rx: RegExp }[] = (Object.keys(COUNTRY_AOR) as Aor[])
+  .flatMap((aor) => COUNTRY_AOR[aor].map((token) => ({ token, aor, rx: new RegExp(`(?:^|[^a-z0-9])${escapeRx(token)}`) })))
   .sort((a, b) => b.token.length - a.token.length);
 
 export function aorFromName(name: string): Aor {
   const t = name.toLowerCase();
-  for (const { token, aor } of NAME_INDEX) {
-    if (t.includes(token)) return aor;
+  for (const { aor, rx } of NAME_INDEX) {
+    if (rx.test(t)) return aor;
   }
   return "UNKNOWN";
 }

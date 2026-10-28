@@ -87,3 +87,28 @@ describe("mergePostureMoves / newsletterBulletsAsItems", () => {
     expect(m.source).toMatch(/newsletter/);
   });
 });
+
+describe("posture moves read from the 2026-10-28 production sweep", () => {
+  it("places a U.S. deployment INTO Israel in CENTCOM — the destination is an actor too, and 'Jerusalem' is not 'USA'", () => {
+    const [m] = detectPostureMoves([item("US deploys Patriot system in Israel amid preparations for Iran strikes | The Jerusalem Post https://www.jpost.com/israel-news/defense-news/article-913105")], NOW);
+    expect(m.kind).toBe("deploy");
+    expect(m.actor).toBe("United States");
+    expect(m.aor).toBe("CENTCOM");
+  });
+  it("still places by the destination when the mover is named: Russia → Venezuela is SOUTHCOM", () => {
+    const [m] = detectPostureMoves([item("Russia deploys bombers to Venezuela for joint patrols")], NOW);
+    expect(m.actor).toBe("Russia");
+    expect(m.aor).toBe("SOUTHCOM");
+  });
+  it("files a ship coming home as a return (withdraw), not a deployment", () => {
+    const [m] = detectPostureMoves([item("USS McFaul Returns to Norfolk After 332 Day Deployment", { summary: "The destroyer deployed to the Middle East and the Red Sea." })], NOW);
+    expect(m.kind).toBe("withdraw");
+    expect(m.phrase.toLowerCase()).toContain("deployment");
+    const [h] = detectPostureMoves([item("Carrier strike group returns home to San Diego after historic deployment")], NOW);
+    expect(h.kind).toBe("withdraw");
+  });
+  it("a deployment that merely mentions an earlier one is still a deployment", () => {
+    const [m] = detectPostureMoves([item("Pentagon deploys additional fighters to the Gulf weeks after the last deployment ended")], NOW);
+    expect(m.kind).toBe("deploy");
+  });
+});
