@@ -12,6 +12,8 @@ interface Status {
   count: number;
   newest: string | null;
   sources: { label: string; count: number }[];
+  /** Map events only: how many carry the page's own coordinates. */
+  placed?: number;
 }
 
 function useCaptureStatus(url: string) {
@@ -71,7 +73,7 @@ function CaptureRow({ icon, label, status, empty, onClear }: {
         <span className="text-[11px] font-semibold text-slate-300">{icon} {label}</span>
         <span className="text-[10px] text-slate-500 font-mono">
           {status === null ? "…" : has
-            ? `${status.count} loaded${status.newest ? ` · newest ${formatDistanceToNow(new Date(status.newest), { addSuffix: true })}` : ""}`
+            ? `${status.count} loaded${status.placed != null ? ` · ${status.placed} with a reported position` : ""}${status.newest ? ` · newest ${formatDistanceToNow(new Date(status.newest), { addSuffix: true })}` : ""}`
             : "none yet"}
         </span>
         <div className="flex-1" />

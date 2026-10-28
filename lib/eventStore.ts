@@ -59,13 +59,18 @@ export async function getCapturedEvents(limit = 300): Promise<StoredEvent[]> {
   return items;
 }
 
-export async function getEventStatus(): Promise<{ count: number; newest: string | null; sources: { label: string; count: number }[] }> {
+export async function getEventStatus(): Promise<{ count: number; newest: string | null; sources: { label: string; count: number }[]; placed: number }> {
   const items = await getCapturedEvents(1000).catch(() => [] as StoredEvent[]);
   const bySource = new Map<string, number>();
   for (const e of items) bySource.set(e.source, (bySource.get(e.source) ?? 0) + 1);
   return {
     count: items.length,
     newest: items[0]?.capturedAt ?? null,
+    // Events that carry the page's own coordinates — the only ones the map
+    // and the chokepoint reads plot at a point (the rest are placed by a
+    // country centroid or not at all). The capture log cannot show this, so
+    // the Sources card does.
+    placed: items.filter((e) => e.lat != null && e.lon != null && Number.isFinite(Number(e.lat)) && Number.isFinite(Number(e.lon))).length,
     sources: [...bySource.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count),
   };
 }

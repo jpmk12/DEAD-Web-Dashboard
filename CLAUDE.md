@@ -3202,6 +3202,18 @@ reachability from production nor its record shape is known yet):
   real key list and plausible values. The next run's "N with a reported
   position" is the verification; a 0 there with the keys present means
   the decimals are strings in a form `num()` refuses — paste one row.
+- **VERIFIED from production (run of 2026-10-28, 04:27 local)**: the SCCD
+  body arrived whole, 40 rows, **40 parsed, 40 with a reported position**
+  from `locationLatitude` / `locationLongitude`. The SCCD contract is
+  pinned; the next change to it should start from a fresh run log. The
+  same run: LiveUAMap `iran` and `centralasia` 33 events each, MOFCOM 15
+  notices from the rendered list (its `waitedMs` diag prints the wait
+  BUDGET, 25 000, not the time actually waited — cosmetic, fix with the
+  next extension change), X lists 4 and 9 posts (still low — the saved list
+  page is needed to see why). Whether the LiveUAMap events carried
+  coordinates is not in the extension's log; the Sources pane's capture
+  card now says "N with a reported position" for map events
+  (`getEventStatus().placed`).
 
 ### Declared themes — what your own sources are saying (2026-10-27, "declare certain key words or sentiment that I want to see what the X or other opensource are seeing")
 The operator asked for keywords and sentiment over the own sources. Built
