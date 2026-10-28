@@ -306,7 +306,7 @@ export function probeLiveuamapCoords() {
 export async function clickProbeLiveuamap(ids, maxMs) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ok = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 && !(a === 0 && b === 0);
-  const diag = { asked: (ids || []).length, clicked: 0, opened: 0, moved: 0, map: false };
+  const diag = { asked: (ids || []).length, clicked: 0, opened: 0, moved: 0, map: false, sample: [] };
   let map = null;
   try {
     for (const k of Object.keys(window)) {
@@ -329,16 +329,36 @@ export async function clickProbeLiveuamap(ids, maxMs) {
       if (Date.now() > end) break;
       const id = String(el.getAttribute("data-id"));
       const before = llOfPopup();
+      // Step the map a little off its centre first, so an event at the same
+      // place as the one before it still registers as a move when the site
+      // re-centres on it (LiveUAMap answers a click by re-centring, not with
+      // a Leaflet popup — the 1.2.11 run read popups 0, moved 21).
+      try {
+        const c = map.getCenter(), z = map.getZoom ? map.getZoom() : undefined;
+        if (map.setView) map.setView([c.lat + 0.37, c.lng + 0.41], z, { animate: false });
+      } catch (e) { /* the shift is best-effort */ }
       let c0 = null; try { const c = map.getCenter(); c0 = [c.lat, c.lng]; } catch (e) { /* none */ }
       try { el.click(); diag.clicked++; } catch (e) { continue; }
-      await sleep(450);
+      // Wait until the centre stops moving (an animated pan read mid-flight
+      // would be a wrong position): two equal reads 150 ms apart, ≤2.5 s.
+      await sleep(300);
+      let last = null;
+      for (let t = 0; t < 15; t++) {
+        let cur = null; try { const c = map.getCenter(); cur = [c.lat, c.lng]; } catch (e) { break; }
+        if (last && Math.abs(cur[0] - last[0]) < 1e-7 && Math.abs(cur[1] - last[1]) < 1e-7) break;
+        last = cur;
+        await sleep(150);
+      }
       let ll = llOfPopup();
       if (ll && (!before || Math.abs(ll[0] - before[0]) > 1e-6 || Math.abs(ll[1] - before[1]) > 1e-6)) diag.opened++;
       else {
         ll = null;
-        try { const c = map.getCenter(); if (c0 && (Math.abs(c.lat - c0[0]) > 1e-4 || Math.abs(c.lng - c0[1]) > 1e-4)) { ll = [c.lat, c.lng]; diag.moved++; } } catch (e) { /* none */ }
+        if (last && c0 && (Math.abs(last[0] - c0[0]) > 1e-4 || Math.abs(last[1] - c0[1]) > 1e-4)) { ll = last; diag.moved++; }
       }
-      if (ll && ok(ll[0], ll[1])) out.push([id, ll[0], ll[1]]);
+      if (ll && ok(ll[0], ll[1])) {
+        out.push([id, ll[0], ll[1]]);
+        if (diag.sample.length < 3) diag.sample.push(id + "→" + ll[0].toFixed(3) + "," + ll[1].toFixed(3));
+      }
     }
   } finally {
     document.removeEventListener("click", stopLinks, true);

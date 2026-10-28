@@ -3370,6 +3370,20 @@ the markup at all.
   liveuamap.com: if the site's own click handler NAVIGATES (the entry
   carries `data-link`), the probe reads "failed: …" and the events keep the
   title joins only.
+- **1.2.12, from the 1:19 PM run log — the click probe WORKS on
+  liveuamap.com, by re-centring, not by popup**: iran placed 21 of 33
+  (`clicked 26 · popups 0 · map moved 21`), centralasia 29 of 33 (title 10
+  + click 19); the Sources card read "81 loaded · 50 with a reported
+  position". LiveUAMap answers a click on an entry by re-centring the map
+  on the event and never opens a Leaflet popup, so the map centre IS the
+  position. Two fixes to that read: (1) before each click the map is
+  stepped ~0.4° off its centre (`setView`, no animation), so an event at the
+  SAME place as the one before it still registers as a move — the 5 iran
+  clicks with no move were most likely that; (2) the centre is read only
+  once it stops moving (two equal reads 150 ms apart, ≤2.5 s), never
+  mid-pan. The diag carries `e.g. <eid>→lat,lng` (three samples) so a run
+  log shows the positions to sanity-check. Tested on a stand-in with an
+  animated pan and two consecutive same-place events (both placed exactly).
 
 
 
