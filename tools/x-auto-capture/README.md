@@ -85,13 +85,22 @@ it to Claude to tune.
 
 ## How it works
 
-- `background.js` sets a `chrome.alarms` daily trigger. On fire it opens a
-  background tab at your list URL, waits for X to render, injects `collector.js`
-  to scroll + accumulate posts, then POSTs the `dead-x-capture` JSON to
-  `<dashboard>/api/osint/x-import` with `Authorization: Bearer <token>`.
+- `background.js` sets a `chrome.alarms` daily trigger. On fire it opens your
+  list URL in a **small unfocused window of its own** (1.2.7 — Chrome pauses
+  rendering in a background tab, and X only loads the next few posts as the
+  list renders, so a hidden tab stalled at 4–9 posts), waits for X to render,
+  injects `collector.js` to scroll + accumulate posts, closes the window, then
+  POSTs the `dead-x-capture` JSON to `<dashboard>/api/osint/x-import` with
+  `Authorization: Bearer <token>`. X gets at least 45 s whatever the
+  duration setting. Other sites still use a background tab.
 - `collector.js` is the same capture logic as the bookmarklet (deduped by post
-  id, capped at 200). Re-uploading the same posts is safe — the dashboard
-  dedupes by id.
+  id, capped at 200). It scrolls to consume: progress is new posts, and it
+  only stops after 12 s with none (nudging and pressing X's Retry meanwhile).
+  The run log line `[collector: ended … · posts … · scrolls … · tab visible]`
+  says why it stopped and whether the tab was visible. Re-uploading the same
+  posts is safe — the dashboard dedupes by id.
+- An upload answered 502/503/504 **with no body** (the host's gateway, not the
+  dashboard) is retried once after 8 s.
 
 ## Scheduling reality
 

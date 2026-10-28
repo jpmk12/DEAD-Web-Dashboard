@@ -70,22 +70,52 @@ export async function collectXPosts(durationMs, maxPosts) {
     });
   };
 
-  // Auto-scroll loop: grab, scroll ~85% viewport, wait for the next batch to
-  // render. Stops at the time budget, the post cap, or a stuck scroll position.
-  const end = Date.now() + (durationMs || 25000);
-  // A timeline that has not rendered yet has nothing to scroll, so a stuck
-  // scroll position with ZERO posts is "still loading", not "done" — keep
-  // trying until this much has passed (a list page can take 5–10 s).
-  const minEnd = Date.now() + Math.min(12000, durationMs || 25000);
-  let lastY = -1, still = 0;
+  // Scroll-to-consume. X renders a list a FEW posts at a time: each batch
+  // arrives from its API only after the bottom of the rendered list comes
+  // into view, and that fetch can take several seconds. So the loop judges
+  // progress by NEW POSTS (or a taller page), never by scroll position, and
+  // only calls the timeline finished after STALL_MS with neither — while
+  // stalled it nudges (up a screen, then back to the bottom) so X's loader
+  // sees the bottom again, and presses a "Retry" X shows after a failed page.
+  // Every rendered card is grabbed BEFORE each jump, and the jump only goes
+  // to the last rendered cell, so a virtualized list never skips a post.
+  const t0 = Date.now();
+  const end = t0 + (durationMs || 45000);
+  const STALL_MS = 12000;
+  // A list that has not rendered at all is still loading, not empty.
+  const minEnd = t0 + Math.min(15000, durationMs || 45000);
+  const sc = () => document.scrollingElement || document.documentElement;
+  let lastCount = -1, lastHeight = -1, lastProgress = Date.now();
+  let scrolls = 0, nudges = 0, retries = 0, ended = "time budget";
   window.scrollTo(0, 0);
-  await sleep(400);
-  while (Date.now() < end && store.size < MAX) {
+  await sleep(600);
+  while (Date.now() < end) {
     grab();
-    window.scrollBy(0, Math.round(window.innerHeight * 0.85));
-    await sleep(700);
-    const y = window.scrollY;
-    if (y === lastY) { still++; if (still >= 6 && (store.size > 0 || Date.now() >= minEnd)) break; } else { still = 0; lastY = y; }
+    if (store.size >= MAX) { ended = "post cap"; break; }
+    const h = sc().scrollHeight;
+    if (store.size > lastCount || h > lastHeight) {
+      lastCount = store.size; lastHeight = h; lastProgress = Date.now();
+    } else if (Date.now() - lastProgress > STALL_MS && (store.size > 0 || Date.now() >= minEnd)) {
+      ended = "no new posts for " + Math.round(STALL_MS / 1000) + " s";
+      break;
+    }
+    try {
+      const retry = Array.from(document.querySelectorAll('[role="button"], button'))
+        .find((b) => /^(retry|try again)$/i.test((b.innerText || "").trim()));
+      if (retry) { retry.click(); retries++; await sleep(1500); }
+    } catch (e) { /* no retry control */ }
+    const stalled = Date.now() - lastProgress;
+    if (stalled > 3000 && scrolls % 3 === 0) {
+      window.scrollBy(0, -Math.round(window.innerHeight * 0.9));
+      nudges++;
+      await sleep(400);
+    }
+    const cells = document.querySelectorAll('[data-testid="cellInnerDiv"]');
+    const last = cells.length ? cells[cells.length - 1] : null;
+    if (last && last.scrollIntoView) last.scrollIntoView({ block: "end" });
+    window.scrollBy(0, Math.round(window.innerHeight * 0.5));
+    scrolls++;
+    await sleep(1000);
   }
   grab();
 
@@ -108,5 +138,10 @@ export async function collectXPosts(durationMs, maxPosts) {
     capturedAt: new Date().toISOString(),
     source: { kind, label },
     items: posts.slice(0, MAX),
+    // For the run log: why it stopped, how hard it scrolled, and whether the
+    // tab was VISIBLE — Chrome pauses rendering in a hidden tab, and X's
+    // timeline loads its next batch from rendering, so "hidden" with few
+    // posts names the cause.
+    diag: { ended, posts: posts.length, scrolls, nudges, retries, seconds: Math.round((Date.now() - t0) / 1000), tab: document.visibilityState },
   };
 }

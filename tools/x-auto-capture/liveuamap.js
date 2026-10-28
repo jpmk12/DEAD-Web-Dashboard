@@ -68,6 +68,38 @@ export async function collectLiveuamap(durationMs, maxItems) {
   }
   grab();
 
+  // Where the coordinates live is UNVERIFIED (the first runs carried 76
+  // events and 0 positions), so the run log names it: the attribute names on
+  // the first event entry and two ancestors, and every attribute on the page
+  // whose NAME looks like a coordinate, with how often it appears. Names and
+  // a short sample value only — the page is public.
+  const items = Array.from(store.values());
+  const diag = { placed: items.filter((i) => i.lat != null).length };
+  try {
+    const first = Array.from(document.querySelectorAll('a[href*="/en/20"]')).find((a) => EVENT_HREF.test(a.href));
+    if (first) {
+      const chain = [];
+      let el = first;
+      for (let i = 0; el && el !== document.body && i < 4; i++, el = el.parentElement) {
+        const names = Array.from(el.attributes || []).map((x) => x.name).filter((n) => n !== "style").slice(0, 12);
+        chain.push(el.tagName.toLowerCase() + (el.className && typeof el.className === "string" ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "") + "[" + names.join(",") + "]");
+      }
+      diag.entry = chain.join(" < ").slice(0, 400);
+    }
+    const seen = {};
+    document.querySelectorAll("*").forEach((n) => {
+      for (const x of Array.from(n.attributes || [])) {
+        if (/lat|lng|lon|coord|geo|point/i.test(x.name) && !/^(aria|on)/i.test(x.name)) {
+          const k = x.name;
+          if (!seen[k]) seen[k] = { n: 0, sample: String(x.value).slice(0, 40) };
+          seen[k].n++;
+        }
+      }
+    });
+    const keys = Object.keys(seen);
+    diag.coordAttrs = keys.length ? keys.slice(0, 8).map((k) => k + "×" + seen[k].n + "=" + seen[k].sample).join(", ") : "none";
+  } catch (e) { /* the diagnostic is best-effort */ }
+
   const host = location.hostname;
   const label = host.replace(/\.liveuamap\.com$/, "").replace(/^www\./, "") || "liveuamap";
   return {
@@ -75,6 +107,7 @@ export async function collectLiveuamap(durationMs, maxItems) {
     version: 1,
     capturedAt: new Date().toISOString(),
     source: { kind: "liveuamap", label },
-    items: Array.from(store.values()).slice(0, MAX),
+    items: items.slice(0, MAX),
+    diag,
   };
 }

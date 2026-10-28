@@ -185,17 +185,42 @@ function diagLine(d, requested) {
   return " [page: " + parts.join(" · ") + "]";
 }
 
+const X_MIN_DURATION_MS = 45000;
+const UPLOAD_RETRY_MS = 8000;
+
+// Where a capture runs. Chrome PAUSES rendering in a background tab, and X's
+// timeline loads its next batch from rendering — so in a hidden tab a list
+// stops after the first few posts however long the collector scrolls. An X
+// target therefore opens in its OWN small window, not focused (it does not
+// take the keyboard), whose only tab is active and so counts as visible.
+// Closed again when the capture ends. If the window cannot be made, or for
+// every other site (their feeds load without it), a background tab as before.
+async function openCaptureTab(url, kind) {
+  if (kind === "x") {
+    try {
+      const w = await chrome.windows.create({ url, focused: false, state: "normal", type: "normal", width: 900, height: 1100 });
+      const t = w && w.tabs && w.tabs[0];
+      if (t && t.id != null) return { ...t, windowId: w.id, _ownWindow: true };
+    } catch (e) { /* fall back to a tab */ }
+  }
+  return await chrome.tabs.create({ url, active: false });
+}
+
 // Capture + upload ONE target URL. Returns a per-target result.
 async function captureOne(url, c) {
   const kind = targetKind(url);
-  let tab = null, created = false;
+  let tab = null, created = false, winId = null;
   try {
-    tab = await chrome.tabs.create({ url, active: false });
+    tab = await openCaptureTab(url, kind);
     created = true;
+    if (tab.windowId != null && tab._ownWindow) winId = tab.windowId;
     await waitForTabLoad(tab.id, 20000);
     await new Promise((r) => setTimeout(r, 3500)); // let the SPA render
 
-    const dur = Math.max(5, Number(c.durationSec) || 25) * 1000;
+    // X renders a few posts per batch and needs time to scroll through
+    // them; a budget set for the other sites is too short for a list.
+    const base = Math.max(5, Number(c.durationSec) || 25) * 1000;
+    const dur = kind === "x" ? Math.max(base, X_MIN_DURATION_MS) : base;
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: COLLECTORS[kind],
@@ -221,18 +246,32 @@ async function captureOne(url, c) {
     }
 
     const endpoint = c.dashboardUrl.replace(/\/+$/, "") + ENDPOINTS[kind];
-    const up = await fetch(endpoint, {
+    const body = JSON.stringify(capture);
+    const post = () => fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + c.token,
         "X-Capture-Interval-Hours": String(clampInterval(c.intervalHours)),
       },
-      body: JSON.stringify(capture),
+      body,
     });
-    const d = await up.json().catch(() => ({}));
-    if (!up.ok || !d.ok) {
-      return { ok: false, error: (d && d.error) || ("Upload failed (HTTP " + up.status + ")") + own, collected: capture.items.length, hints, url };
+    let up = await post();
+    let d = await up.json().catch(() => null);
+    // A 502/503/504 with NO JSON body is the host's gateway (a restart or a
+    // slow moment), not the dashboard's answer — the dashboard always says
+    // why. Wait and send the same capture once more.
+    let retried = false;
+    if (!d && [502, 503, 504].includes(up.status)) {
+      retried = true;
+      await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
+      up = await post();
+      d = await up.json().catch(() => null);
+    }
+    if (!up.ok || !d || !d.ok) {
+      const why = (d && d.error)
+        || ("Upload failed (HTTP " + up.status + (d ? "" : " with no body — the host's gateway, not the dashboard") + (retried ? ", also on a retry" : "") + ")");
+      return { ok: false, error: why + own, collected: capture.items.length, hints, url };
     }
     const served = d.fromApi != null
       ? " [dashboard: " + d.fromApi + " rows from the SCCD API body" + (d.parsed != null ? " · " + d.parsed + " parsed" : "") + (d.placed != null ? " · " + d.placed + " with a reported position" : "") + (Array.isArray(d.apiKeys) && d.apiKeys.length ? " · keys: " + d.apiKeys.join(", ") : "") + "]"
@@ -241,7 +280,8 @@ async function captureOne(url, c) {
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e), url };
   } finally {
-    if (created && tab && tab.id != null) { try { await chrome.tabs.remove(tab.id); } catch (e) { /* already gone */ } }
+    if (winId != null) { try { await chrome.windows.remove(winId); } catch (e) { /* already gone */ } }
+    else if (created && tab && tab.id != null) { try { await chrome.tabs.remove(tab.id); } catch (e) { /* already gone */ } }
   }
 }
 

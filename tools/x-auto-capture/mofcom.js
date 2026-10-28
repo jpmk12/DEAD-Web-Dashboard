@@ -96,9 +96,11 @@ export async function collectMofcom(durationMs, maxItems) {
   // 3. Wait for the SCRIPT-RENDERED list: poll until a list region holds
   //    article links (or the budget ends), then harvest; keep scanning a
   //    few more ticks in case the list fills in pages.
-  const end = Date.now() + Math.min(durationMs || 15000, 25000);
+  const started = Date.now();
+  const end = started + Math.min(durationMs || 15000, 25000);
   let had = listLinks();
   while (Date.now() < end && had === 0 && !onNotice) { await sleep(700); had = listLinks(); }
+  const listAfterMs = Date.now() - started;
   scan();
   if (!onNotice) {
     let stable = 0, last = store.size;
@@ -117,7 +119,7 @@ export async function collectMofcom(durationMs, maxItems) {
     source: { kind: "mofcom", label: "MOFCOM", host: location.hostname, pageTitle: clean(document.title).slice(0, 120) },
     // Said for the run log when the list never rendered: how many list
     // regions the page had and how many article links they held.
-    diag: { listRegions: listRegions().length, listLinks: listLinks(), waitedMs: Math.min(durationMs || 15000, 25000) },
+    diag: { listRegions: listRegions().length, listLinks: listLinks(), listAfterMs, totalMs: Date.now() - started },
     items: Array.from(store.values()).slice(0, MAX),
   };
 }

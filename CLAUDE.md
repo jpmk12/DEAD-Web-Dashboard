@@ -3215,6 +3215,42 @@ reachability from production nor its record shape is known yet):
   card now says "N with a reported position" for map events
   (`getEventStatus().placed`).
 
+### Extension 1.2.7 — X scroll-to-consume, LiveUAMap coordinate diag, gateway retry (2026-10-28, from the 05:56 run log: X lists 6 and 4 posts, LiveUAMap 76 events / 0 placed, MOFCOM "Upload failed (HTTP 503)")
+- **X stalled at a handful of posts for two reasons.** (1) The capture ran
+  in a BACKGROUND tab, and Chrome pauses rendering there; X's list loads its
+  next few posts only as the rendered list reaches the bottom, so a hidden
+  tab never asked for more. `background.js` `openCaptureTab` now opens an X
+  target in its own small UNFOCUSED window (its only tab is active, so the
+  page counts as visible; it does not take the keyboard) and closes the
+  window afterwards; other sites keep the background tab; a failed
+  `windows.create` falls back to the tab. (2) The loop stopped after ~4 s of
+  an unchanged scroll position — shorter than X's next-page fetch.
+  `collector.js` now judges progress by NEW POSTS or a taller page, stops
+  only after `STALL_MS` 12 s with neither, nudges up a screen every third
+  step while stalled, presses an X "Retry", and jumps only to the last
+  RENDERED cell after grabbing every rendered card (a virtualized list skips
+  nothing). X gets at least `X_MIN_DURATION_MS` 45 s. The capture carries
+  `diag {ended, posts, scrolls, nudges, retries, seconds, tab}` — `tab:
+  hidden` with few posts names the cause on the run log. The saved list page
+  (view-source) is X's empty shell again (`__INITIAL_STATE__` entries
+  empty) — posts arrive only by API after load, so selectors cannot be
+  checked from a view-source save; a DOM save (DevTools › Elements › copy
+  outerHTML of the timeline) would be needed for that.
+- **LiveUAMap: 0 positions from 76 events** — the `data-lat`/`data-lng`
+  guess is wrong for the live markup. The capture now carries `diag
+  {placed, entry, coordAttrs}`: the attribute names on the first event entry
+  and three ancestors, and every attribute on the page whose NAME looks like
+  a coordinate with its count and a 40-char sample. The next run log names
+  the field; then fix `pick()` in `liveuamap.js`. A view-source save of a
+  region page would answer it too.
+- **MOFCOM "HTTP 503" with no reason** was the host's gateway, not the
+  notices route (which always answers JSON with the class of failure). An
+  upload answered 502/503/504 with NO JSON body is retried once after
+  `UPLOAD_RETRY_MS` 8 s, and the message says "with no body — the host's
+  gateway, not the dashboard" (", also on a retry").
+- MOFCOM's diag now reports `listAfterMs` (time until the list rendered)
+  and `totalMs` instead of the wait BUDGET it printed as `waitedMs`.
+
 ### Declared themes — what your own sources are saying (2026-10-27, "declare certain key words or sentiment that I want to see what the X or other opensource are seeing")
 The operator asked for keywords and sentiment over the own sources. Built
 as KEYWORDS with COUNTS AND FRAMING, deliberately not a sentiment score —
