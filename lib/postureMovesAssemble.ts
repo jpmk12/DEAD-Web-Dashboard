@@ -24,7 +24,7 @@ import { fetchFeed } from "./rss";
 import { BASE_NEWS_SOURCES } from "./newsSources";
 import { gdeltSearch } from "./localNews";
 import { detectPostureMoves, mergePostureMoves, POSTURE_GDELT_QUERY, type PostureMove } from "./postureMoves";
-import { readChatter, clusterChatter, chatterToMoves, chatterSurge, chatterForIcao, explainChatter, type ChatterCluster, type ChatterExplain, type FieldChatter } from "./mobilityChatter";
+import { readChatter, clusterChatter, FOREIGN_SIDES, chatterToMoves, chatterSurge, chatterForIcao, explainChatter, type ChatterCluster, type ChatterExplain, type FieldChatter } from "./mobilityChatter";
 import { getOwnPlaces } from "./ownPlaces";
 import { getXItems } from "./xStore";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
@@ -39,6 +39,10 @@ export interface PostureMovesBody {
   /** Lift chatter clusters from the user's own sources (newest-first inside
    *  each; corroborated first). Empty when nothing was read. */
   chatter: ChatterCluster[];
+  /** Watched countries' and allies' own mobility moves, read from the same
+   *  pool — a category apart from U.S. lift; it feeds no level, no demand
+   *  driver and no series. */
+  foreignChatter: ChatterCluster[];
   /** Chatter naming each of the operator's OWN fields (destination or
    *  origin) in the sensor window, keyed by ICAO — the SITREP Ops row reads
    *  its own entry. Absent ICAO = no post named it. */
@@ -76,7 +80,7 @@ export async function getPostureMoves(maxWaitMs = 8_000): Promise<PostureMovesBo
   const settled = await withTimeout(getPostureMovesFull(), maxWaitMs);
   if (settled) return settled;
   if (cache) return { ...cache.body, pending: true };
-  return { generatedAt: new Date().toISOString(), moves: [], chatter: [], fieldChatter: {}, sources: { rss: 0, rssTotal: 0, gdelt: false, own: 0, ownFields: 0 }, pending: true, note: "sweeping the defense feeds — ask again shortly" };
+  return { generatedAt: new Date().toISOString(), moves: [], chatter: [], foreignChatter: [], fieldChatter: {}, sources: { rss: 0, rssTotal: 0, gdelt: false, own: 0, ownFields: 0 }, pending: true, note: "sweeping the defense feeds — ask again shortly" };
 }
 
 export function resetPostureMovesCache(): void { cache = null; }
@@ -128,6 +132,7 @@ async function sweep(): Promise<PostureMovesBody> {
   const moves = detectPostureMoves([...items, ...own], now);
   const posts = readChatter(own, now, { ownPlaces });
   const chatter = clusterChatter(posts);
+  const foreignChatter = clusterChatter(readChatter(own, now, { ownPlaces, sides: FOREIGN_SIDES }));
   const liftMoves = chatterToMoves(chatter);
   // Per own field: the chatter naming it, for the SITREP Ops row beside ADS-B.
   const fieldChatter: Record<string, FieldChatter> = {};
@@ -150,6 +155,7 @@ async function sweep(): Promise<PostureMovesBody> {
     generatedAt: new Date(now).toISOString(),
     moves: mergePostureMoves(moves, liftMoves),
     chatter,
+    foreignChatter,
     fieldChatter,
     sources: { rss, rssTotal: feeds.length, gdelt: !!g, own: own.length, ownFields: ownPlaces.length },
   };

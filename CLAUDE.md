@@ -3146,8 +3146,18 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   other sides — `readChatter(items, now, { sides })` returns them, and the
   diag reports them as `foreign` ("other sides — read, not counted as
   lift") with examples. Watched countries' own mobility moves are wanted
-  on a surface of their own (the operator: "maybe in a different spot"),
-  not built yet.
+  on a surface of their own (the operator: "maybe in a different spot").
+- **…built as a different CATEGORY the same day ("or a different
+  category · and American tankers should be included")**. U.S. tankers
+  (KC-135 / KC-46 / KC-10 / KC-130 and the context-gated generic "tanker")
+  always were U.S. lift; the Glance label now says so ("U.S. lift chatter —
+  tankers & airlift"). `FOREIGN_SIDES` = `["adversary", "ally"]`;
+  `PostureMovesBody.foreignChatter` = `clusterChatter(readChatter(own, now,
+  { ownPlaces, sides: FOREIGN_SIDES }))` from the same pool, rendered on
+  Glance's Posture moves panel as its own block "Watched-country mobility —
+  your sources" (actor chip red for an adversary; "their moves, not U.S.
+  lift"). It feeds NOTHING else — no `lift` move, no demand driver, no I&W
+  rule, no SITREP row, no series; the diag counts it as its own category.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

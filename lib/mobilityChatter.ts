@@ -365,6 +365,10 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
  *  grammar but never counted as lift — watched countries' own mobility moves
  *  belong on a surface of their own, not in the U.S. lift picture. */
 export const LIFT_SIDES: readonly ActorSide[] = ["us"];
+/** The other category: watched countries' and allies' own mobility moves
+ *  (Il-76/78, Y-20, A400M, Voyager / MRTT). Read by the same grammar, shown
+ *  apart, and never fed to the demand horizon, the I&W lift rule or a series. */
+export const FOREIGN_SIDES: readonly ActorSide[] = ["adversary", "ally"];
 
 /** Read every item for mobility chatter; items older than the window are
  *  ignored. `ownPlaces` (the tracking registry) joins the catalogue so a
@@ -578,7 +582,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     `${matched} U.S. lift posts: ${placed} placed · ${unplaced} unplaced · ${away} returning · ${mine} naming your fields`,
     `by command: ${fmt(byAor)}`,
     `by airframe: ${fmt(byAirframe)}`,
-    `other sides (read, not counted as lift): ${foreignN}`,
+    `watched-country mobility (its own category, not U.S. lift): ${foreignN}`,
     `near misses: ${noMoveN} named a type with no movement phrase · ${gatedN} generic "tanker"/"airlifter" refused by context`,
     `places named (dest/origin/bare): ${placeList.slice(0, 8).map((p) => `${p.name} ${p.dest}/${p.origin}/${p.bare}`).join(" · ") || "none"}`,
     `unknown places after a cue: ${uPlaces.slice(0, 8).map((u) => `"${u.phrase}" ×${u.count} (${u.role})`).join(" · ") || "none"}`,

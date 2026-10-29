@@ -312,6 +312,8 @@ export default function GlanceTab({
   // Lift chatter — tanker / airlift movement the user's own sources report,
   // clustered per command by the same sweep (lib/mobilityChatter).
   const [liftChatter, setLiftChatter] = useState<ChatterCluster[]>([]);
+  // Watched countries' own mobility (Il-76, Y-20, A400M…) — a category apart.
+  const [foreignChatter, setForeignChatter] = useState<ChatterCluster[]>([]);
   // Declared themes read against the own sources (lib/themes) — one line
   // each under the chatter; absent when none are declared or the store is
   // down (the OSINT › Feeds card says which).
@@ -357,6 +359,7 @@ export default function GlanceTab({
         if (cancelled || !j) return;
         if (Array.isArray(j.moves)) setServerMoves(j.moves);
         if (Array.isArray(j.chatter)) setLiftChatter(j.chatter);
+        if (Array.isArray(j.foreignChatter)) setForeignChatter(j.foreignChatter);
         if (j.pending && attempt < 3) retry = setTimeout(() => load(attempt + 1), 10_000);
       } catch { /* the client-side detector still runs */ }
     };
@@ -1432,7 +1435,7 @@ export default function GlanceTab({
             ) : undefined}
             onJump={() => { document.getElementById("glance-demand")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           >
-            {postureMoves.length === 0 && liftChatter.length === 0 && themeReads.length === 0 ? (
+            {postureMoves.length === 0 && liftChatter.length === 0 && foreignChatter.length === 0 && themeReads.length === 0 ? (
               movesLoading ? <SkeletonRows n={2} /> : <Empty>No force-posture move read in the last 14 days of your feeds — absence of a report, not evidence of none.</Empty>
             ) : (
               <ul className="divide-y divide-slate-800/60">
@@ -1461,7 +1464,7 @@ export default function GlanceTab({
                 })}
                 {liftChatter.length > 0 && (
                   <li className="px-3 py-1.5">
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">✈ Lift chatter — your sources</div>
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">✈ U.S. lift chatter — tankers &amp; airlift · your sources</div>
                     {liftChatter.slice(0, 3).map((c) => (
                       <div key={c.id} className="text-[11px] text-slate-400 truncate" title={`${c.lead.source}: ${c.lead.text}`}>
                         {c.lead.link ? <a href={c.lead.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400">{chatterLine(c, relTime)}</a> : chatterLine(c, relTime)}
@@ -1470,6 +1473,19 @@ export default function GlanceTab({
                       </div>
                     ))}
                     <div className="text-[10px] text-slate-600">Reported, not observed — the I&amp;W mobility sensor reads it beside ADS-B and caps chatter-only at watching.</div>
+                  </li>
+                )}
+                {foreignChatter.length > 0 && (
+                  <li className="px-3 py-1.5">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">✈ Watched-country mobility — your sources</div>
+                    {foreignChatter.slice(0, 3).map((c) => (
+                      <div key={c.id} className="text-[11px] text-slate-400 truncate" title={`${c.lead.source}: ${c.lead.text}`}>
+                        <span className={`mr-1 text-[8px] font-mono uppercase ${c.side === "adversary" ? "text-red-300" : "text-slate-400"}`}>{c.actor}</span>
+                        {c.lead.link ? <a href={c.lead.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400">{chatterLine(c, relTime)}</a> : chatterLine(c, relTime)}
+                        {c.corroborated ? <span className="ml-1 text-[8px] font-mono uppercase text-amber-300">corroborated</span> : <span className="ml-1 text-[8px] font-mono uppercase text-slate-600">lead</span>}
+                      </div>
+                    ))}
+                    <div className="text-[10px] text-slate-600">Their moves, not U.S. lift — reported, not observed; never counted in demand or the I&amp;W lift read.</div>
                   </li>
                 )}
                 {themeReads.length > 0 && (

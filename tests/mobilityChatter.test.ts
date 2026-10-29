@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readChatter, clusterChatter, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn, placesWithOwn, chatterForIcao, fieldChatterLine, resolveChatterAor, explainChatter, type OwnPlace } from "../lib/mobilityChatter";
+import { readChatter, clusterChatter, FOREIGN_SIDES, chatterSurge, chatterToMoves, chatterLine, airframesIn, statedCount, placesIn, placesWithOwn, chatterForIcao, fieldChatterLine, resolveChatterAor, explainChatter, type OwnPlace } from "../lib/mobilityChatter";
 import { mobilityWithChatter } from "../lib/warningRules";
 import { demandHorizon, type DemandInput } from "../lib/demandHorizon";
 import { mergePostureMoves, detectPostureMoves } from "../lib/postureMoves";
@@ -345,5 +345,20 @@ describe("the full spotter post (2026-10-29 diag #3) — an origin's country nev
     const ex = explainChatter([post("6x KC-135 landing at Al Udeid", { summary: "quoted: tankers from Fairchild" })], NOW);
     expect(ex.matchedExamples[0].text).toBe("6x KC-135 landing at Al Udeid");
     expect(ex.matchedExamples[0].quoted).toBe("quoted: tankers from Fairchild");
+  });
+});
+
+describe("two categories — U.S. lift (tankers included) and watched-country mobility", () => {
+  it("U.S. tankers are lift", () => {
+    const [p] = readChatter([post("3x KC-46 inbound to Al Udeid, refuelling track up")], NOW);
+    expect(p.side).toBe("us");
+    expect(p.classes).toContain("tanker");
+  });
+  it("FOREIGN_SIDES reads the other category and never the U.S. one", () => {
+    const items = [post("Two Il-76s landed at Hmeimim overnight, Russian airlift continues into Syria", { id: "r" }), post("6x KC-135 landing at Al Udeid", { id: "u" })];
+    const foreign = readChatter(items, NOW, { sides: FOREIGN_SIDES });
+    expect(foreign.map((p) => p.actor)).toEqual(["Russia"]);
+    expect(clusterChatter(foreign)[0].aor).toBe("CENTCOM");
+    expect(readChatter(items, NOW).map((p) => p.side)).toEqual(["us"]);
   });
 });
