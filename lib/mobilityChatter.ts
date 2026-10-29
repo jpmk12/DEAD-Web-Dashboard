@@ -140,6 +140,10 @@ const MOVEMENT = [
 ];
 const AWAY = /\b(?:return(?:ing|ed|s)?\s+(?:home|stateside|to\s+(?:conus|the\s+(?:us|states)|base|home))|RTB|heading\s+(?:home|back)|homebound|back\s+(?:to|towards?)\s+(?:conus|the\s+(?:us|states)|home|base|europe)|rotating\s+home|redeploy(?:ing|ed)?\s+(?:home|back))\b/i;
 const ORIGIN_CUE = /\b(?:from|out of|departed|departing|leaving|left|launched from|took off from|ex)\s+(?:the\s+)?$/i;
+// An origin clause: the cue, a capitalised place, an optional base word and
+// an optional ", Country" / "in Country" qualifier. Case-sensitive on the
+// place so "from there" or "out of fuel" never strip anything.
+const ORIGIN_CLAUSE = /\b(?:[Ff]rom|[Oo]ut of|[Dd]eparted|[Dd]eparting|[Ll]eaving|[Ll]aunched from|[Tt]ook off from)\s+(?:the\s+)?(?:RAF\s+)?[A-Z][\w'’.-]*(?:\s+[A-Z][\w'’.-]*){0,2}(?:\s+(?:Air Force Base|Air Base|Base|AFB|AB|NAS|Air Station|Airport))?(?:\s*,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\s+in\s+(?:the\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)?/g;
 const DEST_CUE = /\b(?:to|into|for|toward|towards|at|in|bound for|arriv(?:ed|ing|al)\s+(?:at|in)|landed\s+(?:at|in)|landing\s+(?:at|in)|inbound\s+(?:to|for)?|on the ground at|on the ramp at|staging (?:at|in|out of)|heading (?:to|for|toward|towards))\s+(?:the\s+)?$/i;
 
 interface PlaceDef { name: string; aor: Aor; rx: RegExp; icao?: string; mine?: boolean }
@@ -344,8 +348,11 @@ export function resolveChatterAor(text: string, dest: PlaceDef | null, origin: P
   }
   if (destRegion) return destRegion.aor;
   if (bareRegion) return bareRegion.aor;
-  let stripped = text;
-  if (origin) stripped = stripped.replace(origin.rx, " ");
+  // The other end never places a post: every origin CLAUSE goes before the
+  // country read — the field and the country that qualifies it ("departed
+  // Yokota Air Base in Japan" read as INDOPACOM by "Japan", 2026-10-29).
+  let stripped = text.replace(ORIGIN_CLAUSE, " ");
+  if (origin) stripped = stripped.replace(new RegExp(origin.rx.source, "gi"), " ");
   const own = ACTOR_NAMES[actor];
   if (own) stripped = stripped.replace(own, " ");
   return aorFromName(stripped);
@@ -418,7 +425,7 @@ function readOne(it: NewsItem, nowMs: number, places: PlaceDef[]): { post: Chatt
 // cue that match nothing, and the designators named that the grammar does
 // not carry. Read-only; never feeds a level.
 
-export interface ChatterExample { source: string; text: string; link: string; pubDate: string; note?: string }
+export interface ChatterExample { source: string; text: string; quoted?: string; link: string; pubDate: string; note?: string }
 export interface ChatterExplain {
   generatedAt: string;
   window: { days: number; items: number; inWindow: number; bySource: Record<string, number> };
@@ -444,7 +451,14 @@ export interface ChatterExplain {
 
 const EXAMPLE_CAP = 10;
 const ex = (it: NewsItem, note?: string): ChatterExample =>
-  ({ source: (it.source || "").trim() || "unknown", text: hay(it).slice(0, 500), link: it.link, pubDate: it.pubDate, ...(note ? { note } : {}) });
+  ({
+    source: (it.source || "").trim() || "unknown",
+    text: (it.title || "").replace(/\s+/g, " ").trim().slice(0, 500),
+    // The quoted post rides separately: the grammar reads both, and a
+    // placement or an airframe that came from the quote must be visible.
+    ...(it.summary?.trim() ? { quoted: it.summary.replace(/\s+/g, " ").trim().slice(0, 400) } : {}),
+    link: it.link, pubDate: it.pubDate, ...(note ? { note } : {}),
+  });
 const sourceKind = (s: string) => (s.startsWith("𝕏") ? "x" : s.startsWith("📄") ? "article" : "other");
 
 // A capitalised phrase (or an ICAO) right after a cue — the shape a place

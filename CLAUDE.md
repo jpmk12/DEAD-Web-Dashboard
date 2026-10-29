@@ -3121,6 +3121,22 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   (unknown-place / designator examples 300) so a whole spotter post can be
   read — the INDOPACOM placement of that post is not verified until the
   next diag shows its full text. One handle is a lead, never corroboration.
+- **The full post (diag #3, same day)**: "3x KC-46s departed Yokota Air
+  Base in Japan to refuel TITAN 29 [the E-4B carrying the SecDef] …
+  another refuelling point, likely from Eielson … once back in the U.S."
+  — VIP tanker support for a homeward E-4B, not a lift wave. It now read
+  NORTHCOM, and the airframes read KC-135/KC-46 although the post names
+  only KC-46: both came from the QUOTED post, which the grammar reads
+  (`hay` = title + summary) but the example did not show. Two fixes:
+  (1) **an origin's country never places a post** — `ORIGIN_CLAUSE`
+  strips every "from / out of / departed / leaving … <Place> [Air Base]
+  [in <Country> | , <Country>]" before the country fallback in
+  `resolveChatterAor` (locally the main text read INDOPACOM by "Japan",
+  the qualifier of the origin); with no destination the post is now
+  UNKNOWN / unclear, which is what it says. (2) **The diag shows the quote
+  separately** — `ChatterExample.quoted` (400 chars) beside `text` (the
+  post itself, 500). If the quote says "to Alaska", NORTHCOM by the
+  destination rule is right; the next diag shows which.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

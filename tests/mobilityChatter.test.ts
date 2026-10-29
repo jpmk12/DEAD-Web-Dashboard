@@ -319,3 +319,23 @@ describe("the first spotter post (2026-10-29) — Eielson / Alaska are places, J
     expect(ex.matchedExamples[0].text.length).toBe(500);
   });
 });
+
+describe("the full spotter post (2026-10-29 diag #3) — an origin's country never places the post", () => {
+  const T = "#USAF United States Air Force Boeing E-4B Nightwatch 1x #ADFEB6 71-0125 - TITAN 29 Boeing KC-46 Pegasus 3x #AE5F9D 18-46050 - RAMEN 41 RAMEN 41-43 Flt 3x KC-46s departed Yokota Air Base in Japan to refuel TITAN 29 carrying U.S. Secretary of Defence Pete Hegseth. There will be another refuelling point, likely from Eielson Air Force Base by FIST 51 Flt, and again once back in the U.S. by HIFI 11 Flt.";
+  it("names no destination, so the command is UNKNOWN — not Japan's, not Alaska's", () => {
+    const [p] = readChatter([post(T)], NOW);
+    expect(p.origin).toBe("Yokota");
+    expect(p.place).toBeNull();
+    expect(p.aor).toBe("UNKNOWN");
+    expect(p.direction).toBe("unclear");
+    expect(p.count).toBe(3);
+  });
+  it("a destination country still places a post (Russian airlift into Syria stays CENTCOM)", () => {
+    expect(resolveChatterAor("Two Il-76s departed Chkalovsky in Russia, airlift continues into Syria", null, null, "Russia")).toBe("CENTCOM");
+  });
+  it("the diag carries the quoted post separately", () => {
+    const ex = explainChatter([post("6x KC-135 landing at Al Udeid", { summary: "quoted: tankers from Fairchild" })], NOW);
+    expect(ex.matchedExamples[0].text).toBe("6x KC-135 landing at Al Udeid");
+    expect(ex.matchedExamples[0].quoted).toBe("quoted: tankers from Fairchild");
+  });
+});
