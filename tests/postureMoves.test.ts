@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems } from "../lib/postureMoves";
+import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems, eventNameSpans } from "../lib/postureMoves";
 import type { NewsItem } from "../lib/types";
 
 const NOW = Date.parse("2026-10-05T12:00:00Z");
@@ -110,5 +110,32 @@ describe("posture moves read from the 2026-10-28 production sweep", () => {
   it("a deployment that merely mentions an earlier one is still a deployment", () => {
     const [m] = detectPostureMoves([item("Pentagon deploys additional fighters to the Gulf weeks after the last deployment ended")], NOW);
     expect(m.kind).toBe("deploy");
+  });
+});
+
+describe("an actor named only inside an event title is not the mover", () => {
+  it("France in the Africa-France Summit is not credited with a deployment beside it", () => {
+    const [m] = detectPostureMoves([item("At the Africa-France Summit in Nairobi, Kenya deploys troops to Somalia")], NOW);
+    expect(m.kind).toBe("deploy");
+    expect(m.actor).not.toBe("France");
+    // Neither the summit's "Africa" nor France places it: Somalia does.
+    expect(m.aor).toBe("AFRICOM");
+  });
+  it("with no other actor the move stays unattributed rather than crediting the event's country", () => {
+    const [m] = detectPostureMoves([item("Ahead of the US-China Trade Talks, additional warships sent to the western Pacific")], NOW);
+    expect(m.actor).toBe("unattributed");
+    expect(m.aor).toBe("INDOPACOM");
+  });
+  it("a Title-Case headline masks the summit, never the mover", () => {
+    const [m] = detectPostureMoves([item("US Deploys Troops To Poland Ahead Of NATO Summit")], NOW);
+    expect(m.actor).toBe("United States");
+    expect(m.aor).toBe("EUCOM");
+    expect(eventNameSpans("US Deploys Troops To Poland Ahead Of NATO Summit").map(([s, e]) => "US Deploys Troops To Poland Ahead Of NATO Summit".slice(s, e)))
+      .toEqual(["Ahead Of NATO Summit"]);
+  });
+  it("finds hyphen-joined event names and leaves plain prose alone", () => {
+    const t = "Leaders met at the Africa-France Summit; Japan sends destroyers.";
+    expect(eventNameSpans(t).map(([s, e]) => t.slice(s, e))).toEqual(["Africa-France Summit"]);
+    expect(eventNameSpans("Russia deploys bombers to Venezuela")).toEqual([]);
   });
 });

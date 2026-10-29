@@ -2,8 +2,11 @@
 // §7 E1). The spectrum summary records the day's peak NOAA scale (swx:G/R/S)
 // and KEVs added per declared vendor (kev:<vendor>); this reads the G-scale
 // share of observed days and the KEV cadence per vendor against its own
-// normal, and gives one direction for the Glance tile. (The IODA outage:<c>
-// series is recorded by lib/alerts.ts and not read here yet.) Environment and exposure stay environment
+// normal, and gives one direction for the Glance tile. R (radio blackout —
+// HF) and S (solar radiation — polar / high-altitude) are read the same way
+// as G and named only when a day is on record. (The outage / cfout / bgp
+// country series are read by lib/seriesReads on the country room.)
+// Environment and exposure stay environment
 // and exposure — nothing here raises an I&W level.
 
 import { direction, shareOfObserved, type SeriesPoint } from "./series";
@@ -39,22 +42,27 @@ export function kevCadence(byVendor: Record<string, SeriesPoint[]>, today: strin
 }
 
 /** Share of observed days at or above `level` in the trailing 30; null below four points. */
-export function scaleShare(series: SeriesPoint[], today: string, level = 1): { hits: number; observed: number; label: string } | null {
+export function scaleShare(series: SeriesPoint[], today: string, level = 1, scale: "G" | "R" | "S" = "G"): { hits: number; observed: number; label: string } | null {
   if (series.length < SCALE_SHARE_MIN_POINTS) return null;
   const s = shareOfObserved(series, (v) => v >= level, today, 30);
-  return { hits: s.hits, observed: s.observed, label: `G≥${level} on ${s.hits} of ${s.observed} obs days (30 d)` };
+  return { hits: s.hits, observed: s.observed, label: `${scale}≥${level} on ${s.hits} of ${s.observed} obs days (30 d)` };
 }
 
 export interface SpectrumTrend {
   gShare: { hits: number; observed: number; label: string } | null;
+  /** R (HF radio blackout) and S (radiation) shares — null below four points. */
+  rShare?: { hits: number; observed: number; label: string } | null;
+  sShare?: { hits: number; observed: number; label: string } | null;
   kev: KevCadence[];
   /** Direction of whichever series is driving: G when any storm day is on record, else KEV total. */
   direction: "rising" | "falling" | "flat" | null;
   line: string | null;
 }
 
-export function spectrumTrend(g: SeriesPoint[], kevByVendor: Record<string, SeriesPoint[]>, today: string): SpectrumTrend {
+export function spectrumTrend(g: SeriesPoint[], kevByVendor: Record<string, SeriesPoint[]>, today: string, r: SeriesPoint[] = [], sSeries: SeriesPoint[] = []): SpectrumTrend {
   const gShare = scaleShare(g, today, 1);
+  const rShare = scaleShare(r, today, 1, "R");
+  const sShare = scaleShare(sSeries, today, 1, "S");
   const kev = kevCadence(kevByVendor, today);
   const kevTotal = new Map<string, number>();
   for (const s of Object.values(kevByVendor)) for (const p of s) kevTotal.set(p.day, (kevTotal.get(p.day) ?? 0) + p.value);
@@ -62,6 +70,9 @@ export function spectrumTrend(g: SeriesPoint[], kevByVendor: Record<string, Seri
   const dir = gShare && gShare.hits > 0 ? direction(g, 14) : direction(kevSeries, 14);
   const parts: string[] = [];
   if (gShare) parts.push(gShare.label);
+  // R and S only when a day is on record — "R≥1 on 0 of 20" is noise on a tile.
+  if (rShare && rShare.hits > 0) parts.push(rShare.label);
+  if (sShare && sShare.hits > 0) parts.push(sShare.label);
   for (const k of kev.filter((x) => x.normalPerWeek != null && (x.thisWeek > 0 || x.normalPerWeek! > 0)).slice(0, 2)) parts.push(k.label);
-  return { gShare, kev, direction: dir, line: parts.length ? parts.join(" · ") : null };
+  return { gShare, rShare, sShare, kev, direction: dir, line: parts.length ? parts.join(" · ") : null };
 }

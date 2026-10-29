@@ -31,6 +31,9 @@ import { radarReadsFor } from "./radarSignals";
 import { bgpReadsFor, type BgpLevel } from "./radarBgp";
 import type { TrafficState } from "./radarNetflows";
 import { kineticEvents, kineticInCountry, KINETIC_LABEL } from "./kineticEvents";
+import { getSensorSeriesMany } from "./sensorStore";
+import { sensorKey } from "./sensorKeys";
+import { elevatedHistory, HISTORY_WINDOW_DAYS, type HistoryRead } from "./seriesReads";
 
 export interface Incident {
   /** `capture` = a browser-captured map event (LiveUAMap) read as a kinetic
@@ -97,6 +100,11 @@ export interface CountryDigital {
     /** The hour-matched NetFlows traffic read. */
     traffic: { live: boolean; reason: string | null; state: TrafficState; ratio: number | null; why: string } | null;
   };
+  /** 30-day history of the outage / routing series the alerts pass records
+   *  for tracked countries (outage:<country> IODA, cfout:<iso2> Radar,
+   *  bgp:<iso2> routing) — new / recurring / chronic of OBSERVED days. Only
+   *  sources with history appear; an untracked country has none. */
+  history: HistoryRead[];
   gps: { live: boolean; cells: number; date: string };
   ransomware: { live: boolean; victims30: number };
   advisories: { title: string; link?: string; pubDate?: string; actors: string[] }[];
@@ -232,6 +240,9 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
     getRadarBgp().catch(() => null),
     (() => { const c = countryIso2(country); return c ? getRadarTraffic([c]).catch(() => null) : Promise.resolve(null); })(),
   ]);
+  const histIso = countryIso2(country);
+  const histKeys = { outage: sensorKey("outage", country), cfout: histIso ? sensorKey("cfout", histIso) : null, bgp: histIso ? sensorKey("bgp", histIso) : null };
+  const histSeries = await getSensorSeriesMany([histKeys.outage, histKeys.cfout, histKeys.bgp].filter((k): k is string => !!k), HISTORY_WINDOW_DAYS).catch(() => ({} as Record<string, { day: string; value: number }[]>));
 
   // Host-nation health: live WHO outbreaks in-country (DON) + structural GHO
   // indicators. Outbreaks matched by loose country name; deduped by disease.
@@ -350,6 +361,14 @@ export async function getCountryDossier(country: string, osintFeeds: OsintFeed[]
           })()
         : null,
     },
+    history: (() => {
+      const today = new Date().toISOString().slice(0, 10);
+      // Elevated = amber or worse on each series' own ordinal (IODA warning 2 /
+      // critical 3; Radar amber 2 / red 3; BGP amber 2 / red 3).
+      return ([["IODA outages", histKeys.outage], ["Radar outages", histKeys.cfout], ["BGP routing", histKeys.bgp]] as const)
+        .map(([label, k]) => (k ? elevatedHistory(label, histSeries[k] ?? [], today, 2) : null))
+        .filter((h): h is HistoryRead => !!h);
+    })(),
     gps: { live: gps.ok, cells: gpsCells, date: gps.date },
     ransomware: { live: ransom.live, victims30: ransom.live ? victimsRelevant(ransom.victims, [{ name: country, iso2 }], nowMs, 30).filter((v) => (iso2 && v.country === iso2) || v.country.toLowerCase() === country.toLowerCase()).length : 0 },
     advisories: cisa.live ? advisoriesNaming(cisa.items, [country], nowMs, 30).slice(0, 4).map((a) => ({ title: a.title, link: a.link, pubDate: a.pubDate, actors: a.actors })) : [],

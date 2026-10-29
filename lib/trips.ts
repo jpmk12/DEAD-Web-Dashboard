@@ -212,8 +212,8 @@ export async function upsertCalendarTrip(email: string, t: {
   if (rows[0]) {
     await pool.execute(
       `UPDATE trips SET label = ?, location = ?, lat = ?, lon = ?, start_date = ?, end_date = ?, feed_key = ?
-       WHERE id = ?`,
-      [t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, feedKey, rows[0].id],
+       WHERE id = ? AND ${sc.clause}`,
+      [t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, feedKey, rows[0].id, ...sc.params],
     );
     return;
   }

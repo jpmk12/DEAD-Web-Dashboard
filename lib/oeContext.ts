@@ -30,6 +30,8 @@ import { getAllLastSeen } from "./surfaceState";
 import { computeDelta, type Transition } from "./oeDelta";
 import { buildOeSeries } from "./oeDeltaAssemble";
 import { listDueDecisions } from "./decisionStore";
+import { getLineReads } from "./lineReadAssemble";
+import { lineReadLines } from "./lineRead";
 import type { OeSnapshot, OeForceRow, OeSitrepRow, OeBoardRow, OeAlertRow, OeDecisionRow } from "./oeContextFormat";
 
 const FRESH_MS = 5 * 60 * 1000;
@@ -110,8 +112,14 @@ async function gather(): Promise<OeSnapshot> {
 
   const skillP = within(settle(getDemandSkill().then((s) => s.line)), 4_000);
 
-  const [force, sitrep, boards, alerts, decisionsDue, demand, crew, demandSkill] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP, demandP, crewP, skillP]);
-  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue, demand, crew, demandSkill };
+  // Declared lines: the same read Glance and Ask use. A store that did not
+  // answer (`lines === null`) is UNAVAILABLE, never "no lines".
+  const linesP = within(settle(getLineReads().then((lr) => lr.lines === null ? null : {
+    rows: lineReadLines(lr.reads, 6), total: lr.reads.length, unavailable: lr.unavailable,
+  })), 10_000);
+
+  const [force, sitrep, boards, alerts, decisionsDue, demand, crew, demandSkill, lines] = await Promise.all([forceP, sitrepP, boardsP, alertsP, decisionsP, demandP, crewP, skillP, linesP]);
+  return { atISO: new Date().toISOString(), force, sitrep, boards, alerts, delta: null, decisionsDue, demand, crew, demandSkill, lines };
 }
 
 /**

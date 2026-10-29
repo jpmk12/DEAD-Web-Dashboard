@@ -28,7 +28,10 @@ import { readChatter, clusterChatter, FOREIGN_SIDES, chatterToMoves, chatterSurg
 import { getOwnPlaces } from "./ownPlaces";
 import { getXItems } from "./xStore";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
-import { recordSensorDay } from "./sensorStore";
+import { recordSensorDay, getSensorSeriesMany } from "./sensorStore";
+import { getMobilityHistory } from "./demandStore";
+import { activeWarningProblems } from "./warningProblems";
+import { chatterLeadRead, type ChatterLead } from "./seriesReads";
 import { sensorKey } from "./sensorKeys";
 import { AOR_LABELS, type Aor } from "./aor";
 import type { NewsItem } from "./types";
@@ -47,6 +50,10 @@ export interface PostureMovesBody {
    *  origin) in the sensor window, keyed by ICAO — the SITREP Ops row reads
    *  its own entry. Absent ICAO = no post named it. */
   fieldChatter: Record<string, FieldChatter>;
+  /** Per command with chatter on record: does chatter toward it come before
+   *  its ADS-B lift surges (lib/seriesReads `chatterLeadRead`)? A tally
+   *  until three surges are on record; absent when the history read failed. */
+  chatterLead?: Record<string, ChatterLead>;
   /** RSS feeds that answered, whether GDELT did, how many own-source items were read, and how many own fields joined the place list. */
   sources: { rss: number; rssTotal: number; gdelt: boolean; own: number; ownFields: number };
   pending?: boolean;
@@ -151,12 +158,48 @@ async function sweep(): Promise<PostureMovesBody> {
     if (s) recordSensorDay(sensorKey("chatter", aor), today, s.sources).catch(() => {});
   }
 
+  const chatterLead = await chatterLeads(today);
+
   return {
     generatedAt: new Date(now).toISOString(),
     moves: mergePostureMoves(moves, liftMoves),
     chatter,
     foreignChatter,
     fieldChatter,
+    ...(chatterLead ? { chatterLead } : {}),
     sources: { rss, rssTotal: feeds.length, gdelt: !!g, own: own.length, ownFields: ownPlaces.length },
   };
+}
+
+/** The `chatter:<AOR>` series against each command's observed ADS-B lift —
+ *  the max day-peak mobility count across the command's I&W boards, the
+ *  demand verifier's own proxy. Only commands with chatter on record get a
+ *  read. Bounded; a failure leaves the field absent (never "no lead"). */
+async function chatterLeads(today: string): Promise<Record<string, ChatterLead> | null> {
+  const aors = (Object.keys(AOR_LABELS) as Aor[]).filter((a) => a !== "UNKNOWN");
+  const work = (async () => {
+    const [series, mobility, problems] = await Promise.all([
+      getSensorSeriesMany(aors.map((a) => sensorKey("chatter", a)), 90),
+      getMobilityHistory(90),
+      activeWarningProblems(),
+    ]);
+    const aorOf = new Map(problems.map((p) => [p.def.id, p.geo.aor as string]));
+    const lift = new Map<string, Map<string, number>>();
+    for (const m of mobility) {
+      const a = aorOf.get(m.problemId);
+      if (!a) continue;
+      const days = lift.get(a) ?? new Map<string, number>();
+      days.set(m.day, Math.max(days.get(m.day) ?? 0, m.count));
+      lift.set(a, days);
+    }
+    const out: Record<string, ChatterLead> = {};
+    for (const a of aors) {
+      const c = series[sensorKey("chatter", a)] ?? [];
+      if (!c.length) continue;
+      const l = Array.from(lift.get(a)?.entries() ?? []).map(([day, value]) => ({ day, value }));
+      out[a] = chatterLeadRead(c, l, today);
+    }
+    return out;
+  })();
+  return Promise.race([work.catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 6_000))]);
 }

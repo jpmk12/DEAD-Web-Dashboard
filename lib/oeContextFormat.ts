@@ -64,11 +64,15 @@ export interface OeSnapshot {
   demandSkill?: string | null;
   /** Team state: declared crew counts against demand (lib/crewState). */
   crew?: { headline: string; line: string | null; stale: boolean; declared: boolean; mismatches: string[]; trend?: string | null } | null;
+  /** Declared lines for the next 4 days, each read against its fields
+   *  (lib/lineRead — rendered by lineReadLines). null = the store or the
+   *  read did not answer: UNAVAILABLE, never "no lines". */
+  lines?: { rows: string[]; total: number; unavailable: string[] } | null;
   /** True when the snapshot is older than the freshness window. */
   stale?: boolean;
 }
 
-export const OE_CONTEXT_MAX_CHARS = 3200;
+export const OE_CONTEXT_MAX_CHARS = 3800;
 
 const LED: Record<string, string> = { g: "green", a: "AMBER", r: "RED", u: "unknown" };
 const SEV_RANK: Record<string, number> = { red: 3, amber: 2, unknown: 1, green: 0 };
@@ -166,6 +170,18 @@ export function renderOeContext(snap: OeSnapshot | null): string {
       lines.push(`Team state (crew counts by qualification, no names; Preferences › Mission Profile): ${snap.crew.line ?? ""}${snap.crew.stale ? " — STALE, treat as unconfirmed" : ""}`);
       if (snap.crew.mismatches.length) lines.push(`  • Rising demand against thin crews: ${snap.crew.mismatches.join("; ")}`);
       if (snap.crew.trend) lines.push(`  • History: ${clip(snap.crew.trend, 160)}`);
+    }
+  }
+
+  // Declared lines — the crew's own declaration, read against the fields.
+  if (snap.lines === null) lines.push("Declared lines (Glance › Lines): UNAVAILABLE this turn — do not assume there are none.");
+  else if (snap.lines) {
+    if (snap.lines.total === 0) lines.push("Declared lines (Glance › Lines): none declared for the next 4 days.");
+    else {
+      lines.push(`Declared lines, next 4 days (Glance › Lines; the crew's declaration — a day · an airframe · the fields — NOT a sensor; a line never changes a level, its read is the fields' readings joined to the day; never invent a time, tail, callsign or load):`);
+      for (const r of snap.lines.rows) lines.push(`  ${clip(r, 220)}`);
+      if (snap.lines.total > snap.lines.rows.length) lines.push(`  …and ${snap.lines.total - snap.lines.rows.length} more`);
+      if (snap.lines.unavailable.length) lines.push(`  (UNAVAILABLE this pass: ${snap.lines.unavailable.join(", ")})`);
     }
   }
 

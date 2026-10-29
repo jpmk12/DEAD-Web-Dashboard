@@ -172,10 +172,13 @@ async function compute(): Promise<SpectrumSummary> {
   }
   let trend: SpectrumTrend | undefined;
   try {
-    const [g, kevSeries] = await Promise.all([getSensorSeries(sensorKey("swx", "G"), 30), getSensorSeriesMany(vendorKeys, 90)]);
+    const [g, r, sS, kevSeries] = await Promise.all([
+      getSensorSeries(sensorKey("swx", "G"), 30), getSensorSeries(sensorKey("swx", "R"), 30), getSensorSeries(sensorKey("swx", "S"), 30),
+      getSensorSeriesMany(vendorKeys, 90),
+    ]);
     const byVendor: Record<string, SeriesPoint[]> = {};
     spec.edgeVendors.forEach((v, i) => { byVendor[v] = kevSeries[vendorKeys[i]] ?? []; });
-    trend = spectrumTrend(g, byVendor, today);
+    trend = spectrumTrend(g, byVendor, today, r, sS);
   } catch { trend = undefined; }
 
   // Counterspace joins the tile's LED only once it is active — a watching

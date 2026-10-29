@@ -128,19 +128,25 @@ export interface SpaceOps {
   scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null;
   /** G-scale share of observed days (lib/spectrumTrend, from the swx:G series); null below four points. */
   gShare?: { hits: number; observed: number; label: string } | null;
+  /** R (HF blackout) and S (radiation) shares, same series discipline. */
+  rShare?: { hits: number; observed: number; label: string } | null;
+  sShare?: { hits: number; observed: number; label: string } | null;
 }
 
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [scales, profile, gSeries] = await Promise.all([
+  const [scales, profile, gSeries, rSeries, sSeries] = await Promise.all([
     getNoaaScales().catch(() => null), getMissionProfile().catch(() => null),
     getSensorSeries(sensorKey("swx", "G"), 30).catch(() => []),
+    getSensorSeries(sensorKey("swx", "R"), 30).catch(() => []),
+    getSensorSeries(sensorKey("swx", "S"), 30).catch(() => []),
   ]);
   const polar = profile?.spectrum?.polarRoutes ?? false;
+  const today = new Date().toISOString().slice(0, 10);
   const ops: SpaceOps | null = scales
-    ? { scales, impacts: spaceWeatherImpacts(scales, { polar }), severe: severeScales(scales), polar, gShare: scaleShare(gSeries, new Date().toISOString().slice(0, 10), 1) }
+    ? { scales, impacts: spaceWeatherImpacts(scales, { polar }), severe: severeScales(scales), polar, gShare: scaleShare(gSeries, today, 1), rShare: scaleShare(rSeries, today, 1, "R"), sShare: scaleShare(sSeries, today, 1, "S") }
     : null;
 
   if (cached && cached.expires > Date.now()) {

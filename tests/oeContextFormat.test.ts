@@ -69,6 +69,21 @@ describe("renderOeContext", () => {
     expect(renderOeContext({ ...base, demand: null })).toMatch(/demand horizon .*UNAVAILABLE/);
   });
 
+  it("carries declared lines as the crew's declaration, and says UNAVAILABLE / none honestly", () => {
+    const row = "- Wed 28 Oct · JD 301 · C-17 · OJAQ → OTBH · planned · worst RED — OJAQ: field CLOSED now";
+    const s = renderOeContext({ ...base, lines: { rows: [row], total: 1, unavailable: [] } });
+    expect(s).toMatch(/Declared lines, next 4 days \(Glance › Lines/);
+    expect(s).toMatch(/NOT a sensor/);
+    expect(s).toContain("OJAQ: field CLOSED now");
+    expect(renderOeContext({ ...base, lines: null })).toMatch(/Declared lines .*UNAVAILABLE this turn — do not assume there are none/);
+    expect(renderOeContext({ ...base, lines: { rows: [], total: 0, unavailable: [] } })).toMatch(/none declared for the next 4 days/);
+    // Absent (an older snapshot shape) says nothing either way.
+    expect(renderOeContext(base)).not.toMatch(/Declared lines/);
+    const more = renderOeContext({ ...base, lines: { rows: [row], total: 4, unavailable: ["TAF"] } });
+    expect(more).toMatch(/…and 3 more/);
+    expect(more).toMatch(/UNAVAILABLE this pass: TAF/);
+  });
+
   it("never exceeds the cap", () => {
     const many: OeSnapshot = {
       ...base,

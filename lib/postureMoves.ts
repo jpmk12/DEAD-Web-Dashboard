@@ -172,9 +172,34 @@ function firstMatch(text: string, kind: MoveKind): { index: number; phrase: stri
   return best;
 }
 
+// A country inside the NAME of an event is not a party to a move: "Africa-
+// France Summit", "US-China Trade Talks", "Japan Defence Forum". Proximity
+// credited France with a deployment reported beside the summit, and the
+// summit's own "Africa" could place it. A capitalised run (hyphen-joined
+// parts allowed, at most two more words) that ends on an event noun is
+// masked from both passes. Bounded so a Title-Case headline ("US Deploys
+// Troops Ahead Of NATO Summit") masks the summit, never the mover.
+const EVENT_NOUNS = "Summit|Forum|Conference|Talks|Dialogue|Council|Commission|Cup|Games|Olympics|Expo|Festival|Week|Treaty|Accord|Pact|Agreement|Declaration|Partnership|Initiative|Fair|Awards|Congress|Assembly";
+const EVENT_NAME = new RegExp(
+  `\\b[A-Z][\\w.'’]*(?:\\s*[-–]\\s*[A-Z][\\w.'’]*)*(?:\\s+(?:[A-Z][\\w.'’]*|of|and|for|on)){0,2}\\s+(?:${EVENT_NOUNS})\\b`,
+  "g",
+);
+
+/** Spans of event names in `text` (see EVENT_NAME). PURE. */
+export function eventNameSpans(text: string): [number, number][] {
+  const out: [number, number][] = [];
+  const g = new RegExp(EVENT_NAME.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = g.exec(text)) !== null) out.push([m.index, m.index + m[0].length]);
+  return out;
+}
+
+const inside = (i: number, spans: [number, number][]) => spans.some(([s, e]) => i >= s && i < e);
+
 /** The actor nearest BEFORE `at` (else the first mentioned), with the spans
- *  of every alias hit so the AOR pass can ignore the mover's own name. */
-function resolveActor(text: string, at: number): { actor: ActorDef | null; spans: [number, number][] } {
+ *  of every alias hit so the AOR pass can ignore the mover's own name. A
+ *  name inside an event title is never an actor (eventNameSpans). */
+function resolveActor(text: string, at: number, events: [number, number][]): { actor: ActorDef | null; spans: [number, number][] } {
   let before: { d: ActorDef; i: number } | null = null;
   let first: { d: ActorDef; i: number } | null = null;
   const spans: [number, number, ActorDef][] = [];
@@ -183,6 +208,7 @@ function resolveActor(text: string, at: number): { actor: ActorDef | null; spans
       const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
       let m: RegExpExecArray | null;
       while ((m = g.exec(text)) !== null) {
+        if (inside(m.index, events)) { if (m[0].length === 0) g.lastIndex++; continue; }
         spans.push([m.index, m.index + m[0].length, d]);
         if (m.index < at && (!before || m.index > before.i)) before = { d, i: m.index };
         if (!first || m.index < first.i) first = { d, i: m.index };
@@ -197,20 +223,25 @@ function resolveActor(text: string, at: number): { actor: ActorDef | null; spans
   return { actor: pick?.d ?? null, spans: pick ? spans.filter((s) => s[2] === pick.d).map(([a, b]) => [a, b] as [number, number]) : [] };
 }
 
-function resolveAor(text: string, actorSpans: [number, number][]): Aor {
-  for (const [re, aor] of REGION_AOR) if (re.test(text)) return aor;
+function resolveAor(text: string, actorSpans: [number, number][], events: [number, number][] = []): Aor {
+  const masked = strip(text, events);
+  for (const [re, aor] of REGION_AOR) if (re.test(masked)) return aor;
   // The mover's own name must not place the move: "Russia deploys bombers to
-  // Venezuela" is a SOUTHCOM move.
-  let stripped = "";
+  // Venezuela" is a SOUTHCOM move. Only when nothing else places it does the
+  // mover's name decide — never an event's.
+  const a = aorFromName(strip(text, [...actorSpans, ...events]));
+  return a !== "UNKNOWN" ? a : aorFromName(masked);
+}
+
+function strip(text: string, spans: [number, number][]): string {
+  let out = "";
   let cursor = 0;
-  for (const [s, e] of actorSpans.slice().sort((a, b) => a[0] - b[0])) {
-    if (s < cursor) continue;
-    stripped += text.slice(cursor, s) + " ";
+  for (const [s, e] of spans.slice().sort((a, b) => a[0] - b[0])) {
+    if (e <= cursor) continue;
+    out += text.slice(cursor, Math.max(cursor, s)) + " ";
     cursor = e;
   }
-  stripped += text.slice(cursor);
-  const a = aorFromName(stripped);
-  return a !== "UNKNOWN" ? a : aorFromName(text);
+  return out + text.slice(cursor);
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -231,8 +262,11 @@ export function detectPostureMoves(items: NewsItem[], nowMs: number = Date.now()
       if (m) { found = { kind, ...m }; break; }
     }
     if (!found) continue;
-    const { actor, spans } = resolveActor(text, found.index);
-    const aor = resolveAor(text, spans);
+    const events = eventNameSpans(text);
+    const { actor, spans } = resolveActor(text, found.index, events);
+    // Event names are stripped with the mover's name: the summit's own
+    // "Africa" must not place the move either.
+    const aor = resolveAor(text, spans, events);
     const actorName = actor?.name ?? "unattributed";
     const side: ActorSide = actor?.side ?? "other";
     const key = `${found.kind}|${slug(actorName)}|${aor}`;

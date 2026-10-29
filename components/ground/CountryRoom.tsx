@@ -426,6 +426,14 @@ export default function CountryRoom({ country, sel, base, active = true, section
                 </li>
               ))}
             </ul>
+            {dg.history?.length > 0 && (
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80" title="From the app's own daily record for tracked countries (the alerts pass writes it). Of days the app OBSERVED, never calendar days. A history read annotates the rows above — it never sets a level.">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-0.5">History · 30 d</p>
+                {dg.history.map((h) => (
+                  <p key={h.source} className={`text-[10.5px] font-mono ${h.state === "chronic" ? "text-amber-300/90" : h.state === "new" || h.state === "recurring" ? "text-slate-300" : "text-slate-500"}`}>{h.label}</p>
+                ))}
+              </div>
+            )}
             <p className="text-[8px] text-slate-500 mt-2">Passive published feeds only — nothing probes a network. Graded text: act › threat › analysis; a bare mention earns nothing. UNKNOWN ≠ clear.</p>
           </Card>
         );

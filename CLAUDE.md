@@ -1069,10 +1069,20 @@ OWNER_EMAIL-gated.
   (`news_overview_cache`, PK = date) deliberately stays owner-flavored — a
   per-user ctx would make two users' caches fight over one row.
 
-**Phase 2b (NOT built)** — per-user satellite tables, same legacy-'' pattern
-as phase 1: `article_prefs` (news feedback), `newsletter_prefs`, `saved_items`,
-`trips` (a crew trip currently changes the OWNER's effective location too —
-known cross-user effect), `contacts`.
+**Phase 2b (BUILT — this note was stale until 2026-10-29)** — `article_prefs`,
+`newsletter_prefs`, `saved_items`, `trips` and `contacts` are per user
+through `lib/userScope.ts` (`scopeClause` / `pickUserRow`, the legacy-''
+rule in one place: the owner reads their rows + the '' legacy rows, crew
+read only their own), with the owner backfill and per-user indexes in
+`lib/db.ts`. A crew member's TDY does NOT move the owner's zone, Glance
+weather or brief. `tests/userScope.test.ts` pins the rule and SCANS `app/`
++ `lib/` for any SQL string touching one of those five tables without
+`user_email` / `${sc.clause}` — the build fails on an unscoped query (the
+retention prune `DELETE FROM trips WHERE end_date < ?` is the one allowed
+global statement). The scan's first run caught the calendar-trip UPDATE
+(keyed by an id from a scoped SELECT — safe, now scoped anyway). News
+curation (`/api/news/curated`) still reads the OWNER's article prefs by
+design (the shared overview cache).
 
 ### Secondary Gmail account (the "Add account" OAuth flow)
 The Email tab can connect a **second** Google account alongside the NextAuth
@@ -3092,9 +3102,18 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   stripped now. (3) **A homecoming read as a deployment** ("USS McFaul
   Returns to Norfolk After 332 Day Deployment" → CENTCOM deploy):
   `HOMECOMING` (returns home / homecoming / returns … after|from …
-  deployment) is read first and filed as `withdraw`. Known, not fixed:
-  an actor named only inside an event title ("Africa-France Summit") can
-  be credited as the mover when it is the nearest name before the phrase.
+  deployment) is read first and filed as `withdraw`. **An actor named
+  only inside an event title is not the mover (fixed 2026-10-29)**:
+  `eventNameSpans` (exported, tested) finds a capitalised run — hyphen-
+  joined parts allowed, at most two more words — ending on an event noun
+  (Summit / Forum / Talks / Dialogue / Conference / Treaty / Pact / Cup /
+  Games …) and masks it from BOTH passes: an alias inside it is never an
+  actor ("Africa-France Summit" no longer credits France) and it never
+  places the move (the summit's own "Africa" cannot make it AFRICOM; the
+  AOR fallback reads the text with events stripped, never the event's
+  country). Bounded so a Title-Case headline ("US Deploys Troops To
+  Poland Ahead Of NATO Summit") masks "Ahead Of NATO Summit", never the
+  mover. Lower-case event names are not recognised (rare in headlines).
 - **The tuning read, run (2026-10-28, 403 own items in the window, 400 X
   posts from 20 handles): 0 chatter, 1 near miss, 0 unknown places.**
   The grammar is not what is missing — the POOL is: the lists are news
@@ -5477,11 +5496,10 @@ fixed. Keep the RULE, not just the patch:
   series had no reader); LinesStrip's no-slot door is `openTrackPicker`;
   the fleet catalogue date shows on the Posture card; ▸ fold glyphs became
   ▾/▴ and the lunar chart's moonrise/set use ↑/↓ (▲ means worse).
-- **Found, NOT built (open)**: the assistant OE context has no lines
-  section (Ask has one); lines do not feed the Tools Where picker (a line
-  carries no coordinates); `chatter:`, `outage:`, `swx:R/S`, `cfout:`,
-  `bgp:` series are still written without a reader (a `precedes` /
-  chronicity read is the intended consumer); ~12 private LED / severity
+- **Closed 2026-10-29**: the assistant OE context carries the lines, and
+  the five unread series have readers — see "Close-out 2026-10-29" below.
+- **Found, NOT built (open)**: lines do not feed the Tools Where picker (a
+  line carries no coordinates); ~12 private LED / severity
   rank copies, 17 `withTimeout` copies and 8 haversines remain (only the
   one that folded UNKNOWN into green was a bug); bundle: all tab bodies
   except the lazy ones are in the first-load chunk (~312 KB gzip) — a
@@ -6283,3 +6301,53 @@ no new fetch** (the AI-spend rule: nothing pays for a derived insight).
   `VALID_TABS`) — the missing cross-tab primitive. Glance gets `onNavigate` as
   a prop because it is a direct child; anything nested deeper (a card inside
   OSINT → WatchPane) would need it drilled three levels for one link.
+
+### Close-out 2026-10-29 (per-user check · event-title actors · lines in the assistant · five series read)
+- **Per-user satellite tables** were already built; the stale "Phase 2b NOT
+  built" note is corrected above and `tests/userScope.test.ts` now fails
+  the build on an unscoped query against trips / contacts / saved_items /
+  article_prefs / newsletter_prefs.
+- **Posture moves**: a country inside an event title is neither the mover
+  nor the placement (`eventNameSpans` — see the posture-moves notes).
+- **The assistant's OE context carries the declared lines**
+  (`OeSnapshot.lines`, gathered in `lib/oeContext.ts` from the same
+  `getLineReads` Glance and Ask use, ≤6 rows through `lineReadLines`,
+  bounded 10 s). Rendered after Team state as the crew's declaration —
+  "NOT a sensor; a line never changes a level; never invent a time, tail,
+  callsign or load"; `lines: null` (store or read did not answer) says
+  "UNAVAILABLE this turn — do not assume there are none"; zero lines says
+  none declared; an older snapshot without the field says nothing.
+  `OE_CONTEXT_MAX_CHARS` 3200 → 3800 so the rules line is not cut. The
+  snapshot is shared and cached 5 min, so a line saved mid-chat reaches
+  the assistant within that window.
+- **Readers for five series that were written and never read**
+  (`lib/seriesReads.ts`, PURE, tested in `tests/seriesReads.test.ts`):
+  - `outage:<country>` (IODA), `cfout:<iso2>` (Radar outages),
+    `bgp:<iso2>` (Radar routing) → `elevatedHistory(source, series,
+    today, 2)`: `classifyChronicity` over the trailing 30 OBSERVED days,
+    elevated = amber (2) or worse on each series' own ordinal, judged at
+    the newest observed day (a record older than 3 d says "last observed
+    N d ago" instead of reading as today); nothing on record → null (no
+    history yet, never quiet). `CountryDigital.history` → a "History ·
+    30 d" block under the country room's ⌁ Digital & spectrum card
+    (chronic amber; quiet muted). Only tracked countries have history —
+    the alerts pass writes these series for the tracked set.
+  - `swx:R` / `swx:S` → `scaleShare(series, today, 1, "R"|"S")`;
+    `SpectrumTrend.rShare/sShare`, named on the Glance Spectrum tooltip
+    line only when a day is on record; the Weather space card's History
+    line shows G and R always, S when polar routes are declared or a
+    radiation day is on record.
+  - `chatter:<AOR>` → `chatterLeadRead(chatter, lift, today)`: lift =
+    the command's observed ADS-B lift (max day-peak `mobility_count`
+    across its boards — the demand verifier's proxy); surges by
+    `surgeDays` = the I&W rule (×`MOBILITY_SURGE_FACTOR`, floor mean+2)
+    over ≥7 PRIOR observed days; `precedes` within `CHATTER_LEAD_DAYS` 3
+    (a tally below three surges, never a rate); and the false-alarm
+    count — chatter days whose 3-day window has CLOSED with lift observed
+    in it and no surge (a window with no ADS-B record is ambiguous, never
+    a miss). `PostureMovesBody.chatterLead` (per command with chatter on
+    record, bounded 6 s, absent on failure) → one muted line per shown
+    command under Glance's U.S. lift-chatter block. Annotation only — it
+    changes no level, driver or weight; if chatter earns a lead rate it
+    is the analyst's call whether to trust it more.
+No new npm dep (esbuild `0`).

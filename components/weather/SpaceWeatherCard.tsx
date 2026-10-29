@@ -29,7 +29,8 @@ function kpClass(kp: number): string {
 
 const LED_DOT: Record<string, string> = LED_CLASS;
 
-interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null; gShare?: { hits: number; observed: number; label: string } | null }
+type ShareRead = { hits: number; observed: number; label: string } | null;
+interface SpaceOps { scales: NoaaScales; impacts: SpaceWxImpact[]; severe: { scale: string; level: number }[]; polar: boolean | null; gShare?: ShareRead; rShare?: ShareRead; sShare?: ShareRead }
 
 /**
  * Space weather → ops (REVIEW-CYBER-SPACE §4.7). The Kp / G / R / S readings
@@ -194,9 +195,9 @@ export default function SpaceWeatherCard({ onLoaded }: { onLoaded?: (ok: boolean
             </p>
           )}
           {!ops.scales.live && <p className="text-[9.5px] text-slate-600">SWPC scales feed unreachable — outlook UNKNOWN.</p>}
-          {ops.gShare && (
-            <p className="text-[9.5px] text-slate-600 font-mono" title="From the app's own daily record of SWPC's observed G-scale; of days the app observed.">
-              History: {ops.gShare.label}
+          {(ops.gShare || ops.rShare || ops.sShare) && (
+            <p className="text-[9.5px] text-slate-600 font-mono" title="From the app's own daily record of SWPC's observed scales; of days the app observed. G = geomagnetic (GPS, HF at high latitude) · R = radio blackout (HF, daylit side) · S = solar radiation (polar routes, high altitude).">
+              History: {[ops.gShare?.label, ops.rShare?.label, ops.polar ? ops.sShare?.label : (ops.sShare && ops.sShare.hits > 0 ? ops.sShare.label : null)].filter(Boolean).join(" · ")}
             </p>
           )}
         </div>

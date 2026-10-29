@@ -314,6 +314,8 @@ export default function GlanceTab({
   const [liftChatter, setLiftChatter] = useState<ChatterCluster[]>([]);
   // Watched countries' own mobility (Il-76, Y-20, A400M…) — a category apart.
   const [foreignChatter, setForeignChatter] = useState<ChatterCluster[]>([]);
+  // Per command: does chatter toward it come before its ADS-B surges? (lib/seriesReads)
+  const [chatterLead, setChatterLead] = useState<Record<string, { label: string }>>({});
   // Declared themes read against the own sources (lib/themes) — one line
   // each under the chatter; absent when none are declared or the store is
   // down (the OSINT › Feeds card says which).
@@ -360,6 +362,7 @@ export default function GlanceTab({
         if (Array.isArray(j.moves)) setServerMoves(j.moves);
         if (Array.isArray(j.chatter)) setLiftChatter(j.chatter);
         if (Array.isArray(j.foreignChatter)) setForeignChatter(j.foreignChatter);
+        if (j.chatterLead && typeof j.chatterLead === "object") setChatterLead(j.chatterLead);
         if (j.pending && attempt < 3) retry = setTimeout(() => load(attempt + 1), 10_000);
       } catch { /* the client-side detector still runs */ }
     };
@@ -1470,6 +1473,11 @@ export default function GlanceTab({
                         {c.lead.link ? <a href={c.lead.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400">{chatterLine(c, relTime)}</a> : chatterLine(c, relTime)}
                         {c.mine && <span className="ml-1 text-[8px] font-mono uppercase text-violet-300" title={`names a field you track${c.icaos.length ? ` (${c.icaos.join(", ")})` : ""}`}>mine</span>}
                         {c.corroborated ? <span className="ml-1 text-[8px] font-mono uppercase text-amber-300">corroborated</span> : <span className="ml-1 text-[8px] font-mono uppercase text-slate-600">lead</span>}
+                      </div>
+                    ))}
+                    {Array.from(new Set(liftChatter.slice(0, 3).map((c) => c.aor))).filter((a) => chatterLead[a]).map((a) => (
+                      <div key={`lead-${a}`} className="text-[10px] text-slate-500 font-mono truncate" title="From the app's own record: the days your sources reported lift toward this command, against the days its observed ADS-B lift surged above its own normal. A tally until three surges are on record.">
+                        {a}: {chatterLead[a].label}
                       </div>
                     ))}
                     <div className="text-[10px] text-slate-600">Reported, not observed — the I&amp;W mobility sensor reads it beside ADS-B and caps chatter-only at watching.</div>
