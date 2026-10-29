@@ -2388,7 +2388,9 @@ who said what are recorded; what it means is for the on-tap read.
   the answer carries SURFACE CHIPS (`runDoor`: `app:navigate` then
   `watch:focus` etc.) and names the unplaced; ⌘K "Ask the board" opens the
   assistant with the toggle on (`assistant:open { askBoard: true }`).
-- **Not verified from the sandbox**: Space-Track reachability from
+- **VERIFIED from production 2026-10-29** (`/api/spectrum?diag=1`):
+  `configured: true`, login 200, the satcat probe for COSMOS 2558 answered
+  200 with 1 row. Previously unverified: Space-Track reachability from
   production and the satcat `~~` OR form (`diag` shows a 400 if the
   syntax differs); the 2026 fleet names resolve only once Space-Track
   answers. No new npm dep beyond `satellite.js` (esbuild `0`).
@@ -6351,3 +6353,29 @@ no new fetch** (the AI-spend rule: nothing pays for a derived insight).
     changes no level, driver or weight; if chatter earns a lead rate it
     is the analyst's call whether to trust it more.
 No new npm dep (esbuild `0`).
+- **SOCRATES, first live day (diag 2026-10-29: 200, 6.3 MB read, "55399
+  rows read · 5000 within 5 km · byte cap")** — two faults surfaced the
+  moment CelesTrak answered, both fixed: (1) SOCRATES lists ONLY approaches
+  within 5 km, so the stream's "stop past `SOCRATES_CLOSE_KM` = 5" never
+  fired; the read ran to the 6 MB cap and the 5,000-row kept cap could
+  drop sub-kilometre rows. `SOCRATES_CLOSE_KM` is now 1 — the range the
+  indicator USES — so the sorted file stops early again; `SOC_MAX_KEPT`
+  20,000 and the note says "kept cap … reached" if it is ever hit (ASCII
+  `|` separators in the note now). (2) `usPayloadConjunctions` counted ANY
+  U.S. military payload inside 1 km of anything — a GPS satellite passing
+  a Starlink or ASAT debris would have lit `space_activity` ACTIVE on every
+  space-power board (it had never fired only because SOCRATES was down).
+  Now `usPayloadConjunctions(all, actors, maxRangeKm = 1)` needs BOTH a
+  U.S. military payload AND a SATELLITE of the board's own space power
+  (`SPACE_POWER_PAYLOAD` per ISO3 — Cosmos / Luch / GLONASS…, Shijian /
+  Yaogan / TJS / Beidou…, Noor / Khayyam…, Kwangmyongsong…; names, since
+  SOCRATES has no owner column). Debris and rocket bodies never count:
+  `Conjunction.payload1/2` carry SOCRATES' own "[+]"/"[-]" markers, and
+  with no marker a DEB / R/B name is excluded. The observation's
+  provenance names the closest pair, range and TCA. Tested in
+  `tests/cyberSpace.test.ts`.
+- **The chatter diag of 2026-10-29 was the OLD build**: its lines lacked
+  the "watched-country mobility" row and still read KC-135 + NORTHCOM for
+  the @ArmchairAdml post; the same text through the current code reads
+  KC-46 ×3 · Yokota → ? · UNKNOWN · unclear (no destination stated).
+  Production needs a redeploy to carry 6c2dbf3 onward.

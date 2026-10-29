@@ -168,7 +168,7 @@ export function spaceActivityState(i: SpaceInputs): StateRead | null {
   if (!i.live) return null;
   let s: StateRead = { state: "dormant", confidence: 0, why: "launch cadence within the actor's own norm" };
   if (i.conjunctions > 0) {
-    s = worseOf(s, { state: "active", confidence: 0.7, why: `${i.conjunctions} close conjunction${i.conjunctions === 1 ? "" : "s"} involving a U.S. military payload` });
+    s = worseOf(s, { state: "active", confidence: 0.7, why: `${i.conjunctions} close conjunction${i.conjunctions === 1 ? "" : "s"} (≤1 km) between a U.S. military payload and this actor's satellite` });
   }
   if (i.per14 == null) {
     if (i.last14 > 0) s = worseOf(s, { state: "watching", confidence: 0.4, why: `${i.last14} launch${i.last14 === 1 ? "" : "es"} in 14d, cadence baseline forming` });

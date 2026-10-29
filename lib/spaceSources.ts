@@ -73,7 +73,7 @@ const SOC_TTL = 12 * 3600_000;
 const SOC_DEADLINE_MS = 12_000;
 const SOC_MAX_BYTES = 6 * 1024 * 1024;
 const SOC_PAST_STOP = 50;
-const SOC_MAX_KEPT = 5000;
+const SOC_MAX_KEPT = 20_000;
 
 export interface ConjunctionsResult {
   live: boolean;
@@ -113,6 +113,7 @@ export async function streamSocrates(): Promise<ConjunctionsResult> {
   let headerSeen = false;
   let carry = "", snippet = "", bytes = 0, rows = 0, past = 0;
   let note = "";
+  let capped = false;
   const stop = async (why: string) => { note = why; await reader.cancel().catch(() => {}); };
 
   try {
@@ -140,7 +141,7 @@ export async function streamSocrates(): Promise<ConjunctionsResult> {
         if (!c) continue;
         rows++;
         if (c.minRangeKm == null) continue;                      // an unparseable range is unknown, not close
-        if (c.minRangeKm <= SOCRATES_CLOSE_KM) { past = 0; if (kept.length < SOC_MAX_KEPT) kept.push(c); }
+        if (c.minRangeKm <= SOCRATES_CLOSE_KM) { past = 0; if (kept.length < SOC_MAX_KEPT) kept.push(c); else capped = true; }
         else if (++past >= SOC_PAST_STOP) { await stop(`stopped at ${SOCRATES_CLOSE_KM} km after ${rows} rows (sorted by range)`); break outer; }
       }
     }
@@ -150,7 +151,9 @@ export async function streamSocrates(): Promise<ConjunctionsResult> {
   }
 
   const usable = !!cols && cols.range >= 0 && rows > 0;
-  return { live: usable, conjunctions: usable ? kept : [], note: usable ? `${kept.length} within ${SOCRATES_CLOSE_KM} km · ${note}` : note || "no rows", bytes, rows, status: res.status, ms: Date.now() - t0, snippet };
+  // ASCII separators: a diag pasted through a Latin-1 pipe turns "·" into "Â·".
+  const capNote = capped ? ` | kept cap ${SOC_MAX_KEPT} reached, closer rows kept, the rest inside ${SOCRATES_CLOSE_KM} km unread` : "";
+  return { live: usable, conjunctions: usable ? kept : [], note: usable ? `${kept.length} within ${SOCRATES_CLOSE_KM} km | ${note}${capNote}` : note || "no rows", bytes, rows, status: res.status, ms: Date.now() - t0, snippet };
 }
 
 export async function getConjunctions(): Promise<{ live: boolean; conjunctions: Conjunction[]; note?: string }> {

@@ -160,22 +160,29 @@ describe("space activity — cadence, not count", () => {
     expect(spacePowersIn(["Iran", "Iraq", "China"])).toEqual(["IRN", "CHN"]);
     expect(spacePowersIn(["Qatar"])).toEqual([]);
   });
-  it("SOCRATES conjunctions: only U.S. military payloads inside the range", () => {
-    const csv = "NORAD_CAT_ID_1,OBJECT_NAME_1,NORAD_CAT_ID_2,OBJECT_NAME_2,TCA,MIN_RNG,MAX_PROB\n1,USA 224,2,COSMOS 1408 DEB,2026-10-01 03:00:00,0.412,1.2E-04\n3,STARLINK-3000,4,STARLINK-3001,2026-10-01 04:00:00,0.2,1E-05\n5,WGS 10,6,SL-16 R/B,2026-10-01 05:00:00,4.0,1E-06";
+  it("SOCRATES conjunctions: a U.S. military payload AND the actor's own satellite, inside the range", () => {
+    const csv = "NORAD_CAT_ID_1,OBJECT_NAME_1,NORAD_CAT_ID_2,OBJECT_NAME_2,TCA,MIN_RNG,MAX_PROB\n1,USA 224,2,COSMOS 2558,2026-10-01 03:00:00,0.412,1.2E-04\n3,STARLINK-3000,4,STARLINK-3001,2026-10-01 04:00:00,0.2,1E-05\n5,WGS 10,6,SHIJIAN-21,2026-10-01 05:00:00,4.0,1E-06\n7,USA 245,8,COSMOS 1408 DEB,2026-10-01 06:00:00,0.1,1E-03\n9,NAVSTAR 81,10,STARLINK-1234,2026-10-01 07:00:00,0.05,1E-03";
     const all = parseSocrates(csv);
-    expect(all).toHaveLength(3);
-    expect(usPayloadConjunctions(all).map((c) => c.primary)).toEqual(["USA 224"]);
+    expect(all).toHaveLength(5);
+    // Russia board: the Cosmos payload counts; Cosmos DEBRIS and Starlink never do.
+    expect(usPayloadConjunctions(all, ["RUS"]).map((c) => c.primary)).toEqual(["USA 224"]);
+    // China board: Shijian-21 is the actor, but 4 km is outside the 1 km range.
+    expect(usPayloadConjunctions(all, ["CHN"])).toEqual([]);
+    expect(usPayloadConjunctions(all, ["CHN"], 5).map((c) => c.secondary)).toEqual(["SHIJIAN-21"]);
+    // No space power on the board, nothing counts.
+    expect(usPayloadConjunctions(all, [])).toEqual([]);
   });
-  it("SOCRATES: the 2026-10-24 live header (TCA_RANGE, [+]/[-] markers) parses the range and the names", () => {
+  it("SOCRATES: the 2026-10-24 live header (TCA_RANGE, [+]/[-] markers) parses the range, the names and the payload markers", () => {
     const header = "NORAD_CAT_ID_1,OBJECT_NAME_1,DSE_1,NORAD_CAT_ID_2,OBJECT_NAME_2,DSE_2,TCA,TCA_RANGE,TCA_RELATIVE_SPEED,MAX_PROB,DILUTION";
     const cols = socratesColumns(header);
     expect(cols).not.toBeNull();
     expect(cols!.range).toBe(7);
     const row = parseSocratesRow(cols!, "67689,PRC TEST SPACECRAFT 4 [+],3.466,69673,CZ-2F DEB [-],3.935,2026-10-27 05:41:25.246,0.005,0.000,1.177E-01,0.001");
-    expect(row).toEqual({ primary: "PRC TEST SPACECRAFT 4", secondary: "CZ-2F DEB", tcaISO: "2026-10-27 05:41:25.246", minRangeKm: 0.005, maxProb: 0.1177 });
-    const all = parseSocrates(`${header}\r\n40258,USA 259 [+],1.0,900,SL-8 DEB [-],2.0,2026-10-27 06:00:00.000,0.420,7.1,1E-05,0.1\r\n41000,USA 300 [+],1.0,901,COSMOS 2251 DEB [-],2.0,2026-10-27 07:00:00.000,3.9,7.1,1E-06,0.1\r\n`);
-    expect(all.map((c) => c.minRangeKm)).toEqual([0.42, 3.9]);
-    expect(usPayloadConjunctions(all).map((c) => c.primary)).toEqual(["USA 259"]);
+    expect(row).toEqual({ primary: "PRC TEST SPACECRAFT 4", secondary: "CZ-2F DEB", tcaISO: "2026-10-27 05:41:25.246", minRangeKm: 0.005, maxProb: 0.1177, payload1: true, payload2: false });
+    const all = parseSocrates(`${header}\r\n40258,USA 259 [+],1.0,900,COSMOS 2576 [+],2.0,2026-10-27 06:00:00.000,0.420,7.1,1E-05,0.1\r\n41000,USA 300 [+],1.0,901,COSMOS 2251 [-],2.0,2026-10-27 07:00:00.000,0.3,7.1,1E-06,0.1\r\n`);
+    expect(all.map((c) => c.minRangeKm)).toEqual([0.42, 0.3]);
+    // The "[-]" marker rules a Cosmos-named object out even without "DEB" in its name.
+    expect(usPayloadConjunctions(all, ["RUS"]).map((c) => c.primary)).toEqual(["USA 259"]);
   });
   it("SOCRATES: a row with no readable range is UNKNOWN, never close", () => {
     // Before 2026-10-24 the live header's range column was unrecognised, every
@@ -184,7 +191,7 @@ describe("space activity — cadence, not count", () => {
     const noRange = parseSocrates("OBJECT_NAME_1,OBJECT_NAME_2,TCA\nUSA 224,COSMOS 1408 DEB,2026-10-01 03:00:00");
     expect(noRange).toHaveLength(1);
     expect(noRange[0].minRangeKm).toBeNull();
-    expect(usPayloadConjunctions(noRange)).toEqual([]);
+    expect(usPayloadConjunctions(noRange, ["RUS"])).toEqual([]);
     expect(socratesColumns("OBJECT_NAME_1,OBJECT_NAME_2,TCA")!.range).toBe(-1);
     expect(socratesColumns("FOO,BAR")).toBeNull();
   });

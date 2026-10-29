@@ -106,6 +106,10 @@ export interface Conjunction {
   tcaISO: string;
   minRangeKm: number | null;
   maxProb: number | null;
+  /** SOCRATES' own marker: true "[+]" payload, false "[-]" debris / rocket
+   *  body, absent when the row carried no marker. */
+  payload1?: boolean;
+  payload2?: boolean;
 }
 
 const US_MIL_PAYLOAD = /\b(USA \d+|WGS(?: |-)?\d*|MUOS|AEHF|SBIRS|NAVSTAR|GPS (?:II|III)|NROL|MILSTAR|DSCS|GSSAP|X-37B|OTV-\d|DMSP|WSF-M|TDRS)\b/i;
@@ -114,11 +118,26 @@ const splitLine = (line: string): string[] => line.split(",").map((s) => s.trim(
 // SOCRATES marks objects "[+]" (payload) / "[-]" (debris/rocket body) after
 // the name; the marker is not part of the name.
 const cleanName = (s: string): string => s.replace(/\s*\[[+-]\]\s*$/, "").trim();
+const markerOf = (s: string): boolean | undefined => (/\[\+\]\s*$/.test(s) ? true : /\[-\]\s*$/.test(s) ? false : undefined);
 
 /** The streaming reader stops once rows pass this range — the file is sorted
  *  by minimum range, so everything that can ever count as "close" comes first.
- *  Wider than `usPayloadConjunctions`' default so the margin is visible. */
-export const SOCRATES_CLOSE_KM = 5;
+ *  It is the range the indicator USES (`usPayloadConjunctions`' default).
+ *  It was 5 km until 2026-10-29, and SOCRATES lists ONLY approaches within
+ *  5 km — so the early stop never fired, the read ran to the byte cap, and
+ *  the 5,000-row kept cap could drop sub-kilometre rows past it. */
+export const SOCRATES_CLOSE_KM = 1;
+
+/** Payload names per space power (ISO3), for the counterparty of a
+ *  conjunction. Names, not catalogue owners — SOCRATES carries no owner
+ *  column. Debris and rocket bodies never count (marker or name). */
+export const SPACE_POWER_PAYLOAD: Record<string, RegExp> = {
+  RUS: /\b(?:COSMOS|KOSMOS|LUCH|OLYMP|GLONASS|MOLNIYA|MERIDIAN|RESURS|KONDOR|BARS-M|LOTOS|PION|TUNDRA|BLAGOVEST|NIVELIR)\b/i,
+  CHN: /\b(?:SHIJIAN|SJ-\d+|YAOGAN|TJS|TONGXIN JISHU|TIANLIAN|SHIYAN|CHUANGXIN|BEIDOU|GAOFEN|PRC TEST SPACECRAFT|CHINASAT|ZHONGXING|FENGYUN|JILIN|TIANHUI|XINYAN|TIANQI)\b/i,
+  IRN: /\b(?:NOOR|KHAYYAM|NAHID|ZAFAR|SORAYA|CHAMRAN|KOWSAR|HODHOD|PARS-\d)\b/i,
+  PRK: /\b(?:KWANGMYONGSONG|MALLIGYONG|CHOLLIMA)\b/i,
+};
+const DEBRIS_NAME = /\b(?:DEB|R\/B|AKM|PKM|COOLANT)\b/i;
 
 export interface SocratesColumns { name1: number; name2: number; tca: number; range: number; prob: number }
 
@@ -144,13 +163,17 @@ export function socratesColumns(headerLine: string): SocratesColumns | null {
 /** One data row → a conjunction, or null for a row with no two names. */
 export function parseSocratesRow(cols: SocratesColumns, line: string): Conjunction | null {
   const f = splitLine(line);
-  const primary = cleanName(f[cols.name1] ?? ""), secondary = cleanName(f[cols.name2] ?? "");
+  const raw1 = f[cols.name1] ?? "", raw2 = f[cols.name2] ?? "";
+  const primary = cleanName(raw1), secondary = cleanName(raw2);
   if (!primary || !secondary) return null;
+  const p1 = markerOf(raw1), p2 = markerOf(raw2);
   return {
     primary, secondary,
     tcaISO: cols.tca >= 0 ? (f[cols.tca] ?? "") : "",
     minRangeKm: cols.range >= 0 ? num(f[cols.range]) : null,
     maxProb: cols.prob >= 0 ? num(f[cols.prob]) : null,
+    ...(p1 !== undefined ? { payload1: p1 } : {}),
+    ...(p2 !== undefined ? { payload2: p2 } : {}),
   };
 }
 
@@ -168,12 +191,27 @@ export function parseSocrates(csv: string): Conjunction[] {
   return out;
 }
 
-/** Conjunctions involving a U.S. military payload inside `maxRangeKm`. A row
- *  with NO range is not close — it is unknown, and an unknown range must not
- *  light the space-activity ladder (the 2026-10-24 diag: the live header's
- *  range column was unrecognised, every row parsed null, and this filter
- *  used to let nulls through — one completed download would have read
- *  ACTIVE on every board with a space power). */
-export function usPayloadConjunctions(all: Conjunction[], maxRangeKm = 1): Conjunction[] {
-  return all.filter((c) => (US_MIL_PAYLOAD.test(c.primary) || US_MIL_PAYLOAD.test(c.secondary)) && c.minRangeKm != null && c.minRangeKm <= maxRangeKm);
+/** Conjunctions between a U.S. military payload and a SATELLITE of one of
+ *  `actors` (ISO3 space powers) inside `maxRangeKm`. Both halves are
+ *  required: a GPS satellite passing a Starlink or a piece of debris is
+ *  traffic, not activity, and before 2026-10-29 any U.S. payload inside 1 km
+ *  of anything lit space activity ACTIVE on every space-power board (it never
+ *  fired only because SOCRATES had been unreachable). The counterparty must
+ *  be a payload — SOCRATES' "[+]", or no marker and not a debris name — so a
+ *  Cosmos ASAT-test fragment is environment, never an actor.
+ *
+ *  A row with NO range is not close — it is unknown, and an unknown range
+ *  must not light the ladder (the 2026-10-24 diag: the live header's range
+ *  column was unrecognised and every row parsed null). */
+export function usPayloadConjunctions(all: Conjunction[], actors: string[], maxRangeKm = SOCRATES_CLOSE_KM): Conjunction[] {
+  const rx = actors.map((a) => SPACE_POWER_PAYLOAD[a]).filter((r): r is RegExp => !!r);
+  if (!rx.length) return [];
+  const isActorSat = (name: string, payload: boolean | undefined) =>
+    payload !== false && !(payload === undefined && DEBRIS_NAME.test(name)) && rx.some((r) => r.test(name));
+  return all.filter((c) => {
+    if (c.minRangeKm == null || c.minRangeKm > maxRangeKm) return false;
+    const usFirst = US_MIL_PAYLOAD.test(c.primary) && isActorSat(c.secondary, c.payload2);
+    const usSecond = US_MIL_PAYLOAD.test(c.secondary) && isActorSat(c.primary, c.payload1);
+    return usFirst || usSecond;
+  });
 }

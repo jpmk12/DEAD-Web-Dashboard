@@ -206,10 +206,12 @@ export async function gatherSpectrumObservations(
   // ── space_activity ──────────────────────────────────────────────────────
   if (geo.spacePowers.length) {
     const cadence = launches?.live ? launchCadence(launches.launches, geo.spacePowers, nowMs, 90) : null;
-    const conjunctions = conj?.live ? usPayloadConjunctions(conj.conjunctions).length : 0;
+    const close = conj?.live ? usPayloadConjunctions(conj.conjunctions, geo.spacePowers) : [];
+    const conjunctions = close.length;
     const s = spaceActivityState({ live: !!launches?.live, last14: cadence?.last14 ?? 0, per14: cadence?.per14 ?? null, next14: cadence?.next14 ?? 0, conjunctions });
     if (s) {
-      observations.push(obs(SPACE_ID, "spaceCatalog", s, `Launch Library 2 (${geo.spacePowers.join("/")})${conj?.live ? " + SOCRATES" : " · SOCRATES unreachable"}`, (cadence?.last14 ?? 0) + conjunctions));
+      const pair = close[0] ? ` · closest: ${close[0].primary} × ${close[0].secondary} ${close[0].minRangeKm?.toFixed(3)} km at ${close[0].tcaISO.slice(0, 16)}Z` : "";
+      observations.push(obs(SPACE_ID, "spaceCatalog", s, `Launch Library 2 (${geo.spacePowers.join("/")})${conj?.live ? ` + SOCRATES${pair}` : " · SOCRATES unreachable"}`, (cadence?.last14 ?? 0) + conjunctions));
       health.push({ indicatorId: SPACE_ID, live: true, note: !conj?.live ? `SOCRATES unavailable — cadence only${conj?.note ? ` (${conj.note})` : ""}` : undefined });
     } else {
       health.push({ indicatorId: SPACE_ID, live: false, note: "Launch Library unreachable" });

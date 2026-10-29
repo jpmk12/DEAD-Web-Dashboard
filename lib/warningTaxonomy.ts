@@ -54,10 +54,10 @@ export function spectrumIndicators(problemId: string, aoiName: string, spacePowe
   if (spacePowers.length) {
     out.push({
       id: SPACE_ID, warningProblem: problemId,
-      description: `Space activity by the ${aoiName} actor (${spacePowers.join("/")}): launches in the last 14 days against the actor's own 90-day cadence, and close conjunctions involving a U.S. military payload. Launch-hazard airspace closures arrive through the airspace indicator.`,
+      description: `Space activity by the ${aoiName} actor (${spacePowers.join("/")}): launches in the last 14 days against the actor's own 90-day cadence, and close conjunctions (≤1 km, SOCRATES) between a U.S. military payload and the actor's own satellite. Launch-hazard airspace closures arrive through the airspace indicator.`,
       sourceFeed: "Launch Library 2 (The Space Devs; provider country + pad) + CelesTrak SOCRATES conjunctions (best-effort — the host has refused this address)",
       weight: 0.45,
-      falsifier: "Launch count within the actor's own cadence and no close conjunction involving a U.S. military payload in 14 days.",
+      falsifier: "Launch count within the actor's own cadence and no close conjunction between a U.S. military payload and the actor's satellite in 14 days.",
       provenance: "Open launch and catalogue data (The Space Devs, CelesTrak); Secure World Foundation counterspace reporting.",
     });
   }
