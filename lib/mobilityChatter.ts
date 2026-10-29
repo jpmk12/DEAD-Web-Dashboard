@@ -176,6 +176,11 @@ function placeDefs(): PlaceDef[] {
     ["Keflavik", "EUCOM", ["Keflavik", "BIKF"]], ["Pituffik", "NORTHCOM", ["Pituffik", "Thule", "BGTL"]], ["Powidz", "EUCOM", ["Powidz", "EPPW"]], ["Rzeszów", "EUCOM", ["Rzeszow", "Rzeszów", "EPRZ"]],
     ["Misawa", "INDOPACOM", ["Misawa", "RJSM"]], ["Iwakuni", "INDOPACOM", ["Iwakuni", "RJOI"]], ["Kunsan", "INDOPACOM", ["Kunsan", "RKJK"]], ["Clark", "INDOPACOM", ["Clark Air Base", "RPLC"]],
     ["Tinian", "INDOPACOM", ["Tinian", "PGWT"]], ["Wake Island", "INDOPACOM", ["Wake Island", "PWAK"]], ["Guam", "INDOPACOM", ["Guam"]], ["Okinawa", "INDOPACOM", ["Okinawa"]],
+    // The tanker bases spotters name as an origin or a return: Eielson was the
+    // first unknown place a real spotter post produced (2026-10-29).
+    ["Eielson", "NORTHCOM", ["Eielson", "PAEI"]], ["Fairchild", "NORTHCOM", ["Fairchild", "KSKA"]], ["McConnell", "NORTHCOM", ["McConnell", "KIAB"]],
+    ["Pease", "NORTHCOM", ["Pease", "KPSM"]], ["Seymour Johnson", "NORTHCOM", ["Seymour Johnson", "KGSB"]], ["Grand Forks", "NORTHCOM", ["Grand Forks", "KRDR"]],
+    ["Brize Norton", "EUCOM", ["Brize Norton", "EGVN"]], ["Istres", "EUCOM", ["Istres", "LFMI"]], ["Eindhoven", "EUCOM", ["Eindhoven", "EHEH"]],
     ["Bagotville", "NORTHCOM", ["Bagotville"]], ["Soto Cano", "SOUTHCOM", ["Soto Cano", "MHSC"]], ["Guantanamo", "SOUTHCOM", ["Guantanamo", "GTMO", "MUGM"]], ["Curaçao", "SOUTHCOM", ["Curacao", "Curaçao", "Hato"]],
   ];
   for (const [name, aor, forms] of extra) add(name, aor, forms);
@@ -218,7 +223,7 @@ const REGION_AOR: [RegExp, Aor][] = [
   [/\b(?:europe|baltic|black sea|eastern flank|mediterranean|the med|arctic|nordic|eucom|usafe)\b/i, "EUCOM"],
   [/\b(?:sahel|horn of africa|west africa|east africa|africom)\b/i, "AFRICOM"],
   [/\b(?:caribbean|latin america|south america|central america|southcom)\b/i, "SOUTHCOM"],
-  [/\b(?:conus|the states|stateside|homeland|northcom)\b/i, "NORTHCOM"],
+  [/\b(?:conus|the states|stateside|homeland|alaska|northcom)\b/i, "NORTHCOM"],
 ];
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, dozen: 12, "a dozen": 12, "half a dozen": 6, "a pair of": 2 };
@@ -439,7 +444,7 @@ export interface ChatterExplain {
 
 const EXAMPLE_CAP = 10;
 const ex = (it: NewsItem, note?: string): ChatterExample =>
-  ({ source: (it.source || "").trim() || "unknown", text: hay(it).slice(0, 220), link: it.link, pubDate: it.pubDate, ...(note ? { note } : {}) });
+  ({ source: (it.source || "").trim() || "unknown", text: hay(it).slice(0, 500), link: it.link, pubDate: it.pubDate, ...(note ? { note } : {}) });
 const sourceKind = (s: string) => (s.startsWith("𝕏") ? "x" : s.startsWith("📄") ? "article" : "other");
 
 // A capitalised phrase (or an ICAO) right after a cue — the shape a place
@@ -449,7 +454,8 @@ const ORIGIN_WORDS = new Set(["from", "out of", "departed", "departing", "leavin
 const PLACE_STOP = new Set(["the", "a", "an", "i", "us", "u.s.", "usaf", "amc", "nato", "ads-b", "adsb", "today", "tonight", "this", "that", "these", "those", "twitter", "x", "icymi", "breaking", "update", "raf", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "least", "it", "we", "they", "he", "she", "you", "my", "our", "their", "his", "her", "its", "one", "two", "three", "four", "five", "six"]);
 // Designators: "E-3", "RC-135V", "P-8A", "MQ-9" and the Russian / Chinese forms.
 const DESIGNATOR = /\b(?:[A-Z]{1,3}-\d{1,3}[A-Z]{0,2}|(?:Il|Tu|An|Su|Mi|Ka|Yak|KJ|Y)-\d{1,3}[A-Z]?)\b/g;
-const DESIGNATOR_STOP = /^(?:COVID-|G-\d|K-12$|UN-|EU-|MH-17$)/i;
+// Not aircraft: Joint Staff directorates (J-5), visas (H-1B), gangs (MS-13).
+const DESIGNATOR_STOP = /^(?:COVID-|G-\d|K-12$|UN-|EU-|MH-17$|J-\d$|H-1B$|MS-13$)/i;
 
 function isKnownPlacePhrase(phrase: string, places: PlaceDef[]): boolean {
   if (places.some((p) => p.rx.test(phrase))) return true;
@@ -488,7 +494,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
       const tok = /^[A-Z]/.test(m[0]) && !/^(?:Il|Tu|An|Su|Mi|Ka|Yak)-/.test(m[0]) ? m[0].toUpperCase() : m[0];
       if (seenTok.has(tok) || DESIGNATOR_STOP.test(tok) || AIRFRAMES.some((a) => !a.generic && a.rx.test(tok))) continue;
       seenTok.add(tok);
-      const u = unknownTypes.get(tok) ?? { token: tok, count: 0, example: text.slice(0, 160) };
+      const u = unknownTypes.get(tok) ?? { token: tok, count: 0, example: text.slice(0, 300) };
       u.count++;
       unknownTypes.set(tok, u);
     }
@@ -510,7 +516,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
       if (AIRFRAMES.some((a) => a.rx.test(phrase)) || isKnownPlacePhrase(phrase, places)) continue;
       const role: "dest" | "origin" = ORIGIN_WORDS.has(m[1].toLowerCase()) ? "origin" : "dest";
       const key = `${role}|${phrase.toLowerCase()}`;
-      const u = unknownPlaces.get(key) ?? { phrase, role, count: 0, example: text.slice(0, 160) };
+      const u = unknownPlaces.get(key) ?? { phrase, role, count: 0, example: text.slice(0, 300) };
       u.count++;
       unknownPlaces.set(key, u);
     }

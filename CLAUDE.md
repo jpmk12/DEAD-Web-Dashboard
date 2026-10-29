@@ -3107,6 +3107,20 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   pattern was case-insensitive, so "reach 61 seats" (an Israeli coalition
   post) read as callsign REACH 61 and only the missing movement phrase
   kept it out. The pattern is capitals-only now (tested).
+- **The first spotter post (2026-10-29, after a spotter handle joined the
+  lists): 1 match** — @ArmchairAdml, "KC-135/KC-46 ×3 · Yokota → ? ·
+  INDOPACOM · toward · departed" — with "Eielson Air Force" and "Alaska" as
+  UNKNOWN places: the field the tankers named was missing, so the post had
+  no destination and most likely took its command from a bare region word
+  ("Pacific"). Fixed: Eielson (PAEI) and the U.S. tanker bases spotters name
+  (Fairchild, McConnell, Pease, Seymour Johnson, Grand Forks) plus Brize
+  Norton / Istres / Eindhoven join the place list; "alaska" is a NORTHCOM
+  token in `lib/aor.ts` and a NORTHCOM region phrase in the grammar (Alaska
+  is NORTHCOM under the UCP); J-n (Joint Staff directorates), H-1B and MS-13
+  are not designators. The diag's examples now carry 500 characters
+  (unknown-place / designator examples 300) so a whole spotter post can be
+  read — the INDOPACOM placement of that post is not verified until the
+  next diag shows its full text. One handle is a lead, never corroboration.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

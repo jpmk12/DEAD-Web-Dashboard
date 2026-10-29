@@ -255,7 +255,7 @@ describe("spotter route notation — the field before the arrow is the origin", 
 describe("explainChatter — the owner's tuning read", () => {
   const items = [
     post("6x KC-135 landing at Al Udeid per ADS-B", { id: "a", source: "𝕏 @spotter1" }),
-    post("C-17 heading to Brize Norton tonight, airborne", { id: "b", source: "𝕏 @spotter2" }),
+    post("C-17 heading to Ascension Island tonight, airborne", { id: "b", source: "𝕏 @spotter2" }),
     post("The KC-46 program is over budget", { id: "c", source: "𝕏 @spotter2" }),
     post("Tanker seized by IRGC in the strait", { id: "d", source: "📄 Reuters" }),
     post("E-3 and RC-135V orbiting over the Black Sea, P-8 airborne", { id: "e", source: "𝕏 @spotter3" }),
@@ -274,8 +274,8 @@ describe("explainChatter — the owner's tuning read", () => {
     expect(r.matchedExamples[0].note).toContain("Al Udeid");
   });
   it("names the place phrases after a cue that match nothing, and the designators it does not carry", () => {
-    expect(r.unknownPlaces.map((u) => u.phrase)).toContain("Brize Norton");
-    expect(r.unknownPlaces.find((u) => u.phrase === "Brize Norton")?.role).toBe("dest");
+    expect(r.unknownPlaces.map((u) => u.phrase)).toContain("Ascension Island");
+    expect(r.unknownPlaces.find((u) => u.phrase === "Ascension Island")?.role).toBe("dest");
     const toks = r.unknownTypes.map((u) => u.token);
     expect(toks).toEqual(expect.arrayContaining(["E-3", "RC-135V", "P-8"]));
     expect(toks).not.toContain("KC-135");
@@ -294,5 +294,28 @@ describe("the REACH callsign is capitals only (first production tuning read)", (
   it("still reads RCH / REACH callsigns as written by spotters", () => {
     expect(airframesIn("REACH 123 inbound").map((a) => a.id)).toContain("REACH");
     expect(airframesIn("RCH431 airborne").map((a) => a.id)).toContain("REACH");
+  });
+});
+
+describe("the first spotter post (2026-10-29) — Eielson / Alaska are places, J-5 is not an aircraft", () => {
+  it("places a return to Eielson, Alaska in NORTHCOM, with Yokota as the origin", () => {
+    const [p] = readChatter([post("3x KC-46s departed Yokota this morning heading to Eielson Air Force Base, Alaska")], NOW);
+    expect(p.place).toBe("Eielson");
+    expect(p.origin).toBe("Yokota");
+    expect(p.aor).toBe("NORTHCOM");
+  });
+  it("reads a destination region phrase 'to Alaska' as NORTHCOM when no base is named", () => {
+    expect(resolveChatterAor("tankers heading to Alaska", null, null)).toBe("NORTHCOM");
+  });
+  it("Eielson is no longer an unknown place; J-5 / H-1B / MS-13 are not designators", () => {
+    const ex = explainChatter([post("KC-135 departed Eielson; J-5 briefed it; H-1B and MS-13 in the news")], NOW);
+    expect(ex.unknownPlaces.map((u) => u.phrase)).not.toContain("Eielson");
+    const types = ex.unknownTypes.map((u) => u.token);
+    for (const d of ["J-5", "H-1B", "MS-13"]) expect(types).not.toContain(d);
+  });
+  it("carries up to 500 characters of the post in an example", () => {
+    const long = `6x KC-135 landing at Al Udeid ${"x".repeat(600)}`;
+    const ex = explainChatter([post(long)], NOW);
+    expect(ex.matchedExamples[0].text.length).toBe(500);
   });
 });

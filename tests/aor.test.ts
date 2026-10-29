@@ -51,3 +51,10 @@ describe("aorFromName — a token must start a word", () => {
     expect(aorFromName("Iran (Islamic Republic of)")).toBe("CENTCOM");
   });
 });
+
+describe("Alaska is NORTHCOM", () => {
+  it("reads Alaska by name", () => {
+    expect(aorFromName("Eielson Air Force Base, Alaska")).toBe("NORTHCOM");
+    expect(aorFromCountry("Alaska")).toBe("NORTHCOM");
+  });
+});

@@ -25,7 +25,7 @@ export const COCOM_LABEL: Record<string, string> = { ...AOR_LABELS, UNKNOWN: "â€
 // Country / region tokens â†’ AOR. Longest token wins (checked length-desc) so
 // "papua new guinea" beats "guinea" and "equatorial guinea" beats "guinea".
 const COUNTRY_AOR: Record<Aor, string[]> = {
-  NORTHCOM: ["united states", "u.s.a", "usa", "canada", "mexico", "greenland", "bahamas"],
+  NORTHCOM: ["united states", "u.s.a", "usa", "canada", "mexico", "greenland", "bahamas", "alaska"],
   SOUTHCOM: [
     "guatemala", "belize", "honduras", "el salvador", "nicaragua", "costa rica", "panama",
     "colombia", "venezuela", "guyana", "suriname", "ecuador", "peru", "brazil", "bolivia",
