@@ -3137,6 +3137,17 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   separately** — `ChatterExample.quoted` (400 chars) beside `text` (the
   post itself, 500). If the quote says "to Alaska", NORTHCOM by the
   destination rule is right; the next diag shows which.
+- **Lift chatter is AMERICAN airlift only (2026-10-29, "just American
+  airlift for now")**. `LIFT_SIDES` = `["us"]`: `readChatter` drops a post
+  whose lead airframe is allied (A400M, Voyager / MRTT) or adversary
+  (Il-76/78, Y-20), so the clusters, `lift` posture moves, the demand
+  driver, the I&W mobility rule, the SITREP Chatter row and the
+  `chatter:` series all read U.S. lift only. The grammar still READS the
+  other sides — `readChatter(items, now, { sides })` returns them, and the
+  diag reports them as `foreign` ("other sides — read, not counted as
+  lift") with examples. Watched countries' own mobility moves are wanted
+  on a surface of their own (the operator: "maybe in a different spot"),
+  not built yet.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

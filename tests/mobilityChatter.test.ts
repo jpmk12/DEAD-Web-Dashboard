@@ -48,12 +48,20 @@ describe("readChatter — airframe + movement phrase, destination-placed, never 
   it("needs a movement phrase — a static mention of a type is not chatter", () => {
     expect(readChatter([post("The KC-46 program remains over budget, GAO says")], NOW)).toEqual([]);
   });
-  it("attributes allied and adversary airframes to their side and drops old posts", () => {
-    const [ru] = readChatter([post("Two Il-76s landed at Hmeimim overnight, Russian airlift continues into Syria")], NOW);
+  it("counts U.S. airlift only — an allied or adversary airframe is not lift", () => {
+    expect(readChatter([post("Two Il-76s landed at Hmeimim overnight, Russian airlift continues into Syria")], NOW)).toEqual([]);
+    expect(readChatter([post("RAF Voyager inbound to Akrotiri with a fighter drag")], NOW)).toEqual([]);
+    const ex = explainChatter([post("Two Il-76s landed at Hmeimim overnight, Russian airlift continues into Syria")], NOW);
+    expect(ex.matched).toBe(0);
+    expect(ex.foreign.count).toBe(1);
+  });
+  it("attributes allied and adversary airframes to their side (read with sides) and drops old posts", () => {
+    const all = { sides: ["us", "ally", "adversary"] as const };
+    const [ru] = readChatter([post("Two Il-76s landed at Hmeimim overnight, Russian airlift continues into Syria")], NOW, all);
     expect(ru.side).toBe("adversary");
     expect(ru.actor).toBe("Russia");
     expect(ru.aor).toBe("CENTCOM");
-    const [uk] = readChatter([post("RAF Voyager inbound to Akrotiri with a fighter drag")], NOW);
+    const [uk] = readChatter([post("RAF Voyager inbound to Akrotiri with a fighter drag")], NOW, all);
     expect(uk.side).toBe("ally");
     expect(uk.aor).toBe("EUCOM");
     expect(readChatter([post("6x KC-135 landing at Al Udeid", { pubDate: "2026-10-01T00:00:00Z" })], NOW)).toEqual([]);
@@ -282,7 +290,7 @@ describe("explainChatter — the owner's tuning read", () => {
     expect(toks).not.toContain("C-17");
     expect(r.places.find((p) => p.name === "Al Udeid")?.dest).toBe(1);
     expect(r.handles[0].source).toBe("𝕏 @spotter2");
-    expect(r.lines).toHaveLength(8);
+    expect(r.lines).toHaveLength(9);
   });
 });
 

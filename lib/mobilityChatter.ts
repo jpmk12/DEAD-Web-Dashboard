@@ -360,15 +360,23 @@ export function resolveChatterAor(text: string, dest: PlaceDef | null, origin: P
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
+/** Lift chatter is AMERICAN airlift by decision (2026-10-29, "just
+ *  American airlift for now"): an allied or adversary airframe is read by the
+ *  grammar but never counted as lift — watched countries' own mobility moves
+ *  belong on a surface of their own, not in the U.S. lift picture. */
+export const LIFT_SIDES: readonly ActorSide[] = ["us"];
+
 /** Read every item for mobility chatter; items older than the window are
  *  ignored. `ownPlaces` (the tracking registry) joins the catalogue so a
- *  post naming your spoke places and is marked `mine`. */
-export function readChatter(items: NewsItem[], nowMs: number = Date.now(), opts: { ownPlaces?: OwnPlace[] } = {}): ChatterPost[] {
+ *  post naming your spoke places and is marked `mine`. `sides` defaults to
+ *  `LIFT_SIDES`; pass others to read a watched country's mobility instead. */
+export function readChatter(items: NewsItem[], nowMs: number = Date.now(), opts: { ownPlaces?: OwnPlace[]; sides?: readonly ActorSide[] } = {}): ChatterPost[] {
   const out: ChatterPost[] = [];
   const places = placesWithOwn(opts.ownPlaces);
+  const sides = opts.sides ?? LIFT_SIDES;
   for (const it of items) {
     const r = readOne(it, nowMs, places);
-    if (r.post) out.push(r.post);
+    if (r.post && sides.includes(r.post.side)) out.push(r.post);
   }
   return out.sort((a, b) => Date.parse(b.pubDate) - Date.parse(a.pubDate));
 }
@@ -437,6 +445,9 @@ export interface ChatterExplain {
   byAor: Record<string, number>;
   byAirframe: Record<string, number>;
   matchedExamples: ChatterExample[];
+  /** Matched airframes of another side (allied, adversary) — read, never
+   *  counted as lift. Held for the watched-country mobility surface. */
+  foreign: { count: number; examples: ChatterExample[] };
   nearMiss: {
     noMovement: { count: number; examples: ChatterExample[] };
     genericGated: { count: number; examples: ChatterExample[] };
@@ -488,6 +499,8 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
   const unknownPlaces = new Map<string, { phrase: string; role: "dest" | "origin"; count: number; example: string }>();
   const unknownTypes = new Map<string, { token: string; count: number; example: string }>();
   const matchedEx: ChatterExample[] = [], noMove: ChatterExample[] = [], gated: ChatterExample[] = [], unplacedEx: ChatterExample[] = [];
+  const foreignEx: ChatterExample[] = [];
+  let foreignN = 0;
   let inWindow = 0, matched = 0, placed = 0, unplaced = 0, away = 0, mine = 0, noMoveN = 0, gatedN = 0;
 
   for (const it of items) {
@@ -537,6 +550,11 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
 
     if (r.skip === "no-movement") { noMoveN++; if (noMove.length < EXAMPLE_CAP) noMove.push(ex(it)); continue; }
     const p = r.post!;
+    if (!LIFT_SIDES.includes(p.side)) {
+      foreignN++;
+      if (foreignEx.length < EXAMPLE_CAP) foreignEx.push(ex(it, `${p.airframes.join("/")} · ${p.actor} · ${p.place ?? "?"} · ${p.aor} · ${p.direction}`));
+      continue;
+    }
     matched++;
     h.matched++;
     byAor[p.aor] = (byAor[p.aor] ?? 0) + 1;
@@ -557,9 +575,10 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
 
   const lines = [
     `${items.length} own items read · ${inWindow} in the ${CHATTER_WINDOW_DAYS}-day window (${fmt(bySource)})`,
-    `${matched} chatter posts: ${placed} placed · ${unplaced} unplaced · ${away} returning · ${mine} naming your fields`,
+    `${matched} U.S. lift posts: ${placed} placed · ${unplaced} unplaced · ${away} returning · ${mine} naming your fields`,
     `by command: ${fmt(byAor)}`,
     `by airframe: ${fmt(byAirframe)}`,
+    `other sides (read, not counted as lift): ${foreignN}`,
     `near misses: ${noMoveN} named a type with no movement phrase · ${gatedN} generic "tanker"/"airlifter" refused by context`,
     `places named (dest/origin/bare): ${placeList.slice(0, 8).map((p) => `${p.name} ${p.dest}/${p.origin}/${p.bare}`).join(" · ") || "none"}`,
     `unknown places after a cue: ${uPlaces.slice(0, 8).map((u) => `"${u.phrase}" ×${u.count} (${u.role})`).join(" · ") || "none"}`,
@@ -571,6 +590,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     window: { days: CHATTER_WINDOW_DAYS, items: items.length, inWindow, bySource },
     matched, placed, unplaced, away, mine, byAor, byAirframe,
     matchedExamples: matchedEx,
+    foreign: { count: foreignN, examples: foreignEx },
     nearMiss: { noMovement: { count: noMoveN, examples: noMove }, genericGated: { count: gatedN, examples: gated }, unplaced: { count: unplaced, examples: unplacedEx } },
     places: placeList, unknownPlaces: uPlaces, unknownTypes: uTypes, handles: handleList, lines,
   };
