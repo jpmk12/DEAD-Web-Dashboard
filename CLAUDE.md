@@ -6379,3 +6379,27 @@ No new npm dep (esbuild `0`).
   the @ArmchairAdml post; the same text through the current code reads
   KC-46 ×3 · Yokota → ? · UNKNOWN · unclear (no destination stated).
   Production needs a redeploy to carry 6c2dbf3 onward.
+- **The X pool held one day, not fourteen (2026-10-31 chatter diag: 0
+  matched, and the 28 Oct @ArmchairAdml post was GONE — not even
+  unplaced).** `getXItems` read the newest 400 posts and the store kept the
+  newest 1,000 overall; two news lists capture ~200 posts each per sweep,
+  so the 14-day chatter and theme windows held about one day of X and a
+  quiet spotter was crowded out by WSJ and the aggregators. Now:
+  (1) **retention is fair by handle** — `lib/xRetention.ts` `fairKeep`
+  (PURE, tested in `tests/xRetention.test.ts`): 14 days, `X_STORE_TOTAL`
+  5,000, and every handle keeps its newest `X_PER_HANDLE_FLOOR` 25 posts
+  whatever the loud handles do (the floors may take the store past the
+  cap — that is the point); the prune in `importXCapture` deletes the rest
+  in 500-id chunks. (2) **Two slices from one cached read**: `getXItems(
+  limit = 400)` = the newest posts, for readers with NO time window of
+  their own (the OSINT feed — whose triage costs tokens per new item —,
+  the country room, the I&W escalation corroboration, whose
+  `scoreConflictNews` would otherwise let two-week-old posts corroborate
+  today); `getXItemsWindow()` = every stored post, for readers that window
+  by date themselves. `OwnSourcePool.window` / `gatherUserSourceNews().
+  window` carry it to the I&W lift-chatter read and the themes pass; the
+  posture-moves sweep and the chatter diag read it directly. The pool's X
+  items now carry the QUOTED post in `summary` (the sweep already did;
+  the I&W chatter read did not). Theme counts were undercounted the same
+  way — their 7-day reports and `theme:` series were about one day of X
+  until this; baselines learned before 2026-10-31 run low.

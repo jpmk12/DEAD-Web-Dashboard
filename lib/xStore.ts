@@ -1,16 +1,25 @@
 // Persistence for imported X (Twitter) posts — server-only. The pure parsing
 // lives in lib/xImport.ts; this module owns the x_items table: idempotent
-// upserts keyed by post id, the rolling prune (14 days / newest 1000), and a
-// short in-process cache so the 90-second OSINT feed poll doesn't hit MySQL
-// on every request.
+// upserts keyed by post id, the rolling prune (14 days, fair by handle —
+// lib/xRetention), and a short in-process cache so the 90-second OSINT feed
+// poll doesn't hit MySQL on every request.
+//
+// Two reads from one cached query: `getXItems(limit)` = the newest posts
+// (default 400 — the OSINT feed, the country room, the I&W escalation
+// corroboration, whose scorers have no time window of their own), and
+// `getXItemsWindow()` = every stored post in the 14-day window, for the
+// readers that window by date themselves (lift chatter, posture moves,
+// themes).
 
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import type { XCapture, XPostMetrics, XQuoted } from "./xImport";
+import { fairKeep, X_STORE_MAX_DAYS, X_STORE_TOTAL, X_PER_HANDLE_FLOOR } from "./xRetention";
 
-const MAX_ROWS = 1000;
-const MAX_AGE_DAYS = 14;
+const MAX_AGE_DAYS = X_STORE_MAX_DAYS;
 const CACHE_TTL_MS = 60_000;
+/** Read bound: the store's cap plus the floors' overhang. */
+const READ_MAX = X_STORE_TOTAL + 2000;
 
 export interface StoredXItem {
   id: string;
@@ -89,25 +98,30 @@ export async function importXCapture(capture: XCapture): Promise<XImportResult> 
     else updated++;
   }
 
-  // Rolling prune — age first, then cap to the newest MAX_ROWS by post time
-  // (import time when the post carried no timestamp).
+  // Rolling prune — age first, then FAIR BY HANDLE (lib/xRetention): each
+  // handle keeps its newest posts inside the window, the cap fills
+  // newest-first. A newest-N-overall cap let two busy news lists push a
+  // quiet spotter's posts out within a day.
   await pool.execute(`DELETE FROM x_items WHERE imported_at < DATE_SUB(NOW(3), INTERVAL ${MAX_AGE_DAYS} DAY)`);
-  await pool.execute(
-    `DELETE x FROM x_items x
-     JOIN (SELECT id FROM x_items ORDER BY COALESCE(posted_at, imported_at) DESC LIMIT ${MAX_ROWS}, 100000) old
-       ON x.id = old.id`
-  );
+  interface IdRow extends RowDataPacket { id: string; handle: string; ts: Date }
+  const [idRows] = await pool.query<IdRow[]>(`SELECT id, handle, COALESCE(posted_at, imported_at) AS ts FROM x_items`);
+  const keep = fairKeep(idRows.map((r) => ({ id: r.id, handle: r.handle, ts: new Date(r.ts).getTime() })), Date.now(),
+    { total: X_STORE_TOTAL, perHandleFloor: X_PER_HANDLE_FLOOR, maxDays: MAX_AGE_DAYS });
+  const drop = idRows.map((r) => r.id).filter((id) => !keep.has(id));
+  for (let i = 0; i < drop.length; i += 500) {
+    await pool.query(`DELETE FROM x_items WHERE id IN (?)`, [drop.slice(i, i + 500)]);
+  }
 
   resetXCache();
   return { imported, updated };
 }
 
-export async function getXItems(): Promise<StoredXItem[]> {
+async function readAll(): Promise<StoredXItem[]> {
   if (cache && cache.expires > Date.now()) return cache.items;
   const pool = await getDb();
   const [rows] = await pool.query<XRow[]>(
     `SELECT id, url, author, handle, posted_at, text, metrics, quoted, source_kind, source_label, imported_at
-     FROM x_items ORDER BY COALESCE(posted_at, imported_at) DESC LIMIT 400`
+     FROM x_items ORDER BY COALESCE(posted_at, imported_at) DESC LIMIT ${READ_MAX}`
   );
   const items = rows.map((r) => ({
     id: r.id,
@@ -124,6 +138,18 @@ export async function getXItems(): Promise<StoredXItem[]> {
   }));
   cache = { items, expires: Date.now() + CACHE_TTL_MS };
   return items;
+}
+
+/** The newest `limit` posts (default 400) — for readers with no time window
+ *  of their own (the OSINT feed, the country room, I&W escalation). */
+export async function getXItems(limit = 400): Promise<StoredXItem[]> {
+  return (await readAll()).slice(0, limit);
+}
+
+/** Every stored post in the 14-day window (fair by handle) — for readers
+ *  that window by date themselves: lift chatter, posture moves, themes. */
+export async function getXItemsWindow(): Promise<StoredXItem[]> {
+  return readAll();
 }
 
 interface CountRow extends RowDataPacket { cnt: number; newest: Date | null }

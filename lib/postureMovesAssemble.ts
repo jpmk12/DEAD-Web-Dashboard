@@ -26,7 +26,7 @@ import { gdeltSearch } from "./localNews";
 import { detectPostureMoves, mergePostureMoves, POSTURE_GDELT_QUERY, type PostureMove } from "./postureMoves";
 import { readChatter, clusterChatter, FOREIGN_SIDES, chatterToMoves, chatterSurge, chatterForIcao, explainChatter, type ChatterCluster, type ChatterExplain, type FieldChatter } from "./mobilityChatter";
 import { getOwnPlaces } from "./ownPlaces";
-import { getXItems } from "./xStore";
+import { getXItemsWindow } from "./xStore";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
 import { recordSensorDay, getSensorSeriesMany } from "./sensorStore";
 import { getMobilityHistory } from "./demandStore";
@@ -92,9 +92,11 @@ export async function getPostureMoves(maxWaitMs = 8_000): Promise<PostureMovesBo
 
 export function resetPostureMovesCache(): void { cache = null; }
 
-/** The user's own captured sources as items: X posts and reader-captured articles. */
+/** The user's own captured sources as items: every X post in the 14-day
+ *  window (fair by handle — the chatter and posture grammars window by date
+ *  themselves) and reader-captured articles. */
 async function ownSourceItems(): Promise<NewsItem[]> {
-  const [xs, arts] = await Promise.all([withTimeout(getXItems(), 6_000), withTimeout(getCapturedArticles(200), 6_000)]);
+  const [xs, arts] = await Promise.all([withTimeout(getXItemsWindow(), 6_000), withTimeout(getCapturedArticles(200), 6_000)]);
   const items: NewsItem[] = [];
   if (xs) for (const x of xs) items.push({ id: `x-${x.id}`, title: x.text.replace(/\s+/g, " ").trim(), source: `𝕏 @${x.handle}`, category: "social", pubDate: x.postedAt ?? x.importedAt, summary: x.quoted?.text ?? "", link: x.url });
   if (arts) for (const a of arts) items.push({ ...articleToNewsItem(a, 1200), source: `📄 ${a.source}` });

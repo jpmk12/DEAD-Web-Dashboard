@@ -84,7 +84,9 @@ async function assemble(): Promise<ThemesBody> {
     Promise.all(feeds.map((f) => withTimeout(fetchFeed(f.url, f.name, f.category), 8_000))),
   ]);
   // The whole pool, not the mention-gated slice — a theme's phrases ARE its gate.
-  const own: NewsItem[] = ownRes?.all ?? [];
+  // The 14-day pool: a theme counts reports over THEME_WINDOW_DAYS, and the
+  // newest-400 slice held about one day of X.
+  const own: NewsItem[] = ownRes?.window ?? [];
   // Answered only when at least one own-source door did (code review
   // 2026-10-28: the gatherer never returns null — every door swallows its
   // own failure — so a fully dead pool read as "quiet" and wrote 0s into

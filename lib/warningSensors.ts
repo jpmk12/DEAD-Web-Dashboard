@@ -16,7 +16,7 @@ import { getAllStateAdvisories } from "./stateAdvisories";
 import { getFirNotams } from "./airspace";
 import { isMobilityType, isTankerType } from "./aircraftTypes";
 import { getOpenSkyStates } from "./opensky";
-import { getXItems } from "./xStore";
+import { getXItemsWindow, type StoredXItem } from "./xStore";
 import { getAllCachedSummaries } from "./newsletterCache";
 import { getCapturedArticles, articleToNewsItem } from "./articleStore";
 import { fetchFeed } from "./rss";
@@ -67,8 +67,14 @@ const aorRelevant = (geo: Pick<ProblemGeo, "terms">, n: NewsItem): boolean => ge
 // Exported (mention gate only) so the economic-warfare assembler reads the
 // same sources under the same cap.
 export interface OwnSourcePool {
-  /** The whole pool before any mention gate. */
+  /** The whole pool before any mention gate — X is the newest 400 posts,
+   *  because the escalation scorers that read it have no time window. */
   all: NewsItem[];
+  /** The same pool with EVERY stored X post in the 14-day window (fair by
+   *  handle, lib/xRetention) — for readers that window by date themselves:
+   *  lift chatter and themes. Before 2026-10-31 they read `all`, i.e. about
+   *  one day of X, and a quiet spotter list was crowded out. */
+  window: NewsItem[];
   /** How many of the own-source doors answered (X store, newsletters,
    *  captured articles, OSINT feeds) — 0 means the pool is UNOBSERVED, not
    *  empty. An answered store with nothing in it still counts. */
@@ -84,27 +90,32 @@ const POOL_TTL = 60_000;
 let poolCache: { at: number; pool: OwnSourcePool } | null = null;
 let poolInflight: Promise<OwnSourcePool> | null = null;
 
+const RECENT_X = 400;
+
 async function gatherOwnPool(): Promise<OwnSourcePool> {
   const [xs, nls, arts, prefs] = await Promise.all([
-    withTimeout(getXItems(), 6000),
+    withTimeout(getXItemsWindow(), 6000),
     withTimeout(getAllCachedSummaries(), 6000),
     withTimeout(getCapturedArticles(200), 6000),
     withTimeout(getUserPrefs(), 6000),
   ]);
-  const items: NewsItem[] = [];
-  if (xs) for (const x of xs) items.push({ id: `x-${x.id}`, title: x.text, source: `𝕏 @${x.handle}`, category: "social", pubDate: x.postedAt ?? x.importedAt, summary: "", link: x.url });
-  if (nls) for (const s of nls) items.push({ id: `nl-${s.id}`, title: s.subject, source: `✉ ${s.source}`, category: "newsletter", pubDate: s.date, summary: s.bullets.join(" · "), link: "" });
+  const others: NewsItem[] = [];
+  // The quoted post rides in the summary — lift chatter is often in the
+  // quoted part of a comment (the posture-moves sweep already read it).
+  const xItem = (x: StoredXItem): NewsItem => ({ id: `x-${x.id}`, title: x.text, source: `𝕏 @${x.handle}`, category: "social", pubDate: x.postedAt ?? x.importedAt, summary: x.quoted?.text ?? "", link: x.url });
+  if (nls) for (const s of nls) others.push({ id: `nl-${s.id}`, title: s.subject, source: `✉ ${s.source}`, category: "newsletter", pubDate: s.date, summary: s.bullets.join(" · "), link: "" });
   // Captured analysis articles (reader-capture, e.g. WSJ via DoD MWR). A bigger
   // body slice so escalation phrasing deeper in the piece still scores.
-  if (arts) for (const a of arts) items.push({ ...articleToNewsItem(a, 2000), source: `📄 ${a.source}` });
+  if (arts) for (const a of arts) others.push({ ...articleToNewsItem(a, 2000), source: `📄 ${a.source}` });
   const feeds = (prefs?.osintFeeds ?? []).slice(0, 12);
   let feedsAnswered = false;
   if (feeds.length) {
     const results = await Promise.all(feeds.map((f) => withTimeout(fetchFeed(f.url, f.label, f.kind), 8000)));
-    for (const r of results) if (r?.items) { feedsAnswered = true; for (const it of r.items) items.push(it); }
+    for (const r of results) if (r?.items) { feedsAnswered = true; for (const it of r.items) others.push(it); }
   }
+  const xAll = (xs ?? []).map(xItem);
   const answered = [xs, nls, arts].filter((x) => x !== null).length + (feedsAnswered ? 1 : 0);
-  return { all: items, answered, asked: 3 + (feeds.length ? 1 : 0) };
+  return { all: [...xAll.slice(0, RECENT_X), ...others], window: [...xAll, ...others], answered, asked: 3 + (feeds.length ? 1 : 0) };
 }
 
 export async function getOwnSourcePool(): Promise<OwnSourcePool> {
@@ -114,7 +125,7 @@ export async function getOwnSourcePool(): Promise<OwnSourcePool> {
   return poolInflight;
 }
 
-export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Promise<{ items: NewsItem[]; sources: Set<string>; /** The whole pool before the mention gate — the lift-chatter grammar places a post by its own destination, not by the AOI's terms. */ all: NewsItem[]; /** Own-source doors that answered; 0 = unobserved. */ answered: number }> {
+export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Promise<{ items: NewsItem[]; sources: Set<string>; /** The whole pool before the mention gate (X = newest 400). */ all: NewsItem[]; /** The whole 14-day pool — the lift-chatter grammar and themes window by date themselves and place a post by its own destination, not by the AOI's terms. */ window: NewsItem[]; /** Own-source doors that answered; 0 = unobserved. */ answered: number }> {
   const sources = new Set<string>();
   const pool = await getOwnSourcePool();
   const relevant = pool.all.filter((n) => aorRelevant(geo, n));
@@ -124,7 +135,7 @@ export async function gatherUserSourceNews(geo: Pick<ProblemGeo, "terms">): Prom
     else if (n.source.startsWith("📄")) sources.add("analysis");
     else sources.add("OSINT feeds");
   }
-  return { items: relevant, sources, all: pool.all, answered: pool.answered };
+  return { items: relevant, sources, all: pool.all, window: pool.window, answered: pool.answered };
 }
 
 const nowIso = () => new Date().toISOString();
@@ -220,7 +231,7 @@ export async function gatherObservations(
     withTimeout(getAllStateAdvisories(), 10_000),
     withTimeout(fetchMilAircraft(), 10_000),
     geo.firs.length ? withTimeout(getFirNotams(geo.firs), 12_000) : Promise.resolve(null),
-    gatherUserSourceNews(geo).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>(), all: [] as NewsItem[] })),
+    gatherUserSourceNews(geo).catch(() => ({ items: [] as NewsItem[], sources: new Set<string>(), all: [] as NewsItem[], window: [] as NewsItem[] })),
     // The user's browser-captured map events (LiveUAMap) read as kinetic
     // acts and placed — the fill for ACLED's embargo (warningRules
     // conflictWithCaptures). A store miss is simply no captures.
@@ -236,7 +247,7 @@ export async function gatherObservations(
   const userSrcLabel = userSources.size ? ` + your ${[...userSources].join("/")}` : "";
   // Lift chatter toward THIS command in the last 72 h, from the whole own-
   // source pool (a spotter post names a base, not the AOI's terms).
-  const chatter: ChatterLite | null = chatterSurge(readChatter(userSrc?.all ?? [], Date.now(), { ownPlaces: ownPlacesRaw ?? [] }), geo.aor, Date.now());
+  const chatter: ChatterLite | null = chatterSurge(readChatter(userSrc?.window ?? [], Date.now(), { ownPlaces: ownPlacesRaw ?? [] }), geo.aor, Date.now());
 
   const observations: IndicatorObservation[] = [];
   const health: SensorHealth[] = [];
