@@ -3180,6 +3180,27 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   lift"). It feeds NOTHING else — no `lift` move, no demand driver, no I&W
   rule, no SITREP row, no series; the diag counts it as its own category.
 
+- **The 2026-11-01 diag (1,385 items in the window — the fair X retention
+  working): 5 matches, 4 of them misreads**, each a rule now. (1) **The
+  movement phrase must sit within `MOVEMENT_NEAR_CHARS` 150 of a lift
+  airframe** (`movementNear` over every airframe span; the earliest NEAR
+  phrase wins): "F-16 FIGHTER JETS HAVE REPORTEDLY RETURNED TO SHEMYA … with
+  tankers" read as a tanker move into NORTHCOM. A phrase that exists but is
+  far from every lift token is the diag's new `farMovement` near miss.
+  (2) **"back to" needs a place, home or base after it** — "stabilised back
+  to the levels of September" (a fleet summary) read as lift into EUCOM.
+  (3) **An exercise post is not lift** (`EXERCISE`, diag `exercise` bucket):
+  KC-46s dragging a GLOBAL THUNDER B-52 read NORTHCOM by the bomber's
+  "towards Alaska". (4) **AC-, EC- and WC-130 are not airlift** (gunship,
+  EW, weather); HC-, MC-, LC-130 and the plain C-130 are; a KC-130 is no
+  longer ALSO a C-130. Also: Minot (KMIB), Roosevelt Roads / NRR (TJNR,
+  NORTHCOM — Puerto Rico is NORTHCOM under the UCP) and Prestwick (EGPK) join
+  the place list; Il-76 / Il-78 accept variant suffixes (IL-76TD, Il-76MD-90A,
+  Il-78M) so EMERCOM's SUM9621 reads in the watched-country category. The one
+  honest match was @ArmchairAdml's VIP tanker support (KC-46s from Yokota for
+  TITAN 29; the quoted "FIST 51-53 positioned to Alaska" places it NORTHCOM
+  by the destination rule). Still one handle each — leads, not corroboration.
+
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in
 brief, the MOFCOM bulletin, UKMTO recent-incidents, an X list) checked

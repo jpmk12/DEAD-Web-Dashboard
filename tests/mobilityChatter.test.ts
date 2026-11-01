@@ -362,3 +362,54 @@ describe("two categories — U.S. lift (tankers included) and watched-country mo
     expect(readChatter(items, NOW).map((p) => p.side)).toEqual(["us"]);
   });
 });
+
+describe("the 2026-11-01 diag — four misreads", () => {
+  const D = "2026-10-31T19:00:00Z";
+  const at = Date.parse("2026-11-01T06:43:00Z");
+  it("a movement phrase far from every lift airframe moves something else (F-16s returned to Shemya)", () => {
+    const text = "🇺🇸🇷🇺✈️‼️ U.S. AIR FORCE F-16 FIGHTER JETS HAVE REPORTEDLY RETURNED TO SHEMYA ISLAND IN ALASKA’S ALEUTIAN CHAIN FOR COMBAT ALERT DUTY FOR THE FIRST TIME IN DECADES, approximately 800 kilometers from Russia’s Kamchatka Peninsula. During the Cold War, American F-4 Phantom and F-15 Eagle fighters operated from the island, but a regular fighter presence reportedly ended in the early 1990s. The latest deployment also reportedly involved F-35A stealth fighters and additional F-16s from Eielson Air Force Base, with aerial refueling tankers in support.";
+    expect(readChatter([post(text, { pubDate: D })], at)).toEqual([]);
+    const ex = explainChatter([post(text, { pubDate: D })], at);
+    expect(ex.nearMiss.farMovement.count).toBe(1);
+  });
+  it("a near phrase still reads (3x KC-46s departed Yokota)", () => {
+    const [p] = readChatter([post("RAMEN 41-43 Flt 3x KC-46s departed Yokota Air Base in Japan to refuel TITAN 29", { pubDate: D })], at);
+    expect(p.phrase).toBe("departed");
+    expect(p.origin).toBe("Yokota");
+  });
+  it("'back to the levels' is not a movement; 'back to Ramstein' is", () => {
+    const fleet = "US Tanker Fleet Update 21/OCT/2026 Overall numbers across CENTCOM and Europe have now stabilised back to the levels they were at back at the start of September, around 190-195. There are a few KC-135 tankers dotted around at other sites temporarily (Glasgow Prestwick and Aviano).";
+    expect(readChatter([post(fleet, { pubDate: D })], at)).toEqual([]);
+    const [p] = readChatter([post("Two C-17s back to Ramstein after the Gulf run", { pubDate: D })], at);
+    expect(p.phrase).toBe("back to Ramstein");
+  });
+  it("an exercise sortie is not lift (GLOBAL THUNDER tankers dragging a B-52)", () => {
+    const it0 = post("Exercise GLOBAL THUNDER 27 - Another B-52 Sortie Overnight, another B-52 sortie from Minot AFB (KMIB) flew up into Canada, one flying north-west towards Alaska", {
+      pubDate: D, summary: "It refuelled initially in AR-62E with a flight of 3x KC-46s as \"FLAM67\" flight flying from Pease (KPSM), before proceeding",
+    });
+    expect(readChatter([it0], at)).toEqual([]);
+    const ex = explainChatter([it0], at);
+    expect(ex.nearMiss.exercise.count).toBe(1);
+    expect(ex.unknownPlaces.map((u) => u.phrase)).not.toContain("Minot AFB");
+  });
+  it("an AC-130J gunship is not airlift; HC-/MC-130 and the plain C-130 still are", () => {
+    const gun = post("A nice shot of the mix of GBU-39B/Bs and AGM-114s that has become the norm for AC-130Js operating in Latin America.", {
+      pubDate: D, summary: "USAF Lockheed Martin AC-130J Ghostrider arriving at NRR / RVR Ceiba, Puerto Rico from El Salvador on October 26, 2026.",
+    });
+    expect(readChatter([gun], at)).toEqual([]);
+    for (const t of ["C-130J", "HC-130J", "MC-130J"]) expect(airframesIn(`2x ${t} landed`).map((a) => a.id)).toContain("C-130");
+    for (const t of ["AC-130J", "EC-130H", "WC-130J"]) expect(airframesIn(`2x ${t} landed`).map((a) => a.id)).not.toContain("C-130");
+    expect(airframesIn("KC-130J landed").map((a) => a.id)).toEqual(["KC-130"]);
+  });
+  it("Roosevelt Roads / NRR places a post in NORTHCOM", () => {
+    const [p] = readChatter([post("C-17 arriving at NRR / RVR Ceiba, Puerto Rico", { pubDate: D })], at);
+    expect(p.place).toBe("Roosevelt Roads");
+    expect(p.aor).toBe("NORTHCOM");
+  });
+  it("IL-76TD reads as Russian airlift — the watched-country category, never U.S. lift", () => {
+    const t = "Russia Ministry for Emergency Situations IL-76TD RA-76841 as SUM9621 en route from Moscow (CKL) to (likely) Benghazi.";
+    expect(airframesIn(t).map((a) => a.id)).toEqual(["Il-76"]);
+    expect(readChatter([post(t, { pubDate: D })], at)).toEqual([]);
+    expect(readChatter([post(t, { pubDate: D })], at, { sides: FOREIGN_SIDES })[0].actor).toBe("Russia");
+  });
+});
