@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { normEmail } from "@/lib/allowlist";
+import { normEmail, isOwner } from "@/lib/allowlist";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
-import { fetchNewsletterEmails, markAsRead } from "@/lib/gmail";
+import { fetchNewsletterEmails, markAsReadBatch } from "@/lib/gmail";
 import { anthropic } from "@/lib/claude";
 import { NewsletterSummary, NewsletterSourceRule } from "@/lib/types";
 import { readPrefs, buildPrefsContext, sortByPreference, normalizeSubject } from "@/lib/newsletterPrefs";
@@ -11,7 +11,9 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { getCachedSummaries, getAllCachedSummaries, cacheSummaries } from "@/lib/newsletterCache";
-import { extractJsonArray } from "@/lib/aiJson";
+import { parseModelArray } from "@/lib/aiJson";
+import { runLimited } from "@/lib/concurrency";
+import { gmailFailure, isGmailRateLimit } from "@/lib/gmailErrors";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,31 @@ function buildNewsletterQuery(rule: NewsletterSourceRule): string {
     return `subject:"${v.replace(/"/g, "")}" newer_than:7d`;
   }
   return `from:${v.replace(/\s+/g, "")} newer_than:7d`;
+}
+
+/** Rules × accounts fetched at once. Each fetch already pulls up to 8 full
+ *  messages ten at a time; every rule in parallel put up to ~200 Gmail calls
+ *  in one burst, past the per-user rate limit, and a refused search was
+ *  swallowed as "no mail" — that source was neither shown nor marked read
+ *  (2026-11-02, "axios.com is set but I don't see them or get them marked
+ *  read"). */
+const FETCH_CONCURRENCY = 3;
+/** Newsletters per summarisation call — one call over a whole load
+ *  overran max_tokens, the bare parse threw, and every summary came back
+ *  empty (and, uncached, was re-sent on every load). */
+const SUMMARY_BATCH = 6;
+const RETRY_AFTER_MS = 1500;
+
+type Fetched = { id: string; subject: string; date: string; body: string; from: string; unread: boolean };
+
+async function fetchWithRetry(token: string, query: string): Promise<Fetched[]> {
+  try {
+    return await fetchNewsletterEmails(token, query, 8);
+  } catch (err) {
+    if (!isGmailRateLimit(err)) throw err;
+    await new Promise((r) => setTimeout(r, RETRY_AFTER_MS));
+    return await fetchNewsletterEmails(token, query, 8);
+  }
 }
 
 export async function GET(req: Request) {
@@ -82,35 +109,46 @@ export async function GET(req: Request) {
   // label cached summaries whose rule was later turned off or removed.
   const sourceMeta = allRules.map((r) => ({ id: r.id, label: r.label, color: r.color ?? null }));
 
-  // Fetch recent newsletters from both accounts in parallel
-  const fetchTasks = NEWSLETTER_QUERIES.flatMap(({ query, source }) => {
-    const tasks: Promise<EmailWithMeta[]>[] = [
-      fetchNewsletterEmails(primaryToken, query, 8)
-        .catch(() => [])
-        .then((emails) => emails.map((e) => ({ ...e, source, account: "primary" as const, accountEmail: primaryEmail }))),
-    ];
-    if (secondaryAccessToken) {
-      tasks.push(
-        fetchNewsletterEmails(secondaryAccessToken, query, 8)
-          .catch(() => [])
-          .then((emails) => emails.map((e) => ({ ...e, source, account: "secondary" as const, accountEmail: secondaryEmail })))
-      );
+  if (new URL(req.url).searchParams.get("diag") === "1") {
+    if (!isOwner(normEmail(session.user?.email))) return NextResponse.json({ error: "owner only" }, { status: 403 });
+    return NextResponse.json(await diagnose(allRules, primaryToken, secondaryAccessToken, primaryEmail, secondaryEmail));
+  }
+
+  // Fetch recent newsletters from both accounts, a few searches at a time; a
+  // search Gmail refuses is NAMED in `failed`, never read as "no mail".
+  const ruleLabel = new Map(allRules.map((r) => [r.id, r.label]));
+  const accounts: { account: "primary" | "secondary"; token: string; email: string }[] = [
+    { account: "primary", token: primaryToken, email: primaryEmail },
+    ...(secondaryAccessToken ? [{ account: "secondary" as const, token: secondaryAccessToken, email: secondaryEmail }] : []),
+  ];
+  const fetchTasks = NEWSLETTER_QUERIES.flatMap(({ query, source }) => accounts.map((a) => ({ query, source, ...a })));
+  const failed: { source: string; label: string; account: "primary" | "secondary"; reason: string }[] = [];
+  const results = await runLimited(fetchTasks, FETCH_CONCURRENCY, async (t): Promise<EmailWithMeta[]> => {
+    try {
+      const emails = await fetchWithRetry(t.token, t.query);
+      return emails.map((e) => ({ id: e.id, subject: e.subject, date: e.date, body: e.body, source: t.source, account: t.account, accountEmail: t.email }));
+    } catch (err) {
+      const f = gmailFailure(err);
+      console.error(`newsletters: ${t.source} (${t.account}) fetch failed — ${f.reason}`);
+      failed.push({ source: t.source, label: ruleLabel.get(t.source) ?? t.source, account: t.account, reason: f.reason });
+      return [];
     }
-    return tasks;
   });
+  // One message can match two rules (a sender rule and a subject rule): keep
+  // the first, so it is summarised and marked read once.
+  const seenIds = new Set<string>();
+  const allEmails = results.flat().filter((e) => (seenIds.has(e.id) ? false : (seenIds.add(e.id), true)));
 
-  const results = await Promise.all(fetchTasks);
-  const allEmails = results.flat();
-
-  // Mark as read (fire-and-forget — newsletters are shown from cache regardless)
+  // Mark as read — one batchModify per account (fire-and-forget; newsletters
+  // are shown from cache regardless). Only when the app's own client asked
+  // (a custom header a cross-site top-level navigation cannot carry) — a
+  // state change behind a GET must not be reachable by a link (code review
+  // 2026-10-07).
   const primaryIds = allEmails.filter((e) => e.account === "primary").map((e) => e.id);
   const secondaryIds = allEmails.filter((e) => e.account === "secondary").map((e) => e.id);
-  // Only when the app's own client asked (a custom header a cross-site
-  // top-level navigation cannot carry) — a state change behind a GET must
-  // not be reachable by a link (code review 2026-10-07).
   const fromApp = req.headers.get("x-dead-client") === "1";
-  if (fromApp && primaryIds.length > 0) markAsRead(primaryToken, primaryIds).catch(() => {});
-  if (fromApp && secondaryIds.length > 0 && secondaryAccessToken) markAsRead(secondaryAccessToken, secondaryIds).catch(() => {});
+  if (fromApp && primaryIds.length > 0) markAsReadBatch(primaryToken, primaryIds).catch(() => {});
+  if (fromApp && secondaryIds.length > 0 && secondaryAccessToken) markAsReadBatch(secondaryAccessToken, secondaryIds).catch(() => {});
 
   // Check cache for already-summarised emails
   const allIds = allEmails.map((e) => e.id);
@@ -135,51 +173,46 @@ export async function GET(req: Request) {
     // "No key facts extracted" placeholder. Cache hits still serve normally.
     if (!isFeatureEnabled("newsletters", userPrefs)) {
       const final = sortByPreference([...cached.values()], prefs);
-      return NextResponse.json({ newsletters: final, quietSubjects: computeQuietSubjects(final), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, disabled: true });
+      return NextResponse.json({ newsletters: final, quietSubjects: computeQuietSubjects(final), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed, disabled: true });
     }
 
-    try {
-      const modelStart = Date.now();
-      const response = await anthropic.messages.create({
-        // Sonnet handles long batched JSON outputs more reliably than Haiku.
-        // Haiku occasionally drops items from large arrays, leaving newsletters
-        // with empty bullets that surface as "No key facts extracted."
-        model: "claude-sonnet-4-6",
-        max_tokens: 4096,
-        system: [
-          { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
-          ...(prefsContext ? [{ type: "text" as const, text: prefsContext }] : []),
-        ],
-        messages: [{
-          role: "user",
-          content: JSON.stringify(
-            needsProcessing.map(({ id, subject, body, source, account }) => ({
-              id, subject, source, account, body,
-            }))
-          ),
-        }],
-      });
-
-      logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
-      const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
-      const parsed: unknown = JSON.parse(extractJsonArray(raw));
-      if (!Array.isArray(parsed)) throw new Error("Expected array");
-
-      const validated = (parsed as unknown[]).filter(
-        (p): p is { id: string; bullets: string[] } =>
-          typeof p === "object" && p !== null &&
-          typeof (p as Record<string, unknown>).id === "string" &&
-          Array.isArray((p as Record<string, unknown>).bullets) &&
-          ((p as Record<string, unknown>).bullets as unknown[]).every((b) => typeof b === "string")
-      );
-      const bulletMap = new Map(validated.map((p) => [p.id, p.bullets]));
-
-      for (const s of newSummaries) {
-        s.bullets = bulletMap.get(s.id) ?? [];
+    // Batches of SUMMARY_BATCH, two calls at a time. Each batch is parsed
+    // through parseModelArray, so a reply cut off at max_tokens keeps the
+    // newsletters it finished and one failed batch blanks only itself.
+    const bulletMap = new Map<string, string[]>();
+    const batches: (typeof needsProcessing)[] = [];
+    for (let i = 0; i < needsProcessing.length; i += SUMMARY_BATCH) batches.push(needsProcessing.slice(i, i + SUMMARY_BATCH));
+    await runLimited(batches, 2, async (batch) => {
+      try {
+        const modelStart = Date.now();
+        const response = await anthropic.messages.create({
+          // Sonnet handles batched JSON outputs more reliably than Haiku.
+          model: "claude-sonnet-4-6",
+          max_tokens: 2048,
+          system: [
+            { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
+            ...(prefsContext ? [{ type: "text" as const, text: prefsContext }] : []),
+          ],
+          messages: [{
+            role: "user",
+            content: JSON.stringify(batch.map(({ id, subject, body, source, account }) => ({ id, subject, source, account, body }))),
+          }],
+        }, { timeout: 90_000, maxRetries: 1 });
+        logCall({ route: "newsletters", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
+        const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
+        const { value } = parseModelArray(raw);
+        const ids = new Set(batch.map((b) => b.id));
+        for (const p of value) {
+          const r = p as Record<string, unknown>;
+          if (r && typeof r.id === "string" && ids.has(r.id) && Array.isArray(r.bullets)) {
+            bulletMap.set(r.id, (r.bullets as unknown[]).filter((b): b is string => typeof b === "string"));
+          }
+        }
+      } catch (err) {
+        console.error("Newsletter summarisation batch failed:", err instanceof Error ? err.message : err);
       }
-    } catch (err) {
-      console.error("Newsletter Claude summarisation failed:", err);
-    }
+    });
+    for (const s of newSummaries) s.bullets = bulletMap.get(s.id) ?? [];
 
     // Persist successfully-summarised ones to cache (fire-and-forget)
     cacheSummaries(newSummaries).catch((e) =>
@@ -210,9 +243,9 @@ export async function GET(req: Request) {
   // If no emails were fetched at all, fall back to everything in cache
   if (allEmails.length === 0) {
     const allCached = await getAllCachedSummaries();
-    if (allCached.length === 0) return NextResponse.json({ newsletters: [], quietSubjects: [], sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept });
+    if (allCached.length === 0) return NextResponse.json({ newsletters: [], quietSubjects: [], sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed });
     const sorted = sortByPreference(allCached, prefs);
-    return NextResponse.json({ newsletters: sorted, quietSubjects: computeQuietSubjects(sorted), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept });
+    return NextResponse.json({ newsletters: sorted, quietSubjects: computeQuietSubjects(sorted), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed });
   }
 
   // Merge cached + new summaries, preserving fetch order
@@ -227,5 +260,52 @@ export async function GET(req: Request) {
     sources: sourceMeta,
     dismissed: prefs.dismissed,
     kept: prefs.kept,
+    failed,
   });
+}
+
+// ── Owner diag: what each configured rule actually finds in Gmail ──────────
+// `/api/newsletters?diag=1`. Runs the rule's real query on each account, one
+// search at a time, and for a sender rule also a 30-day and a bare-word probe
+// so "set but nothing shows" reads as: the rule is off, the query finds
+// nothing (and here is who actually sends), or Gmail refused. Read-only:
+// marks nothing read, calls no model.
+async function diagnose(rules: NewsletterSourceRule[], primary: string, secondary: string | null, primaryEmail: string, secondaryEmail: string) {
+  const accts = [{ account: "primary", email: primaryEmail, token: primary }, ...(secondary ? [{ account: "secondary", email: secondaryEmail, token: secondary }] : [])];
+  const probe = async (token: string, q: string) => {
+    try {
+      const rows = await fetchWithRetry(token, q);
+      return { count: rows.length, unread: rows.filter((r) => r.unread).length, sample: rows.slice(0, 3).map((r) => ({ from: r.from.slice(0, 120), subject: r.subject.slice(0, 120), date: r.date, unread: r.unread })) };
+    } catch (err) {
+      return { count: null, error: gmailFailure(err).reason };
+    }
+  };
+  const out = [];
+  for (const r of rules) {
+    const query = buildNewsletterQuery(r);
+    const perAccount = [];
+    for (const a of accts) {
+      const hit = r.enabled === false ? { skipped: "rule disabled" } : await probe(a.token, query);
+      let wider: unknown = undefined;
+      let senders: unknown = undefined;
+      if (r.matchType === "sender" && r.enabled !== false && (hit as { count?: number | null }).count === 0) {
+        const v = r.value.trim().replace(/\s+/g, "");
+        wider = await probe(a.token, `from:${v} newer_than:30d`);
+        const word = v.replace(/^.*@/, "").replace(/^www\./, "").split(".")[0];
+        if (word.length >= 3) {
+          const w = await probe(a.token, `from:${word} newer_than:30d`);
+          senders = { query: `from:${word} newer_than:30d`, ...w };
+        }
+      }
+      perAccount.push({ account: a.account, email: a.email, ...hit, ...(wider ? { last30d: wider } : {}), ...(senders ? { bareWord: senders } : {}) });
+    }
+    out.push({ id: r.id, label: r.label, matchType: r.matchType, value: r.value, enabled: r.enabled !== false, query, accounts: perAccount });
+  }
+  return {
+    rules: out.length,
+    cap: 12,
+    secondaryConnected: Boolean(secondary),
+    note: "count = messages the rule's own query finds (7 d, newest 8). 0 with last30d > 0 = nothing this week; 0 everywhere with bareWord senders = the rule's value does not match the address they send from.",
+    results: out,
+  };
 }

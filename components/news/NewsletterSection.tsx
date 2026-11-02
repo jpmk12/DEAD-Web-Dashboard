@@ -134,6 +134,9 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // (a watchlist hit, a thread match, a kept pin) show; "show all" opens
   // the rest. Nothing is hidden from Catch me up (the digest).
   const [showAll, setShowAll] = useState(false);
+  // Sources Gmail refused this pass (rate limit, sign-in) — named, never read
+  // as "no mail" (2026-11-02, "axios is set but never shows up").
+  const [failedSources, setFailedSources] = useState<{ label: string; account: string; reason: string }[]>([]);
   // Series the user stopped summarising FROM A ROW (REVIEW-2026-10 §12 item
   // 6): rule ids, applied at once so the rows leave before the re-fetch
   // confirms it; a failed write puts them back.
@@ -193,6 +196,10 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
           clientCache.set(SOURCE_META_KEY, map, CACHE_TTL.NEWSLETTERS);
         }
         setQuietSubjects(Array.isArray(data.quietSubjects) ? data.quietSubjects : []);
+        setFailedSources(Array.isArray(data.failed)
+          ? (data.failed as { label?: unknown; account?: unknown; reason?: unknown }[]).filter((f) => f && typeof f.label === "string")
+              .map((f) => ({ label: String(f.label), account: f.account === "secondary" ? "secondary" : "primary", reason: typeof f.reason === "string" ? f.reason : "Gmail refused" }))
+          : []);
         // Merge the server's hide/keep sets over the locally-loaded ones so the
         // state is consistent across devices (union keeps any not-yet-synced
         // local change from this device).
@@ -418,6 +425,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
     <section className="mb-8">
       {/* The queue header: per-source unread counts, the age of the oldest,
           Catch me up (the digest) as the primary action, Clear queue, show all. */}
+      {!loading && visibleNewsletters.length === 0 && failedSources.length > 0 && (
+        <div className="mb-3 px-3 py-2 text-[10px] text-amber-400/90 bg-slate-900/60 border border-amber-500/30 rounded-xl">
+          Newsletters not read this pass: {failedSources.map((f) => `${f.label}${f.account === "secondary" ? " (2nd account)" : ""} — ${f.reason}`).join(" · ")}. UNKNOWN, not "no mail" — retried on the next load.
+        </div>
+      )}
       {!loading && visibleNewsletters.length > 0 && (
         <div className="mb-3 bg-slate-900/60 border border-slate-700/60 rounded-xl">
           <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
@@ -447,6 +459,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
               </button>
             </div>
           </div>
+          {failedSources.length > 0 && (
+            <div className="px-3 pb-1 text-[10px] text-amber-400/90" title="These sources were not read this pass — their mail stays unread in Gmail and is retried on the next load">
+              Not read this pass: {failedSources.map((f) => `${f.label}${f.account === "secondary" ? " (2nd account)" : ""} — ${f.reason}`).join(" · ")}. UNKNOWN, not "no mail".
+            </div>
+          )}
           <div className="px-3 pb-2 flex items-center gap-3 text-[10px] text-slate-600 flex-wrap">
             {earned.length > 0 && !showAll && routineCount > 0 && <span>Showing the {earned.length} that touch your watchlist, a thread or a pin; {routineCount} more {routineCount === 1 ? "is" : "are"} routine.</span>}
             {earned.length === 0 && <span>None touch your watchlist or a thread today — all {visibleNewsletters.length} shown.</span>}

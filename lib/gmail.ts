@@ -167,7 +167,7 @@ export async function fetchNewsletterEmails(
   accessToken: string,
   query: string,
   maxResults = 8
-): Promise<{ id: string; subject: string; date: string; body: string; from: string }[]> {
+): Promise<{ id: string; subject: string; date: string; body: string; from: string; unread: boolean }[]> {
   const gmail = buildClient(accessToken);
 
   const listRes = await gmail.users.messages.list({
@@ -202,6 +202,7 @@ export async function fetchNewsletterEmails(
       subject: header(msg, "Subject") || "(no subject)",
       // Needed by the Family digest to attribute a message to a roster person.
       from: header(msg, "From") || "",
+      unread: (msg.labelIds ?? []).includes("UNREAD"),
       date: (() => {
         try { return new Date(header(msg, "Date")).toISOString(); }
         catch { return ""; }
@@ -425,6 +426,25 @@ export async function createDraftReply(
   return res.data.id ?? null;
 }
 
+/** Removes UNREAD from many ids in ONE call per 1,000 (batchModify, 50
+ *  quota units) — the newsletter read marks a dozen sources at once and
+ *  per-id modifies burst past the rate limit. All-or-nothing per chunk:
+ *  returns the ids whose chunk Gmail refused. */
+export async function markAsReadBatch(accessToken: string, ids: string[]): Promise<string[]> {
+  const gmail = buildClient(accessToken);
+  const failed: string[] = [];
+  for (let i = 0; i < ids.length; i += 1000) {
+    const chunk = ids.slice(i, i + 1000);
+    try {
+      await gmail.users.messages.batchModify({ userId: "me", requestBody: { ids: chunk, removeLabelIds: ["UNREAD"] } });
+    } catch (err) {
+      console.error(`markAsReadBatch: ${chunk.length} messages refused`, err instanceof Error ? err.message : err);
+      failed.push(...chunk);
+    }
+  }
+  return failed;
+}
+
 /** Removes UNREAD from each id. Returns the ids Gmail REFUSED — the caller
  *  must not report success for those (REVIEW-2026-10 E5). */
 export async function markAsRead(
@@ -432,16 +452,21 @@ export async function markAsRead(
   ids: string[]
 ): Promise<string[]> {
   const gmail = buildClient(accessToken);
-  // allSettled so one failed modify doesn't abort the remaining ids
-  const results = await Promise.allSettled(
-    ids.map((id) =>
-      gmail.users.messages.modify({
-        userId: "me",
-        id,
-        requestBody: { removeLabelIds: ["UNREAD"] },
-      })
-    )
-  );
+  // allSettled so one failed modify doesn't abort the remaining ids; ten at a
+  // time so a long list does not burst past the per-user rate limit (a
+  // refused modify is a newsletter left unread with no word said).
+  const results: PromiseSettledResult<unknown>[] = [];
+  for (let i = 0; i < ids.length; i += 10) {
+    results.push(...await Promise.allSettled(
+      ids.slice(i, i + 10).map((id) =>
+        gmail.users.messages.modify({
+          userId: "me",
+          id,
+          requestBody: { removeLabelIds: ["UNREAD"] },
+        })
+      )
+    ));
+  }
   const failed = ids.filter((_, i) => results[i].status === "rejected");
   if (failed.length > 0) {
     const first = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;

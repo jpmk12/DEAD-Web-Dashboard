@@ -4759,6 +4759,50 @@ What changed — keep all of it:
   <reason>" and "partial read — a thread or two may be missing" badges.
 No new npm dep (esbuild `0`).
 
+### "axios.com is set but never shows up or gets marked read" (2026-11-02) — newsletters: bounded fetch, named failures, batched writes
+`/api/newsletters` fired EVERY rule × account search at once (rules ×
+accounts × up to 8 `messages.get`), past Gmail's per-user rate limit, and
+each search's error was swallowed by `.catch(() => [])` — so a refused
+source read as "no mail this week": not shown, not marked read, nothing
+said. A high-volume sender (Axios) is the likeliest to land in the refused
+part of the burst. Fixes, keep all of them:
+- **Bounded fan-out**: `runLimited` (`lib/concurrency.ts`, PURE, tested —
+  order kept, ≤`limit` in flight) at `FETCH_CONCURRENCY` 3, and one retry
+  after 1.5 s on a rate limit (`lib/gmailErrors.ts` `gmailFailure` /
+  `isGmailRateLimit`, PURE, tested: 429 OR a 403 whose reason is
+  rateLimitExceeded / userRateLimitExceeded / quotaExceeded — Gmail uses
+  both; only the class and Gmail's reason word are repeated, never the
+  message).
+- **A refused source is NAMED**: every response carries `failed: [{source,
+  label, account, reason}]`; `NewsletterSection` renders it amber ("Not
+  read this pass: AXIOS — Gmail rate limit … UNKNOWN, not "no mail"") above
+  the queue, or alone when the queue is empty. Its mail stays unread in
+  Gmail and is retried on the next load.
+- **Mark-read is one `batchModify` per account** (`markAsReadBatch` in
+  `lib/gmail.ts`, chunks of 1,000, returns the ids that failed);
+  `markAsRead` (the per-id path other features use) now runs 10 at a time
+  instead of all at once. Emails are de-duplicated by id across rules.
+- **Summaries are batched** (6 per call, 2 calls in flight, 2,048 tokens,
+  90-s timeout, one retry) and parsed through **`parseModelArray`**
+  (`lib/aiJson.ts`, the array twin of `parseModelJson`: a cut-off array
+  keeps the items it finished; never throws). Before, one call summarised
+  everything and a reply cut off by `max_tokens` threw in a bare
+  `JSON.parse`, blanking every summary — and since only summaries WITH
+  bullets are cached, the whole set was re-sent on every load. Returned ids
+  are validated against the batch.
+- **`GET /api/newsletters?diag=1` (owner-only)** runs each enabled rule's
+  query per account WITHOUT summarising or marking: query, count, unread,
+  three sample (from, subject, date, unread); a rule with 0 in 7 days also
+  gets a 30-day probe and a bare-word probe (`from:<word>`) that shows the
+  real sending addresses — a rule value that does not match the From line
+  shows there. It also reports the 12-rule cap and whether the second
+  account is connected (its mail is read only on a browser holding the
+  secondary cookie).
+- Reminder: the Read queue shows only EARNED rows (watchlist / thread /
+  kept) by default — a routine newsletter that WAS read and marked is
+  behind "show all N ▾", and in the digest.
+No new npm dep (esbuild `0`).
+
 ### Calendar tab rebuilt (2026-10-05, `docs/REVIEW-2026-10.md` §3 C1–C9, all three decisions yes)
 The tab is a container, `components/calendar/CalendarTab.tsx`, that OWNS
 tasks, contacts, family dates, trips, dismissals and the mail-dates feed,

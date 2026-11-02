@@ -127,3 +127,20 @@ export function extractJsonArray(raw: string): string {
   if (end >= 0 && end < s.length - 1) s = s.slice(0, end + 1);
   return s;
 }
+
+/** A model reply that should be a JSON ARRAY, repaired when it was cut off
+ *  (max_tokens) — the array twin of `parseModelJson`. The array is wrapped
+ *  as `{"items": …}` so `salvageJsonObject` can close the open string and
+ *  brackets and keep the elements that finished. Never throws: no array at
+ *  all → `[]`. */
+export function parseModelArray(raw: string): { value: unknown[]; truncated: boolean } {
+  if (!raw || raw.indexOf("[") < 0) return { value: [], truncated: false };
+  const arr = extractJsonArray(raw);
+  try {
+    const v = JSON.parse(arr);
+    if (Array.isArray(v)) return { value: v, truncated: false };
+  } catch { /* fall through to repair */ }
+  const { value, truncated } = salvageJsonObject(`{"items":${arr}`);
+  const items = value && Array.isArray((value as { items?: unknown }).items) ? (value as { items: unknown[] }).items : [];
+  return { value: items, truncated: truncated || items.length === 0 };
+}

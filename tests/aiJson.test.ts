@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractJsonObject, extractJsonArray, salvageJsonObject } from "@/lib/aiJson";
+import { extractJsonObject, extractJsonArray, salvageJsonObject, parseModelArray } from "@/lib/aiJson";
 
 describe("salvageJsonObject — a cut-off reply keeps what it finished", () => {
   it("parses a whole object with truncated:false", () => {
@@ -60,5 +60,20 @@ describe("extractJsonArray", () => {
 
   it("returns '[]' when there is no array", () => {
     expect(extractJsonArray("nothing")).toBe("[]");
+  });
+});
+
+describe("parseModelArray — the array twin of parseModelJson", () => {
+  it("reads a whole array, fenced or not", () => {
+    expect(parseModelArray('```json\n[{"id":"a"},{"id":"b"}]\n```')).toEqual({ value: [{ id: "a" }, { id: "b" }], truncated: false });
+  });
+  it("a reply cut off mid-array keeps the items it finished", () => {
+    const r = parseModelArray('[{"id":"a","bullets":["x","y"]},{"id":"b","bullets":["z');
+    expect(r.truncated).toBe(true);
+    expect((r.value[0] as { id: string }).id).toBe("a");
+  });
+  it("no array at all is empty, never a throw", () => {
+    expect(parseModelArray("")).toEqual({ value: [], truncated: false });
+    expect(parseModelArray("Sorry, I cannot")).toEqual({ value: [], truncated: false });
   });
 });
