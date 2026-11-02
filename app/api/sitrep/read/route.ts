@@ -6,7 +6,7 @@ import { normEmail } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { assembleSitrep } from "@/lib/sitrep";
-import { fallbackCommanderRead } from "@/lib/limfac";
+import { fallbackCommanderRead, upcomingClosureLine } from "@/lib/limfac";
 import { parseModelJson } from "@/lib/aiJson";
 
 export const dynamic = "force-dynamic";
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   }
   const fingerprint = [
     s.status.wx, s.status.ops, s.status.threat, s.status.infra,
-    s.mission.state, s.mission.limfacs.length, s.mission.ccir.length,
+    s.mission.state, s.mission.limfacs.length, s.mission.ccir.length, s.mission.upcoming?.window ?? "-", s.ops.runwayCount,
     s.weather.tafWorst?.worst ?? "-",
     s.ops.notamCount, s.threats.news.length, s.threats.disasters.length,
   ].join("|");
@@ -89,6 +89,10 @@ export async function POST(req: Request) {
   for (const d of w.outlook) lines.push(`OUTLOOK ${d.date}: ${d.hiF ?? "?"}/${d.loF ?? "?"}F, precip ${d.precipPct ?? "?"}%, wind ${d.windMph ?? "?"}mph`);
   const o = s.ops;
   lines.push(`AIRFIELD: ${o.fieldClosed ? "CLOSED NOW (NOTAM)" : o.closure?.next ? `OPEN NOW — closure scheduled ${o.closure.next}` : o.closure?.indeterminate ? "OPEN? — AD closure NOTAM with an unparsed schedule" : o.limiting ? "LIMITED" : o.configured && o.live ? "OPEN" : "STATUS UNKNOWN"} · ${o.notamCount} active NOTAMs${o.capability ? ` · longest rwy ${o.capability.lengthFt}ft ${o.capability.surface} (${o.capability.cls})` : ""}`);
+  // The runway count, stated: without it a model reading "RWY 01/19 CLSD"
+  // supplies a second runway and calls a sole-runway field "single-runway".
+  lines.push(`RUNWAYS AT FIELD: ${o.runwayCount > 0 ? `${o.runwayCount}${o.runwayCount === 1 ? " — the ONLY runway; closing it closes the field for that window" : ""}` : "UNKNOWN (OurAirports did not answer)"}`);
+  if (mi.upcoming) lines.push(`NEXT RUNWAY CLOSURE (not started): ${upcomingClosureLine(mi.upcoming)}`);
   for (const g of o.groups) for (const n of g.items.slice(0, 3)) lines.push(`NOTAM [${g.label}${n.amber ? "/LIMITING" : ""}]: ${n.text.slice(0, 160)}`);
   const xw = o.runwayWinds.filter((r) => r.flag !== "g");
   if (xw.length > 0) lines.push(`CROSSWIND (advisory): ${xw.map((r) => `RWY ${r.ident} cross ${r.crossKt}kt${r.gustCrossKt ? ` gust ${r.gustCrossKt}` : ""}`).join("; ")}`);
@@ -122,6 +126,8 @@ export async function POST(req: Request) {
     `(2) the single greatest mission impact and the recommended action; (3) projected recovery — when the LIMFACs clear and capability is restored. ` +
     `asks = 0-3 explicit requests for leadership decision/resources, each with a deadline in Z if time-sensitive (pull from the LIMFAC ASK fields; omit if none). ` +
     `watch = 0-3 items to re-check later. Be concrete: times in Z, runway numbers, capability terms (FMC/PMC/NMC). No hedging boilerplate; if the airfield is FMC say so plainly. ` +
+    `Runways: use RUNWAYS AT FIELD exactly — never say "single-runway operations" for a field with one runway (closing its only runway closes the field for that window), and never assume a second runway when the count is unknown. ` +
+    `A scheduled or works closure (construction, maintenance, a recurring NOTAM schedule) is routine: state the window plainly and recommend planning movements outside it; raise an ask only when the closure is NOT routine or the field is closed NOW. ` +
     `Data marked UNKNOWN means the source was unreachable — say "unknown", never assume clear or FMC.\n\n${lines.join("\n")}`;
 
   try {

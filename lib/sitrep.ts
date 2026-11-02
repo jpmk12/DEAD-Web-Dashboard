@@ -27,7 +27,7 @@ import { astroData, type AstroData } from "./astro";
 import { recordSitrepDay, getSitrepHistory, type SitrepDay } from "./sitrepHistory";
 import { getInfraSources, type SitrepInfra } from "./infra";
 import { splitInfraNews, infraLed, nasLed } from "./infraSignals";
-import { deriveMissionImpact, type MissionImpact } from "./limfac";
+import { deriveMissionImpact, upcomingClosureLine, type MissionImpact } from "./limfac";
 import { listLimfacs } from "./limfacStore";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
 import { getNoaaScales } from "./spaceSources";
@@ -196,6 +196,7 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
   const limitingNotam = p.ops.groups.flatMap((g) => g.items).find((n) => n.amber);
   const opsShort = p.ops.fieldClosed ? "FIELD CLOSED (NOTAM)"
     : p.ops.closure?.next ? `field closure scheduled ${p.ops.closure.next}`
+    : p.mission?.upcoming ? upcomingClosureLine(p.mission.upcoming)
     : p.ops.limiting ? (limitingNotam ? limitingNotam.text.slice(0, 48) : "limiting NOTAM active")
     : (!p.ops.configured || !p.ops.live) ? "DAIP unreachable — OPS UNKNOWN"
     : `${p.ops.notamCount} NOTAMs, none limiting`;
@@ -221,6 +222,7 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
   // Brief sentence: field state, weather trajectory, infra — the day's read.
   const fieldClause = p.ops.fieldClosed ? "Field CLOSED by NOTAM"
     : p.ops.closure?.next ? `Field open now, closure scheduled ${p.ops.closure.next}`
+    : p.mission?.upcoming ? `Field open now; ${upcomingClosureLine(p.mission.upcoming)}`
     : p.ops.limiting ? `Field open with a limiting NOTAM${limitingNotam ? ` — ${limitingNotam.text.slice(0, 60)}` : ""}`
     : p.ops.configured && p.ops.live ? `Field open, ${p.ops.notamCount} NOTAMs (none limiting)`
     : "Airfield status UNKNOWN (DAIP unreachable)";

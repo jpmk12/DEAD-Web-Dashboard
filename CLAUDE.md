@@ -1667,6 +1667,39 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   designated closure where `runwayCount === 1` → Launch & Recovery NMC with
   a `runway_closed` CCIR for the window — OJAQ's A0467/26 reads NMC 1400–
   1800Z Sun/Tue/Wed and FMC with the schedule named the rest of the day.
+- **"OJAQ only has one runway, why am I getting this for routine
+  construction" (2026-11-02).** An AI surface wrote "RWY 01/19 closure
+  begins in ~8 hours — your TDY hub goes single-runway; deconflict inbound
+  lift now" about A0467/26 (the MON 1400–1700 construction occurrence).
+  Two causes, both fixed: (1) the force-posture AIRSPACE axis
+  (`assessAirspace`) turned RED for ANY runway-closure NOTAM in the active
+  set — a scheduled closure 8 h off read RED all day — and its signal
+  ("RWY … CLSD — starts in 8h") carried no runway count; (2) no model
+  prompt was told the count, so the brief / assistant / reads supplied a
+  second runway. **`lib/runwayClosure.ts` `runwayClosureRead(n, nowMs,
+  runwayCount, label)`** (PURE, tested in `tests/runwayClosure.test.ts`
+  against the real A0467/26) is the one judgement: timing from
+  `closureWindows` (`now` / `soon` ≤48 h / `later` / `indeterminate` /
+  `expired`) × the count — the sole runway (undesignated "RWY CLSD" or a
+  count of 1) closed NOW is RED "field closed", one of several is amber
+  "N other runway(s) open", an unknown count (0) never assumes a second
+  runway; a closure still to come is AMBER for the sole runway and a
+  green note for one of several; a schedule whose next occurrence is past
+  48 h is a note; a standing closure with no times is in effect.
+  `ForceContext.runwayCounts` (OurAirports `airfieldRunways`, bounded 8 s,
+  absent = UNKNOWN) feeds it. `deriveMissionImpact` now returns
+  **`mission.upcoming`** (`UpcomingClosure`: label, window, hours off, sole,
+  count, recurring, routine — `WORKS_RE` for WIP / construction /
+  maintenance) and `upcomingClosureLine` is the one sentence ("sole runway
+  RWY 01/19 closes 1400–1700Z (in ~8 h; scheduled works, recurring NOTAM)
+  — no launch or recovery inside that window, field open outside it");
+  it is the FMC driver, the SITREP summary's driver / line (so the brief,
+  the assistant and Ask read it) and a NEXT RUNWAY CLOSURE line in the
+  Commander's Read, which also gets RUNWAYS AT FIELD and two rules: never
+  "single-runway" for a one-runway field, and a scheduled / works closure
+  is routine — state the window, ask only when it is not routine or the
+  field is closed NOW. An in-effect designated closure with an UNKNOWN
+  count is PMC "runway count UNKNOWN", never "single-runway ops".
 - **⇩ Export HTML (standalone shareable SITREP)**: `lib/sitrepExport.ts` →
   `renderSitrepHtml(payload, read)` — PURE client-safe string builder
   (tested) that renders the pane's current payload + BLUF into ONE

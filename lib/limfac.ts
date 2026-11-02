@@ -10,6 +10,7 @@
 // as "green". These are planning aids for the commander's judgment, not
 // directive readiness calls.
 
+import { WORKS_RE } from "./runwayClosure";
 import type { SitrepPayload } from "./sitrep";
 import { closureWindows, type ClosureWindow } from "./sitrepSignals";
 import { notamSubject } from "./notamSubject";
@@ -57,6 +58,36 @@ export interface MissionImpact {
   chronicity?: Record<string, { state: string; label: string | null }>;
   /** Per function: typical days to resolve a manual LIMFAC here. */
   resolution?: { fn: string; n: number; medianDays: number | null; label: string }[];
+  /** The next runway closure inside the 48-h horizon while the runway is
+   *  open now — stated with the runway count so no reader (human or model)
+   *  has to guess whether it is the only one. Null when none. */
+  upcoming?: UpcomingClosure | null;
+}
+
+/** A runway closure that has not started yet. `sole` = the field has no
+ *  other runway (an undesignated "RWY CLSD", or OurAirports counts one), so
+ *  the window is a FIELD closure, never "single-runway operations".
+ *  `runwayCount` 0 = OurAirports did not answer — the count is UNKNOWN and
+ *  every sentence built from this says so. `routine` = a published schedule
+ *  or works wording (WIP / construction / maintenance / resurfacing). */
+export interface UpcomingClosure {
+  label: string;
+  window: string;
+  startsInH: number;
+  sole: boolean;
+  runwayCount: number;
+  recurring: boolean;
+  routine: boolean;
+}
+
+/** One sentence for a runway closure that has not started: the plain fact,
+ *  the runway count stated, never "single-runway" for a sole runway. PURE. */
+export function upcomingClosureLine(u: UpcomingClosure): string {
+  const why = u.routine ? (u.recurring ? "scheduled works, recurring NOTAM" : "scheduled works") : "NOTAM";
+  const lead = u.startsInH >= 1 ? `in ~${u.startsInH} h` : "within the hour";
+  if (u.sole) return `sole runway${u.label === "RWY" ? "" : ` ${u.label}`} closes ${u.window} (${lead}; ${why}) — no launch or recovery inside that window, field open outside it`;
+  if (u.runwayCount > 1) return `${u.label} closes ${u.window} (${lead}; ${why}) — ${u.runwayCount === 2 ? "the other runway stays" : `${u.runwayCount - 1} other runways stay`} open`;
+  return `${u.label} closes ${u.window} (${lead}; ${why}) — runway count UNKNOWN: if it is the only runway the field is closed for that window`;
 }
 
 // Commander-entered LIMFAC as stored (lib/limfacStore). Windows are ISO or null.
@@ -153,6 +184,7 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
   };
 
   const funcs: MissionFunctionStatus[] = [];
+  let upcoming: UpcomingClosure | null = null;
   const addFn = (key: string, capability: Capability, driver: string, window: string | null, limfacIds: string[], derived?: boolean) =>
     funcs.push({ key, label: functionLabel(key), capability, driver, window, limfacIds, derived });
 
@@ -170,6 +202,18 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
     // field OurAirports says has exactly one. Either way nothing can launch or
     // recover for the window — that is NMC, not "single-runway operations".
     const soleRunway = Boolean(rwyClose && !/^Airfield/.test(rwyClose.label) && (rwyClose.label === "RWY" || p.ops.runwayCount === 1));
+    const countUnknown = !(p.ops.runwayCount > 0);
+    if (rwyNext && !/^Airfield/.test(rwyNext.label)) {
+      upcoming = {
+        label: rwyNext.label,
+        window: windowLabelFor(rwyNext, nowMs),
+        startsInH: Math.round((rwyNext.fromMs - nowMs) / 3_600_000),
+        sole: rwyNext.label === "RWY" || p.ops.runwayCount === 1,
+        runwayCount: p.ops.runwayCount > 0 ? p.ops.runwayCount : 0,
+        recurring: Boolean(rwyNext.recurring),
+        routine: Boolean(rwyNext.recurring) || WORKS_RE.test(rwyNext.text),
+      };
+    }
     const xwRed = p.ops.runwayWinds.find((r) => r.flag === "r");
     const lifr = p.weather.now?.flightCategory === "LIFR";
     const closure = p.ops.closure ?? { now: p.ops.fieldClosed, next: null, indeterminate: false };
@@ -185,6 +229,12 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
       const id = push({ fn: "launch_recovery", capability: "nmc", window: win, driver: `Sole runway closed (NOTAM${rwyClose.recurring ? ", scheduled" : ""})`, impact: "The only runway is closed for this window; no launch or recovery except as the NOTAM permits.", mitigation: "Plan arrivals/departures outside the window; confirm the EXC EMERG / special-flight clause with tower.", status: "new", ccir: true });
       addFn("launch_recovery", "nmc", `Sole runway closed ${win}`, win, [id]);
       ccir.push({ key: "runway_closed", text: `Sole runway closed (NOTAM) ${win}` });
+    } else if (rwyClose && countUnknown) {
+      // OurAirports did not answer: the runway count is UNKNOWN. Claiming
+      // "single-runway operations" would assume a second runway exists.
+      const win = windowLabelFor(rwyClose, nowMs);
+      const id = push({ fn: "launch_recovery", capability: "pmc", window: win, driver: `Runway closure (${rwyClose.label}) — runway count unknown`, impact: "If this is the field's only runway, nothing launches or recovers in the window; if not, the field runs on its other runway(s). Confirm with the airfield.", mitigation: "Confirm the runway configuration before planning inside the window." });
+      addFn("launch_recovery", "pmc", `${rwyClose.label} closed — runway count UNKNOWN`, win, [id]);
     } else if (rwyClose) {
       const win = windowLabelFor(rwyClose, nowMs);
       const id = push({ fn: "launch_recovery", capability: "pmc", window: win, driver: `Runway closure (${rwyClose.label})`, impact: "Single-runway operations; reduced surge capacity, no simultaneous ops.", mitigation: "Slot deconfliction with tower; brief crews on active-runway change." });
@@ -205,6 +255,7 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
       // Open now. A closure later in the horizon is said, with its window —
       // the capability is FMC until it starts.
       const sched = closure.next ? `airfield closure scheduled ${closure.next}`
+        : upcoming ? upcomingClosureLine(upcoming)
         : rwyNext ? `${rwyNext.label} closure scheduled ${windowLabelFor(rwyNext, nowMs)}`
         : null;
       addFn("launch_recovery", "fmc", `${p.weather.now?.flightCategory ?? "VFR"}; runway open${sched ? ` — ${sched}` : ""}`, rwyNext ? windowLabelFor(rwyNext, nowMs) : closure.next, []);
@@ -357,7 +408,7 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
   // Overall airfield state = worst function.
   const state = funcs.reduce<Capability>((acc, f) => worse(acc, f.capability), "fmc");
 
-  return { state, functions: funcs, limfacs, ccir };
+  return { state, functions: funcs, limfacs, ccir, upcoming };
 }
 
 // Helper: the airfield closure window IN EFFECT now (for the closed case) —

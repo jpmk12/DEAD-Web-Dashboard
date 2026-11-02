@@ -22,6 +22,8 @@ import { getInformPoints } from "./inform";
 import { getGpsInterference, gpsLevelAt } from "./gpsjam";
 import { getFlightCategories, getTafOutlook, CAT_RANK, type AviationWx, type TafOutlook } from "./aviationWx";
 import { getNotams, startsInLabel, type Notam } from "./notams";
+import { airfieldRunways } from "./ourAirports";
+import { runwayClosureRead } from "./runwayClosure";
 import { getAllStateAdvisories } from "./stateAdvisories";
 import { civilCalendarEvents } from "./civilCalendar";
 import { getHealthEvents, type HealthEvent } from "./health";
@@ -88,6 +90,9 @@ export interface ForceContext {
   aviation: Record<string, AviationWx>; // decoded METAR flight category, keyed by ICAO
   aviationTaf: Record<string, TafOutlook>; // worst forecast flight cat next ~18h, by ICAO
   notams: Record<string, Notam[]>;      // NOTAMs keyed by ICAO (DAIP)
+  /** Open runways per ICAO (OurAirports); absent = count UNKNOWN. A closure
+   *  of a field's only runway is the field closed, never "single-runway". */
+  runwayCounts?: Record<string, number>;
   notamsConfigured: boolean;            // DoD CA bundle present → airspace category enabled
   health: HealthEvent[];                // WHO Disease Outbreak News
   conflictNews: Record<string, ConflictNewsSignal>; // active-conflict news signal, keyed by lowercased country
@@ -302,13 +307,24 @@ function assessAirspace(loc: ForceLocation, ctx: ForceContext): CategoryAssessme
   const list = loc.icao ? (ctx.notams[loc.icao.toUpperCase()] ?? []) : [];
   const signals: string[] = [];
   let sev: Severity = "green";
+  const count = loc.icao ? (ctx.runwayCounts?.[loc.icao.toUpperCase()] ?? 0) : 0;
   for (const n of list.filter((x) => AIRSPACE_CATS.has(x.category)).slice(0, 3)) {
-    // Red only for an actual runway CLOSURE; other runway/approach/airspace/
-    // obstacle items (markers, lights, windcones, U/S aids) are amber.
-    const closure = n.category === "runway" && !!n.runwaysClosed?.length;
-    sev = worse(sev, closure ? "red" : "amber");
+    // A runway CLOSURE is judged against now and the field's runway count
+    // (lib/runwayClosure): red only while the sole runway (or one of an
+    // unknown count) is closed NOW; a scheduled closure later is amber for a
+    // sole runway, a note otherwise. Other runway/approach/airspace/obstacle
+    // items (markers, lights, windcones, U/S aids) are amber.
+    if (n.category === "runway" && n.runwaysClosed?.length) {
+      const label = n.runwaysClosed.includes("ALL") ? "RWY" : `RWY ${n.runwaysClosed.join(", ")}`;
+      const r = runwayClosureRead(n, ctx.nowMs, count, label);
+      if (r.timing === "expired") continue;
+      sev = worse(sev, r.severity);
+      signals.push(r.text);
+      continue;
+    }
+    sev = worse(sev, "amber");
     const soon = startsInLabel(n, ctx.nowMs); // tag upcoming NOTAMs
-    const base = closure ? `RWY ${n.runwaysClosed!.join(", ")} CLSD` : n.text.replace(/\s+/g, " ").slice(0, 90);
+    const base = n.text.replace(/\s+/g, " ").slice(0, 90);
     signals.push(soon ? `${base} — starts in ${soon}` : base);
   }
   return { category: "airspace", severity: sev, signals };
@@ -449,6 +465,17 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
     getTafOutlook(icaos).catch(() => ({} as Record<string, TafOutlook>)),
     getConflictNewsByCountry(watchedCountries).catch(() => ({} as Record<string, ConflictNewsSignal>)),
   ]);
+  // Runway counts ride the OurAirports CSV already cached for capability
+  // (one load per 24 h); a failure leaves the count UNKNOWN, never 2.
+  // Bounded: a cold CSV load must not hold the posture fan-out.
+  const runwayCounts: Record<string, number> = {};
+  await Promise.race([
+    Promise.all(icaos.map(async (i) => {
+      const rw = await airfieldRunways(i).catch(() => []);
+      if (rw.length) runwayCounts[i.toUpperCase()] = new Set(rw.map((r) => r.pair)).size;
+    })),
+    new Promise((resolve) => setTimeout(resolve, 8_000)),
+  ]);
 
   // getWeatherThreats already pulls disasters; only fetch separately if it failed.
   const disasters = weather?.disasters ?? (await getDisasters().catch(() => []));
@@ -466,6 +493,7 @@ export async function getForceProtection(countries: CountryWatch[], bases: Force
     aviation: aviation.byIcao,
     aviationTaf: taf,
     notams: notams.byIcao,
+    runwayCounts,
     notamsConfigured: notams.configured,
     health: health.events,
     conflictNews,

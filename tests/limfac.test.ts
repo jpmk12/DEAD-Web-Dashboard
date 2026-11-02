@@ -124,7 +124,7 @@ describe("deriveMissionImpact — capability", () => {
     const m = deriveMissionImpact(p);
     const lr = m.functions.find((f) => f.key === "launch_recovery")!;
     expect(lr.capability).toBe("fmc");
-    expect(lr.driver).toContain("closure scheduled");
+    expect(lr.driver).toMatch(/RWY 06\/24 closes .* the other runway stays open/);
     expect(m.ccir).toHaveLength(0);
     expect(m.state).toBe("fmc");
   });
@@ -150,7 +150,8 @@ describe("deriveMissionImpact — capability", () => {
     const morning = mk(SUN_0900);
     const lr = morning.functions.find((f) => f.key === "launch_recovery")!;
     expect(lr.capability).toBe("fmc");
-    expect(lr.driver).toContain("RWY closure scheduled");
+    expect(lr.driver).toMatch(/sole runway closes 1400–1800Z .* no launch or recovery inside that window/);
+    expect(lr.driver).not.toMatch(/single-runway/i);
     expect(morning.ccir).toHaveLength(0);
   });
 
