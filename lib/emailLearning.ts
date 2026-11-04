@@ -36,6 +36,9 @@ export interface SenderRule {
   sender: string;
   count: number;
   evidence: string;
+  /** Inferred from what you CLEARED, not from a correction you made — a
+   *  weaker kind of evidence, said so on the row. */
+  weak?: boolean;
 }
 
 export const RULE_MIN_CORRECTIONS = 3;
@@ -195,4 +198,67 @@ export function actionKey(emailId: string, action: string): string {
   const s = action.toLowerCase().replace(/\s+/g, " ").trim();
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return `${emailId}:${(h >>> 0).toString(36)}`;
+}
+
+
+// ── The weak signal: cleared without opening ───────────────────────────────
+//
+// Marking an email read from the list without ever opening it (not expanded
+// here, not opened in Gmail) says the sender did not earn a look. It is a
+// WEAKER statement than a correction — you may have read the subject line and
+// been done — so it only ever PROPOSES "Always Low", with its evidence and the
+// word "weak", under stricter floors than a correction, and it never reaches
+// the classifier's examples (those are explicit corrections only). Nothing is
+// demoted automatically.
+
+export interface Clear {
+  messageId: string;
+  sender: string;   // the raw From header
+  /** The model's call (after VIP/mute) at the time it was cleared. */
+  priorityModel: EmailPriority | null;
+  /** Expanded in the dashboard or opened in Gmail before it was cleared. */
+  opened: boolean;
+  at: number;
+}
+
+/** Unopened clears of a sender the model ranked Medium or High, before a proposal. */
+export const CLEAR_MIN_UNOPENED = 6;
+/** …spread over at least this many different days (one bulk sweep is one decision). */
+export const CLEAR_MIN_DAYS = 3;
+
+export function suggestFromClears(
+  clears: Clear[],
+  ctx: { vip: string[]; mute: string[]; dismissed: string[]; now: number; corrections?: Correction[]; already?: SenderRule[] },
+): SenderRule[] {
+  const since = ctx.now - RULE_WINDOW_MS;
+  const dismissed = new Set(ctx.dismissed.map((d) => d.toLowerCase()));
+  const already = new Set((ctx.already ?? []).map((r) => r.sender.toLowerCase()));
+  // A sender you ever PROMOTED is one you care about — the clears say nothing.
+  const promoted = new Set((ctx.corrections ?? []).filter((c) => c.at >= since && direction(c) === "up").map((c) => senderAddress(c.sender)));
+  const by = new Map<string, { unopened: number; opened: number; days: Set<string>; models: Set<EmailPriority> }>();
+  for (const c of clears) {
+    if (c.at < since) continue;
+    const addr = senderAddress(c.sender);
+    if (!addr) continue;
+    const e = by.get(addr) ?? { unopened: 0, opened: 0, days: new Set(), models: new Set() };
+    if (c.opened) e.opened++;
+    else if (c.priorityModel === "Medium" || c.priorityModel === "High") {
+      e.unopened++;
+      e.days.add(new Date(c.at).toISOString().slice(0, 10));
+      e.models.add(c.priorityModel);
+    }
+    by.set(addr, e);
+  }
+  const out: SenderRule[] = [];
+  for (const [addr, e] of by) {
+    if (e.opened > 0 || e.unopened < CLEAR_MIN_UNOPENED || e.days.size < CLEAR_MIN_DAYS) continue;
+    if (already.has(addr) || promoted.has(addr)) continue;
+    if (covered(addr, ctx.mute) || covered(addr, ctx.vip) || dismissed.has(ruleKey("low", addr))) continue;
+    const said = [...e.models].sort().join("/");
+    out.push({
+      key: ruleKey("low", addr), kind: "low", sender: addr, count: e.unopened, weak: true,
+      evidence: `you cleared ${e.unopened} emails from ${addr} unopened over ${e.days.size} days in 30 d, and opened none — the model called them ${said} · weak signal: inferred from what you cleared, not from a correction`,
+    });
+  }
+  return out.sort((a, b) => b.count - a.count || a.sender.localeCompare(b.sender));
 }

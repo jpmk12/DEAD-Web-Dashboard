@@ -125,11 +125,18 @@ const AIRFRAMES: AirframeDef[] = [
   { id: "Il-76", cls: "airlift", side: "adversary", actor: "Russia", rx: /\bIl-?76(?:[A-Z]{1,2}(?:-?\d{1,3}[A-Z]?)?)?s?\b/i },
   { id: "Il-78", cls: "tanker", side: "adversary", actor: "Russia", rx: /\bIl-?78(?:[A-Z]{1,2})?s?\b/i },
   { id: "Y-20", cls: "airlift", side: "adversary", actor: "China", rx: /\bY-?20[AU]?s?\b/i },
-  { id: "tanker", cls: "tanker", ...US, generic: true, rx: /\btankers?\b|\btanker (?:track|bridge|drag|cell|package|wave|surge)\b/i },
+  { id: "tanker", cls: "tanker", ...US, generic: true, rx: /\btankers?\b|\btanker (?:track|bridge|drag|cell|package|wave|surge)\b|\b(?:aerial |air )?refuel(?:l)?(?:ing|er)s? (?:aircraft|jets|planes)\b|\baerial refuel(?:l)?ers?\b/i },
   { id: "airlifter", cls: "airlift", ...US, generic: true, rx: /\bairlifters?\b|\bairlift (?:wave|surge|flow|bridge)\b|\bair bridge\b/i },
 ];
 // The generic "tanker" counts only beside an aviation word and never beside a maritime one.
 const AVIATION_CONTEXT = /\b(?:aircraft|airborne|aerial|refuel\w*|KC-?\d+|sortie|sorties|callsign|callsigns|ADS-?B|flew|flying|flight|flights|took off|take-?off|landed|landing|airfield|air base|AB\b|AFB|RAF|USAF|AMC|squadron|wing|track|drag|bridge|cell|package|orbit|orbiting|transit\w*|en ?route|inbound|outbound|wheels up|boom)\b/i;
+/** An unmistakable aviation phrase outranks a maritime PLACE word: "US Air
+ *  Force tanker activity over the Strait of Hormuz … aerial refueling
+ *  aircraft" (the 2026-11-04 diag's @visionergeo post) was refused because
+ *  "strait" is in the maritime list. A vessel word still refuses whatever
+ *  else the post says — only a phrase no ship story uses gets this pass. */
+const STRONG_AVIATION = /\b(?:air force|USAF)\b[^.]{0,24}\btankers?\b|\brefuel(?:l)?ing (?:aircraft|tankers?|jets|planes)\b|\baerial refuel|\bair[- ]to[- ]air refuel|\btanker aircraft\b|\bKC-?(?:10|46|135)\b/i;
+const VESSEL_CONTEXT = /\b(?:oil tanker|crude tanker|product tanker|chemical tanker|LNG tanker|LPG|vessel|vessels|ship|ships|hull|MMSI|dwt|IMO\s?\d|cargo ship|merchant|bulk carrier|ghost fleet)\b/i;
 const MARITIME_CONTEXT = /\b(?:oil tanker|crude tanker|product tanker|chemical tanker|LNG tanker|vessel|vessels|ship|ships|seized|boarded|hijack\w*|MMSI|dwt|IMO\s?\d|anchorage|strait|port of|aground|cargo ship|merchant)\b/i;
 
 // Movement phrases — one must be present for a post to be chatter at all.
@@ -274,7 +281,7 @@ function hay(n: NewsItem): string { return `${n.title} ${n.summary ?? ""}`.repla
 export function airframesIn(text: string): AirframeDef[] {
   const out: AirframeDef[] = [];
   const aviation = AVIATION_CONTEXT.test(text);
-  const maritime = MARITIME_CONTEXT.test(text);
+  const maritime = MARITIME_CONTEXT.test(text) && !(STRONG_AVIATION.test(text) && !VESSEL_CONTEXT.test(text));
   for (const a of AIRFRAMES) {
     if (!a.rx.test(text)) continue;
     if (a.generic && (!aviation || maritime)) continue;
@@ -285,8 +292,13 @@ export function airframesIn(text: string): AirframeDef[] {
 
 /** The number stated just before an airframe token ("6x KC-135", "six tankers", "a dozen C-17s"), else null. */
 export function statedCount(text: string, airframes: AirframeDef[]): number | null {
-  let best: number | null = null;
-  for (const a of airframes) {
+  // Per TYPE the largest count stated before any of its mentions; across
+  // designated types the counts ADD — "five KC-46A … and one KC-135R" is six
+  // tankers (the 2026-11-04 diag read five). The generic "tanker" is an alias
+  // of whatever type the post names, so it counts only when no designated
+  // type carries a number.
+  const perType = (a: AirframeDef): number | null => {
+    let best: number | null = null;
     // Every mention of the type, not the first: "Big C-17 wave … a dozen
     // Globemasters" states the count before the second alias.
     const g = new RegExp(a.rx.source, a.rx.flags.includes("g") ? a.rx.flags : a.rx.flags + "g");
@@ -304,8 +316,17 @@ export function statedCount(text: string, airframes: AirframeDef[]): number | nu
       }
       if (n != null && n > 0 && n <= 60 && (best == null || n > best)) best = n;
     }
+    return best;
+  };
+  let sum = 0, any = false, generic: number | null = null;
+  for (const a of airframes) {
+    const n = perType(a);
+    if (n == null) continue;
+    if (a.generic) { generic = Math.max(generic ?? 0, n); continue; }
+    sum += n; any = true;
   }
-  return best;
+  const total = any ? sum : generic;
+  return total != null && total > 0 ? Math.min(total, 60) : null;
 }
 
 // Spotter route notation: "KDOV → OKAS", "ETAR -> OJKA", "KDOV-OKAS". The
@@ -545,9 +566,12 @@ const sourceKind = (s: string) => (s.startsWith("𝕏") ? "x" : s.startsWith("�
 
 // A capitalised phrase (or an ICAO) right after a cue — the shape a place
 // takes in a spotter post. Up to four words, "RAF / AB / AFB" allowed inside.
-const CUE_PLACE = /\b(to|into|toward|towards|for|at|bound for|inbound to|heading to|heading for|landed at|landed in|arrived at|arrived in|on the ground at|staging at|over|from|out of|departed|departing|leaving|ex)\s+(?:the\s+)?((?:RAF\s+)?(?:[A-Z][\w'’.]*|[A-Z]{4})(?:[ -](?:[A-Z][\w'’.]*|AB|AFB|NAS))?(?:[ -](?:[A-Z][\w'’.]*|AB|AFB|NAS))?)/g;
+// A phrase stops at sentence punctuation ("Benghazi. It" was one phrase in
+// the 2026-11-04 diag) and reads any script's capitals and letters
+// ("Bamako-Sénou", not "Bamako-S").
+const CUE_PLACE = /\b(to|into|toward|towards|for|at|bound for|inbound to|heading to|heading for|landed at|landed in|arrived at|arrived in|on the ground at|staging at|over|from|out of|departed|departing|leaving|ex)\s+(?:the\s+)?((?:RAF\s+)?(?:\p{Lu}[\p{L}\p{N}'’]*|[A-Z]{4})(?:[ -](?:\p{Lu}[\p{L}\p{N}'’]*|AB|AFB|NAS))?(?:[ -](?:\p{Lu}[\p{L}\p{N}'’]*|AB|AFB|NAS))?)/gu;
 const ORIGIN_WORDS = new Set(["from", "out of", "departed", "departing", "leaving", "ex"]);
-const PLACE_STOP = new Set(["the", "a", "an", "i", "us", "u.s.", "usaf", "amc", "nato", "ads-b", "adsb", "today", "tonight", "this", "that", "these", "those", "twitter", "x", "icymi", "breaking", "update", "raf", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "least", "it", "we", "they", "he", "she", "you", "my", "our", "their", "his", "her", "its", "one", "two", "three", "four", "five", "six"]);
+const PLACE_STOP = new Set(["the", "a", "an", "i", "us", "u.s.", "usaf", "amc", "nato", "ads-b", "adsb", "today", "tonight", "this", "that", "these", "those", "twitter", "x", "icymi", "breaking", "update", "raf", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "least", "initial", "local", "fl", "it", "we", "they", "he", "she", "you", "my", "our", "their", "his", "her", "its", "one", "two", "three", "four", "five", "six"]);
 // Designators: "E-3", "RC-135V", "P-8A", "MQ-9" and the Russian / Chinese forms.
 const DESIGNATOR = /\b(?:[A-Z]{1,3}-\d{1,3}[A-Z]{0,2}|(?:Il|Tu|An|Su|Mi|Ka|Yak|KJ|Y)-\d{1,3}[A-Z]?)\b/g;
 // Not aircraft: Joint Staff directorates (J-5), visas (H-1B), gangs (MS-13).

@@ -227,3 +227,60 @@ export function cityOf(zone: string): string {
   if (etc) return formatUtcOffset((etc[1] === "-" ? 1 : -1) * Number(etc[2]) * 60);
   return (zone.split("/").pop() ?? zone).replace(/_/g, " ");
 }
+
+// ── Clock changes across a range ───────────────────────────────────────────
+
+/** The longest range the table will scan (the day-step scan is ~1 Intl call per day per zone). */
+export const CHANGE_RANGE_MAX_DAYS = 366 * 5;
+
+/** Every clock change in [fromMs, toMs], oldest first (capped). */
+export function changesBetween(zone: string, fromMs: number, toMs: number, max = 24): ZoneChange[] {
+  if (!(toMs > fromMs)) return [];
+  const days = Math.min(CHANGE_RANGE_MAX_DAYS, Math.ceil((toMs - fromMs) / 86_400_000));
+  return zoneChanges(fromMs, zone, days, max).filter((c) => c.ms <= toMs);
+}
+
+const minusMinute = (hhmm: string): string => {
+  const [h, m] = hhmm.split(":").map(Number);
+  const t = (h * 60 + m + 1439) % 1440;
+  return `${pad(Math.floor(t / 60))}:${pad(t % 60)}`;
+};
+
+/** What the change does to the local clock, in words: the skipped or the
+ *  doubled stretch. "02:00–02:59 does not exist" / "01:00–01:59 happens twice". */
+export function changeWindowLine(c: ZoneChange): string {
+  if (c.shiftMin > 0) return `${c.wallFrom}–${minusMinute(c.wallTo)} local does not exist (clocks jump ahead)`;
+  if (c.shiftMin < 0) return `${c.wallTo}–${minusMinute(c.wallFrom)} local happens twice (clocks fall back)`;
+  return "no change to the local clock";
+}
+
+export interface ChangeRow extends ZoneChange { zone: string; label: string; abbrFrom: string | null; abbrTo: string | null }
+
+/** The changes of several zones in one range, merged in time order — the
+ *  weeks when two clocks change on different days (U.S. second Sunday in
+ *  March vs Europe's last Sunday) show up as adjacent rows. */
+export function changeTable(zones: { zone: string; label: string }[], fromMs: number, toMs: number, maxPerZone = 24): ChangeRow[] {
+  const rows: ChangeRow[] = [];
+  for (const z of zones) {
+    for (const c of changesBetween(z.zone, fromMs, toMs, maxPerZone)) {
+      rows.push({ ...c, zone: z.zone, label: z.label, abbrFrom: zoneAbbrev(c.ms - 60_000, z.zone), abbrTo: zoneAbbrev(c.ms, z.zone) });
+    }
+  }
+  return rows.sort((a, b) => a.ms - b.ms || a.label.localeCompare(b.label));
+}
+
+/** How the offset BETWEEN two zones changes across the range: the periods
+ *  (start ms, offset difference in minutes) — "New York is 6 h behind Berlin,
+ *  except 5 h for three weeks in March". */
+export function offsetGapPeriods(a: string, b: string, fromMs: number, toMs: number): { fromMs: number; diffMin: number }[] {
+  const at = (ms: number) => { const x = offsetAt(ms, a), y = offsetAt(ms, b); return x == null || y == null ? null : y - x; };
+  const first = at(fromMs);
+  if (first == null) return [];
+  const edges = [...changesBetween(a, fromMs, toMs, 48), ...changesBetween(b, fromMs, toMs, 48)].map((c) => c.ms).sort((x, y) => x - y);
+  const out = [{ fromMs, diffMin: first }];
+  for (const e of edges) {
+    const d = at(e);
+    if (d != null && d !== out[out.length - 1].diffMin) out.push({ fromMs: e, diffMin: d });
+  }
+  return out;
+}

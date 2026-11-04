@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { wallToMs, inZone, parseDtg, resolveWall } from "@/lib/plannerTools";
 import { formatUtcOffset } from "@/lib/worldClocks";
-import { allZones, cityOf, dstInfo, dstWord, nextZoneChange, resolveZoneInput, zoneAbbrev, zoneChangeLine } from "@/lib/zoneConvert";
+import { allZones, changeTable, changeWindowLine, cityOf, dstInfo, dstWord, nextZoneChange, offsetGapPeriods, resolveZoneInput, zoneAbbrev, zoneChangeLine, CHANGE_RANGE_MAX_DAYS } from "@/lib/zoneConvert";
 import {
   parseDuration, durationLabel, eteFromDistance, enRoute,
   UNIT_FAMILIES, unitsOf, convertUnit, fmtUnit, DEFAULT_FUEL_LB_PER_GAL, type UnitFamily,
@@ -148,6 +148,8 @@ export function TimeZoneCard({ cols }: { cols: ZoneCol[] }) {
         !(dtgIn.trim() && ms == null) && <p className="text-[11px] font-mono text-slate-500">Give a date and time (or a DTG) to convert.</p>
       )}
 
+      <ClockChanges targets={targets} />
+
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <Label>add a zone</Label>
@@ -158,6 +160,116 @@ export function TimeZoneCard({ cols }: { cols: ZoneCol[] }) {
         {addNote && <span className="text-[10px] text-slate-500 pb-2">{addNote}</span>}
       </div>
     </Card>
+  );
+}
+
+
+// ── Clock changes across a range (inside the Time zones card) ──────────────
+
+const fmtGap = (min: number): string => {
+  const a = Math.abs(min), h = Math.floor(a / 60), m = a % 60;
+  return `${h}${m ? `:${String(m).padStart(2, "0")}` : ""} h`;
+};
+
+/** Every clock change for the shown zones (or one) between two dates, with
+ *  what each does to the local clock, and — against a second zone — how the
+ *  gap between the two clocks moves. Folded by default; nothing stored. */
+function ClockChanges({ targets }: { targets: ZoneCol[] }) {
+  const [open, setOpen] = useState(false);
+  const [which, setWhich] = useState("all");
+  const [vs, setVs] = useState("");
+  const [fromIn, setFromIn] = useState("");
+  const [toIn, setToIn] = useState("");
+  useEffect(() => {
+    const t = inZone(Date.now(), "UTC").ymd;
+    const y = Number(t.slice(0, 4));
+    setFromIn(t); setToIn(`${y + 1}${t.slice(4)}`);
+  }, []);
+  const fromMs = fromIn ? Date.parse(`${fromIn}T00:00:00Z`) - 14 * 3_600_000 : NaN;   // the earliest zone's midnight
+  const toMs = toIn ? Date.parse(`${toIn}T23:59:59Z`) + 14 * 3_600_000 : NaN;
+  const days = (toMs - fromMs) / 86_400_000;
+  const bad = !Number.isFinite(fromMs) || !Number.isFinite(toMs) ? "pick both dates" : days <= 0 ? "the end is before the start" : days > CHANGE_RANGE_MAX_DAYS ? "five years at most" : null;
+  const zones = useMemo(() => (which === "all" ? targets.filter((t) => t.zone !== "UTC") : targets.filter((t) => t.zone === which)), [which, targets]);
+  const rows = useMemo(() => (open && !bad ? changeTable(zones, fromMs, toMs) : []), [open, bad, zones, fromMs, toMs]);
+  const noDst = zones.filter((z) => !dstInfo(Number.isFinite(fromMs) ? fromMs : Date.now(), z.zone)?.observes && !rows.some((r) => r.zone === z.zone));
+  const vsZone = targets.find((t) => t.zone === vs);
+  const gap = open && !bad && which !== "all" && vsZone && vsZone.zone !== which ? offsetGapPeriods(which, vsZone.zone, fromMs, toMs) : [];
+  const whichLabel = targets.find((t) => t.zone === which)?.label ?? which;
+
+  return (
+    <div className="rounded-md border border-slate-800">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-200">
+        <span>Clock changes across a range</span><span>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          <div className="flex flex-wrap items-end gap-2">
+            <div><Label>from</Label><input type="date" value={fromIn} onChange={(e) => setFromIn(e.target.value)} className={inputCls} aria-label="Range start" /></div>
+            <div><Label>to</Label><input type="date" value={toIn} onChange={(e) => setToIn(e.target.value)} className={inputCls} aria-label="Range end" /></div>
+            <div>
+              <Label>zones</Label>
+              <select value={which} onChange={(e) => { setWhich(e.target.value); setVs(""); }} className={`${inputCls} max-w-[170px]`} aria-label="Zones to list">
+                <option value="all">all in the table</option>
+                {targets.filter((t) => t.zone !== "UTC").map((t) => <option key={t.zone} value={t.zone}>{t.label}</option>)}
+              </select>
+            </div>
+            {which !== "all" && (
+              <div>
+                <Label>gap against</Label>
+                <select value={vs} onChange={(e) => setVs(e.target.value)} className={`${inputCls} max-w-[170px]`} aria-label="Compare the gap against">
+                  <option value="">—</option>
+                  {targets.filter((t) => t.zone !== which).map((t) => <option key={t.zone} value={t.zone}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+          {bad ? <p className="text-[11px] font-mono text-amber-300">{bad}</p> : (
+            <>
+              {rows.length > 0 ? (
+                <div className="overflow-x-auto -mx-3 px-3">
+                  <table className="min-w-full text-[11px] font-mono tabular-nums">
+                    <thead>
+                      <tr className="text-[9px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800">
+                        <th className="text-left py-1 pr-3">Zone</th><th className="text-left py-1 pr-3">Local date</th><th className="text-left py-1 pr-3">Clock</th>
+                        <th className="text-left py-1 pr-3">Offset</th><th className="text-left py-1 pr-3">Zulu</th><th className="text-left py-1 pr-3">What it does</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r) => {
+                        const d = new Date(`${r.ymd}T12:00:00Z`);
+                        return (
+                          <tr key={`${r.zone}-${r.ms}`} className="border-b border-slate-800/60 text-slate-200">
+                            <td className="py-1 pr-3 whitespace-nowrap font-bold">{r.label}</td>
+                            <td className="py-1 pr-3 whitespace-nowrap">{d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} {r.ymd}</td>
+                            <td className="py-1 pr-3 whitespace-nowrap">{r.wallFrom} → <span className="font-bold">{r.wallTo}</span> <span className={r.shiftMin > 0 ? "text-amber-200" : "text-sky-300"}>{r.shiftMin > 0 ? "+" : "−"}{fmtGap(r.shiftMin)}</span></td>
+                            <td className="py-1 pr-3 whitespace-nowrap">{formatUtcOffset(r.fromOffset)}{r.abbrFrom ? ` ${r.abbrFrom}` : ""} → {formatUtcOffset(r.toOffset)}{r.abbrTo ? ` ${r.abbrTo}` : ""}</td>
+                            <td className="py-1 pr-3 whitespace-nowrap text-slate-400">{inZone(r.ms, "UTC").dtg}</td>
+                            <td className="py-1 pr-3 text-slate-500">{changeWindowLine(r)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <p className="text-[11px] font-mono text-slate-500">No clock change in this range for {which === "all" ? "the zones in the table" : whichLabel}.</p>}
+              {noDst.length > 0 && <p className="text-[10px] text-slate-600">No DST: {noDst.map((z) => z.label).join(" · ")} — the offset holds all year.</p>}
+              {gap.length > 1 && vsZone && (
+                <div className="text-[11px] font-mono text-slate-300 space-y-0.5">
+                  {gap.map((g, i) => (
+                    <div key={g.fromMs}>
+                      <span className="text-slate-500">{i === 0 ? "from the start" : `from ${inZone(g.fromMs, "UTC").ymd} ${inZone(g.fromMs, "UTC").hhmm}Z`}:</span>{" "}
+                      {whichLabel} is {g.diffMin === 0 ? `level with ${vsZone.label}` : `${fmtGap(g.diffMin)} ${g.diffMin > 0 ? "behind" : "ahead of"} ${vsZone.label}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {gap.length === 1 && vsZone && <p className="text-[11px] font-mono text-slate-400">{whichLabel} stays {gap[0].diffMin === 0 ? "level with" : `${fmtGap(gap[0].diffMin)} ${gap[0].diffMin > 0 ? "behind" : "ahead of"}`} {vsZone.label} across the range.</p>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

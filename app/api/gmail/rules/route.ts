@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
-import { listCorrections } from "@/lib/emailPrefs";
-import { suggestSenderRules, correctionCounts, RULE_WINDOW_MS } from "@/lib/emailLearning";
+import { listCorrections, listClears } from "@/lib/emailPrefs";
+import { suggestSenderRules, suggestFromClears, correctionCounts, RULE_WINDOW_MS } from "@/lib/emailLearning";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,7 @@ const RULES_TEXT = [
   "Your role defines what counts as an important institution.",
   "VIP senders are always High and muted senders always Low — before the model is asked.",
   "Your own call on an email wins over all of the above; recent corrections are shown to the model as examples.",
+  "Emails you clear without opening are counted, never acted on: a sender cleared unopened again and again earns a weak Always-Low proposal for you to accept or dismiss.",
 ];
 
 export async function GET() {
@@ -30,9 +31,10 @@ export async function GET() {
   const userEmail = normEmail(session.user?.email);
   const now = Date.now();
 
-  const [prefs, corrections] = await Promise.all([
+  const [prefs, corrections, clears] = await Promise.all([
     getUserPrefs(userEmail).catch(() => null),
     listCorrections(userEmail, now - RULE_WINDOW_MS).catch(() => []),
+    listClears(userEmail, now - RULE_WINDOW_MS).catch(() => []),
   ]);
   const vip = prefs?.vipSenders ?? [];
   const mute = prefs?.muteSenders ?? [];
@@ -46,7 +48,12 @@ export async function GET() {
     vip: vip.length,
     muted: mute.length,
     corrections: correctionCounts(corrections, now),
-    suggestions: suggestSenderRules(corrections, { vip, mute, dismissed, now }),
+    // Explicit corrections first; the weak "cleared unopened" proposals only
+    // for senders the corrections have not already covered.
+    suggestions: (() => {
+      const strong = suggestSenderRules(corrections, { vip, mute, dismissed, now });
+      return [...strong, ...suggestFromClears(clears, { vip, mute, dismissed, now, corrections, already: strong })];
+    })(),
     rules: RULES_TEXT,
   });
 }

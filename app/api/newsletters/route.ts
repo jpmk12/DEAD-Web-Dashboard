@@ -148,8 +148,16 @@ export async function GET(req: Request) {
   const primaryIds = allEmails.filter((e) => e.account === "primary").map((e) => e.id);
   const secondaryIds = allEmails.filter((e) => e.account === "secondary").map((e) => e.id);
   const fromApp = req.headers.get("x-dead-client") === "1";
-  if (fromApp && primaryIds.length > 0) markAsReadBatch(primaryToken, primaryIds).catch(() => {});
-  if (fromApp && secondaryIds.length > 0 && secondaryAccessToken) markAsReadBatch(secondaryAccessToken, secondaryIds).catch(() => {});
+  // Started now, awaited before the reply: a batch Gmail refuses is NAMED
+  // (`unmarked`) instead of swallowed — "it never gets marked read" must be
+  // answerable from the response (2026-11-04).
+  const markOne = (account: "primary" | "secondary", token: string, ids: string[]) =>
+    markAsReadBatch(token, ids).then((bad) => ({ account, count: bad.length })).catch(() => ({ account, count: ids.length }));
+  const marking: Promise<{ account: "primary" | "secondary"; count: number }[]> = Promise.all([
+    ...(fromApp && primaryIds.length > 0 ? [markOne("primary", primaryToken, primaryIds)] : []),
+    ...(fromApp && secondaryIds.length > 0 && secondaryAccessToken ? [markOne("secondary", secondaryAccessToken, secondaryIds)] : []),
+  ]);
+  const unmarkedNow = async () => (await marking).filter((m) => m.count > 0);
 
   // Check cache for already-summarised emails
   const allIds = allEmails.map((e) => e.id);
@@ -174,7 +182,7 @@ export async function GET(req: Request) {
     // "No key facts extracted" placeholder. Cache hits still serve normally.
     if (!isFeatureEnabled("newsletters", userPrefs)) {
       const final = sortByPreference([...cached.values()], prefs);
-      return NextResponse.json({ newsletters: final, quietSubjects: computeQuietSubjects(final), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed, disabled: true });
+      return NextResponse.json({ newsletters: final, quietSubjects: computeQuietSubjects(final), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed, unmarked: await unmarkedNow(), disabled: true });
     }
 
     // Batches of SUMMARY_BATCH, two calls at a time. Each batch is parsed
@@ -244,9 +252,9 @@ export async function GET(req: Request) {
   // If no emails were fetched at all, fall back to everything in cache
   if (allEmails.length === 0) {
     const allCached = await getAllCachedSummaries();
-    if (allCached.length === 0) return NextResponse.json({ newsletters: [], quietSubjects: [], sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed });
+    if (allCached.length === 0) return NextResponse.json({ newsletters: [], quietSubjects: [], sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed, unmarked: await unmarkedNow() });
     const sorted = sortByPreference(allCached, prefs);
-    return NextResponse.json({ newsletters: sorted, quietSubjects: computeQuietSubjects(sorted), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed });
+    return NextResponse.json({ newsletters: sorted, quietSubjects: computeQuietSubjects(sorted), sources: sourceMeta, dismissed: prefs.dismissed, kept: prefs.kept, failed, unmarked: await unmarkedNow() });
   }
 
   // Merge cached + new summaries, preserving fetch order
@@ -262,6 +270,7 @@ export async function GET(req: Request) {
     dismissed: prefs.dismissed,
     kept: prefs.kept,
     failed,
+    unmarked: await unmarkedNow(),
   });
 }
 

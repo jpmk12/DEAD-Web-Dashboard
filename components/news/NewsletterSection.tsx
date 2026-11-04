@@ -137,6 +137,8 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // Sources Gmail refused this pass (rate limit, sign-in) — named, never read
   // as "no mail" (2026-11-02, "axios is set but never shows up").
   const [failedSources, setFailedSources] = useState<{ label: string; account: string; reason: string }[]>([]);
+  // Mail read this pass that Gmail refused to mark read (left unread there).
+  const [unmarked, setUnmarked] = useState<{ account: string; count: number }[]>([]);
   // Series the user stopped summarising FROM A ROW (REVIEW-2026-10 §12 item
   // 6): rule ids, applied at once so the rows leave before the re-fetch
   // confirms it; a failed write puts them back.
@@ -199,6 +201,10 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
         setFailedSources(Array.isArray(data.failed)
           ? (data.failed as { label?: unknown; account?: unknown; reason?: unknown }[]).filter((f) => f && typeof f.label === "string")
               .map((f) => ({ label: String(f.label), account: f.account === "secondary" ? "secondary" : "primary", reason: typeof f.reason === "string" ? f.reason : "Gmail refused" }))
+          : []);
+        setUnmarked(Array.isArray(data.unmarked)
+          ? (data.unmarked as { account?: unknown; count?: unknown }[]).filter((u) => u && typeof u.count === "number" && u.count > 0)
+              .map((u) => ({ account: u.account === "secondary" ? "secondary" : "primary", count: Number(u.count) }))
           : []);
         // Merge the server's hide/keep sets over the locally-loaded ones so the
         // state is consistent across devices (union keeps any not-yet-synced
@@ -462,6 +468,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
           {failedSources.length > 0 && (
             <div className="px-3 pb-1 text-[10px] text-amber-400/90" title="These sources were not read this pass — their mail stays unread in Gmail and is retried on the next load">
               Not read this pass: {failedSources.map((f) => `${f.label}${f.account === "secondary" ? " (2nd account)" : ""} — ${f.reason}`).join(" · ")}. UNKNOWN, not "no mail".
+            </div>
+          )}
+          {unmarked.length > 0 && (
+            <div className="px-3 pb-1 text-[10px] text-amber-400/90" title="Read and summarised here, but Gmail refused to remove the unread flag — retried on the next load">
+              Gmail refused to mark {unmarked.map((u) => `${u.count} in the ${u.account === "secondary" ? "2nd" : "primary"} account`).join(" and ")} read — left unread there.
             </div>
           )}
           <div className="px-3 pb-2 flex items-center gap-3 text-[10px] text-slate-600 flex-wrap">

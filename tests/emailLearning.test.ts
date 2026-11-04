@@ -80,3 +80,39 @@ describe("whyLine / actionKey", () => {
     expect(actionKey("m1", "a")).not.toBe(actionKey("m2", "a"));
   });
 });
+
+import { suggestFromClears, CLEAR_MIN_UNOPENED, type Clear } from "../lib/emailLearning";
+
+describe("suggestFromClears — the weak 'cleared without opening' signal", () => {
+  const NOW = Date.parse("2026-11-04T12:00:00Z");
+  const DAY = 86_400_000;
+  const clear = (i: number, o: Partial<Clear> = {}): Clear => ({ messageId: `m${i}`, sender: "Deals <deals@shop.example>", priorityModel: "Medium", opened: false, at: NOW - (i % 5) * DAY - i * 1000, ...o });
+  const ctx = { vip: [], mute: [], dismissed: [], now: NOW };
+  it("six unopened Medium clears over 3+ days → a weak Always-Low proposal with its evidence", () => {
+    const r = suggestFromClears(Array.from({ length: CLEAR_MIN_UNOPENED }, (_, i) => clear(i)), ctx);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ kind: "low", sender: "deals@shop.example", weak: true, key: "rule:low:deals@shop.example" });
+    expect(r[0].evidence).toMatch(/weak signal/);
+  });
+  it("one opened email from the sender cancels it", () => {
+    const xs = Array.from({ length: 8 }, (_, i) => clear(i));
+    expect(suggestFromClears([...xs, clear(99, { opened: true })], ctx)).toEqual([]);
+  });
+  it("a single bulk sweep (one day) is one decision, not a pattern", () => {
+    expect(suggestFromClears(Array.from({ length: 10 }, (_, i) => clear(i, { at: NOW - i * 1000 })), ctx)).toEqual([]);
+  });
+  it("clears the model already called Low say nothing new", () => {
+    expect(suggestFromClears(Array.from({ length: 10 }, (_, i) => clear(i, { priorityModel: "Low" })), ctx)).toEqual([]);
+  });
+  it("skips muted, VIP, dismissed, promoted, and senders a correction already proposed", () => {
+    const xs = Array.from({ length: 8 }, (_, i) => clear(i));
+    expect(suggestFromClears(xs, { ...ctx, mute: ["shop.example"] })).toEqual([]);
+    expect(suggestFromClears(xs, { ...ctx, vip: ["deals@shop.example"] })).toEqual([]);
+    expect(suggestFromClears(xs, { ...ctx, dismissed: ["rule:low:deals@shop.example"] })).toEqual([]);
+    expect(suggestFromClears(xs, { ...ctx, corrections: [{ messageId: "x", accountEmail: "a", prioritySet: "High", priorityModel: "Low", sender: "deals@shop.example", subject: "s", at: NOW - DAY }] })).toEqual([]);
+    expect(suggestFromClears(xs, { ...ctx, already: [{ key: "rule:low:deals@shop.example", kind: "low", sender: "deals@shop.example", count: 3, evidence: "" }] })).toEqual([]);
+  });
+  it("clears older than 30 days do not count", () => {
+    expect(suggestFromClears(Array.from({ length: 8 }, (_, i) => clear(i, { at: NOW - 40 * DAY - i * DAY })), ctx)).toEqual([]);
+  });
+});

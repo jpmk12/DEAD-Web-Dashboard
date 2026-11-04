@@ -23,6 +23,8 @@ export interface EmailCardHandlers {
   onSetPriority: (email: EmailMessage, priority: EmailPriority | null) => void;
   onKeep: (email: EmailMessage, keep: boolean) => void;
   onSenderRule: (email: EmailMessage, kind: "high" | "low") => void;
+  /** The email was opened in Gmail from its card (the weak-signal record). */
+  onOpened?: (id: string) => void;
 }
 
 interface EmailCardProps extends EmailCardHandlers {
@@ -152,7 +154,7 @@ function PriorityMenu({ email, busy, onSetPriority, onSenderRule, small }: { ema
 }
 
 export default function EmailCard(props: EmailCardProps) {
-  const { email, selected, onToggle, onExpand, onMarkRead, onSetPriority, onKeep, onSenderRule, previousSeen = 0, compact = false, expanded = false, focused = false, showAccount = false, busy = false } = props;
+  const { email, selected, onToggle, onExpand, onMarkRead, onSetPriority, onKeep, onSenderRule, onOpened, previousSeen = 0, compact = false, expanded = false, focused = false, showAccount = false, busy = false } = props;
   const cfg = PRIORITY_CONFIG[email.priority];
   const sender = parseSender(email.from);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -466,7 +468,7 @@ export default function EmailCard(props: EmailCardProps) {
             {saveState === "saved" ? "✓ Doc" : saveState === "error" ? "! Doc" : "▤ Doc"}
           </button>
           <button type="button" onClick={(e) => { stop(e); openAppend({ text: email.summary || email.bodyPreview || email.snippet || email.subject, source: `Email · ${email.from}`, sourceTitle: email.subject, link: { type: "email", id: email.id, title: email.subject } }); }} title="Append to a running log" className={ACT_IDLE}>⧉ Log</button>
-          <a href={gmailLink(email)} target="_blank" rel="noopener noreferrer" onClick={stop} className={`${ACT} border-transparent text-slate-500 hover:text-slate-300`}>open in Gmail <ExternalLinkIcon size={11} className="inline -mt-px" /></a>
+          <a href={gmailLink(email)} target="_blank" rel="noopener noreferrer" onClick={(e) => { stop(e); onOpened?.(email.id); }} className={`${ACT} border-transparent text-slate-500 hover:text-slate-300`}>open in Gmail <ExternalLinkIcon size={11} className="inline -mt-px" /></a>
         </div>
 
         {/* Drafted-reply review panel — edit inline, then save to Gmail Drafts. */}

@@ -136,3 +136,32 @@ describe("cityOf", () => {
     expect(cityOf("Etc/GMT+5")).toBe("UTC−5");
   });
 });
+
+import { changesBetween, changeWindowLine, changeTable, offsetGapPeriods } from "@/lib/zoneConvert";
+
+describe("clock changes across a range", () => {
+  const Y26 = Date.UTC(2026, 0, 1), Y28 = Date.UTC(2028, 0, 1);
+  it("New York 2026–2027: four changes, in order", () => {
+    const c = changesBetween("America/New_York", Y26, Y28);
+    expect(c.map((x) => x.ymd)).toEqual(["2026-03-08", "2026-11-01", "2027-03-14", "2027-11-07"]);
+  });
+  it("says what the change does to the clock", () => {
+    const [spring, fall] = changesBetween("America/New_York", Y26, Date.UTC(2026, 11, 31));
+    expect(changeWindowLine(spring)).toBe("02:00–02:59 local does not exist (clocks jump ahead)");
+    expect(changeWindowLine(fall)).toBe("01:00–01:59 local happens twice (clocks fall back)");
+  });
+  it("merges zones in time order with abbreviations either side", () => {
+    const t = changeTable([{ zone: "America/New_York", label: "NJ" }, { zone: "Europe/Berlin", label: "Berlin" }, { zone: "Asia/Tehran", label: "Tehran" }], Y26, Date.UTC(2026, 11, 31));
+    expect(t.map((r) => `${r.label} ${r.ymd}`)).toEqual(["NJ 2026-03-08", "Berlin 2026-03-29", "Berlin 2026-10-25", "NJ 2026-11-01"]);
+    expect(t[0].abbrFrom).toBe("EST");
+    expect(t[0].abbrTo).toBe("EDT");
+  });
+  it("the gap between New York and Berlin is 5 h for the weeks they disagree", () => {
+    const p = offsetGapPeriods("America/New_York", "Europe/Berlin", Y26, Date.UTC(2026, 11, 31)).map((x) => x.diffMin / 60);
+    expect(p).toEqual([6, 5, 6, 5, 6]);
+  });
+  it("an empty or inverted range is empty; a no-DST zone has none", () => {
+    expect(changesBetween("America/New_York", Y28, Y26)).toEqual([]);
+    expect(changesBetween("Asia/Tehran", Y26, Y28)).toEqual([]);
+  });
+});

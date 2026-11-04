@@ -4,7 +4,8 @@ import { auth } from "@/lib/auth";
 import { markAsRead } from "@/lib/gmail";
 import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { normEmail } from "@/lib/allowlist";
-import { keptIds } from "@/lib/emailPrefs";
+import { keptIds, recordClears } from "@/lib/emailPrefs";
+import type { EmailPriority } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { ids, account } = body as Record<string, unknown>;
+  const { ids, account, meta } = body as Record<string, unknown>;
 
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_IDS) {
     return NextResponse.json({ error: "ids must be a non-empty array (max 100)" }, { status: 400 });
@@ -77,6 +78,21 @@ export async function POST(request: NextRequest) {
   const failed = toMark.length ? await markAsRead(token, toMark) : [];
   const failedSet = new Set(failed);
   const done = toMark.filter((id) => !failedSet.has(id));
+
+  // The weak signal: what was cleared, and whether it was opened first.
+  // Optional (`meta` keyed by id); only ids Gmail actually marked are kept;
+  // a failure here never fails the mark-read.
+  if (meta && typeof meta === "object" && done.length) {
+    const PRI = new Set(["High", "Medium", "Low"]);
+    const m = meta as Record<string, { sender?: unknown; priorityModel?: unknown; opened?: unknown }>;
+    const rows = done.filter((id) => m[id] && typeof m[id] === "object").map((id) => ({
+      id,
+      sender: typeof m[id].sender === "string" ? (m[id].sender as string) : "",
+      priorityModel: typeof m[id].priorityModel === "string" && PRI.has(m[id].priorityModel as string) ? (m[id].priorityModel as EmailPriority) : null,
+      opened: m[id].opened === true,
+    }));
+    await recordClears(userEmail, accountEmail, rows).catch((e) => console.error("recordClears failed:", e instanceof Error ? e.message : e));
+  }
 
   return NextResponse.json({ ok: failed.length === 0, done, kept: [...kept], failed });
 }

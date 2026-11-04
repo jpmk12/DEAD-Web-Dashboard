@@ -436,3 +436,37 @@ describe("the 2026-11-04 diag — fighter support and tankers on station", () =>
     expect(p.aor).toBe("CENTCOM");
   });
 });
+
+describe("the 2026-11-04 diag (redeployed) — a USAF tanker post over a strait, summed counts, clean phrases", () => {
+  const VISIONER = "BIG | 🇺🇸🇮🇷‼️‼️ UNUSUAL US AIR FORCE TANKER ACTIVITY OVER THE STRAIT OF HORMUZ RAISES QUESTIONS ABOUT POSSIBLE NEW STRIKES AGAINST IRAN! American forces may be targeting Iranian coastal air defense systems, although no such strikes have been confirmed. A higher-than-usual number of US Air Force aerial refueling aircraft has reportedly been observed operating over the Strait of Hormuz.";
+  const HORMUZ = "BREAKING: The U.S. may have begun striking Iranian air-defense systems, as multiple explosions rock Qeshm Island and Bandar Abbas in southern Iran, amid heavy U.S. aerial activity across the Gulf. At least five KC-46A Pegasus tankers and one KC-135R have been spotted operating in the region, while air-defense activity is reported over Qeshm, according to Initial and local reports.";
+  it("'Air Force tanker … aerial refueling aircraft' outranks the word 'strait' — read as U.S. tankers toward CENTCOM", () => {
+    const [p] = readChatter([post(VISIONER, { source: "𝕏 @visionergeo" })], NOW);
+    expect(p).toBeDefined();
+    expect(p.classes).toEqual(["tanker"]);
+    expect(p.aor).toBe("CENTCOM");
+  });
+  it("two handles on the same Gulf tankers corroborate", () => {
+    const ps = readChatter([post(VISIONER, { source: "𝕏 @visionergeo", id: "v" }), post(HORMUZ, { source: "𝕏 @HormuzReport", id: "h" })], NOW);
+    const c = clusterChatter(ps).find((x) => x.aor === "CENTCOM");
+    expect(c?.corroborated).toBe(true);
+  });
+  it("a ship story still refuses the generic tanker even beside an aircraft word", () => {
+    expect(airframesIn("A tanker transiting the Strait of Hormuz was struck by Iranian aircraft").map((a) => a.id)).not.toContain("tanker");
+    expect(airframesIn("US Air Force tankers orbiting while an oil tanker was hit in the strait").map((a) => a.id)).not.toContain("tanker");
+    expect(airframesIn("Two oil tankers hit mines in the Strait of Hormuz").map((a) => a.id)).not.toContain("tanker");
+  });
+  it("counts ADD across designated types: five KC-46A and one KC-135R is six", () => {
+    expect(statedCount(HORMUZ, airframesIn(HORMUZ))).toBe(6);
+    // the same type named twice is not double counted; the generic alias does not add
+    const t = "3x KC-46s departed Yokota; the KC-46 tankers will refuel TITAN 29";
+    expect(statedCount(t, airframesIn(t))).toBe(3);
+  });
+  it("the diag's place phrases stop at a full stop and keep accented letters", () => {
+    const r = explainChatter([post("Il-76TD landed at Bamako-Sénou at 02:17 UTC after a flight from Benghazi. It flew south at FL320. Datas show it", { id: "b" }), post(HORMUZ, { id: "h2" })], NOW);
+    const phrases = r.unknownPlaces.map((u) => u.phrase);
+    expect(phrases).toContain("Bamako-Sénou");
+    expect(phrases.some((p) => /\. /.test(p))).toBe(false);
+    expect(phrases).not.toContain("Initial");
+  });
+});

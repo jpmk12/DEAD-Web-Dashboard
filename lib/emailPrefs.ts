@@ -6,7 +6,7 @@
 import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import type { EmailPriority, ActionItem } from "./types";
-import type { Correction } from "./emailLearning";
+import type { Correction, Clear } from "./emailLearning";
 
 const KEEP_DAYS = 90;
 const ACTION_TTL_MS = 14 * 86_400_000;
@@ -107,6 +107,37 @@ export async function listCorrections(userEmail: string, sinceMs: number): Promi
     out.push({ messageId: r.message_id, accountEmail: r.account_email, prioritySet: set, priorityModel: asPriority(r.priority_model), sender: r.sender, subject: r.subject, at: Number(r.updated_at) });
   }
   return out;
+}
+
+// ---- clears (the weak "cleared without opening" signal) --------------------
+
+const CLEAR_KEEP_DAYS = 45;
+interface ClearRow extends RowDataPacket { message_id: string; sender: string; priority_model: string | null; opened: number; cleared_at: number }
+
+/** Record emails the user cleared from the Email tab (only the ids Gmail
+ *  actually marked read), each with whether it was opened first. */
+export async function recordClears(userEmail: string, accountEmail: string, rows: { id: string; sender: string; priorityModel: EmailPriority | null; opened: boolean }[]): Promise<void> {
+  if (!userEmail || !rows.length) return;
+  const pool = await getDb();
+  const now = Date.now();
+  const vals = rows.slice(0, 100).map((r) => [userEmail, accountEmail, r.id, r.sender.slice(0, 255), r.priorityModel, r.opened ? 1 : 0, now]);
+  await pool.query(
+    `INSERT INTO email_clears (user_email, account_email, message_id, sender, priority_model, opened, cleared_at) VALUES ?
+       ON DUPLICATE KEY UPDATE opened = GREATEST(opened, VALUES(opened)), cleared_at = VALUES(cleared_at)`,
+    [vals],
+  );
+  pool.execute("DELETE FROM email_clears WHERE user_email = ? AND cleared_at < ?", [userEmail, now - CLEAR_KEEP_DAYS * 86_400_000]).catch(() => {});
+}
+
+export async function listClears(userEmail: string, sinceMs: number): Promise<Clear[]> {
+  if (!userEmail) return [];
+  const pool = await getDb();
+  const [rows] = await pool.query<ClearRow[]>(
+    `SELECT message_id, sender, priority_model, opened, cleared_at FROM email_clears
+      WHERE user_email = ? AND cleared_at >= ? ORDER BY cleared_at DESC LIMIT 2000`,
+    [userEmail, sinceMs],
+  );
+  return rows.map((r) => ({ messageId: r.message_id, sender: r.sender, priorityModel: asPriority(r.priority_model), opened: Number(r.opened) === 1, at: Number(r.cleared_at) }));
 }
 
 // ---- action-item cache ------------------------------------------------------

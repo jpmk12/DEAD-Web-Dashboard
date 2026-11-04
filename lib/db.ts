@@ -373,6 +373,21 @@ const SCHEMA_STATEMENTS = [
     INDEX idx_email_prefs_user (user_email, updated_at)
   ) ENGINE=InnoDB`,
 
+  // Emails cleared from the Email tab, with whether they were opened first —
+  // the weak "cleared without opening" signal (lib/emailLearning
+  // suggestFromClears). Per user, 30-day window, pruned on write.
+  `CREATE TABLE IF NOT EXISTS email_clears (
+    user_email     VARCHAR(255) NOT NULL,
+    account_email  VARCHAR(255) NOT NULL,
+    message_id     VARCHAR(255) NOT NULL,
+    sender         VARCHAR(255) NOT NULL DEFAULT '',
+    priority_model VARCHAR(8)   NULL,
+    opened         TINYINT(1)   NOT NULL DEFAULT 0,
+    cleared_at     BIGINT       NOT NULL,
+    PRIMARY KEY (user_email, account_email, message_id),
+    INDEX idx_email_clears_user (user_email, cleared_at)
+  ) ENGINE=InnoDB`,
+
   // Action-item extraction cached PER MESSAGE (an email's action does not
   // change), so a new arrival sends only itself to the model.
   `CREATE TABLE IF NOT EXISTS email_action_cache (

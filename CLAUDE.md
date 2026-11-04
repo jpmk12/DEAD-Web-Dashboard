@@ -3263,6 +3263,26 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   a near miss; the 150-character proximity rule still binds them to a lift
   airframe. The same diag's top 20 handles matched nothing — the pool is
   still news aggregators; a spotter list is what lift chatter needs.
+- **The redeployed 2026-11-04 diag (1,946 items, 2 matched): the new rules
+  held** — the F-16-to-Shemya post sat in `support`, the GLOBAL THUNDER and
+  fleet-census posts in `exercise`, @HormuzReport placed CENTCOM by
+  "spotted operating". Three fixes from it: (1) **an unmistakable aviation
+  phrase outranks a maritime PLACE word** — @visionergeo's "US AIR FORCE
+  TANKER ACTIVITY OVER THE STRAIT OF HORMUZ … aerial refueling aircraft …
+  operating over" was refused because "strait" is in `MARITIME_CONTEXT`.
+  `STRONG_AVIATION` (Air Force / USAF … tanker, refuelling aircraft, aerial
+  refuelling, tanker aircraft, a KC designator) lifts the maritime refusal
+  unless a VESSEL word is present (`VESSEL_CONTEXT`: oil / product /
+  chemical tanker, LPG, vessel, ship, hull, bulk carrier, ghost fleet…), and
+  "refuel(l)ing aircraft" / "aerial refuellers" are generic-tanker tokens so
+  the 150-char proximity rule can bind "operating over" to them. The two
+  posts now CORROBORATE CENTCOM (two handles). A tanker struck in the strait
+  by aircraft still refuses (tested). (2) **Counts add across designated
+  types** (`statedCount`): "five KC-46A … and one KC-135R" is six (read
+  five); per type the largest stated count, the generic "tanker" only when
+  no designated type has a number. (3) The diag's unknown-place phrases stop
+  at sentence punctuation and read any script ("Bamako-Sénou", not
+  "Benghazi. It" / "Bamako-S"); "Initial" / "local" are stopwords.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in
@@ -3881,8 +3901,20 @@ is `lib/plannerTools.ts` (PURE, client-safe, tested in
     what a planner means). Ambiguous abbreviations (IST, AST, CST-for-China)
     are refused, never guessed. The DST data is the browser's own IANA
     database.
-No new npm dep (esbuild `0`). Still offered: a full DST-change
-table for a zone across a date range (the card shows the next change only).
+- **Clock changes across a range (same day, "execute 1")** — a fold inside
+  the Time zones card (`ClockChanges`): a from / to date (default today → a
+  year), all zones in the table or one, merged in time order — local date,
+  the clock ("02:00 → 03:00 +1 h"), offset and abbreviation either side, the
+  Zulu DTG of the instant, and what it does to the local clock
+  (`changeWindowLine`: "02:00–02:59 local does not exist" / "01:00–01:59
+  local happens twice"); zones with no DST are named once ("the offset holds
+  all year"). With one zone and a **gap against** zone, `offsetGapPeriods`
+  lists how the gap between the two clocks moves ("New Jersey is 8 h behind
+  Amman · from 08 Mar 07:00Z 7 h · from 01 Nov 06:00Z 8 h") — the weeks two
+  clocks change on different days show up as rows. PURE in
+  `lib/zoneConvert.ts` (`changesBetween`, `changeTable`, `offsetGapPeriods`,
+  `CHANGE_RANGE_MAX_DAYS` 5 years), tested.
+No new npm dep (esbuild `0`).
 
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to
@@ -4907,6 +4939,15 @@ part of the burst. Fixes, keep all of them:
   shows there. It also reports the 12-rule cap and whether the second
   account is connected (its mail is read only on a browser holding the
   secondary cookie).
+- **Mark-read failures are named (same day, "Axios still shows 3 unread")**:
+  the batch was fire-and-forget and a refused batch vanished. It now starts
+  with the fetch and is awaited before the reply; `unmarked: [{account,
+  count}]` rides every response and `NewsletterSection` shows "Gmail refused
+  to mark N in the 2nd account read — left unread there". The 2026-11-04
+  diag's unread Axios / War.gov rows were most likely NOT a refusal: the
+  second account's mail is read and marked only on a browser that holds the
+  secondary cookie (the phone does not) — the next load on that browser
+  marks them, and if it does not, the new line says so.
 - Reminder: the Read queue shows only EARNED rows (watchlist / thread /
   kept) by default — a routine newsletter that WAS read and marked is
   behind "show all N ▾", and in the digest.
@@ -5026,7 +5067,20 @@ inputs).
   strip above the inbox: role, topic/VIP/muted counts, corrections in 30 d
   (▲/▼), "what the model reads" fold (`RULES_TEXT`), "Rules ⚙" →
   `prefs:open` "email"; the Suggested-VIPs rows (reply mining) live in the
-  same strip. NOT built: mark-read-without-opening as a weak demotion.
+  same strip. **Cleared-without-opening is a WEAK
+  signal (2026-11-04, "execute 2")**: the Email tab remembers this session's
+  opened ids (expanded here, or "open in Gmail" — `onOpened`) and every
+  mark-read POST carries `meta {id: {sender, priorityModel, opened}}`; the
+  route records ONLY the ids Gmail marked into `email_clears` (per user,
+  45-day prune on write; a write failure never fails the mark-read).
+  `suggestFromClears` (PURE, tested): a sender whose emails the model called
+  Medium / High was cleared unopened ≥ `CLEAR_MIN_UNOPENED` 6 times over ≥
+  `CLEAR_MIN_DAYS` 3 days in 30 d, with NONE opened, earns an "Always Low?"
+  row marked **weak** with its evidence; one open, a promotion, mute / VIP,
+  a correction-based proposal for the same sender, or the shared
+  `rule:low:<sender>` dismissal key suppress it. It never reaches the
+  classifier's examples (explicit corrections only) and nothing is demoted
+  automatically.
 - **Mark-read reports failures** (E5): `markAsRead` returns the ids Gmail
   REFUSED; the route answers `{ok, done, kept, failed}` and refreshes the
   secondary token (`getValidSecondaryToken` + cookie write-back — an expired

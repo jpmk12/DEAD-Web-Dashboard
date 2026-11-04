@@ -79,6 +79,10 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
   const [rulesOpen, setRulesOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Emails opened this session (expanded here or opened in Gmail) — sent with
+  // a mark-read so a clear can be told from a read (the weak signal).
+  const openedRef = useRef<Set<string>>(new Set());
+  useEffect(() => { if (expandedId) openedRef.current.add(expandedId); }, [expandedId]);
   const [focusId, setFocusId] = useState<string | null>(null);
 
   const publish = (list: EmailMessage[]) => clientCache.set(CACHE_KEY, list, CACHE_TTL.EMAIL);
@@ -339,7 +343,8 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
     try {
       await Promise.all((["primary", "secondary"] as const).filter((a) => byAccount[a].length > 0).map(async (account) => {
         const ids = byAccount[account].map((e) => e.id);
-        const res = await fetch("/api/gmail/mark-read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, account }) });
+        const meta = Object.fromEntries(byAccount[account].map((e) => [e.id, { sender: e.from, priorityModel: e.priorityModel ?? null, opened: openedRef.current.has(e.id) }]));
+        const res = await fetch("/api/gmail/mark-read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, account, meta }) });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) { refused = d?.error || `HTTP ${res.status}`; failed += ids.length; return; }
         for (const id of (Array.isArray(d.done) ? d.done : [])) done.add(id);
@@ -569,8 +574,11 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
                 return (
                   <li key={r.key} className="flex items-center gap-3 px-4 py-2 text-[12px] text-slate-300 flex-wrap">
                     <span className="text-[8.5px] font-bold uppercase tracking-wider text-violet-300 bg-violet-500/15 rounded px-1.5 py-0.5">suggested rule</span>
+                    {r.weak && <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 border border-slate-700 rounded px-1.5 py-0.5" title="Inferred from emails you cleared without opening — not from a correction you made">weak</span>}
                     <span className="flex-1 min-w-[200px]">
-                      You {r.kind === "high" ? "promoted" : "demoted"} <b className="text-slate-100">{r.count}</b> emails from <span className="font-mono text-slate-200">{r.sender}</span> — make it <b className="text-slate-100">Always {r.kind === "high" ? "High" : "Low"}</b>?
+                      {r.weak
+                        ? <>You cleared <b className="text-slate-100">{r.count}</b> emails from <span className="font-mono text-slate-200">{r.sender}</span> without opening them — make it <b className="text-slate-100">Always Low</b>?</>
+                        : <>You {r.kind === "high" ? "promoted" : "demoted"} <b className="text-slate-100">{r.count}</b> emails from <span className="font-mono text-slate-200">{r.sender}</span> — make it <b className="text-slate-100">Always {r.kind === "high" ? "High" : "Low"}</b>?</>}
                       <span className="block text-[10px] text-slate-500">{r.evidence}</span>
                     </span>
                     <span className="flex items-center gap-1.5">
@@ -710,6 +718,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
                         onSetPriority={setPriority}
                         onKeep={setKeep}
                         onSenderRule={senderRule}
+                        onOpened={(id) => openedRef.current.add(id)}
                       />
                     ))}
                   </div>
