@@ -290,7 +290,7 @@ describe("explainChatter — the owner's tuning read", () => {
     expect(toks).not.toContain("C-17");
     expect(r.places.find((p) => p.name === "Al Udeid")?.dest).toBe(1);
     expect(r.handles[0].source).toBe("𝕏 @spotter2");
-    expect(r.lines).toHaveLength(9);
+    expect(r.lines).toHaveLength(10);
   });
 });
 
@@ -465,8 +465,45 @@ describe("the 2026-11-04 diag (redeployed) — a USAF tanker post over a strait,
   it("the diag's place phrases stop at a full stop and keep accented letters", () => {
     const r = explainChatter([post("Il-76TD landed at Bamako-Sénou at 02:17 UTC after a flight from Benghazi. It flew south at FL320. Datas show it", { id: "b" }), post(HORMUZ, { id: "h2" })], NOW);
     const phrases = r.unknownPlaces.map((u) => u.phrase);
-    expect(phrases).toContain("Bamako-Sénou");
+    // Bamako is a region phrase since the next diag (AFRICOM), so it leaves the unknown list.
+    expect(phrases).not.toContain("Bamako-Sénou");
     expect(phrases.some((p) => /\. /.test(p))).toBe(false);
     expect(phrases).not.toContain("Initial");
+  });
+});
+
+describe("the redeployed 2026-11-04 diag — active over, Gulf places, spotter list", () => {
+  const NOITS = "Higher than typical recent number of USAF 🇺🇸 refueling aircraft active over the Strait of Hormuz";
+  it("'refueling aircraft active over the Strait of Hormuz' is presence, read CENTCOM", () => {
+    const [p] = readChatter([post(NOITS, { source: "𝕏 @no_itsmyturn" })], NOW);
+    expect(p).toBeDefined();
+    expect(p.aor).toBe("CENTCOM");
+  });
+  it("'active' without a preposition is not movement", () => {
+    expect(readChatter([post("KC-46 SUM9621 was active last week", { id: "a" })], NOW)).toHaveLength(0);
+  });
+  it("Qeshm / Bandar Abbas place a Gulf post", () => {
+    const [p] = readChatter([post("Two KC-135s orbiting near Qeshm Island tonight", { id: "q" })], NOW);
+    expect(p?.aor).toBe("CENTCOM");
+  });
+  it("the diag drops region phrases, flight levels and designator fronts from the unknown places", () => {
+    const r = explainChatter([
+      post("USAF tanker activity over the Strait of Hormuz — refueling aircraft operating over the Gulf", { id: "s" }),
+      post("Il-76TD climbed to FL320 heading for Emergency Situations IL-76TD duty", { id: "f" }),
+    ], NOW);
+    const phrases = r.unknownPlaces.map((u) => u.phrase);
+    expect(phrases).not.toContain("Strait");
+    expect(phrases).not.toContain("FL320");
+    expect(phrases.some((x) => /Emergency/.test(x))).toBe(false);
+  });
+  it("lists the handles that named a lift airframe, matched ones first", () => {
+    const r = explainChatter([
+      post(NOITS, { source: "𝕏 @no_itsmyturn", id: "n" }),
+      post("KC-46 parked at the airshow", { source: "𝕏 @quietspotter", id: "q2" }),
+      post("Markets fell today", { source: "𝕏 @WSJ", id: "w" }),
+    ], NOW);
+    expect(r.liftHandles.map((h) => h.source)).toEqual(["𝕏 @no_itsmyturn", "𝕏 @quietspotter"]);
+    expect(r.liftHandles[0].matched).toBe(1);
+    expect(r.lines.some((l) => l.startsWith("handles naming lift airframes"))).toBe(true);
   });
 });

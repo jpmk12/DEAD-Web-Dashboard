@@ -3324,6 +3324,24 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   no designated type has a number. (3) The diag's unknown-place phrases stop
   at sentence punctuation and read any script ("Bamako-Sénou", not
   "Benghazi. It" / "Bamako-S"); "Initial" / "local" are stopwords.
+- **The diag after the GPS-NOTAM redeploy (2026-11-04, 1,946 items): 3
+  matched, all three honest** — @visionergeo + @HormuzReport corroborate
+  CENTCOM (the strong-aviation fix held), @ArmchairAdml's VIP tanker
+  support reads NORTHCOM. From it: (1) PRESENCE gains "active over / in /
+  across / near / around / off / above" — @no_itsmyturn's "USAF refueling
+  aircraft active over the Strait of Hormuz" was a no-movement near miss
+  and is now the third CENTCOM handle ("active last week" still is not
+  movement); (2) Qeshm / Bandar Abbas join the CENTCOM region phrases and
+  Bamako / Niamey / Benghazi / Benina / Tripoli / Ouagadougou the AFRICOM
+  ones (the EMERCOM Il-76 shuttle, watched-country category); (3) the
+  diag's unknown places drop a cue whose next 30 characters hold a region
+  phrase ("over the Strait of Hormuz" listed "Strait"), flight levels
+  (FL320) and designator fronts ("for Emergency Situations IL-76TD"); (4)
+  **`liftHandles`** + a line "handles naming lift airframes (posts ·
+  matched)" — the top-20-by-volume list is all news aggregators, so a
+  low-volume spotter never showed; this lists every handle whose posts named
+  a lift airframe, matched first. The unknown designators were all fighters,
+  bombers, drones and missiles — none added.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

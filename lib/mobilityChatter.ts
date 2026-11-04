@@ -153,7 +153,7 @@ const MOVEMENT = [
   // over the Gulf: what spotters report when the jets are already there (the
   // 2026-11-04 diag's @HormuzReport post was a near miss without these). The
   // 150-character proximity rule still binds them to a lift airframe.
-  /\bspotted operating\b/i, /\boperating (?:in|over|across|near|around|off)\b/i, /\bon station\b/i, /\borbit(?:ing|ed|s)?\b/i,
+  /\bspotted operating\b/i, /\boperating (?:in|over|across|near|around|off)\b/i, /\bactive (?:over|in|across|near|around|off|above)\b/i, /\bon station\b/i, /\borbit(?:ing|ed|s)?\b/i,
   /\b[Bb]ack (?:home|to (?:[Bb]ase|[Hh]ome|CONUS|the (?:US|U\.S\.|[Ss]tates)|[A-Z][a-z]{2,}))/, /\breturn(?:ing|ed|s)?\b/i, /\bRTB\b/,
 ];
 /** The movement phrase must sit within this many characters of a lift
@@ -256,10 +256,10 @@ export function placesWithOwn(own: OwnPlace[] | undefined): PlaceDef[] {
 }
 
 const REGION_AOR: [RegExp, Aor][] = [
-  [/\b(?:middle east|persian gulf|the gulf|arabian gulf|red sea|hormuz|arabian sea|gulf of oman|levant|gulf region|centcom|the sandbox|the desert)\b/i, "CENTCOM"],
+  [/\b(?:middle east|persian gulf|the gulf|arabian gulf|red sea|hormuz|arabian sea|gulf of oman|levant|gulf region|centcom|the sandbox|the desert|qeshm|bandar abbas)\b/i, "CENTCOM"],
   [/\b(?:indo-pacific|western pacific|pacific|south china sea|taiwan strait|korean peninsula|east china sea|first island chain|indopacom|pacom)\b/i, "INDOPACOM"],
   [/\b(?:europe|baltic|black sea|eastern flank|mediterranean|the med|arctic|nordic|eucom|usafe)\b/i, "EUCOM"],
-  [/\b(?:sahel|horn of africa|west africa|east africa|africom)\b/i, "AFRICOM"],
+  [/\b(?:sahel|horn of africa|west africa|east africa|africom|bamako|niamey|benghazi|benina|tripoli|ouagadougou)\b/i, "AFRICOM"],
   [/\b(?:caribbean|latin america|south america|central america|southcom)\b/i, "SOUTHCOM"],
   [/\b(?:conus|the states|stateside|homeland|alaska|northcom)\b/i, "NORTHCOM"],
 ];
@@ -549,6 +549,10 @@ export interface ChatterExplain {
   unknownPlaces: { phrase: string; role: "dest" | "origin"; count: number; example: string }[];
   unknownTypes: { token: string; count: number; example: string }[];
   handles: { source: string; items: number; matched: number }[];
+  /** Handles whose posts named a lift airframe at all (the spotters), with
+   *  how many of those posts matched — low-volume spotters never make the
+   *  top-20 by volume above. */
+  liftHandles: { source: string; items: number; lift: number; matched: number }[];
   lines: string[];
 }
 
@@ -589,7 +593,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
   const bySource: Record<string, number> = {};
   const byAor: Record<string, number> = {};
   const byAirframe: Record<string, number> = {};
-  const handles = new Map<string, { items: number; matched: number }>();
+  const handles = new Map<string, { items: number; matched: number; lift: number }>();
   const placeCount = new Map<string, { name: string; icao: string | null; mine: boolean; aor: Aor; dest: number; origin: number; bare: number }>();
   const unknownPlaces = new Map<string, { phrase: string; role: "dest" | "origin"; count: number; example: string }>();
   const unknownTypes = new Map<string, { token: string; count: number; example: string }>();
@@ -604,7 +608,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     inWindow++;
     const src = (it.source || "").trim() || "unknown";
     bySource[sourceKind(src)] = (bySource[sourceKind(src)] ?? 0) + 1;
-    const h = handles.get(src) ?? { items: 0, matched: 0 };
+    const h = handles.get(src) ?? { items: 0, matched: 0, lift: 0 };
     h.items++;
     handles.set(src, h);
     const text = hay(it);
@@ -623,6 +627,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
 
     if (r.skip === "generic-gated") { gatedN++; if (gated.length < EXAMPLE_CAP) gated.push(ex(it)); continue; }
     if (r.skip === "no-airframe") continue;
+    h.lift++;
 
     // An airframe was named: count the places and the unknown place phrases.
     for (const hit of placeHits(text, places)) {
@@ -635,6 +640,13 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
       const phrase = m[2].replace(/[.’']+$/, "").trim();
       const first = phrase.split(/[ -]/)[0].toLowerCase();
       if (phrase.length < 3 || PLACE_STOP.has(phrase.toLowerCase()) || PLACE_STOP.has(first)) continue;
+      // A flight level, or the front of a designator ("for Emergency Situations IL-76TD").
+      if (/^FL\d{2,3}$/i.test(phrase)) continue;
+      const end = (m.index ?? 0) + m[0].length;
+      if (/^-\d/.test(text.slice(end, end + 2))) continue;
+      // "over the Strait of Hormuz": the region phrase the grammar already reads.
+      const near = text.slice(m.index ?? 0, end + 30);
+      if (REGION_AOR.some(([rx]) => rx.test(near))) continue;
       if (AIRFRAMES.some((a) => a.rx.test(phrase)) || isKnownPlacePhrase(phrase, places)) continue;
       const role: "dest" | "origin" = ORIGIN_WORDS.has(m[1].toLowerCase()) ? "origin" : "dest";
       const key = `${role}|${phrase.toLowerCase()}`;
@@ -668,7 +680,9 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
   const placeList = [...placeCount.values()].sort((a, b) => (b.dest + b.origin + b.bare) - (a.dest + a.origin + a.bare)).slice(0, 25);
   const uPlaces = top(unknownPlaces, 25);
   const uTypes = top(unknownTypes, 25);
-  const handleList = [...handles.entries()].map(([source, v]) => ({ source, ...v })).sort((a, b) => b.items - a.items).slice(0, 20);
+  const handleList = [...handles.entries()].map(([source, v]) => ({ source, items: v.items, matched: v.matched })).sort((a, b) => b.items - a.items).slice(0, 20);
+  const liftHandles = [...handles.entries()].filter(([, v]) => v.lift > 0).map(([source, v]) => ({ source, ...v }))
+    .sort((a, b) => b.matched - a.matched || b.lift - a.lift).slice(0, 25);
   const fmt = (r: Record<string, number>) => Object.entries(r).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(" · ") || "none";
 
   const lines = [
@@ -680,6 +694,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     `near misses: ${noMoveN} named a type with no movement phrase · ${farN} with movement far from the airframe · ${exerciseN} exercise posts · ${supportN} fighter/bomber moves with only generic tanker support · ${gatedN} generic "tanker"/"airlifter" refused by context`,
     `places named (dest/origin/bare): ${placeList.slice(0, 8).map((p) => `${p.name} ${p.dest}/${p.origin}/${p.bare}`).join(" · ") || "none"}`,
     `unknown places after a cue: ${uPlaces.slice(0, 8).map((u) => `"${u.phrase}" ×${u.count} (${u.role})`).join(" · ") || "none"}`,
+    `handles naming lift airframes (posts · matched): ${liftHandles.slice(0, 12).map((h) => `${h.source.replace(/^𝕏 /, "")} ${h.lift}·${h.matched}`).join(" · ") || "none"}`,
     `designators not in the grammar: ${uTypes.slice(0, 10).map((u) => `${u.token} ×${u.count}`).join(" · ") || "none"}`,
   ];
 
@@ -690,7 +705,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     matchedExamples: matchedEx,
     foreign: { count: foreignN, examples: foreignEx },
     nearMiss: { noMovement: { count: noMoveN, examples: noMove }, farMovement: { count: farN, examples: farEx }, exercise: { count: exerciseN, examples: exerciseEx }, support: { count: supportN, examples: supportEx }, genericGated: { count: gatedN, examples: gated }, unplaced: { count: unplaced, examples: unplacedEx } },
-    places: placeList, unknownPlaces: uPlaces, unknownTypes: uTypes, handles: handleList, lines,
+    places: placeList, unknownPlaces: uPlaces, unknownTypes: uTypes, handles: handleList, liftHandles, lines,
   };
 }
 
