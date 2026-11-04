@@ -13,6 +13,7 @@
 import type { SitrepPayload } from "./sitrep";
 import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led } from "./sitrepSignals";
 import type { FlightCategory } from "./types";
+import { fieldGpsLine, prnLine } from "./gpsNotams";
 
 export function esc(s: string): string {
   return s
@@ -147,6 +148,12 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
     }
   }
   if (p.ops.lift) opsRows.push(row(p.ops.lift.high ? "a" : "b", `Lift: ${esc(p.ops.lift.label)}`, "ADS-B"));
+  if (p.ops.fuel) {
+    if (!p.ops.fuel.live) opsRows.push(row("u", "<b>Fuel NOTAMs:</b> feed unreachable — UNKNOWN, not clear", "DAIP"));
+    else if (!p.ops.fuel.items.length) opsRows.push(row("g", `<b>Fuel NOTAMs:</b> none referencing ${esc(p.base.icao)}`, "DAIP"));
+    else for (const t of p.ops.fuel.items) opsRows.push(row("a", `<b>Fuel:</b> ${esc(t)}`, "DAIP"));
+    if ((p.ops.fuel.more ?? 0) > 0) opsRows.push(row("a", `+${p.ops.fuel.more} more fuel NOTAMs referencing ${esc(p.base.icao)}`, "DAIP"));
+  }
   if (p.tempo && p.tempo.lines.length) opsRows.push(row("b", `Tempo (of observed days): ${esc(p.tempo.lines.join(" · "))}`, "app history"));
   if (p.ops.center) {
     opsRows.push(p.ops.center.live
@@ -240,6 +247,14 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
       ? row(sp.pnt.cellLevel >= 2 ? "r" : sp.pnt.cellLevel === 1 ? "a" : "g", `<b>PNT at the field:</b> ${sp.pnt.cellLevel >= 2 ? "inside a HIGH GPS-interference cell — GPS approaches unreliable, brief ILS/TACAN alternates" : sp.pnt.cellLevel === 1 ? "inside a moderate GPS-interference cell — verify RAIM" : "no GPS interference reported"} <span class="dim">(${esc(sp.pnt.date || "latest")}, ADS-B-derived)</span>`, "GPSJam")
       : row("u", "<b>PNT:</b> GPSJam unreachable — UNKNOWN", "GPSJam"));
     for (const t of sp.pnt.raim) specRows.push(row("a", `<b>RAIM:</b> ${esc(t)}`, "DAIP"));
+    const gn = sp.pnt.notams;
+    if (gn && !gn.live) specRows.push(row("u", "<b>GPS NOTAMs:</b> DAIP GPS/WAAS list unreachable — UNKNOWN, not clear", "DAIP GPS"));
+    else if (gn) {
+      if (!gn.items.length) specRows.push(row("g", `<b>GPS NOTAMs:</b> no GPS test or interference NOTAM reaches ${esc(p.base.icao)}`, "DAIP GPS"));
+      for (const n of gn.items) specRows.push(row(n.amber ? "a" : "b", `<b>GPS NOTAM:</b> ${esc(fieldGpsLine(n))}`, "DAIP GPS"));
+      const pl = prnLine(gn.prns);
+      if (pl) specRows.push(row("b", `<b>Constellation:</b> ${esc(pl)}`, "DAIP GPS"));
+    }
     if (sp.spaceWx.live && sp.spaceWx.now) {
       const n = sp.spaceWx.now;
       const w = Math.max(n.R ?? 0, n.G ?? 0, sp.spaceWx.polar ? (n.S ?? 0) : 0);

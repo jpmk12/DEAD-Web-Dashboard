@@ -23,6 +23,7 @@ import {
   notamTimeState, type NotamCategory,
 } from "./notams";
 import { firByCode } from "./firData";
+import { parseGpsValidity } from "./gpsNotams";
 
 export type AlertLevel = "Warning" | "Caution" | "Default";
 const ALERT_RANK: Record<AlertLevel, number> = { Warning: 0, Caution: 1, Default: 2 };
@@ -35,6 +36,9 @@ export interface AirspaceNotam {
   category: NotamCategory;
   rank: number;
   alert: AlertLevel;
+  /** Location code of the DAIP wrapper the NOTAM sat under (ARTCC / FIR /
+   *  station, e.g. "KZAB", "MMFR") — the group code alone is "GPS NOTAMs". */
+  loc?: string;
   start?: string;
   end?: string;
 }
@@ -70,7 +74,7 @@ function toAlert(v: unknown): AlertLevel {
 // notams.ts parseDaipNotams, which flattens everything under one ICAO). Pure /
 // network-free, so it's unit-tested against captured fixtures. Drops expired
 // NOTAMs (relative to `nowMs`); returns groups newest-significance first.
-export function parseAirspaceGroups(raw: string, nowMs: number = Date.now()): AirspaceGroup[] {
+export function parseAirspaceGroups(raw: string, nowMs: number = Date.now(), maxPerGroup: number = MAX_PER_GROUP): AirspaceGroup[] {
   let json: unknown;
   try { json = JSON.parse(raw); } catch { return []; }
   const groups = (json as { group?: unknown[] })?.group;
@@ -89,6 +93,7 @@ export function parseAirspaceGroups(raw: string, nowMs: number = Date.now()): Ai
     for (const w of wrappers) {
       if (!w || typeof w !== "object") continue;
       if (!friendly) friendly = String((w as { name?: unknown }).name ?? "").trim();
+      const loc = String((w as { code?: unknown }).code ?? "").trim().toUpperCase();
       const list = (w as { list?: unknown[] }).list;
       const items = Array.isArray(list) ? list : [w];
       for (const it of items) {
@@ -99,8 +104,11 @@ export function parseAirspaceGroups(raw: string, nowMs: number = Date.now()): Ai
         const basis = rawtext || display;
         if (!basis) continue;
         const { category, rank } = categorizeNotam(basis);
-        const start = parseNotamStart(rawtext) ?? parseNotamStart(display);
-        const end = parseNotamEnd(rawtext) ?? parseNotamEnd(display);
+        // FAA domestic NOTAMs (the GPS list) carry no B)/C): their validity is
+        // the trailing "YYMMDDHHMM-YYMMDDHHMM" pair — without it they never expire.
+        const pair = parseGpsValidity(rawtext);
+        const start = parseNotamStart(rawtext) ?? parseNotamStart(display) ?? pair.start;
+        const end = parseNotamEnd(rawtext) ?? parseNotamEnd(display) ?? pair.end;
         const id = String(item.idshow ?? item.id ?? "").replace(/\s+/g, " ").trim();
         const n: AirspaceNotam = {
           id, group: code,
@@ -108,6 +116,7 @@ export function parseAirspaceGroups(raw: string, nowMs: number = Date.now()): Ai
           rawtext,
           category, rank,
           alert: toAlert(item.alertType),
+          ...(loc ? { loc } : {}),
           ...(start ? { start } : {}),
           ...(end ? { end } : {}),
         };
@@ -120,7 +129,7 @@ export function parseAirspaceGroups(raw: string, nowMs: number = Date.now()): Ai
     const worst = notams.reduce<AlertLevel>((w, n) => (ALERT_RANK[n.alert] < ALERT_RANK[w] ? n.alert : w), "Default");
     out.push({
       code, name: friendly || code, worst,
-      count: notams.length, notams: notams.slice(0, MAX_PER_GROUP),
+      count: notams.length, notams: notams.slice(0, maxPerGroup),
     });
   }
   // Most-severe groups first, then most NOTAMs.
@@ -147,11 +156,11 @@ async function cachedDaipQuery(key: string, payload: Record<string, unknown>): P
 // Test/diagnostic hook — drop the cache (e.g. after credentials change).
 export function resetAirspaceCache(): void { daipCache.clear(); }
 
-async function query(type: string, key: string, params: Record<string, unknown>): Promise<AirspaceResult> {
+async function query(type: string, key: string, params: Record<string, unknown>, maxPerGroup?: number): Promise<AirspaceResult> {
   const { configured, raw } = await cachedDaipQuery(key, { type, sort: "Criticality", ...params });
   if (!configured) return { configured: false, live: false, type, groups: [] };
   if (raw == null) return { configured: true, live: false, type, groups: [] };
-  return { configured: true, live: true, type, groups: parseAirspaceGroups(raw) };
+  return { configured: true, live: true, type, groups: parseAirspaceGroups(raw, Date.now(), maxPerGroup) };
 }
 
 // Enroute/overflight NOTAMs for the given FIR codes, with centroids attached.
@@ -208,10 +217,12 @@ export async function getCenterNotams(codeRaw: string): Promise<AirspaceResult> 
 
 // Official GPS/WAAS outage NOTAMs (system-level; complements GPSJam).
 export async function getGpsNotams(): Promise<AirspaceResult> {
-  return query("GPS_WAAS", "gps", {});
+  // Every row: a field is matched by geometry, so a test NOTAM cut at the
+  // per-group cap would be a field wrongly read as clear.
+  return query("GPS_WAAS", "gps", {}, 400);
 }
 
 // Fuel availability NOTAMs ("can I refuel here").
 export async function getFuelNotams(): Promise<AirspaceResult> {
-  return query("FUEL_NOTAMS", "fuel", {});
+  return query("FUEL_NOTAMS", "fuel", {}, 400);
 }

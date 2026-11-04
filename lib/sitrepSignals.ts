@@ -562,7 +562,7 @@ export function threatLed(composite: string | null): Led {
 // Structural view of the SITREP's spectrum block (declared in lib/sitrep,
 // which is server-only — this module stays client-safe).
 export interface SpectrumLite {
-  pnt: { live: boolean; cellLevel: number; raim: string[] };
+  pnt: { live: boolean; cellLevel: number; raim: string[]; notams?: { live: boolean; affecting: number } };
   spaceWx: { live: boolean; impacts: { label: string; led: Led; now: string }[] };
   edge: { declared: boolean; live: boolean; hits: { vendor: string; ransomware: boolean }[] };
 }
@@ -576,6 +576,7 @@ export function spectrumShort(s: SpectrumLite | null | undefined): string {
   if (worstWx && worstWx.led === "r") return `space wx: ${worstWx.label} ${worstWx.now.split(":")[0]}`;
   if (s.edge.declared && s.edge.live && s.edge.hits.some((h) => h.ransomware)) return `KEV in ransomware use on ${s.edge.hits.find((h) => h.ransomware)!.vendor}`;
   if (s.pnt.live && s.pnt.cellLevel === 1) return "field inside a moderate GPS-interference cell";
+  if (s.pnt.notams?.live && s.pnt.notams.affecting > 0) return `GPS NOTAM in effect at the field (${s.pnt.notams.affecting}) — GPS approaches affected`;
   if (s.pnt.raim.length) return `${s.pnt.raim.length} RAIM outage NOTAM${s.pnt.raim.length === 1 ? "" : "s"}`;
   if (worstWx) return `space wx: ${worstWx.label} ${worstWx.now.split(":")[0]}`;
   if (s.edge.declared && s.edge.live && s.edge.hits.length) return `${s.edge.hits.length} KEV entr${s.edge.hits.length === 1 ? "y" : "ies"} on declared vendors`;
@@ -586,11 +587,13 @@ export function spectrumShort(s: SpectrumLite | null | undefined): string {
 
 export function spectrumLed(i: {
   pntLive: boolean; cellLevel: number; raimCount: number;
+  /** DAIP GPS NOTAMs in effect at the field at approach level (lib/gpsNotams). */
+  gpsNotamCount?: number;
   spaceWx: Led; edge: Led;
 }): Led {
   const rank: Record<Led, number> = { u: 0, g: 1, a: 2, r: 3 };
   let pnt: Led = i.pntLive ? (i.cellLevel >= 2 ? "r" : i.cellLevel === 1 ? "a" : "g") : "u";
-  if (i.raimCount > 0 && rank[pnt] < rank.a) pnt = "a";
+  if ((i.raimCount > 0 || (i.gpsNotamCount ?? 0) > 0) && rank[pnt] < rank.a) pnt = "a";
   const all: Led[] = [pnt, i.spaceWx, i.edge];
   if (all.every((l) => l === "u")) return "u";
   return all.reduce((w, l) => (rank[l] > rank[w] ? l : w), "g" as Led);

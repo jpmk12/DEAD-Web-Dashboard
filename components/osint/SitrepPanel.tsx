@@ -12,6 +12,7 @@ import { CounterspaceLine } from "@/components/osint/CounterspaceLine";
 import { LED_CLASS as LED_BG, LED_GLOW } from "@/lib/levelTokens";
 import { fieldChatterLine } from "@/lib/mobilityChatter";
 import { relTime } from "@/lib/relTime";
+import { fieldGpsLine, prnLine } from "@/lib/gpsNotams";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
 // LEDs carry the glow on top.
@@ -307,6 +308,9 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
     md.push(`\n## Ops`);
     md.push(`- Field: ${p.ops.fieldClosed ? "CLOSED" : p.ops.limiting ? "LIMITED" : p.ops.configured && p.ops.live ? "OPEN" : "UNKNOWN"} · ${p.ops.notamCount} active NOTAMs${p.ops.capability ? ` · ${p.ops.capability.lengthFt} ft ${p.ops.capability.surface} (${p.ops.capability.cls})` : ""}`);
     for (const g of p.ops.groups) for (const n of g.items) md.push(`- ${n.amber ? "**" : ""}[${g.label}] ${n.text.slice(0, 200)}${n.amber ? "**" : ""}`);
+    if (p.ops.fuel) md.push(p.ops.fuel.live ? (p.ops.fuel.items.length ? p.ops.fuel.items.map((t) => `- [Fuel] ${t}`).join("\n") : `- Fuel NOTAMs: none referencing ${p.base.icao}`) : "- Fuel NOTAMs: feed UNREACHABLE — UNKNOWN");
+    const gn = p.spectrum?.pnt.notams;
+    if (gn) md.push(gn.live ? (gn.items.length ? gn.items.map((n) => `- ${n.amber ? "**" : ""}[GPS] ${fieldGpsLine(n)}${n.amber ? "**" : ""}`).join("\n") : `- GPS NOTAMs: none reach ${p.base.icao}`) : "- GPS NOTAMs: DAIP GPS/WAAS UNREACHABLE — UNKNOWN");
     md.push(`\n## Infrastructure`);
     md.push(`- Internet (${p.infra.internet.entity ?? "region"}): ${p.infra.internet.live ? (p.infra.internet.led === "g" ? "no macro degradation" : p.infra.internet.series.filter((sr) => (sr.dropPct ?? 0) >= 50).map((sr) => `${sr.label} −${sr.dropPct}%`).join(", ") || "insufficient data") : "IODA UNREACHABLE — UNKNOWN"}`);
     if (p.infra.nas) md.push(`- FAA NAS: ${p.infra.nas.live ? `${p.infra.nas.counts.groundStops} GS / ${p.infra.nas.counts.groundDelays} GD / ${p.infra.nas.counts.closures} closures nationally` : "UNREACHABLE — UNKNOWN"}`);
@@ -809,6 +813,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                   {!payload.ops.fuel.live && <Row sev="u" src="DAIP">Fuel feed UNREACHABLE — UNKNOWN, not clear</Row>}
                   {payload.ops.fuel.live && payload.ops.fuel.items.length === 0 && <Row sev="g" src="DAIP">No fuel NOTAMs referencing {payload.base.icao}</Row>}
                   {payload.ops.fuel.items.map((t, i) => <Row key={i} sev="a" src="DAIP">{t}</Row>)}
+                  {(payload.ops.fuel.more ?? 0) > 0 && <p className="text-[9.5px] text-slate-500">+{payload.ops.fuel.more} more fuel NOTAMs referencing {payload.base.icao}</p>}
                 </div>
               )}
 
@@ -963,7 +968,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                 colours this card and the C2/Comms LIMFAC, never an I&W level. */}
             {show("spectrum") && !payload.spectrum && <p className="text-[11px] text-slate-500 px-1">No spectrum block on this assembly — the field predates the spectrum sensors; refresh to assemble one.</p>}
             {show("spectrum") && payload.spectrum && (
-              <SectionCard led={payload.status.spectrum ?? "u"} title="Spectrum" sources="GPSJam · DAIP RAIM · NOAA SWPC · CISA KEV">
+              <SectionCard led={payload.status.spectrum ?? "u"} title="Spectrum" sources="GPSJam · DAIP RAIM + GPS/WAAS · NOAA SWPC · CISA KEV">
                 {/* PNT at the field */}
                 {!payload.spectrum.pnt.live && <Row sev="u" src="GPSJam"><b>PNT:</b> GPSJam UNREACHABLE this cycle — interference at the field UNKNOWN</Row>}
                 {payload.spectrum.pnt.live && (
@@ -978,6 +983,23 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                 {payload.spectrum.pnt.raim.map((t, i) => (
                   <Row key={`raim${i}`} sev="a" src="DAIP"><b>RAIM:</b> {t}</Row>
                 ))}
+                {/* GPS / WAAS system NOTAMs that reach the field — by the test
+                    disk / area geometry, else by the FIR it was published under. */}
+                {payload.spectrum.pnt.notams && !payload.spectrum.pnt.notams.live && (
+                  <Row sev="u" src="DAIP GPS"><b>GPS NOTAMs:</b> DAIP GPS/WAAS list UNREACHABLE — GPS tests at the field UNKNOWN, not clear</Row>
+                )}
+                {payload.spectrum.pnt.notams?.live && payload.spectrum.pnt.notams.items.length === 0 && (
+                  <Row sev="g" src="DAIP GPS"><b>GPS NOTAMs:</b> no GPS test or interference NOTAM reaches {payload.base.icao}</Row>
+                )}
+                {payload.spectrum.pnt.notams?.live && payload.spectrum.pnt.notams.items.map((n, i) => (
+                  <Row key={`gpsn${i}`} sev={n.amber ? "a" : "b"} src="DAIP GPS">
+                    <b>GPS NOTAM:</b> {fieldGpsLine(n)}
+                    <span className="block text-[9px] text-slate-600 truncate" title={n.text}>{n.text}</span>
+                  </Row>
+                ))}
+                {payload.spectrum.pnt.notams?.live && prnLine(payload.spectrum.pnt.notams.prns) && (
+                  <Row sev="b" src="DAIP GPS"><b>Constellation:</b> {prnLine(payload.spectrum.pnt.notams.prns)}</Row>
+                )}
 
                 {/* Space weather → ops */}
                 {!payload.spectrum.spaceWx.live && <Row sev="u" src="SWPC"><b>Space weather:</b> NOAA SWPC UNREACHABLE — HF / GPS / SATCOM impact UNKNOWN, not quiet</Row>}

@@ -8,6 +8,7 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { assembleSitrep } from "@/lib/sitrep";
 import { fallbackCommanderRead, upcomingClosureLine } from "@/lib/limfac";
 import { parseModelJson } from "@/lib/aiJson";
+import { fieldGpsLine, prnLine } from "@/lib/gpsNotams";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +98,14 @@ export async function POST(req: Request) {
   const xw = o.runwayWinds.filter((r) => r.flag !== "g");
   if (xw.length > 0) lines.push(`CROSSWIND (advisory): ${xw.map((r) => `RWY ${r.ident} cross ${r.crossKt}kt${r.gustCrossKt ? ` gust ${r.gustCrossKt}` : ""}`).join("; ")}`);
   else if (o.runwayWinds.length > 0) lines.push(`CROSSWIND: all runway ends within advisory limits (best headwind RWY ${o.runwayWinds[0].ident})`);
+  const gn = s.spectrum?.pnt.notams;
+  if (gn) {
+    if (!gn.live) lines.push("GPS NOTAMS: DAIP GPS/WAAS list UNREACHABLE — UNKNOWN");
+    else if (!gn.items.length) lines.push("GPS NOTAMS: none reach this field");
+    for (const n of gn.items.slice(0, 4)) lines.push(`GPS NOTAM${n.amber ? " [IN EFFECT AT APPROACH LEVEL]" : ""}: ${fieldGpsLine(n).slice(0, 220)}`);
+    const pl = prnLine(gn.prns);
+    if (pl) lines.push(`GPS CONSTELLATION: ${pl}`);
+  }
   if (o.fuel) lines.push(`FUEL NOTAMS: ${o.fuel.live ? (o.fuel.items.length ? o.fuel.items.join(" | ").slice(0, 300) : "none referencing this field") : "feed UNREACHABLE — UNKNOWN"}`);
   lines.push(`ASTRO: civil dawn ${s.astro.civilDawnZ?.slice(11, 16) ?? "—"}Z sunrise ${s.astro.sunriseZ?.slice(11, 16) ?? "—"}Z sunset ${s.astro.sunsetZ?.slice(11, 16) ?? "—"}Z civil dusk ${s.astro.civilDuskZ?.slice(11, 16) ?? "—"}Z · moon ${s.astro.moon.illumPct}% ${s.astro.moon.phaseName}`);
     if (o.center) {

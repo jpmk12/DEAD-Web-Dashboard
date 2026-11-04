@@ -138,7 +138,7 @@ export async function gatherSpectrumObservations(
     let gpsNotamCount: number | null = null;
     if (gpsNotams && gpsNotams.configured && gpsNotams.live) {
       const rx = new RegExp(`\\b(${[...geo.firs, ...geo.countries.map((c) => c.toUpperCase())].map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "i");
-      gpsNotamCount = gpsNotams.groups.flatMap((g) => g.notams).filter((n) => rx.test(`${n.text} ${n.rawtext ?? ""}`)).length;
+      gpsNotamCount = gpsNotams.groups.flatMap((g) => g.notams).filter((n) => rx.test(`${n.loc ?? ""} ${n.text} ${n.rawtext ?? ""}`)).length;
     }
     const guard = scales ? pntStormGuard(scales) : false;
     const s = pntState({ cellsLive, cells, baseline: baselines.pnt, hubHits, gpsNotams: gpsNotamCount, raimNotams, stormGuard: guard, coverage: { cells: coverage, baseline: baselines.pntCov ?? { mean: null, samples: 0 } } });

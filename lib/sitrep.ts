@@ -16,7 +16,9 @@ import { getCurrentConditions, type CurrentConditions } from "./currentCondition
 import { getDisasters, haversineKm } from "./disasters";
 import { getForceProtection } from "./forceProtection";
 import { gdeltLocalNews } from "./localNews";
-import { getCenterNotams, getFuelNotams } from "./airspace";
+import { getCenterNotams, getFuelNotams, getGpsNotams } from "./airspace";
+import { gpsNotamsForField, fuelNotamsForField, type FieldGpsNotam } from "./gpsNotams";
+import { firsForCountry } from "./firData";
 import { classifyAor, type Aor } from "./aor";
 import { normalizeCountryName } from "./countryNames";
 import {
@@ -69,7 +71,13 @@ export interface SitrepOutlookDay {
 // and KEV entries on the DECLARED edge vendors. Every block reports its own
 // liveness; an undeclared vendor list is UNKNOWN, never green.
 export interface SitrepSpectrum {
-  pnt: { live: boolean; date: string; cellLevel: number; raim: string[] };
+  pnt: {
+    live: boolean; date: string; cellLevel: number; raim: string[];
+    /** DAIP GPS_WAAS NOTAMs at this field by geometry (lib/gpsNotams).
+     *  live:false = the DAIP read did not answer → UNKNOWN, never "none".
+     *  Absent on assemblies older than 2026-11-04. */
+    notams?: { live: boolean; items: FieldGpsNotam[]; prns: number[]; affecting: number };
+  };
   spaceWx: { live: boolean; now: ScaleDay | null; outlook: ScaleDay[]; impacts: SpaceWxImpact[]; polar: boolean | null; satcom: string };
   edge: {
     declared: boolean; live: boolean; vendors: string[];
@@ -134,7 +142,7 @@ export interface SitrepPayload {
      *  never observed; it sits beside the ADS-B row and never replaces it. */
     liftChatter?: FieldChatter | null;
     // System fuel NOTAMs referencing this ICAO (DAIP FUEL_NOTAMS).
-    fuel: { live: boolean; items: string[] } | null;
+    fuel: { live: boolean; items: string[]; more?: number } | null;
   };
   // Worst LED per axis per UTC day, oldest→newest (≤7 rows incl. today).
   history: SitrepDay[];
@@ -394,9 +402,10 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
       getInfraSources(base).catch((): SitrepInfra => ({ internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null })),
     ]);
 
-  const [runways, fuelRes, historyRows, manualLimfacs, gps, scales, kev, profile] = await Promise.all([
+  const [runways, fuelRes, gpsRes, historyRows, manualLimfacs, gps, scales, kev, profile] = await Promise.all([
     airfieldRunways(icao).catch(() => []),
     getFuelNotams().catch(() => null),
+    getGpsNotams().catch(() => null),
     getSitrepHistory(icao, 7).catch(() => [] as SitrepDay[]),
     listLimfacs(icao).catch(() => []),
     getGpsInterference().catch(() => ({ ok: false, hexes: [], date: "" })),
@@ -460,19 +469,29 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
   // ── Spectrum at the field ──
   const spec = profile?.spectrum ?? { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true };
   const raim = baseNotams.filter((n) => n.category === "gps_raim").map((n) => n.text.slice(0, 160));
+  // GPS / WAAS system NOTAMs that reach THIS field — by the test disk or area
+  // geometry, else by the FIR / ARTCC the notice was published under.
+  const gpsCodes = [
+    ...(base.artcc ? [base.artcc.toUpperCase(), `K${base.artcc.toUpperCase()}`] : []),
+    ...firsForCountry(base.country || "").map((f) => f.code),
+  ];
+  const gpsLive = Boolean(gpsRes && gpsRes.configured && gpsRes.live);
+  const gpsRead = gpsLive
+    ? gpsNotamsForField(gpsRes!.groups.flatMap((g) => g.notams), { lat: base.lat, lon: base.lon, icao, codes: gpsCodes }, now)
+    : { items: [], prns: [], affecting: 0 };
   const cellLevel = gps.ok ? gpsLevelAt(base.lat, base.lon, gps.hexes) : 0;
   const impacts = spaceWeatherImpacts(scales, { polar: spec.polarRoutes });
   const hits = kev.live ? kevHits(kev.entries, spec.edgeVendors, now, 14) : [];
   const edgeLed = edgeExposureLed(hits, spec.edgeVendors.length > 0, kev.live);
   const spectrum: SitrepSpectrum = {
-    pnt: { live: gps.ok, date: gps.date, cellLevel, raim },
+    pnt: { live: gps.ok, date: gps.date, cellLevel, raim, notams: { live: gpsLive, ...gpsRead } },
     spaceWx: { live: scales.live, now: scales.live ? scales.now : null, outlook: scales.outlook, impacts, polar: spec.polarRoutes, satcom: spec.satcom },
     edge: {
       declared: spec.edgeVendors.length > 0, live: kev.live, vendors: spec.edgeVendors,
       hits: hits.map((h) => ({ cve: h.entry.cveID, vendor: h.vendor, product: h.entry.product, name: h.entry.vulnerabilityName, dateAdded: h.entry.dateAdded, ransomware: h.entry.knownRansomwareCampaignUse })),
     },
   };
-  const spectrumStatus = spectrumLed({ pntLive: gps.ok, cellLevel, raimCount: raim.length, spaceWx: spaceWxLed(scales, { polar: spec.polarRoutes }), edge: edgeLed });
+  const spectrumStatus = spectrumLed({ pntLive: gps.ok, cellLevel, raimCount: raim.length, gpsNotamCount: gpsRead.affecting, spaceWx: spaceWxLed(scales, { polar: spec.polarRoutes }), edge: edgeLed });
 
   const payload: SitrepPayload = {
     base,
@@ -517,7 +536,10 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
       fuel: fuelRes
         ? {
             live: fuelRes.configured && fuelRes.live,
-            items: fuelRes.groups.flatMap((g) => g.notams).filter((n) => n.text.toUpperCase().includes(icao)).slice(0, 4).map((n) => n.text.slice(0, 200)),
+            ...(() => {
+              const all = fuelNotamsForField(fuelRes.groups.flatMap((g) => g.notams), icao);
+              return { items: all.slice(0, 6), more: Math.max(0, all.length - 6) };
+            })(),
           }
         : null,
     },

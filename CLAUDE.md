@@ -1715,6 +1715,47 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   is routine — state the window, ask only when it is not routine or the
   field is closed NOW. An in-effect designated closure with an UNKNOWN
   count is PMC "runway count UNKNOWN", never "single-runway ops".
+- **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
+  notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
+  list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs
+  that carry their own geometry ("WI A 517NM RADIUS CENTERED AT
+  332710N1074618W FL400-UNL, 468NM RADIUS AT FL250 … 353NM RADIUS AT 50FT
+  AGL. DLY 0700-1100") or a polygon ("AREA DEFINED AS p TO p … AND BACK TO
+  p"). `lib/gpsNotams.ts` (PURE, client-safe, tested in
+  `tests/gpsNotams.test.ts` against the real capture) answers per field BY
+  GEOMETRY: `parseGpsDisk` (centre + every ring with its floor),
+  `parseGpsPolygon` + `insidePolygon`, `gpsNotamsForField(notams, {lat, lon,
+  icao, codes}, now)` → rows scoped **approach** (a covering ring with a
+  floor ≤ `APPROACH_FLOOR_FT` 4,000 ft — GPS approaches affected), **enroute**
+  (covered only higher up — named, never amber), **area** (inside a polygon;
+  floor from "ABOVE FLnnn") or **fir** (no geometry: matched by the FIR /
+  ARTCC the notice was published under — the field's codes are its ARTCC,
+  K-prefixed too, plus `firsForCountry`). **Amber only while IN EFFECT**:
+  inside the validity AND inside the daily window ("DLY 0700-1100", wraps
+  midnight). FAA domestic NOTAMs carry no B)/C) — their validity is the
+  trailing "YYMMDDHHMM-YYMMDDHHMM|PERM" pair (`parseGpsValidity`), which
+  `parseAirspaceGroups` now also reads, so they finally EXPIRE (before this
+  every domestic GPS NOTAM stayed "active" forever). Satellite outages (PRN n
+  U/S, NANUs) are constellation-wide: one "Constellation" line, never amber,
+  never a field row (`prnOutages` / `prnLine`). One row per NOTAM id (FAA
+  republishes a test under every ARTCC it touches). `AirspaceNotam.loc`
+  keeps the DAIP wrapper code (KZAB, MMFR) — the group code alone is "GPS
+  NOTAMs" — and the I&W PNT sensor's FIR/country match now reads it too. The
+  GPS and fuel queries keep every row (`maxPerGroup` 400 — a test NOTAM cut
+  at the 40 cap would be a field wrongly read as clear).
+  `SitrepSpectrum.pnt.notams = {live, items, prns, affecting}` (absent on
+  older assemblies; `live:false` → "UNKNOWN, not clear"); `spectrumLed`
+  takes `gpsNotamCount` (in-effect approach / FIR / surface-area rows) like
+  RAIM (amber, and an official NOTAM lifts an UNKNOWN GPSJam PNT to amber);
+  `spectrumShort` names it. Surfaces: the Spectrum card (rows via
+  `fieldGpsLine`, sky when not amber), the HTML export, the Save-to-Docs
+  markdown and the Commander's Read ("GPS NOTAM [IN EFFECT AT APPROACH
+  LEVEL]"). **Fuel**: `fuelNotamsForField` matches the wrapper / group /
+  the ICAO as a WORD (the old substring test read "KADW" inside "KADWX"),
+  dedupes, shows 6 with "+N more"; fuel now also renders in the HTML export
+  and the saved markdown (the Ops card and the read already had it). The
+  captured FUEL_NOTAMS list was empty (count 0) so the fuel row shape is
+  still unverified from production. No new npm dep (esbuild `0`).
 - **⇩ Export HTML (standalone shareable SITREP)**: `lib/sitrepExport.ts` →
   `renderSitrepHtml(payload, read)` — PURE client-safe string builder
   (tested) that renders the pane's current payload + BLUF into ONE
