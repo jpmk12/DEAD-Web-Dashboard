@@ -142,6 +142,11 @@ const MOVEMENT = [
   /\bair bridge\b/i, /\bfighter drag\b/i, /\bcoronet\b/i, /\bsortie[sd]?\b/i, /\bflew\b/i, /\bflying\b/i, /\bflight line\b/i, /\bwave of\b/i, /\bstream of\b/i, /\bsurge\b/i,
   // "back to" is a movement only toward a place, home or base — a fleet
   // summary "stabilised back to the levels of September" moves nothing.
+  // PRESENCE — tankers "spotted operating in the region", "on station", "orbiting"
+  // over the Gulf: what spotters report when the jets are already there (the
+  // 2026-11-04 diag's @HormuzReport post was a near miss without these). The
+  // 150-character proximity rule still binds them to a lift airframe.
+  /\bspotted operating\b/i, /\boperating (?:in|over|across|near|around|off)\b/i, /\bon station\b/i, /\borbit(?:ing|ed|s)?\b/i,
   /\b[Bb]ack (?:home|to (?:[Bb]ase|[Hh]ome|CONUS|the (?:US|U\.S\.|[Ss]tates)|[A-Z][a-z]{2,}))/, /\breturn(?:ing|ed|s)?\b/i, /\bRTB\b/,
 ];
 /** The movement phrase must sit within this many characters of a lift
@@ -152,6 +157,13 @@ export const MOVEMENT_NEAR_CHARS = 150;
  *  B-52 through GLOBAL THUNDER are support to a training event. Read, said in
  *  the diag, never counted. */
 const EXERCISE = /\bexercis(?:e|es|ing)\b/i;
+/** A combat type named BEFORE the only lift token, when that token is the
+ *  generic "tanker" / "airlifter": "F-16 FIGHTER JETS HAVE RETURNED TO SHEMYA
+ *  … tankers airborne" is a fighter move with tanker support, not lift (the
+ *  2026-11-04 diag — the post still matched after the proximity rule because
+ *  "tankers" and "airborne" sat together at its tail). A designated tanker
+ *  (KC-46) named anywhere still counts: that is a spotter tracking the jets. */
+const COMBAT_TYPE = /\b(?:F-?(?:15|16|18|22|35)|B-?(?:1|2|21|52)|EA-?18|A-?10|E-?3|E-?7|RC-?135|Su-?\d{2}|MiG-?\d{2}|J-?\d{2})[A-Z]{0,2}s?\b|\bfighters?\b|\bbombers?\b/i;
 const AWAY = /\b(?:return(?:ing|ed|s)?\s+(?:home|stateside|to\s+(?:conus|the\s+(?:us|states)|base|home))|RTB|heading\s+(?:home|back)|homebound|back\s+(?:to|towards?)\s+(?:conus|the\s+(?:us|states)|home|base|europe)|rotating\s+home|redeploy(?:ing|ed)?\s+(?:home|back))\b/i;
 const ORIGIN_CUE = /\b(?:from|out of|departed|departing|leaving|left|launched from|took off from|ex)\s+(?:the\s+)?$/i;
 // An origin clause: the cue, a capitalised place, an optional base word and
@@ -400,7 +412,7 @@ export function readChatter(items: NewsItem[], nowMs: number = Date.now(), opts:
   return out.sort((a, b) => Date.parse(b.pubDate) - Date.parse(a.pubDate));
 }
 
-type SkipReason = "outside-window" | "no-airframe" | "generic-gated" | "no-movement" | "far-movement" | "exercise";
+type SkipReason = "outside-window" | "no-airframe" | "generic-gated" | "no-movement" | "far-movement" | "exercise" | "support";
 
 /** Every span where one of the item's airframes is named. */
 function frameSpans(text: string, frames: AirframeDef[]): [number, number][] {
@@ -440,7 +452,13 @@ function readOne(it: NewsItem, nowMs: number, places: PlaceDef[]): { post: Chatt
     const gated = AIRFRAMES.some((a) => a.generic && a.rx.test(text));
     return { post: null, skip: gated ? "generic-gated" : "no-airframe" };
   }
-  const { move, any } = movementNear(text, frameSpans(text, frames));
+  const spans = frameSpans(text, frames);
+  if (frames.every((f) => f.generic)) {
+    const combat = COMBAT_TYPE.exec(text);
+    const firstLift = Math.min(...spans.map(([a]) => a));
+    if (combat && combat.index < firstLift) return { post: null, skip: "support" };
+  }
+  const { move, any } = movementNear(text, spans);
   if (!move) return { post: null, skip: any ? "far-movement" : "no-movement" };
   if (EXERCISE.test(text)) return { post: null, skip: "exercise" };
   const { dest, origin } = placesIn(text, places);
@@ -501,6 +519,8 @@ export interface ChatterExplain {
     farMovement: { count: number; examples: ChatterExample[] };
     /** An exercise post — read, never lift. */
     exercise: { count: number; examples: ChatterExample[] };
+    /** A fighter / bomber move that names only a generic "tanker" in support. */
+    support: { count: number; examples: ChatterExample[] };
     genericGated: { count: number; examples: ChatterExample[] };
     unplaced: { count: number; examples: ChatterExample[] };
   };
@@ -550,8 +570,8 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
   const unknownPlaces = new Map<string, { phrase: string; role: "dest" | "origin"; count: number; example: string }>();
   const unknownTypes = new Map<string, { token: string; count: number; example: string }>();
   const matchedEx: ChatterExample[] = [], noMove: ChatterExample[] = [], gated: ChatterExample[] = [], unplacedEx: ChatterExample[] = [];
-  const foreignEx: ChatterExample[] = [], farEx: ChatterExample[] = [], exerciseEx: ChatterExample[] = [];
-  let foreignN = 0, farN = 0, exerciseN = 0;
+  const foreignEx: ChatterExample[] = [], farEx: ChatterExample[] = [], exerciseEx: ChatterExample[] = [], supportEx: ChatterExample[] = [];
+  let foreignN = 0, farN = 0, exerciseN = 0, supportN = 0;
   let inWindow = 0, matched = 0, placed = 0, unplaced = 0, away = 0, mine = 0, noMoveN = 0, gatedN = 0;
 
   for (const it of items) {
@@ -602,6 +622,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     if (r.skip === "no-movement") { noMoveN++; if (noMove.length < EXAMPLE_CAP) noMove.push(ex(it)); continue; }
     if (r.skip === "far-movement") { farN++; if (farEx.length < EXAMPLE_CAP) farEx.push(ex(it)); continue; }
     if (r.skip === "exercise") { exerciseN++; if (exerciseEx.length < EXAMPLE_CAP) exerciseEx.push(ex(it)); continue; }
+    if (r.skip === "support") { supportN++; if (supportEx.length < EXAMPLE_CAP) supportEx.push(ex(it)); continue; }
     const p = r.post!;
     if (!LIFT_SIDES.includes(p.side)) {
       foreignN++;
@@ -632,7 +653,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     `by command: ${fmt(byAor)}`,
     `by airframe: ${fmt(byAirframe)}`,
     `watched-country mobility (its own category, not U.S. lift): ${foreignN}`,
-    `near misses: ${noMoveN} named a type with no movement phrase · ${farN} with movement far from the airframe · ${exerciseN} exercise posts · ${gatedN} generic "tanker"/"airlifter" refused by context`,
+    `near misses: ${noMoveN} named a type with no movement phrase · ${farN} with movement far from the airframe · ${exerciseN} exercise posts · ${supportN} fighter/bomber moves with only generic tanker support · ${gatedN} generic "tanker"/"airlifter" refused by context`,
     `places named (dest/origin/bare): ${placeList.slice(0, 8).map((p) => `${p.name} ${p.dest}/${p.origin}/${p.bare}`).join(" · ") || "none"}`,
     `unknown places after a cue: ${uPlaces.slice(0, 8).map((u) => `"${u.phrase}" ×${u.count} (${u.role})`).join(" · ") || "none"}`,
     `designators not in the grammar: ${uTypes.slice(0, 10).map((u) => `${u.token} ×${u.count}`).join(" · ") || "none"}`,
@@ -644,7 +665,7 @@ export function explainChatter(items: NewsItem[], nowMs: number = Date.now(), op
     matched, placed, unplaced, away, mine, byAor, byAirframe,
     matchedExamples: matchedEx,
     foreign: { count: foreignN, examples: foreignEx },
-    nearMiss: { noMovement: { count: noMoveN, examples: noMove }, farMovement: { count: farN, examples: farEx }, exercise: { count: exerciseN, examples: exerciseEx }, genericGated: { count: gatedN, examples: gated }, unplaced: { count: unplaced, examples: unplacedEx } },
+    nearMiss: { noMovement: { count: noMoveN, examples: noMove }, farMovement: { count: farN, examples: farEx }, exercise: { count: exerciseN, examples: exerciseEx }, support: { count: supportN, examples: supportEx }, genericGated: { count: gatedN, examples: gated }, unplaced: { count: unplaced, examples: unplacedEx } },
     places: placeList, unknownPlaces: uPlaces, unknownTypes: uTypes, handles: handleList, lines,
   };
 }

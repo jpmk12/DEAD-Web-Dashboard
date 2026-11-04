@@ -555,7 +555,22 @@ disagreed on the colour of `unknown`.
   (`getTafOutlook`) and the 30-h model hazard (`fetchLocationHazards`,
   now exported), and home in one muted phrase when away. Cached 10 min
   per user; a dead feed leaves a null and `live` says which — never
-  implied clear. The brief's `weather` lines (already in the cached
+  implied clear.
+  **Which airfield (2026-11-04, "why does LLBG show up instead of any of my
+  hubs?")**: it took the NEAREST tracked field, any role — and a TDY typed
+  as a country ("Jordan") geocodes to the country's CENTROID, which sat
+  nearer Ben Gurion than the hub at Aqaba. `lib/hereAirfield.ts` (PURE,
+  tested in `tests/hereAirfield.test.ts`) `pickHereAirfield(point, fields,
+  country)`: your hub › spokes › ★ fields (within `NEAR_KM` 300 or in the
+  trip's country, ≤ `COUNTRY_MAX_KM` 1500) › any tracked field in the trip's
+  country › the nearest within 300 km; nearest wins inside a tier; nothing in
+  range and nothing in the country → no airfield line. `tripCountry` reads
+  the trip label's last comma part (else the raw location) and accepts it
+  only when it IS a country ("Amman" alone names none). The response carries
+  `why` + `whyLabel` ("your hub", "tracked field in Jordan", "nearest
+  tracked field") and the strip shows it beside the ICAO (violet for your
+  own). The point's weather is still the trip's geocode — a country-level
+  TDY reads the centroid's sky; type the city on the trip for a closer read. The brief's `weather` lines (already in the cached
   brief) now render on the OPEN Glance card too (`Briefing.weather`).
 - **Tab order**: header (counts + ＋ Place / ＋ Airfield / manage / Refresh)
   → **sources strip** (`WeatherSources.tsx` — one chip per keyless feed,
@@ -3233,6 +3248,21 @@ or capture-only **caps at watching**, exactly the single-X-post ceiling.
   honest match was @ArmchairAdml's VIP tanker support (KC-46s from Yokota for
   TITAN 29; the quoted "FIST 51-53 positioned to Alaska" places it NORTHCOM
   by the destination rule). Still one handle each — leads, not corroboration.
+- **The 2026-11-04 diag (1,946 items): 2 matched, one still a misread.** The
+  F-16-to-Shemya post passed the proximity rule because its tail read "with
+  tankers airborne" — the generic token and a movement word side by side.
+  New rule `COMBAT_TYPE`: when EVERY lift token is generic ("tanker",
+  "airlifter") and a combat type (F-15/16/18/22/35, B-1/2/21/52, E-3/7,
+  RC-135, Su-/MiG-/J-nn, "fighters", "bombers") is named BEFORE the first
+  one, the post is a fighter / bomber move with support — skip `support`,
+  the diag's new `nearMiss.support` bucket. A designated tanker (KC-46)
+  named anywhere still counts. And PRESENCE joins the movement phrases —
+  "spotted operating", "operating in / over / across / near / around / off",
+  "on station", "orbiting" — because @HormuzReport's "five KC-46A … and one
+  KC-135R have been spotted operating in the region" (the Gulf, CENTCOM) was
+  a near miss; the 150-character proximity rule still binds them to a lift
+  airframe. The same diag's top 20 handles matched nothing — the pool is
+  still news aggregators; a spotter list is what lift chatter needs.
 
 ### Capture extension 1.2.4 — read against the saved sources (2026-10-27, "attached are the html files of common sources I use the browser extension for — let's ensure we are getting the maximum value")
 Five saved view-source pages (Foreign Policy, The Economist's world in

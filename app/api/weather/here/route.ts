@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { normEmail } from "@/lib/allowlist";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { getActiveTrip } from "@/lib/trips";
+import { pickHereAirfield, tripCountry, hereWhyLabel, type HereField, type HereWhy } from "@/lib/hereAirfield";
 import { todayInTz } from "@/lib/date";
 import { DEFAULT_ZONE } from "@/lib/effectiveZone";
 import { isValidTz } from "@/lib/worldClocks";
@@ -26,7 +27,6 @@ export const dynamic = "force-dynamic";
 // field null and `live` says which one.
 
 interface Point { label: string; lat: number; lon: number }
-interface Airfield { icao: string; label: string; lat: number; lon: number; own: "hub" | "spoke" | null }
 
 export interface HereWeather {
   here: {
@@ -38,6 +38,10 @@ export interface HereWeather {
     icao: string;
     label: string;
     km: number;
+    /** Why THIS field: your hub / spoke / ★, a field in the trip's country,
+     *  or merely the nearest tracked one (lib/hereAirfield.ts). */
+    why: HereWhy;
+    whyLabel: string;
     cat: FlightCategory;
     taf: TafOutlook | null;
     hazard: { severity: "severe" | "elevated"; flags: string[] } | null;
@@ -51,24 +55,6 @@ export interface HereWeather {
 
 const TTL_MS = 10 * 60 * 1000;
 const cache = new Map<string, { data: HereWeather; expires: number }>();
-const NEAR_KM = 300;
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371, toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
-}
-
-function nearest(p: Point, fields: Airfield[]): (Airfield & { km: number }) | null {
-  let best: (Airfield & { km: number }) | null = null;
-  for (const f of fields) {
-    const km = haversineKm(p.lat, p.lon, f.lat, f.lon);
-    if (km <= NEAR_KM && (!best || km < best.km)) best = { ...f, km };
-  }
-  return best;
-}
-
 const dayDiff = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
 
 export async function GET(request: Request) {
@@ -91,13 +77,14 @@ export async function GET(request: Request) {
   const herePt: Point | null = trip ? { label: trip.label, lat: trip.lat, lon: trip.lon } : home;
   const tripIsHome = !!trip && !!home && Math.abs(trip.lat - home.lat) < 0.1 && Math.abs(trip.lon - home.lon) < 0.1;
 
-  let fields: Airfield[] = [];
+  let fields: HereField[] = [];
   try {
     const reg = await getTrackingRegistry();
-    fields = reg.airfields.filter((a) => a.icao && (a.lat || a.lon)).map((a) => ({ icao: a.icao, label: a.label, lat: a.lat, lon: a.lon, own: a.own }));
+    fields = reg.airfields.filter((a) => a.icao && (a.lat || a.lon)).map((a) => ({ icao: a.icao, label: a.label, lat: a.lat, lon: a.lon, country: a.country, own: a.own, star: a.roles.star }));
   } catch { /* no registry → no airfield line */ }
-  const nearHere = herePt ? nearest(herePt, fields) : null;
-  const nearHome = home && trip && !tripIsHome ? nearest(home, fields) : null;
+  const hereCountry = trip ? tripCountry(trip.label, trip.location) : null;
+  const nearHere = herePt ? pickHereAirfield(herePt, fields, hereCountry) : null;
+  const nearHome = home && trip && !tripIsHome ? pickHereAirfield(home, fields, null) : null;
   const icaos = [nearHere?.icao, nearHome?.icao].filter((x): x is string => !!x);
 
   const [cur, homeCur, cats, taf, hazards] = await Promise.all([
@@ -127,6 +114,7 @@ export async function GET(request: Request) {
     } : null,
     airfield: nearHere ? {
       icao: nearHere.icao, label: nearHere.label, km: Math.round(nearHere.km),
+      why: nearHere.why, whyLabel: hereWhyLabel(nearHere.why, hereCountry),
       cat: cats.byIcao[nearHere.icao]?.flightCategory ?? "UNKNOWN",
       taf: taf[nearHere.icao] ?? null,
       hazard: hazards[0] ? { severity: hazards[0].severity, flags: hazards[0].flags } : null,

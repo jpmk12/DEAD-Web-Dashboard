@@ -80,7 +80,8 @@ export default function WhereYouAre({ onOpen }: { onOpen: () => void }) {
         <>
           <span className="hidden sm:block w-px h-4 bg-slate-700" />
           <span className="flex items-center gap-1.5 text-[11px] text-slate-300 min-w-0">
-            <span className="font-mono font-bold text-slate-100">{af.icao}</span>
+            <span className="font-mono font-bold text-slate-100" title={`${af.label} · ${af.km} km from ${h.label} · ${af.whyLabel ?? "nearest tracked field"}`}>{af.icao}</span>
+            {af.whyLabel && <span className={`text-[9.5px] ${af.why === "hub" || af.why === "spoke" ? "text-violet-300" : "text-slate-500"}`}>{af.whyLabel}</span>}
             <Cat cat={af.cat} />
             {tafTurn && <><span className="text-slate-500">→</span><Cat cat={tafTurn.worst} /><span className="text-slate-400">by {zHour(tafTurn.fromISO)}</span></>}
             {af.hazard && <span className={`text-[10px] ${af.hazard.severity === "severe" ? "text-red-300" : "text-amber-300"} truncate`} title={af.hazard.flags.join(" · ")}>{af.hazard.flags[0]}</span>}

@@ -370,7 +370,9 @@ describe("the 2026-11-01 diag — four misreads", () => {
     const text = "🇺🇸🇷🇺✈️‼️ U.S. AIR FORCE F-16 FIGHTER JETS HAVE REPORTEDLY RETURNED TO SHEMYA ISLAND IN ALASKA’S ALEUTIAN CHAIN FOR COMBAT ALERT DUTY FOR THE FIRST TIME IN DECADES, approximately 800 kilometers from Russia’s Kamchatka Peninsula. During the Cold War, American F-4 Phantom and F-15 Eagle fighters operated from the island, but a regular fighter presence reportedly ended in the early 1990s. The latest deployment also reportedly involved F-35A stealth fighters and additional F-16s from Eielson Air Force Base, with aerial refueling tankers in support.";
     expect(readChatter([post(text, { pubDate: D })], at)).toEqual([]);
     const ex = explainChatter([post(text, { pubDate: D })], at);
-    expect(ex.nearMiss.farMovement.count).toBe(1);
+    // Since 2026-11-04 the support rule reads it first (a fighter named before
+    // the only, generic, tanker) — never lift either way.
+    expect(ex.nearMiss.support.count + ex.nearMiss.farMovement.count).toBe(1);
   });
   it("a near phrase still reads (3x KC-46s departed Yokota)", () => {
     const [p] = readChatter([post("RAMEN 41-43 Flt 3x KC-46s departed Yokota Air Base in Japan to refuel TITAN 29", { pubDate: D })], at);
@@ -411,5 +413,26 @@ describe("the 2026-11-01 diag — four misreads", () => {
     expect(airframesIn(t).map((a) => a.id)).toEqual(["Il-76"]);
     expect(readChatter([post(t, { pubDate: D })], at)).toEqual([]);
     expect(readChatter([post(t, { pubDate: D })], at, { sides: FOREIGN_SIDES })[0].actor).toBe("Russia");
+  });
+});
+
+describe("the 2026-11-04 diag — fighter support and tankers on station", () => {
+  const D = "2026-11-02T21:00:00Z";
+  const at = Date.parse("2026-11-04T08:35:00Z");
+  it("a fighter move naming only generic tankers is support, even with 'airborne' beside them", () => {
+    const text = "U.S. AIR FORCE F-16 FIGHTER JETS HAVE REPORTEDLY RETURNED TO SHEMYA ISLAND IN ALASKA. The latest deployment also involved F-35A stealth fighters and additional F-16s from Eielson Air Force Base, with tankers airborne in support.";
+    expect(readChatter([post(text, { pubDate: D })], at)).toEqual([]);
+    expect(explainChatter([post(text, { pubDate: D })], at).nearMiss.support.count).toBe(1);
+  });
+  it("a designated tanker in a fighter post still counts — a spotter tracking the jets", () => {
+    const [p] = readChatter([post("F-35s heading east with 2x KC-46s from Pease departed for Lakenheath", { pubDate: D })], at);
+    expect(p?.airframes).toContain("KC-46");
+  });
+  it("tankers 'spotted operating in the region' over the Gulf are presence, placed in CENTCOM", () => {
+    const text = "BREAKING: The U.S. may have begun striking Iranian air-defense systems, as multiple explosions rock Qeshm Island and Bandar Abbas in southern Iran, amid heavy U.S. aerial activity across the Gulf. At least five KC-46A Pegasus tankers and one KC-135R have been spotted operating in the region.";
+    const [p] = readChatter([post(text, { pubDate: D })], at);
+    expect(p).toBeDefined();
+    expect(p.phrase).toMatch(/operating/i);
+    expect(p.aor).toBe("CENTCOM");
   });
 });
