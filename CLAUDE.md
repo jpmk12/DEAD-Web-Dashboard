@@ -1756,6 +1756,34 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   and the saved markdown (the Ops card and the read already had it). The
   captured FUEL_NOTAMS list was empty (count 0) so the fuel row shape is
   still unverified from production. No new npm dep (esbuild `0`).
+- **GPS test areas on the Crisis map (2026-11-04, "draw the GPS test
+  areas")** — layer **`gpstests`** ("GPS tests", Threats group, off by
+  default, in the Contested preset; the key `gps` is GPSJam). `gpsAreas
+  (notams, now)` in `lib/gpsNotams.ts` (PURE, tested) reduces the GPS_WAAS
+  list to DRAWABLE areas — a test disk with every ring (largest first) or a
+  published polygon (floor from "ABOVE FLnnn"); FIR-only notices and PRN
+  outages have no geometry and are never areas; expired dropped; in effect
+  first; cap `GPS_AREA_MAX` 60. `approachNm` = the LARGEST ring whose floor
+  is ≤ `APPROACH_FLOOR_FT` (the footprint where approaches are affected);
+  `next` = the next start (the daily window's next opening, clamped to the
+  validity start) when not in effect now. `GET /api/osint/airspace?layer=
+  gpsareas` → `{configured, live, areas}` from the SAME 10-min-cached DAIP
+  query the SITREP reads (no new DAIP load); the map fetches it only while
+  the layer is on, AOR-filtered by centre, `markSrc("DAIP GPS")` on a dead
+  or unconfigured read. Drawn with react-leaflet `Circle` (radius NM ×
+  1852): faint outer ring, bold approach ring, thin rings between; **solid
+  = in effect now, dashed = not**; violet, pink for jamming; the popup lists
+  every ring with its level (`ringLevelLabel`), the window / validity /
+  next start, every ARTCC it was published under and the NOTAM text.
+  **One test, many NOTAM numbers**: the FAA publishes a test under every
+  ARTCC it touches, EACH WITH ITS OWN NUMBER (EPG_AZ GPS 26-07 is seven
+  NOTAMs, 06/044–06/050), so grouping by id drew the same disk seven times
+  — and, found on the way, listed it up to six times on the SITREP and
+  counted it seven times into the spectrum LED. `groupGpsNotams` (shared by
+  the field read and the areas) groups by test designator + centre +
+  validity, keeping every loc and id; a notice with no designator still
+  groups by id. Verified in headless Chromium with the fixture's areas
+  routed in place of DAIP (6 approach rings, the popup as described).
 - **⇩ Export HTML (standalone shareable SITREP)**: `lib/sitrepExport.ts` →
   `renderSitrepHtml(payload, read)` — PURE client-safe string builder
   (tested) that renders the pane's current payload + BLUF into ONE

@@ -2,7 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Circle, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { CloseIcon, ExternalLinkIcon } from "@/lib/icons";
 import { FLIGHT_CAT_HEX } from "@/lib/levelTokens";
@@ -18,6 +18,7 @@ import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
 import ForceWatchBoard from "./ForceWatchBoard";
 import { aorFromCoords, type Aor } from "@/lib/aor";
+import { ringLevelLabel, APPROACH_FLOOR_FT, type GpsArea } from "@/lib/gpsNotams";
 import { FC_MAP_LAYERS, type FunctionalCommand } from "@/lib/functionalCommands";
 import { isMobilityType, isTankerType } from "@/lib/aircraftTypes";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
@@ -158,7 +159,7 @@ const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:9
 const ukmtoIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900">⚓</span>`, 13);
 const ukmtoAreaIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900;opacity:.55">⚓</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "maritime" | "gps" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "maritime" | "gps" | "gpstests" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
 interface Vessel { mmsi: number; name: string; shipType: number; lat: number; lon: number; cog: number; sog: number; heading: number | null }
@@ -175,6 +176,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   acled: "Structured conflict events (ACLED, last 14 days) — battles + remote violence (air/drone/missile strikes, shelling) with precise coordinates, sub-event type, named actors, and fatalities. Requires an ACLED account with recent-data access (Preferences → Sources & feeds → ACLED Strikes); empty if not set or the account tier embargoes recent data. Data © ACLED, acleddata.com.",
   maritime: "Maritime security incidents from UKMTO (UK Maritime Trade Operations, Royal Navy) — attacks, boardings, suspicious approaches, advisories and warnings in the Gulf, Red Sea, Gulf of Aden and the wider Indian Ocean, with the UKMTO reference and the reported position. A hollow anchor is an entry with no position, placed at the named sea area's centroid. The same entries feed the Economy tab's chokepoint board and the I&W chokepoint indicator. Source: ukmto.org/recent-incidents (fetched directly, or captured by the browser extension when the host refuses automated access).",
   gps: "GPS interference / EW — degraded navigation-accuracy hexes (GPSJam, ADS-B-derived, daily).",
+  gpstests: "Official GPS test / interference areas from the DoD DAIP GPS_WAAS NOTAM list — FAA GPS-test disks with every published ring (the outer ring is the high-altitude footprint; the bold ring is the one that reaches down to 4,000 ft AGL or lower, where GPS approaches are affected) and published jamming polygons. Solid = in effect now; dashed = not in effect now (outside its daily window or not started). Complements GPSJam (observed) with what was announced. Requires the DoD CA bundle; empty when DAIP is unconfigured/unreachable (UNKNOWN, never 'no tests'). Off by default.",
   overflight: "Overflight / airspace NOTAMs by FIR (DoD DAIP, FIR_ARTCC) for your watched countries — enroute closures, TFRs, danger/restricted areas, MOAs. Plotted at FIR centroids; size = NOTAM count, colour = worst alert (red=warning / amber=caution). The #1 mobility-planning gap: 'can I overfly this country'. Requires the DoD CA bundle; empty when unconfigured/unreachable (UNKNOWN, never 'clear').",
   outages: "National internet connectivity outage alerts (IODA, Georgia Tech — BGP / active probing / darknet telescope, last 24 h), plotted at country centroid; red = critical, amber = warning. A national outage is the best open proxy for a state-scale cyber event or a shutdown. Passive measurement; off by default; empty when IODA is unreachable (UNKNOWN, never calm).",
   launches: "Orbital launches in the last 7 / next 14 days (Launch Library 2) at their pads, with T-minus and provider country. A launch window closes airspace and sea lanes like a TFR; China / Russia / Iran / DPRK cadence also feeds the I&W space_activity indicator. Off by default.",
@@ -202,6 +204,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "neo", label: "NEO", dot: "#fca5a5" }, { k: "conflict", label: "Conflict", dot: "#f43f5e" },
     { k: "acled", label: "ACLED", dot: "#f87171" }, { k: "maritime", label: "Maritime", dot: "#fb7185" },
     { k: "gps", label: "GPS", dot: "#c084fc" },
+    { k: "gpstests", label: "GPS tests", dot: "#a78bfa" },
     { k: "overflight", label: "Overflight", dot: "#fb923c" },
     { k: "outages", label: "Outages", dot: "#f472b6" },
     { k: "launches", label: "Launches", dot: "#fde047" },
@@ -229,7 +232,7 @@ const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
 const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
   { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, UKMTO maritime incidents, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "maritime", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
-  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, UKMTO maritime incidents, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "maritime", "gps", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, UKMTO maritime incidents, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "maritime", "gps", "gpstests", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
   { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
 ];
@@ -317,6 +320,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   type FirNotam = { id: string; text: string; alert: "Warning" | "Caution" | "Default"; category: string; end?: string };
   type FirGroup = { code: string; name: string; lat: number; lon: number; worst: "Warning" | "Caution" | "Default"; count: number; notams: FirNotam[] };
   const [overflight, setOverflight] = useState<FirGroup[]>([]);
+  const [gpsTests, setGpsTests] = useState<GpsArea[]>([]);
   // Optional precipitation/convection radar (RainViewer) — animated loop.
   type RadarFrame = { time: number; path: string; kind: "past" | "nowcast" };
   const [radarHost, setRadarHost] = useState("");
@@ -438,7 +442,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   const reach = reachOf(AF, payload);
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, maritime: true, gps: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, maritime: true, gps: false, gpstests: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -642,6 +646,21 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     return () => ctrl.abort();
   }, [forces, refreshKey]);
 
+  // GPS test / interference areas (DAIP GPS_WAAS, the same 10-min-cached query
+  // the SITREP reads) — fetched only while the layer is on.
+  useEffect(() => {
+    if (!on.gpstests) return;
+    const ctrl = new AbortController();
+    fetch("/api/osint/airspace?layer=gpsareas", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { areas?: GpsArea[]; configured?: boolean; live?: boolean } | null) => {
+        if (Array.isArray(d?.areas)) setGpsTests(d!.areas);
+        markSrc("DAIP GPS", !d || d.configured === false || d.live === false);
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [on.gpstests, refreshKey]);
+
   // Refetch when the watched countries/bases change (Preferences save) so the
   // Forces layer updates without a full reload.
   useEffect(() => {
@@ -770,6 +789,11 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     [acled, aorFilter], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // UKMTO incidents with a place on the map (reported or area-placed), AOR-filtered.
+  const gpsTestsShown = useMemo(
+    () => gpsTests.filter((a) => passAor(aorFromCoords(a.lat, a.lon))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gpsTests, aorFilter],
+  );
   const maritimeShown = useMemo(
     () => maritime.filter((m): m is UkmtoPt & { lat: number; lon: number } => m.lat != null && m.lon != null && passAor(aorFromCoords(m.lat, m.lon))),
     [maritime, aorFilter], // eslint-disable-line react-hooks/exhaustive-deps
@@ -969,6 +993,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     disasters: disasters.length, hazards: hazShown.length, tropical: tropShown.length,
     neo: neoPins.length, conflict: conflict.length || undefined, acled: acledShown.length || undefined, maritime: maritimeShown.length || undefined, gps: gpsjam.length || undefined,
     overflight: (on.overflight && overflight.length) || undefined,
+    gpstests: (on.gpstests && gpsTestsShown.length) || undefined,
     outages: outages.length || undefined, launches: launches.length || undefined,
     forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined, ships: (on.ships && shipShown.length) || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
@@ -1288,6 +1313,37 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
                 </CircleMarker>
               );
             })}
+            {/* GPS test / interference areas (DAIP GPS_WAAS): every ring of a
+                test disk, the approach-level ring bold; solid in effect now,
+                dashed otherwise. */}
+            {on.gpstests && gpsTestsShown.map((a) => {
+              const now = a.timing === "now";
+              const col = a.jamming ? "#f472b6" : "#a78bfa";
+              const dash = now ? undefined : "6 6";
+              const popup = <Popup><GpsAreaPopup a={a} col={col} /></Popup>;
+              if (a.kind === "polygon" && a.points) {
+                return (
+                  <Polygon key={`gpst-${a.id}`} positions={a.points.map((p) => [p.lat, p.lon] as [number, number])}
+                    pathOptions={{ color: col, fillColor: col, fillOpacity: now ? 0.1 : 0.03, weight: 1.5, opacity: now ? 0.85 : 0.55, dashArray: dash }}>
+                    {popup}
+                  </Polygon>
+                );
+              }
+              return a.rings.map((r, j) => {
+                const approach = a.approachNm != null && r.nm === a.approachNm;
+                const outer = j === 0;
+                return (
+                  <Circle key={`gpst-${a.id}-${j}`} center={[a.lat, a.lon]} radius={r.nm * 1852}
+                    pathOptions={{
+                      color: col, fillColor: col,
+                      fillOpacity: approach ? (now ? 0.08 : 0.03) : outer ? (now ? 0.03 : 0.01) : 0,
+                      weight: approach ? 2.2 : 0.8, opacity: approach ? (now ? 0.9 : 0.6) : now ? 0.45 : 0.3, dashArray: dash,
+                    }}>
+                    {popup}
+                  </Circle>
+                );
+              });
+            })}
             {/* FIR overflight / airspace NOTAMs (DoD DAIP) — one marker per FIR
                 at its centroid; size = NOTAM count, colour = worst alert. */}
             {on.overflight && overflight.map((g, i) => {
@@ -1521,7 +1577,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
             <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/85 border border-slate-700 rounded-md px-2.5 py-2 text-[9px] text-slate-400 font-mono leading-relaxed">
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
-              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#f87171" }}>◆</span> ACLED strike · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW</div>
+              <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#f87171" }}>◆</span> ACLED strike · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW · <span style={{ color: "#a78bfa" }}>◎</span> GPS test (bold = approach level · dashed = not in effect)</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span style={{ color: "#34d399", fontWeight: 900 }}>⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div>node ring = flight cat: <span style={{ color: CAT_COLOR.VFR }}>●</span> VFR · <span style={{ color: CAT_COLOR.MVFR }}>●</span> MVFR · <span style={{ color: CAT_COLOR.IFR }}>●</span> IFR · <span style={{ color: CAT_COLOR.LIFR }}>●</span> LIFR <span className="italic text-slate-500">(METAR; no ring = unknown)</span></div>
               <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {reach.toLocaleString()} nm ({payload === "max" ? "max payload" : "light"}) · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge · <span className="italic">planning-grade, no wind/clearance</span></div>
@@ -1683,7 +1739,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
         })()}
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}Maritime incidents: UKMTO (UK Maritime Trade Operations) — ukmto.org{" · "}GPS/EW: GPSJam{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}Maritime incidents: UKMTO (UK Maritime Trade Operations) — ukmto.org{" · "}GPS/EW: GPSJam{" · "}GPS tests: DoD DAIP (GPS_WAAS){" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
@@ -1700,6 +1756,60 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
         rings (incl. AR), air bridges, and CR associations are <span className="text-slate-500">illustrative coarse SA —
         nominal figures, no payload/wind/clearance modeling; not a planning product or tasking</span>.
       </p>
+    </div>
+  );
+}
+
+const Z_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function zStamp(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  return `${String(d.getUTCDate()).padStart(2, "0")} ${Z_MON[d.getUTCMonth()]} ${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`;
+}
+
+/** Popup for one GPS test / interference area. */
+function GpsAreaPopup({ a, col }: { a: GpsArea; col: string }) {
+  const title = a.test ? `GPS test ${a.test}` : a.jamming ? "GPS jamming / interference area" : "GPS notice area";
+  const when = a.timing === "now"
+    ? "IN EFFECT NOW"
+    : `not in effect now${a.next ? ` — next ${zStamp(a.next)}` : ""}`;
+  return (
+    <div className="text-[12px] font-mono leading-tight max-w-[320px]">
+      <div className="font-bold text-sm">{title}</div>
+      <div className="text-slate-500">{a.id}{a.locs.length ? ` · ${a.locs.join(" ")}` : ""}</div>
+      <div className="mt-0.5 font-bold" style={{ color: a.timing === "now" ? "#b45309" : "#64748b" }}>{when}</div>
+      <div className="text-slate-600">
+        {[a.window, a.start ? `from ${zStamp(a.start)}` : null, a.until ? `until ${zStamp(a.until)}` : "no end published"].filter(Boolean).join(" · ")}
+      </div>
+      {a.kind === "disk" ? (
+        <table className="mt-1 text-[11px]">
+          <tbody>
+            {a.rings.map((r, i) => (
+              <tr key={i} style={a.approachNm === r.nm ? { color: col, fontWeight: 700 } : undefined}>
+                <td className="pr-2 text-right tabular-nums">{r.nm} NM</td>
+                <td>{ringLevelLabel(r)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="mt-1 text-slate-700">Published area{a.floorFt != null ? ` — above FL${Math.round(a.floorFt / 100)}` : " — level not stated"}</div>
+      )}
+      <div className="mt-1 text-slate-600">
+        {a.approachNm != null
+          ? (() => {
+              const low = a.rings.filter((r) => r.floorFt != null && r.floorFt <= APPROACH_FLOOR_FT)
+                .reduce((x, y) => (y.floorFt! < x.floorFt! ? y : x));
+              const at = ringLevelLabel(a.rings.find((r) => r.nm === a.approachNm)!).replace(/ and above$/, "");
+              const tail = low.nm !== a.approachNm ? `, down to ${ringLevelLabel(low).replace(/ and above$/, "")} inside ${low.nm} NM` : "";
+              return `GPS may be unreliable within ${a.approachNm} NM at ${at}${tail} — GPS approaches affected while in effect.`;
+            })()
+          : a.kind === "disk" ? "No ring reaches approach altitude — enroute only."
+          : a.floorFt != null && a.floorFt > APPROACH_FLOOR_FT ? "High-altitude area — approaches not affected." : "Floor not stated — read the NOTAM."}
+      </div>
+      <details className="mt-1"><summary className="cursor-pointer text-slate-500">NOTAM text</summary><div className="text-slate-700 whitespace-pre-wrap max-h-[140px] overflow-auto">{a.text}</div></details>
+      <div className="text-slate-500 mt-1">DoD DAIP (GPS_WAAS) — planning SA, verify with current NOTAMs</div>
     </div>
   );
 }

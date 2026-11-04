@@ -5,7 +5,7 @@ import { parseAirspaceGroups } from "@/lib/airspace";
 import {
   parseGpsPosition, parseGpsDisk, parseGpsPolygon, insidePolygon, levelFloorFt,
   parseGpsValidity, parseDailyWindow, gpsTiming, prnOutages, gpsNotamsForField,
-  fieldGpsLine, prnLine, fuelNotamsForField, type GpsField,
+  fieldGpsLine, prnLine, fuelNotamsForField, gpsAreas, ringLevelLabel, type GpsField,
 } from "@/lib/gpsNotams";
 
 // The real DAIP GPS_WAAS capture of 2026-06-17 (tests/fixtures/daip).
@@ -90,10 +90,12 @@ describe("the field read", () => {
     expect(on.affecting).toBeGreaterThan(0);
     expect(fieldGpsLine(on.items[0])).toMatch(/inside the 353 NM ring down to 50 ft.*GPS approaches affected.*in effect now.*daily 0700–1100Z/);
   });
-  it("one row per NOTAM, however many centres republished it", () => {
+  it("one row per TEST, however many centres republished it under their own numbers", () => {
     const r = gpsNotamsForField(all(T_IN), HOLLOMAN, T_IN);
     const ids = r.items.map((i) => i.id);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(r.items.filter((i) => i.test === "EPG_AZ GPS 26-07")).toHaveLength(1);
+    expect(r.affecting).toBe(1);
   });
   it("a field outside every ring reads nothing from the tests", () => {
     const r = gpsNotamsForField(all(T_IN), WRIGHTSTOWN, T_IN);
@@ -146,5 +148,44 @@ describe("fuel NOTAMs for a field", () => {
     expect(fuelNotamsForField(rows, "KADW")).toEqual(["KADW JP8 NOT AVBL", "JASU INOP"]);
     expect(fuelNotamsForField(rows, "OJAQ")).toEqual(["OJAQ JET A1 NOT AVBL 1400-1800"]);
     expect(fuelNotamsForField(rows, "")).toEqual([]);
+  });
+});
+
+describe("map areas", () => {
+  it("one area per NOTAM with every ring, the approach ring named", () => {
+    const areas = gpsAreas(all(T), T);
+    const ids = areas.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const epg = areas.find((a) => a.test === "EPG_AZ GPS 26-07")!;
+    expect(epg.kind).toBe("disk");
+    expect(epg.rings.map((r) => r.nm)).toEqual([517, 468, 392, 375, 353]);
+    expect(epg.approachNm).toBe(375); // the 4,000 ft ring is the largest at approach level
+    expect(epg.locs).toEqual(["KZAB", "KZDV", "KZFW", "KZHU", "KZKC", "KZLA", "KZLC"]); // one test, seven ARTCCs
+    expect(epg.ids).toHaveLength(7);
+    expect(areas.filter((a) => a.test === "EPG_AZ GPS 26-07")).toHaveLength(1);
+    expect(epg.timing).toBe("later");
+    expect(epg.next).toBe("2026-06-18T07:00:00.000Z"); // tomorrow's 0700Z window
+    expect(gpsAreas(all(T_IN), T_IN).find((a) => a.test === "EPG_AZ GPS 26-07")!.next).toBeNull();
+  });
+  it("the jamming polygon is an area with its floor; geometry-less notices are not areas", () => {
+    const areas = gpsAreas(all(T), T);
+    const poly = areas.find((a) => a.kind === "polygon")!;
+    expect(poly.jamming).toBe(true);
+    expect(poly.floorFt).toBe(30000);
+    expect(poly.points!.length).toBeGreaterThanOrEqual(3);
+    expect(poly.approachNm).toBeNull();
+    expect(areas.some((a) => /B1076\/26/.test(a.id))).toBe(false);
+    expect(areas.some((a) => /PRN/.test(a.text) && !a.rings.length && !a.points)).toBe(false);
+  });
+  it("in effect first; expired dropped", () => {
+    const areas = gpsAreas(all(T_IN), T_IN);
+    const firstLater = areas.findIndex((a) => a.timing !== "now");
+    expect(areas.slice(firstLater === -1 ? areas.length : firstLater).every((a) => a.timing !== "now")).toBe(true);
+    expect(gpsAreas(all(T), Date.parse("2026-07-01T00:00:00Z")).some((a) => a.test === "EPG_AZ GPS 26-07")).toBe(false);
+  });
+  it("ring labels", () => {
+    expect(ringLevelLabel({ nm: 1, level: "50FT AGL", floorFt: 50 })).toBe("50 ft AGL and above");
+    expect(ringLevelLabel({ nm: 1, level: "FL250", floorFt: 25000 })).toBe("FL250 and above");
+    expect(ringLevelLabel({ nm: 1, level: "SFC-10000FT AGL", floorFt: 0 })).toBe("surface and above");
   });
 });

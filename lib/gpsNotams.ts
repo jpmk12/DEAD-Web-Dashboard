@@ -221,6 +221,32 @@ export interface GpsField extends LatLon {
   codes: string[];
 }
 
+/** One entry per TEST, not per NOTAM number: the FAA publishes a test under
+ *  every ARTCC it touches, each with its own number (EPG_AZ GPS 26-07 is
+ *  seven NOTAMs). Same designator + same centre + same validity = one test;
+ *  every loc and id is kept. Anything without a designator groups by id. */
+export function groupGpsNotams(notams: GpsNotamIn[]): Map<string, { n: GpsNotamIn; locs: Set<string>; ids: string[] }> {
+  const out = new Map<string, { n: GpsNotamIn; locs: Set<string>; ids: string[] }>();
+  for (const n of notams) {
+    const body = norm(`${n.text} ${n.rawtext}`).toUpperCase();
+    const test = (body.match(/\(([A-Z0-9_]+ GPS \d{2}-\d{2})\)/) ?? [])[1];
+    const centre = test ? (parseGpsDisk(n.text) ?? parseGpsDisk(n.rawtext)) : null;
+    const v = test ? parseGpsValidity(n.rawtext || n.text) : {};
+    const id = norm(n.id || n.rawtext.slice(0, 60));
+    const key = test
+      ? `test:${test}|${centre ? `${centre.lat.toFixed(3)},${centre.lon.toFixed(3)}` : ""}|${v.start ?? ""}|${v.end ?? ""}`
+      : `id:${id}`;
+    const hit = out.get(key);
+    if (hit) {
+      if (n.loc) hit.locs.add(n.loc.toUpperCase());
+      if (!hit.ids.includes(id)) hit.ids.push(id);
+      continue;
+    }
+    out.set(key, { n, locs: new Set(n.loc ? [n.loc.toUpperCase()] : []), ids: [id] });
+  }
+  return out;
+}
+
 export const APPROACH_FLOOR_FT = 4000;
 export const GPS_FIELD_MAX_ITEMS = 6;
 const JAM_RX = /\b(JAMMING|SPOOFING|INTERFERENCE)\b/;
@@ -231,14 +257,7 @@ const TIMING_RANK: Record<GpsTiming, number> = { now: 0, later: 1, expired: 2 };
 export function gpsNotamsForField(notams: GpsNotamIn[], field: GpsField, nowMs: number): FieldGpsRead {
   const codes = new Set(field.codes.map((c) => c.trim().toUpperCase()).filter(Boolean));
   codes.add(field.icao.toUpperCase());
-  // One row per NOTAM id; a NOTAM republished under several ARTCCs keeps every loc.
-  const byId = new Map<string, { n: GpsNotamIn; locs: Set<string> }>();
-  for (const n of notams) {
-    const key = norm(n.id || n.rawtext.slice(0, 60));
-    const hit = byId.get(key);
-    if (hit) { if (n.loc) hit.locs.add(n.loc.toUpperCase()); continue; }
-    byId.set(key, { n, locs: new Set(n.loc ? [n.loc.toUpperCase()] : []) });
-  }
+  const byId = groupGpsNotams(notams);
 
   const items: FieldGpsNotam[] = [];
   for (const { n, locs } of byId.values()) {
@@ -298,6 +317,102 @@ export function gpsNotamsForField(notams: GpsNotamIn[], field: GpsField, nowMs: 
     prns: prnOutages(notams, nowMs),
     affecting: items.filter((i) => i.amber).length,
   };
+}
+
+/** One drawable GPS area for the Crisis map: a test disk (every ring) or a
+ *  published polygon. FIR-wide notices and satellite outages have no
+ *  geometry and are not areas. */
+export interface GpsArea {
+  id: string;
+  /** Every NOTAM number this test was published under (one per ARTCC). */
+  ids: string[];
+  test: string | null;
+  kind: "disk" | "polygon";
+  /** Disk centre, or the polygon's vertex mean (popup anchor). */
+  lat: number;
+  lon: number;
+  /** Disk rings, largest first. Empty for a polygon. */
+  rings: GpsRing[];
+  /** Largest ring whose floor is at or below APPROACH_FLOOR_FT — the
+   *  footprint where GPS approaches are affected. Null when none reaches down. */
+  approachNm: number | null;
+  points: LatLon[] | null;
+  /** Polygon floor from "ABOVE FLnnn" (feet), null when not stated. */
+  floorFt: number | null;
+  timing: GpsTiming;
+  window: string | null;
+  start: string | null;
+  until: string | null;
+  /** Next time it comes into effect when not in effect now (ISO), null when unknown. */
+  next: string | null;
+  jamming: boolean;
+  /** Every location code the NOTAM was published under (FAA republishes per ARTCC). */
+  locs: string[];
+  text: string;
+}
+
+export const GPS_AREA_MAX = 60;
+
+function nextStart(start: string | undefined, daily: { from: number } | null, nowMs: number): string | null {
+  const s = start ? Date.parse(start) : NaN;
+  const base = Number.isFinite(s) && s > nowMs ? s : nowMs;
+  if (!daily) return Number.isFinite(s) && s > nowMs ? new Date(s).toISOString() : null;
+  const d = new Date(base);
+  let t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + daily.from * 60_000;
+  if (t < base) t += 86_400_000;
+  return new Date(t).toISOString();
+}
+
+/** The drawable GPS areas in the system list: deduped by NOTAM id, expired
+ *  dropped, in effect first. */
+export function gpsAreas(notams: GpsNotamIn[], nowMs: number): GpsArea[] {
+  const byId = groupGpsNotams(notams);
+  const out: GpsArea[] = [];
+  for (const { n, locs, ids } of byId.values()) {
+    const timing = gpsTiming(n, nowMs);
+    if (timing === "expired") continue;
+    const body = norm(`${n.text} ${n.rawtext}`).toUpperCase();
+    const daily = parseDailyWindow(n.text) ?? parseDailyWindow(n.rawtext);
+    const v = parseGpsValidity(n.rawtext || n.text);
+    const base = {
+      id: norm(n.id), ids,
+      test: (body.match(/\(([A-Z0-9_]+ GPS \d{2}-\d{2})\)/) ?? [])[1] ?? null,
+      timing, window: daily?.label ?? null, start: v.start ?? null, until: v.end ?? null,
+      next: timing === "now" ? null : nextStart(v.start, daily, nowMs),
+      jamming: JAM_RX.test(body), locs: [...locs].sort(), text: norm(n.text).slice(0, 400),
+    };
+    const disk = parseGpsDisk(n.text) ?? parseGpsDisk(n.rawtext);
+    if (disk && disk.rings.length) {
+      const rings = [...disk.rings].sort((a, b) => b.nm - a.nm);
+      const low = rings.filter((r) => r.floorFt != null && r.floorFt <= APPROACH_FLOOR_FT);
+      out.push({
+        ...base, kind: "disk", lat: disk.lat, lon: disk.lon, rings,
+        approachNm: low.length ? low[0].nm : null, points: null, floorFt: null,
+      });
+      continue;
+    }
+    const poly = parseGpsPolygon(n.text) ?? parseGpsPolygon(n.rawtext);
+    if (poly) {
+      const above = body.match(/\bABOVE\s+FL\s*(\d{2,3})\b/);
+      out.push({
+        ...base, kind: "polygon",
+        lat: poly.reduce((s, p) => s + p.lat, 0) / poly.length,
+        lon: poly.reduce((s, p) => s + p.lon, 0) / poly.length,
+        rings: [], approachNm: null, points: poly, floorFt: above ? Number(above[1]) * 100 : null,
+      });
+    }
+  }
+  out.sort((a, b) => TIMING_RANK[a.timing] - TIMING_RANK[b.timing]
+    || Number(b.approachNm != null) - Number(a.approachNm != null) || (b.rings[0]?.nm ?? 0) - (a.rings[0]?.nm ?? 0));
+  return out.slice(0, GPS_AREA_MAX);
+}
+
+/** Altitude label for one ring ("50 ft AGL", "FL250 and above"). */
+export function ringLevelLabel(r: GpsRing): string {
+  if (r.floorFt == null) return r.level || "level not stated";
+  if (r.floorFt === 0) return "surface and above";
+  if (r.floorFt >= 18000) return `FL${Math.round(r.floorFt / 100)} and above`;
+  return `${r.floorFt.toLocaleString("en-US")} ft${/AGL/.test(r.level) ? " AGL" : ""} and above`;
 }
 
 const ft = (f: number | null) => (f == null ? "?" : f >= 18000 ? `FL${Math.round(f / 100)}` : f === 0 ? "the surface" : `${f.toLocaleString("en-US")} ft`);
