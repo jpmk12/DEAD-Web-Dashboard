@@ -153,6 +153,25 @@ export function offsetTag(offsetMin: number): string {
  *  so a DST change on that day resolves to the right offset; a non-existent
  *  wall time lands on the instant after the gap. Null on a bad input. */
 export function wallToMs(ymd: string, hhmm: string, zone: string): number | null {
+  return resolveWall(ymd, hhmm, zone)?.ms ?? null;
+}
+
+/** How a wall-clock time resolves in a zone on that day: `ok` (one instant),
+ *  `gap` (the spring-forward hour — the time never shows on that clock; `ms`
+ *  is the instant after the gap, `shiftMin` how far the clock jumped) or
+ *  `doubled` (the fall-back hour — the time shows twice; `ms` is the FIRST,
+ *  `laterMs` the second). `before` / `after` are the offsets either side of
+ *  any change that day. Null on a bad input. */
+export interface WallResolve {
+  kind: "ok" | "gap" | "doubled";
+  ms: number;
+  laterMs: number | null;
+  shiftMin: number;
+  before: number;
+  after: number;
+}
+
+export function resolveWall(ymd: string, hhmm: string, zone: string): WallResolve | null {
   const p = parseYmd(ymd);
   const t = /^(\d{1,2}):?(\d{2})$/.exec((hhmm ?? "").trim());
   if (!p || !t || !isValidTz(zone)) return null;
@@ -170,8 +189,12 @@ export function wallToMs(ymd: string, hhmm: string, zone: string): number | null
   const after = utcOffsetMinutes(new Date(guess + 86_400_000), zone);
   const cands = [...new Set([before, after])].map((off) => ({ off, ms: guess - off * 60_000 }));
   const valid = cands.filter((c) => utcOffsetMinutes(new Date(c.ms), zone) === c.off).map((c) => c.ms);
-  if (valid.length) return Math.min(...valid);
-  return guess - before * 60_000;
+  const shiftMin = after - before;
+  if (valid.length === 2 && valid[0] !== valid[1]) {
+    return { kind: "doubled", ms: Math.min(...valid), laterMs: Math.max(...valid), shiftMin, before, after };
+  }
+  if (valid.length) return { kind: "ok", ms: valid[0], laterMs: null, shiftMin: 0, before, after };
+  return { kind: "gap", ms: guess - before * 60_000, laterMs: null, shiftMin, before, after };
 }
 
 export interface ZoneTime {

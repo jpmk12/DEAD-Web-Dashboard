@@ -1,17 +1,165 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { wallToMs, inZone, parseDtg } from "@/lib/plannerTools";
+import { useEffect, useMemo, useState } from "react";
+import { wallToMs, inZone, parseDtg, resolveWall } from "@/lib/plannerTools";
 import { formatUtcOffset } from "@/lib/worldClocks";
+import { allZones, cityOf, dstInfo, dstWord, nextZoneChange, resolveZoneInput, zoneAbbrev, zoneChangeLine } from "@/lib/zoneConvert";
 import {
   parseDuration, durationLabel, eteFromDistance, enRoute,
   UNIT_FAMILIES, unitsOf, convertUnit, fmtUnit, DEFAULT_FUEL_LB_PER_GAL, type UnitFamily,
 } from "@/lib/plannerExtras";
 import { Card, Label, inputCls, type ZoneCol } from "./toolsUi";
 
-// Two Tools cards, both arithmetic in the browser — no request, nothing
+// Three Tools cards, all arithmetic in the browser — no request, nothing
 // stored (tests/toolsPrivacy.test.ts scans this file and fails on a fetch or
 // a storage write). They work the same in private mode.
+
+// ── Time zones ─────────────────────────────────────────────────────────────
+
+/** Zulu ↔ any zone, both ways, DST-aware. A row's ↺ makes that zone the
+ *  source with its wall time filled in — convert back from there. Added zones
+ *  live in this card's state only (nothing stored). */
+export function TimeZoneCard({ cols }: { cols: ZoneCol[] }) {
+  const zones = useMemo(() => allZones(), []);
+  const [fromZone, setFromZone] = useState("UTC");
+  const [dateIn, setDateIn] = useState("");
+  const [timeIn, setTimeIn] = useState("");
+  const [dtgIn, setDtgIn] = useState("");
+  const [second, setSecond] = useState(false);
+  const [extra, setExtra] = useState<ZoneCol[]>([]);
+  const [addIn, setAddIn] = useState("");
+  const [addNote, setAddNote] = useState<string | null>(null);
+
+  const setNow = (zone = fromZone) => { const z = inZone(Date.now(), zone); setDateIn(z.ymd); setTimeIn(z.hhmm); setDtgIn(""); setSecond(false); };
+  // Start on "now" in Zulu; client-only (no hydration of a clock).
+  useEffect(() => { setNow("UTC"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const targets = useMemo<ZoneCol[]>(() => {
+    const seen = new Set<string>(); const out: ZoneCol[] = [];
+    for (const c of [...cols, ...extra]) if (!seen.has(c.zone)) { seen.add(c.zone); out.push(c); }
+    return out;
+  }, [cols, extra]);
+  const sources = useMemo<ZoneCol[]>(() => (targets.some((t) => t.zone === fromZone) ? targets : [...targets, { zone: fromZone, label: cityOf(fromZone) }]), [targets, fromZone]);
+
+  const wall = !dtgIn.trim() && dateIn && timeIn ? resolveWall(dateIn, timeIn, fromZone) : null;
+  const ms = dtgIn.trim() ? parseDtg(dtgIn) : wall ? (wall.kind === "doubled" && second && wall.laterMs != null ? wall.laterMs : wall.ms) : null;
+  const srcLabel = sources.find((s) => s.zone === fromZone)?.label ?? cityOf(fromZone);
+
+  const add = () => {
+    const r = resolveZoneInput(addIn, zones);
+    if (!r) { setAddNote(`“${addIn.trim()}” is not a zone this browser knows — try a city (“Tehran”), an IANA id (“Asia/Tehran”) or a letter (“C”).`); return; }
+    const shown = targets.find((c) => c.zone === r.zone);
+    if (!shown) setExtra((x) => [...x, { zone: r.zone, label: r.label }]);
+    setAddNote([r.note, shown ? `${r.zone} is already in the table as ${shown.label}.` : null].filter(Boolean).join(" ") || null);
+    setAddIn("");
+  };
+  const fromHere = (zone: string) => {
+    if (ms == null) { setFromZone(zone); return; }
+    const z = inZone(ms, zone);
+    setFromZone(zone); setDateIn(z.ymd); setTimeIn(z.hhmm); setDtgIn(""); setSecond(false);
+  };
+
+  const srcDst = ms != null ? dstInfo(ms, fromZone) : null;
+  const zulu = ms != null ? inZone(ms, "UTC") : null;
+
+  return (
+    <Card title="Time zones" sub="Zulu ↔ any zone · both ways · DST from this browser's zone database">
+      <div className="flex flex-wrap items-end gap-2">
+        <div><Label>date</Label><input type="date" value={dateIn} onChange={(e) => { setDateIn(e.target.value); setDtgIn(""); setSecond(false); }} className={inputCls} aria-label="Date to convert" /></div>
+        <div><Label>time</Label><input type="time" value={timeIn} onChange={(e) => { setTimeIn(e.target.value); setDtgIn(""); setSecond(false); }} className={`${inputCls} w-28`} aria-label="Time to convert" /></div>
+        <div>
+          <Label>in</Label>
+          <select value={fromZone} onChange={(e) => { setFromZone(e.target.value); setSecond(false); }} className={`${inputCls} max-w-[170px]`} aria-label="Zone the time is in">
+            {sources.map((z) => <option key={z.zone} value={z.zone}>{z.label}</option>)}
+          </select>
+        </div>
+        <div><Label>or DTG</Label><input value={dtgIn} onChange={(e) => setDtgIn(e.target.value)} placeholder="271930ZOCT26" className={`${inputCls} w-36`} aria-label="Time as a DTG" /></div>
+        <button type="button" onClick={() => setNow()} className="px-2 py-1.5 rounded-md border border-slate-700 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-300">now</button>
+      </div>
+
+      {srcDst && !dtgIn.trim() && (
+        <p className="text-[10.5px] font-mono text-slate-500">
+          {srcLabel}: {formatUtcOffset(srcDst.offset)}{zoneAbbrev(ms!, fromZone) ? ` ${zoneAbbrev(ms!, fromZone)}` : ""} · {dstWord(srcDst)}
+          {srcDst.observes && <> · standard {formatUtcOffset(srcDst.stdOffset)}, summer {formatUtcOffset(srcDst.dstOffset!)}</>}
+        </p>
+      )}
+      {dtgIn.trim() && ms == null && <p className="text-[11px] font-mono text-amber-300">not a DTG — e.g. 271930ZOCT26 · 272130BOCT26 · 272300+0330OCT26 (J, local, is refused)</p>}
+      {wall?.kind === "gap" && (
+        <p className="text-[11px] text-amber-200/90 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-2.5 py-1.5">
+          {timeIn} does not exist in {srcLabel} on {dateIn} — the clock jumps {formatUtcOffset(wall.before)} → {formatUtcOffset(wall.after)} ({wall.shiftMin > 0 ? "+" : ""}{wall.shiftMin} min). Read as {inZone(wall.ms, fromZone).hhmm} local, the instant after the gap.
+        </p>
+      )}
+      {wall?.kind === "doubled" && wall.laterMs != null && (
+        <div className="text-[11px] text-amber-200/90 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-2.5 py-1.5 flex flex-wrap items-center gap-2">
+          <span>{timeIn} happens twice in {srcLabel} on {dateIn} — clocks fall back {formatUtcOffset(wall.before)} → {formatUtcOffset(wall.after)}. Showing the {second ? "second" : "first"}:</span>
+          <span className="flex rounded-md border border-amber-500/40 overflow-hidden" role="group" aria-label="Which occurrence">
+            {([false, true] as const).map((s) => (
+              <button key={String(s)} type="button" onClick={() => setSecond(s)} aria-pressed={second === s}
+                className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${second === s ? "bg-amber-500/20 text-amber-100" : "text-amber-300/70 hover:text-amber-100"}`}>
+                {s ? `2nd · ${inZone(wall.laterMs!, "UTC").hhmm}Z` : `1st · ${inZone(wall.ms, "UTC").hhmm}Z`}
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
+
+      {ms != null && zulu ? (
+        <div className="overflow-x-auto -mx-4 px-4">
+          <table className="min-w-full text-[11px] font-mono tabular-nums">
+            <thead>
+              <tr className="text-[9px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800">
+                <th className="text-left py-1 pr-3">Zone</th>
+                <th className="text-left py-1 pr-3">Date</th>
+                <th className="text-left py-1 pr-3">Time</th>
+                <th className="text-left py-1 pr-3">Offset</th>
+                <th className="text-left py-1 pr-3">DST</th>
+                <th className="text-left py-1 pr-3">Next clock change</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {targets.map((c) => {
+                const t = inZone(ms, c.zone);
+                const d = dstInfo(ms, c.zone);
+                const ab = zoneAbbrev(ms, c.zone);
+                const nx = d?.observes ? nextZoneChange(ms, c.zone) : null;
+                const src = c.zone === fromZone && !dtgIn.trim();
+                return (
+                  <tr key={c.zone} className={`border-b border-slate-800/60 ${src ? "text-sky-200" : "text-slate-200"}`}>
+                    <td className="py-1 pr-3 whitespace-nowrap">
+                      <span className="font-bold">{c.label}</span>
+                      {c.zone !== "UTC" && <span className="text-slate-600"> {c.zone}</span>}
+                      {extra.some((x) => x.zone === c.zone) && <button type="button" onClick={() => setExtra((x) => x.filter((z) => z.zone !== c.zone))} className="ml-1.5 text-slate-600 hover:text-red-300" aria-label={`Remove ${c.label}`}>✕</button>}
+                    </td>
+                    <td className="py-1 pr-3 whitespace-nowrap"><span className={t.ymd !== zulu.ymd ? "text-amber-200/80" : "text-slate-500"}>{t.weekday} {t.dayShort}</span></td>
+                    <td className="py-1 pr-3 whitespace-nowrap"><span className="font-bold">{t.hhmm}</span>{t.letter && <span className="text-slate-500"> {t.letter}</span>}{ab && ab !== "UTC" && <span className="text-slate-500"> {ab}</span>}</td>
+                    <td className="py-1 pr-3 whitespace-nowrap">{formatUtcOffset(t.offsetMin)}</td>
+                    <td className={`py-1 pr-3 whitespace-nowrap ${d?.isDst ? "text-amber-200" : "text-slate-500"}`}>{dstWord(d)}</td>
+                    <td className="py-1 pr-3 whitespace-nowrap text-slate-500">{d?.observes ? (nx ? zoneChangeLine(nx) : "none within 400 days") : "—"}</td>
+                    <td className="py-1 whitespace-nowrap">{!src && <button type="button" onClick={() => fromHere(c.zone)} className="text-slate-500 hover:text-sky-300" title={`convert from ${c.label}`}>↺ from here</button>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="pt-1.5 text-[10px] text-slate-600">Zulu DTG {zulu.dtg} · amber date = a different calendar day from Zulu · ↺ makes that zone the source, to convert back · letter zones and Zulu never change for DST</p>
+        </div>
+      ) : (
+        !(dtgIn.trim() && ms == null) && <p className="text-[11px] font-mono text-slate-500">Give a date and time (or a DTG) to convert.</p>
+      )}
+
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <Label>add a zone</Label>
+          <input value={addIn} onChange={(e) => setAddIn(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} list="tz-zone-list" placeholder="Tehran · Asia/Tehran · EST · C" className={`${inputCls} w-56`} aria-label="Add a zone" />
+          <datalist id="tz-zone-list">{zones.map((z) => <option key={z} value={z} />)}</datalist>
+        </div>
+        <button type="button" onClick={add} disabled={!addIn.trim()} className="px-2 py-1.5 rounded-md border border-slate-700 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-sky-300 disabled:opacity-40">＋ add</button>
+        {addNote && <span className="text-[10px] text-slate-500 pb-2">{addNote}</span>}
+      </div>
+    </Card>
+  );
+}
 
 // ── En route ───────────────────────────────────────────────────────────────
 

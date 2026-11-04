@@ -3849,8 +3849,40 @@ is `lib/plannerTools.ts` (PURE, client-safe, tested in
     / `inputCls`) and fails on any fetch, storage or transport.
   Verified in headless Chromium against the build (private mode, typed
   coordinates for Muwaffaq Salti: EENT 1535Z matches the hand computation).
-No new npm dep (esbuild `0`). Still offered: a DST-change table for a zone
-and date range.
+- **Time zones card (2026-11-04, "convert from Zulu or other time zones
+  back and forth … aware of daylight savings time")** — second card on the
+  tab, `TimeZoneCard` in `components/tools/ToolsExtras.tsx` (no fetch, no
+  storage — the privacy test scans it). A date + time in any zone (or a DTG,
+  or "now") → every zone the tab already keeps (Zulu, this device, the
+  effective zone, the Glance clocks) plus zones added in the card (state
+  only; a zone already shown says so): local date (amber when the calendar
+  day differs from Zulu), time with its military letter and abbreviation
+  (EDT, CEST), UTC offset, DST / standard / no DST, and the NEXT clock
+  change ("Sun 01 Nov 2026 · 02:00 → 01:00 (−1 h, UTC−4 → UTC−5)"). **↺ from
+  here** makes a row the source with its wall time filled in — the back
+  conversion. DST rules, all PURE and tested (`tests/zoneConvert.test.ts`):
+  - `resolveWall(ymd, hhmm, zone)` in `lib/plannerTools.ts` (`wallToMs` is
+    now its `.ms`): `ok` · `gap` (the spring-forward hour does not exist —
+    read as the instant after the gap, and the card SAYS so in amber) ·
+    `doubled` (the fall-back hour happens twice — first by default, a
+    1st / 2nd toggle with each one's Zulu time). Never a silent pick.
+  - `lib/zoneConvert.ts`: `offsetAt` (one cached `Intl` formatter per zone —
+    the change scan calls it ~400× per zone), `dstInfo` (standard = the
+    smaller of January's and July's offset, so Sydney reads DST in January),
+    `zoneChanges` / `nextZoneChange` (day step + minute bisection, 400-day
+    horizon), `zoneChangeLine`, `zoneAbbrev` (en-US then en-GB; a bare
+    "GMT+3" is dropped — the offset column says it), `allZones`
+    (`Intl.supportedValuesOf`, short fallback), `cityOf`, and
+    `resolveZoneInput`: Zulu spellings, an IANA id in any case, a city name,
+    a military letter (a FIXED `Etc/GMT∓n` — the Etc sign is inverted — and
+    the note says letter zones never change for DST; J refused), and an
+    UNAMBIGUOUS abbreviation read as the DST-aware zone ("EST" →
+    America/New_York, said so — IANA's own "EST" is a fixed UTC−5, never
+    what a planner means). Ambiguous abbreviations (IST, AST, CST-for-China)
+    are refused, never guessed. The DST data is the browser's own IANA
+    database.
+No new npm dep (esbuild `0`). Still offered: a full DST-change
+table for a zone across a date range (the card shows the next change only).
 
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to

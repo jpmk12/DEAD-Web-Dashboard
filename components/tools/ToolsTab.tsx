@@ -14,7 +14,7 @@ import { hhmmZ, lunarNight, lunarTonightLine, zoneForLongitude, MOON_USEFUL_ALT_
 import { readPrivate, writePrivate, parseLatLon, PRIVATE_BLOCKS } from "@/lib/toolsPrivacy";
 import type { HConsiderations } from "@/app/api/tools/hhour/route";
 import { Card, Label, inputCls, type ZoneCol } from "./toolsUi";
-import { EnRouteCard, UnitsCard } from "./ToolsExtras";
+import { EnRouteCard, TimeZoneCard, UnitsCard } from "./ToolsExtras";
 import { parseSunOffset, sunOffsetRows, sunOffsetLabel, SUN_EVENT_LABEL } from "@/lib/plannerExtras";
 
 // The Tools tab — planner date-time arithmetic, ALL of it in the browser
@@ -679,6 +679,7 @@ function ToolsBody({ eff, priv, onPrivate }: { eff: ZoneInfo; priv: boolean; onP
         </div>
       )}
       <JulianCard zone={eff.zone} zoneLabel={eff.label} />
+      {clocks && <TimeZoneCard cols={cols} />}
       {clocks && <HHourCard cols={cols} effective={{ zone: eff.zone, label: eff.label }} priv={priv} onH={setHMs} />}
       {clocks && <EnRouteCard cols={cols} hMs={hMs} />}
       <DaysCard zone={eff.zone} />
