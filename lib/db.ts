@@ -1,5 +1,6 @@
 import mysql from "mysql2/promise";
 import type { RowDataPacket } from "mysql2";
+import { createHash } from "node:crypto";
 
 // GoDaddy Node.js Hosting injects these env vars for the managed MySQL instance.
 // Locally, set them in .env so `next dev` can connect to a dev database.
@@ -840,6 +841,8 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // Captured map events carry their REPORTED coordinates when the page had
   // them (2026-10-27): a placed event joins a strait / base / country by
   // distance. NULL = the page carried none; never filled in.
+  // A declared theme attached to I&W boards (2026-11-04): problem ids, JSON.
+  { table: "osint_themes", column: "boards", ddl: "ALTER TABLE osint_themes ADD COLUMN boards JSON NULL" },
   { table: "captured_events", column: "lat", ddl: "ALTER TABLE captured_events ADD COLUMN lat DOUBLE NULL" },
   { table: "captured_events", column: "lon", ddl: "ALTER TABLE captured_events ADD COLUMN lon DOUBLE NULL" },
   { table: "trips", column: "source",   ddl: "ALTER TABLE trips ADD COLUMN source   VARCHAR(16)  NOT NULL DEFAULT 'manual'" },
@@ -901,7 +904,51 @@ async function pkIncludes(pool: mysql.Pool, table: string, column: string): Prom
 
 let initPromise: Promise<mysql.Pool> | null = null;
 
+const SECONDARY_INDEXES = [
+  { table: "trips",       index: "idx_trips_user",    ddl: "ALTER TABLE trips       ADD INDEX idx_trips_user (user_email, start_date)" },
+  { table: "contacts",    index: "idx_contacts_user", ddl: "ALTER TABLE contacts    ADD INDEX idx_contacts_user (user_email)" },
+  { table: "saved_items", index: "idx_saved_user",    ddl: "ALTER TABLE saved_items ADD INDEX idx_saved_user (user_email, saved_at)" },
+];
+
+// ── Cold-start fast path (housekeeping 2026-11-04) ─────────────────────────
+// Every cold process used to run all ~150 schema statements (53 CREATE TABLE
+// IF NOT EXISTS, a column / key / index probe per migration, the owner
+// backfill) before its first query. Now a FINGERPRINT of the whole schema
+// definition (+ the owner, whose backfill is part of it) is stored in
+// `schema_meta`; when it matches AND every table exists, the full pass is
+// skipped — three queries instead of ~150. Any change to a CREATE, a
+// migration or an index changes the fingerprint and the next boot runs the
+// full (idempotent) pass and stamps the new one. A table dropped by hand is
+// caught by the table count, so the fast path can never hide a missing table.
+const SCHEMA_TABLES = SCHEMA_STATEMENTS.map((s) => /CREATE TABLE IF NOT EXISTS\s+`?(\w+)`?/i.exec(s)?.[1]).filter((t): t is string => !!t);
+function schemaFingerprint(): string {
+  const owner = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
+  return createHash("sha256")
+    .update(JSON.stringify([SCHEMA_STATEMENTS, COLUMN_MIGRATIONS, KEY_MIGRATIONS, SECONDARY_INDEXES, owner]))
+    .digest("hex").slice(0, 32);
+}
+interface MetaRow extends RowDataPacket { v: string }
+
+async function schemaIsCurrent(pool: mysql.Pool, fp: string): Promise<boolean> {
+  await pool.query("CREATE TABLE IF NOT EXISTS schema_meta (k VARCHAR(32) PRIMARY KEY, v VARCHAR(128) NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
+  const [rows] = await pool.query<MetaRow[]>("SELECT v FROM schema_meta WHERE k = 'schema'");
+  if (rows[0]?.v !== fp) return false;
+  const [cnt] = await pool.query<ColumnRow[]>(
+    `SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN (?)`,
+    [SCHEMA_TABLES],
+  );
+  return Number(cnt[0]?.cnt ?? 0) >= SCHEMA_TABLES.length;
+}
+
 async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
+  const fp = schemaFingerprint();
+  try { if (await schemaIsCurrent(pool, fp)) return pool; } catch { /* fall through to the full pass */ }
+  await fullSchemaPass(pool);
+  await pool.query("INSERT INTO schema_meta (k, v) VALUES ('schema', ?) ON DUPLICATE KEY UPDATE v = VALUES(v)", [fp]).catch(() => {});
+  return pool;
+}
+
+async function fullSchemaPass(pool: mysql.Pool): Promise<void> {
   for (const stmt of SCHEMA_STATEMENTS) {
     await pool.query(stmt);
   }
@@ -939,11 +986,7 @@ async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
   // Secondary indexes for the new per-user predicates (PKs don't cover them:
   // saved_items' PK is (id, user_email) — id leftmost — and trips/contacts
   // keep their id PKs). Without these, per-user list queries are table scans.
-  for (const { table, index, ddl } of [
-    { table: "trips",       index: "idx_trips_user",    ddl: "ALTER TABLE trips       ADD INDEX idx_trips_user (user_email, start_date)" },
-    { table: "contacts",    index: "idx_contacts_user", ddl: "ALTER TABLE contacts    ADD INDEX idx_contacts_user (user_email)" },
-    { table: "saved_items", index: "idx_saved_user",    ddl: "ALTER TABLE saved_items ADD INDEX idx_saved_user (user_email, saved_at)" },
-  ]) {
+  for (const { table, index, ddl } of SECONDARY_INDEXES) {
     const [idx] = await pool.query<ColumnRow[]>(
       `SELECT COUNT(*) AS cnt FROM information_schema.statistics
        WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`,
@@ -951,7 +994,6 @@ async function initSchema(pool: mysql.Pool): Promise<mysql.Pool> {
     );
     if (Number(idx[0]?.cnt ?? 0) === 0) await pool.query(ddl);
   }
-  return pool;
 }
 
 export function getDb(): Promise<mysql.Pool> {

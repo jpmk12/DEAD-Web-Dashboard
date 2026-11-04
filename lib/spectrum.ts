@@ -25,6 +25,7 @@ import { getCounterspaceCatalogue, type CounterspaceCatalogue } from "./counters
 import { getCyberPosture } from "./spectrumSensors";
 import type { CyberPostureRead } from "./cyberSignals";
 import type { SpaceActor } from "./counterspace";
+import { withTimeout } from "@/lib/withTimeout";
 
 /** One actor's posture in space and cyber — the country room's Posture
  *  card and the Ask evidence pack read this. Posture is the standing
@@ -77,12 +78,6 @@ let cache: { at: number; body: SpectrumSummary } | null = null;
 let inflight: Promise<SpectrumSummary> | null = null;
 
 export function resetSpectrumCache(): void { cache = null; }
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout>;
-  const to = new Promise<null>((res) => { timer = setTimeout(() => res(null), ms); });
-  return Promise.race([p.catch(() => null), to]).finally(() => clearTimeout(timer)) as Promise<T | null>;
-}
 
 export async function getSpectrumSummary(opts: { maxWaitMs?: number } = {}): Promise<SpectrumSummary> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;

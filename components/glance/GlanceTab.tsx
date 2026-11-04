@@ -1,5 +1,6 @@
 "use client";
 
+import { SEVERITY_RANK } from "@/lib/severity";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { openTrackPicker } from "@/lib/trackClient";
 import { toast } from "@/lib/feedback";
@@ -599,7 +600,7 @@ export default function GlanceTab({
   // location that JUST escalated (worse than yesterday) is bumped to the top and
   // flagged, so a newly-deteriorating spot grabs attention.
   const COCOM_SHORT: Record<string, string> = { NORTHCOM: "NORTHCOM", SOUTHCOM: "SOUTHCOM", EUCOM: "EUCOM", CENTCOM: "CENTCOM", AFRICOM: "AFRICOM", INDOPACOM: "INDOPACOM", UNKNOWN: "" };
-  const SEV_IDX: Record<string, number> = { red: 3, amber: 2, unknown: 1, green: 0 };
+  const SEV_IDX: Record<string, number> = SEVERITY_RANK;
   const escalated = (f: ForceWatchItem) => !!f.previousComposite && SEV_IDX[f.composite] > SEV_IDX[f.previousComposite];
   const forceTo = () => { onNavigate("osint"); window.dispatchEvent(new CustomEvent("osint:set-pane", { detail: "crisis" })); };
   for (const f of forceWatch.filter((x) => x.composite === "red").slice(0, 3)) {

@@ -31,6 +31,8 @@ export const LEVEL_PILL: Record<Level, string> = {
 };
 
 export const LEVEL_LABEL: Record<Level, string> = { calm: "Calm", watch: "Watch", warning: "Warning", alert: "Alert" };
+/** I&W level ordinals, higher is worse — the one home (housekeeping 2026-11-04). */
+export const IW_LEVEL_RANK: Record<Level, number> = { calm: 0, watch: 1, warning: 2, alert: 3 };
 
 /** The card border + glow for a board at each level. */
 export const CARD_ACCENT: Record<Level, string> = {

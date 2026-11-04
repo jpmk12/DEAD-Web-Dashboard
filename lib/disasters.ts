@@ -8,6 +8,7 @@ import Parser from "rss-parser";
 import type { DisasterEvent } from "./types";
 import { classifyAor } from "./aor";
 import { fetchWithTimeout } from "./fetchTimeout";
+import { haversineKm } from "./geoMath";
 
 const UA = "DEAD-Dashboard (https://github.com/jpmk12/dead-web-dashboard)";
 
@@ -337,13 +338,6 @@ export async function getDisasters(): Promise<DisasterEvent[]> {
   return dedupe(all);
 }
 
-// Great-circle distance in km.
-export function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const R = 6371;
-  const dLat = ((bLat - aLat) * Math.PI) / 180;
-  const dLon = ((bLon - aLon) * Math.PI) / 180;
-  const s =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
-}
+
+/** Re-exported from lib/geoMath (the one home) for existing importers. */
+export { haversineKm };

@@ -18,6 +18,7 @@ import { AOR_LABELS } from "./aor";
 import { CALL_LABEL, type DecisionEntry } from "./decisionLog";
 import type { OeSnapshot } from "./oeContextFormat";
 import type { LineRead } from "./lineRead";
+import { SEVERITY_RANK } from "./severity";
 
 export interface OeBriefInput {
   snapshot: OeSnapshot;
@@ -28,7 +29,7 @@ export interface OeBriefInput {
   lines?: LineRead[] | null;
 }
 
-const SEV_RANK: Record<string, number> = { red: 3, amber: 2, unknown: 1, green: 0 };
+const SEV_RANK: Record<string, number> = SEVERITY_RANK;
 const LVL_RANK: Record<string, number> = { alert: 3, warning: 2, watch: 1, calm: 0 };
 const LED_TXT: Record<string, string> = { g: "GREEN", a: "AMBER", r: "RED", u: "UNK" };
 const AOR = (a: string) => (AOR_LABELS as Record<string, string>)[a] ?? a;

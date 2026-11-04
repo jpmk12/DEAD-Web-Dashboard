@@ -34,9 +34,25 @@ export interface Theme {
   /** Who declared or last edited it — the crew shares one register. */
   by: string;
   updatedAt: string;
+  /** I&W boards (problem ids) the theme is attached to as a watching-capped
+   *  indicator (2026-11-04). Absent / empty = attached to none. */
+  boards?: string[];
 }
 
-export interface ThemeDraft { name: string; phrases: string[] }
+export interface ThemeDraft { name: string; phrases: string[]; boards?: string[] }
+
+/** Boards a theme may attach to: problem-id-shaped, deduped, at most this many. */
+export const THEME_MAX_BOARDS = 8;
+export function normalizeBoards(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const b of raw) {
+    if (typeof b !== "string" || !/^[\w-]{1,64}$/.test(b) || out.includes(b)) continue;
+    out.push(b);
+    if (out.length >= THEME_MAX_BOARDS) break;
+  }
+  return out;
+}
 
 export const THEME_MAX = 20;
 export const THEME_MAX_PHRASES = 12;
@@ -101,6 +117,8 @@ export interface ThemeRead {
   line: string;
   /** True when the read rests on the operator's own sources alone — it then caps at watching. */
   ownOnly: boolean;
+  /** Boards the theme is attached to (see `themeIndicator`). */
+  boards: string[];
 }
 
 const DAY = 86_400_000;
@@ -140,8 +158,8 @@ export function normalizePhrases(raw: unknown[]): string[] {
   return out;
 }
 
-export function normalizeThemeDraft(d: { name: unknown; phrases: unknown }): ThemeDraft {
-  return { name: String(d.name).replace(/\s+/g, " ").trim().slice(0, THEME_NAME_MAX), phrases: normalizePhrases(Array.isArray(d.phrases) ? d.phrases : []).slice(0, THEME_MAX_PHRASES) };
+export function normalizeThemeDraft(d: { name: unknown; phrases: unknown; boards?: unknown }): ThemeDraft {
+  return { name: String(d.name).replace(/\s+/g, " ").trim().slice(0, THEME_NAME_MAX), phrases: normalizePhrases(Array.isArray(d.phrases) ? d.phrases : []).slice(0, THEME_MAX_PHRASES), boards: normalizeBoards(d.boards) };
 }
 
 /** "tanker surge, KC-135 wave\nrefueling bridge" → the list; commas and newlines split, a phrase may hold spaces. */
@@ -255,7 +273,7 @@ export function readThemes(themes: Theme[], own: NewsItem[], opts: ReadThemesOpt
       id: th.id, name: th.name, phrases: th.phrases,
       reports, handles: handles.size, corroborated: handles.size >= 2,
       byDay, framing, lead: matches[0] ?? null, matches: matches.slice(0, THEME_MATCH_CAP),
-      volume, wires, line: "", ownOnly: !(wires && wires > 0),
+      volume, wires, line: "", ownOnly: !(wires && wires > 0), boards: th.boards ?? [],
     };
     read.line = themeLine(read);
     return read;
@@ -289,4 +307,50 @@ export function themeLines(reads: ThemeRead[], limit = 8): string[] {
 export function sortThemeReads(reads: ThemeRead[]): ThemeRead[] {
   const rank = (r: ThemeRead) => (r.volume.state === "surge" ? 0 : r.corroborated ? 1 : r.reports ? 2 : 3);
   return reads.slice().sort((a, b) => rank(a) - rank(b) || b.reports - a.reports || a.name.localeCompare(b.name));
+}
+
+// ── A theme as an I&W indicator (2026-11-04) ───────────────────────────────
+// A theme attached to a board becomes one more indicator on it, with the
+// same disciplines as every own-source signal: it rests on the operator's
+// own reading, so it CAPS AT WATCHING; it says nothing until the theme has a
+// normal (THEME_LEARNING_DAYS observed days); a pool that did not answer is
+// UNOBSERVED (no observation — the sensor-health row says so), never quiet.
+// Weight is low on purpose: a theme can tip a calm board to watch, it can
+// never carry one to warning.
+
+export const THEME_INDICATOR_WEIGHT = 0.2;
+export const themeIndicatorId = (themeId: string) => `theme_${themeId.replace(/[^\w]/g, "").slice(0, 40)}`;
+
+export interface ThemeIndicatorDef {
+  id: string; warningProblem: string; description: string; sourceFeed: string; weight: number; falsifier: string; provenance: string;
+}
+export interface ThemeIndicatorObs {
+  sensorId: string; indicatorId: string; observedState: "dormant" | "watching"; confidence: number; magnitude: number; ts: string; provenance: string;
+}
+
+export function themeIndicator(read: ThemeRead, problemId: string, nowIso: string): { def: ThemeIndicatorDef; obs: ThemeIndicatorObs | null; live: boolean; note: string } {
+  const id = themeIndicatorId(read.id);
+  const def: ThemeIndicatorDef = {
+    id, warningProblem: problemId,
+    description: `Your theme “${read.name}” (${read.phrases.slice(0, 4).join(", ")}${read.phrases.length > 4 ? "…" : ""}) in your own sources: today's volume against the theme's own normal. Declared by the crew — own sources only, caps at watching.`,
+    sourceFeed: "your own sources (X captures, newsletters, captured articles, OSINT feeds) through the theme's phrases; base wires as a cross-check",
+    weight: THEME_INDICATOR_WEIGHT,
+    falsifier: `“${read.name}” back within its own normal for ${THEME_LEARNING_DAYS} observed days.`,
+    provenance: "The operator's declared theme (OSINT › Feeds › Your themes) — judgement about what to watch, not an open-doctrine indicator.",
+  };
+  const v = read.volume;
+  if (v.state === "unobserved") return { def, obs: null, live: false, note: "your sources did not answer — UNKNOWN, not quiet" };
+  if (v.state === "learning") return { def, obs: { sensorId: "theme", indicatorId: id, observedState: "dormant", confidence: 0.2, magnitude: v.today, ts: nowIso, provenance: `theme “${read.name}” · ${v.why}` }, live: true, note: `learning — ${v.why}` };
+  const surge = v.state === "surge";
+  return {
+    def,
+    obs: {
+      sensorId: "theme", indicatorId: id, observedState: surge ? "watching" : "dormant",
+      confidence: surge ? (read.corroborated ? 0.5 : 0.35) : 0.4,
+      magnitude: v.today, ts: nowIso,
+      provenance: `theme “${read.name}” · ${v.why}${surge ? ` · ${read.handles} source${read.handles === 1 ? "" : "s"}${read.ownOnly ? " · own sources only — capped at watching" : ""}` : ""}`,
+    },
+    live: true,
+    note: v.why,
+  };
 }

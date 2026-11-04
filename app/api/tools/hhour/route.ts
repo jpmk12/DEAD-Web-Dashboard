@@ -11,6 +11,7 @@ import { getForceProtectionCached } from "@/lib/forceProtectionCached";
 import { getCountryHolidaysLive } from "@/lib/holidays";
 import { getNoaaScales } from "@/lib/spaceSources";
 import { lunarNight, lunarTonightLine, zoneForLongitude, type LunarNight } from "@/lib/moon";
+import { nightCloud, nightCloudClause, type NightCloud } from "@/lib/lunarCloud";
 import { isValidTz } from "@/lib/worldClocks";
 import {
   lightAt, nightDateFor, forecastHourAt, tafAt, windowsAt, scaleDayFor, summarize,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/hHour";
 import type { FlightCategory, TafReport } from "@/lib/types";
 import type { ScaleDay } from "@/lib/spaceWeatherOps";
+import { withTimeout } from "@/lib/withTimeout";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +42,11 @@ export interface HConsiderations {
   hMs: number;
   place: { label: string; lat: number; lon: number; icao: string | null; country: string | null; zone: string; zoneSource: "open-meteo" | "longitude" };
   light: LightAt | null;
+  /** Model cloud over the dark hours of H's night (Open-Meteo, lib/lunarCloud);
+   *  null with `cloudKnown` false when the feed did not answer or the night is
+   *  past the 7-day forecast — UNKNOWN, never clear. */
+  cloud: (NightCloud & { clause: string }) | null;
+  cloudKnown: boolean;
   night: { date: string; line: string; illumPct: number; phaseName: string; band: LunarNight["band"]; darkH: number | null; moonlitDarkH: number | null; usefulMoonH: number | null; moonFreeDarkH: number | null; eent: number | null; bmnt: number | null; sunset: number | null; sunrise: number | null; polar: boolean } | null;
   forecast: { live: boolean; hour: HourlyForecast | null; day: DailyOutlook | null; horizonDays: number };
   hazard: { severity: "severe" | "elevated"; flags: string[] } | null;
@@ -65,13 +72,6 @@ export interface HConsiderations {
   scalesLive: boolean;
   summary: Consideration[];
   asOf: string;
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(null), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, () => { clearTimeout(t); resolve(null); });
-  });
 }
 
 // Through the shared per-ICAO TAF cache (lib/aviationWx) — the SITREP, the
@@ -133,6 +133,13 @@ export async function GET(request: Request) {
     };
   } catch { light = null; night = null; nightObj = null; }
 
+  // Cloud over the dark hours: the same Open-Meteo read, 7 days of hourly
+  // cover. A night is never re-banded by cloud — this is the overlay.
+  let cloud: HConsiderations["cloud"] = null;
+  try {
+    const c = nightObj && cur?.hourlyCloud?.length ? nightCloud(nightObj, cur.hourlyCloud, zone) : null;
+    cloud = c ? { ...c, clause: nightCloudClause(c) } : null;
+  } catch { cloud = null; }
   const hour = cur ? forecastHourAt(cur.hourly, hMs, zone) : null;
   const hYmdLocal = (() => { try { return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(hMs)); } catch { return new Date(hMs).toISOString().slice(0, 10); } })();
   const day = cur?.daily.find((d) => d.date === hYmdLocal) ?? null;
@@ -201,7 +208,7 @@ export async function GET(request: Request) {
   const data: HConsiderations = {
     hMs,
     place: { label, lat, lon, icao, country, zone, zoneSource },
-    light, night,
+    light, night, cloud, cloudKnown: cloud != null,
     forecast: { live: !!cur, hour, day, horizonDays: FORECAST_DAYS },
     hazard: hazards?.[0] ? { severity: hazards[0].severity, flags: hazards[0].flags } : null,
     airfield, posture, postureKnown: !!prefs,

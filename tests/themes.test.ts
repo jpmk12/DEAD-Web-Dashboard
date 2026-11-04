@@ -112,3 +112,45 @@ describe("readThemes — the read over the own-source pool", () => {
     expect(themeLine(reads[1])).toMatch(/^Hormuz · normal — 1 item from 1 source in 7 d · 1 threat/);
   });
 });
+
+import { themeIndicator, normalizeBoards, themeIndicatorId, THEME_INDICATOR_WEIGHT, THEME_MAX_BOARDS, type ThemeRead } from "../lib/themes";
+
+describe("a theme as an I&W indicator — capped at watching, silent while learning", () => {
+  const base = (state: ThemeRead["volume"]["state"], extra: Partial<ThemeRead> = {}): ThemeRead => ({
+    id: "4f1c0a3e-1111-2222-3333-444455556666", name: "Tanker surge", phrases: ["tanker surge", "KC-135 wave"],
+    reports: 6, handles: 1, corroborated: false, byDay: {}, framing: { act: 0, threat: 0, analysis: 0, reversal: 0 },
+    lead: null, matches: [], volume: { state, today: 6, normal: 1.5, samples: 9, why: `${state} reason` },
+    wires: 0, line: "", ownOnly: true, boards: ["mp-iran"], ...extra,
+  });
+  const now = "2026-11-04T10:00:00Z";
+  it("a surge is WATCHING, never higher; corroboration raises confidence only", () => {
+    const one = themeIndicator(base("surge"), "mp-iran", now);
+    expect(one.obs?.observedState).toBe("watching");
+    expect(one.obs?.confidence).toBe(0.35);
+    expect(one.obs?.provenance).toMatch(/capped at watching/);
+    const two = themeIndicator(base("surge", { handles: 3, corroborated: true, ownOnly: false, wires: 2 }), "mp-iran", now);
+    expect(two.obs?.observedState).toBe("watching");
+    expect(two.obs?.confidence).toBe(0.5);
+  });
+  it("learning / normal / quiet read dormant", () => {
+    for (const s of ["learning", "normal", "quiet"] as const) expect(themeIndicator(base(s), "mp-iran", now).obs?.observedState).toBe("dormant");
+  });
+  it("an unanswered pool is UNOBSERVED — no observation, health not live", () => {
+    const r = themeIndicator(base("unobserved"), "mp-iran", now);
+    expect(r.obs).toBeNull();
+    expect(r.live).toBe(false);
+    expect(r.note).toMatch(/UNKNOWN, not quiet/);
+  });
+  it("the def is low-weight, carries a falsifier and a stable id", () => {
+    const { def } = themeIndicator(base("normal"), "mp-iran", now);
+    expect(def.weight).toBe(THEME_INDICATOR_WEIGHT);
+    expect(def.falsifier).toMatch(/Tanker surge/);
+    expect(def.id).toBe(themeIndicatorId("4f1c0a3e-1111-2222-3333-444455556666"));
+    expect(def.id).toMatch(/^theme_\w+$/);
+  });
+  it("normalizeBoards keeps problem-id shapes, dedupes, caps", () => {
+    expect(normalizeBoards(["mp-iran", "mp-iran", "bad id!", 5, "centcom-iran"])).toEqual(["mp-iran", "centcom-iran"]);
+    expect(normalizeBoards(Array.from({ length: 20 }, (_, i) => `b${i}`))).toHaveLength(THEME_MAX_BOARDS);
+    expect(normalizeBoards("x")).toEqual([]);
+  });
+});

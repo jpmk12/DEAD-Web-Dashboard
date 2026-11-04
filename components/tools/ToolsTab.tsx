@@ -13,6 +13,9 @@ import { lightAt, forecastLine, nearestLightEvent, nightDateFor, SUN_STATE_LABEL
 import { hhmmZ, lunarNight, lunarTonightLine, zoneForLongitude, MOON_USEFUL_ALT_DEG } from "@/lib/moon";
 import { readPrivate, writePrivate, parseLatLon, PRIVATE_BLOCKS } from "@/lib/toolsPrivacy";
 import type { HConsiderations } from "@/app/api/tools/hhour/route";
+import { Card, Label, inputCls, type ZoneCol } from "./toolsUi";
+import { EnRouteCard, UnitsCard } from "./ToolsExtras";
+import { parseSunOffset, sunOffsetRows, sunOffsetLabel, SUN_EVENT_LABEL } from "@/lib/plannerExtras";
 
 // The Tools tab — planner date-time arithmetic, ALL of it in the browser
 // (lib/plannerTools, PURE, tested): no model, nothing stored but this
@@ -38,9 +41,8 @@ import type { HConsiderations } from "@/app/api/tools/hhour/route";
 const H_KEY = "tools.hhour";
 const CLOCKS_KEY = "glance.clocks";
 
-interface ZoneCol { zone: string; label: string }
 export interface HPlace { kind: "airfield" | "home" | "tdy" | "place" | "manual"; id: string; label: string; lat: number; lon: number; icao: string | null; country: string | null; own?: "hub" | "spoke" | null }
-interface HState { hMs: number | null; offsets: number[]; hidden: string[]; place: HPlace | null }
+interface HState { hMs: number | null; offsets: number[]; hidden: string[]; place: HPlace | null; /** Sun-relative offsets ("BMNT-30"), read against the night of H at the place. */ sun: string[] }
 
 /** The tab's ONLY network door. Private → null, and nothing is sent. */
 async function toolsFetch<T>(path: string, priv: boolean): Promise<T | null> {
@@ -62,7 +64,7 @@ function loadClocks(): ClockDef[] {
   } catch { return DEFAULT_CLOCKS; }
 }
 
-const EMPTY_H: HState = { hMs: null, offsets: DEFAULT_H_OFFSETS, hidden: [], place: null };
+const EMPTY_H: HState = { hMs: null, offsets: DEFAULT_H_OFFSETS, hidden: [], place: null, sun: [] };
 
 function loadH(): HState {
   try {
@@ -76,7 +78,8 @@ function loadH(): HState {
     const place: HPlace | null = p && typeof p.label === "string" && Number.isFinite(p.lat) && Number.isFinite(p.lon)
       ? { kind: p.kind ?? "place", id: String(p.id ?? p.label), label: p.label, lat: p.lat, lon: p.lon, icao: typeof p.icao === "string" ? p.icao : null, country: typeof p.country === "string" ? p.country : null, own: p.own ?? null }
       : null;
-    return { hMs, offsets: offsets.length ? offsets : DEFAULT_H_OFFSETS, hidden, place };
+    const sun = Array.isArray(j.sun) ? j.sun.filter((x: unknown): x is string => typeof x === "string" && parseSunOffset(x) != null) : [];
+    return { hMs, offsets: offsets.length ? offsets : DEFAULT_H_OFFSETS, hidden, place, sun };
   } catch { return EMPTY_H; }
 }
 
@@ -92,22 +95,6 @@ function forgetStoredH(): boolean {
 }
 
 const todayYmd = (zone: string): string => inZone(Date.now(), zone).ymd;
-
-const Card = ({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) => (
-  <section className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-    <header className="px-4 py-2.5 border-b border-slate-800 flex items-baseline justify-between gap-3 flex-wrap">
-      <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">{title}</h3>
-      {sub && <span className="text-[10px] font-mono text-slate-600">{sub}</span>}
-    </header>
-    <div className="p-4 space-y-3">{children}</div>
-  </section>
-);
-
-const Label = ({ children }: { children: React.ReactNode }) => (
-  <span className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">{children}</span>
-);
-
-const inputCls = "bg-slate-950/60 border border-slate-700 rounded-md px-2 py-1.5 text-[12px] font-mono text-slate-100 focus:outline-none focus:border-sky-500/60 [color-scheme:dark]";
 
 // ── Julian converter ────────────────────────────────────────────────────────
 
@@ -211,7 +198,7 @@ function usePlaces(priv: boolean): HPlace[] | null {
   return places;
 }
 
-function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: ZoneCol; priv: boolean }) {
+function HHourCard({ cols, effective, priv, onH }: { cols: ZoneCol[]; effective: ZoneCol; priv: boolean; onH?: (ms: number | null) => void }) {
   const [st, setSt] = useState<HState | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [inZoneId, setInZoneId] = useState("UTC");
@@ -257,6 +244,7 @@ function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: Zone
   // sequence so a slow earlier answer cannot land over a newer one. Never
   // while private.
   const hMs = st?.hMs ?? null, place = st?.place ?? null;
+  useEffect(() => { onH?.(hMs); }, [hMs, onH]);
   useEffect(() => {
     if (priv || !hMs || !place || place.kind === "manual") { if (!priv) { setCons(null); setConsState("idle"); } return; }
     const seq = ++consSeq.current;
@@ -283,7 +271,15 @@ function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: Zone
   };
   const addOffset = () => {
     const o = parseOffsetInput(offIn);
-    if (o == null) { toast.warn("Not an offset", "H-72 · +36 · 2d · 90m · H-1:30"); return; }
+    if (o == null) {
+      // Not an H offset — a sun-relative one ("BMNT-30", "SR+1:00")?
+      const so = parseSunOffset(offIn);
+      if (!so) { toast.warn("Not an offset", "H-72 · +36 · 2d · 90m · H-1:30 · or sun-relative: BMNT-30 · EENT+15 · SR · SS-1:00 · MR"); return; }
+      const lab = sunOffsetLabel(so);
+      update({ sun: [...new Set([...(st?.sun ?? []), lab])] }); setOffIn("");
+      if (!st?.place) toast.info(`${lab} added`, "pick a place — a sun-relative offset needs one");
+      return;
+    }
     update({ offsets: [...new Set([...(st?.offsets ?? []), o])].sort((a, b) => a - b) }); setOffIn("");
   };
   const setManualPlace = () => {
@@ -298,13 +294,26 @@ function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: Zone
   };
 
   const shown = cols.filter((c) => !(st?.hidden ?? []).includes(c.zone));
-  const rows = useMemo(() => (st?.hMs ? hHourTable(st.hMs, st.offsets) : []), [st?.hMs, st?.offsets]);
+  // Sun-relative rows: the night that CONTAINS H at the place, its window
+  // placed by longitude (no lookup — works private), times in every clock.
+  const sunNight = useMemo(() => {
+    if (!st?.hMs || !st.place || !(st.sun ?? []).length) return null;
+    try { const z = zoneForLongitude(st.place.lon); return lunarNight(st.place.lat, st.place.lon, z, nightDateFor(st.hMs, z)); } catch { return null; }
+  }, [st?.hMs, st?.place, st?.sun]);
+  const sunRows = useMemo(() => (st?.hMs ? sunOffsetRows(st.hMs, (st.sun ?? []).map((x) => parseSunOffset(x)!).filter(Boolean), st.place ? sunNight : null) : []), [st?.hMs, st?.sun, st?.place, sunNight]);
+  const rows = useMemo(() => {
+    if (!st?.hMs) return [];
+    const base = hHourTable(st.hMs, st.offsets).map((r) => ({ key: `h${r.offsetH}`, label: r.label, sub: null as string | null, ms: r.ms as number | null, dtg: r.dtg, isH: r.offsetH === 0, sun: false, why: null as string | null }));
+    const sun = sunRows.map((r) => ({ key: `s${r.key}`, label: r.label, sub: r.offsetH != null ? hLabel(r.offsetH) : null, ms: r.ms, dtg: r.ms != null ? dtgZulu(r.ms) : "—", isH: false, sun: true, why: r.why }));
+    // Sun rows with no instant sort to the end and say why.
+    return [...base, ...sun].sort((a, b) => (a.ms ?? Infinity) - (b.ms ?? Infinity));
+  }, [st?.hMs, st?.offsets, sunRows]);
   const hZone = st?.hMs ? inZone(st.hMs, "UTC") : null;
   const countdown = st?.hMs ? hCountdown(st.hMs, now) : null;
 
   const copy = async () => {
     if (!st?.hMs) return;
-    const text = hTableText(st.hMs, st.offsets, shown);
+    const text = hTableText(st.hMs, st.offsets, shown, sunRows.filter((r) => r.ms != null).map((r) => ({ label: r.label, ms: r.ms! })));
     try { await navigator.clipboard.writeText(text); setCopied(true); setCopyFallback(null); setTimeout(() => setCopied(false), 2000); toast.ok("H-hour table copied"); }
     catch { setCopyFallback(text); toast.warn("Clipboard refused", "the table is shown as text below — select and copy it by hand"); }
   };
@@ -364,7 +373,13 @@ function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: Zone
             <button type="button" onClick={() => update({ offsets: (st?.offsets ?? []).filter((x) => x !== o) })} className="text-slate-600 hover:text-red-400" aria-label={`remove ${hLabel(o)}`}>✕</button>
           </span>
         ))}
-        <input value={offIn} onChange={(e) => setOffIn(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addOffset(); }} placeholder="＋ H-36 · 2d · 90m" className={`${inputCls} w-36 py-0.5 text-[11px]`} aria-label="Add an offset" />
+        {(st?.sun ?? []).map((lab) => (
+          <span key={lab} className="inline-flex items-center gap-1 rounded border border-indigo-400/40 px-1.5 py-px text-[10px] font-mono text-indigo-200" title={`${SUN_EVENT_LABEL[parseSunOffset(lab)!.event]} on the night of H at the place`}>
+            {lab}
+            <button type="button" onClick={() => update({ sun: (st?.sun ?? []).filter((x) => x !== lab) })} className="text-slate-600 hover:text-red-400" aria-label={`remove ${lab}`}>✕</button>
+          </span>
+        ))}
+        <input value={offIn} onChange={(e) => setOffIn(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addOffset(); }} placeholder="＋ H-36 · 2d · BMNT-30" className={`${inputCls} w-36 py-0.5 text-[11px]`} aria-label="Add an offset" />
         <button type="button" onClick={addOffset} className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-300">add</button>
         <button type="button" onClick={() => update({ offsets: DEFAULT_H_OFFSETS })} className="text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:text-slate-300 ml-auto">reset offsets</button>
       </div>
@@ -397,15 +412,24 @@ function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: Zone
             </thead>
             <tbody>
               {rows.map((r) => {
-                const past = r.ms < now;
-                const isH = r.offsetH === 0;
-                const light = place ? lightAt(r.ms, place.lat, place.lon) : null;
+                if (r.ms == null) {
+                  return (
+                    <tr key={r.key} className="border-b border-slate-800/60 text-slate-500">
+                      <td className="py-1 pr-3 font-bold text-indigo-300/70">{r.label}</td>
+                      <td className="py-1 pr-3" colSpan={tableCols.length + 1 + (place ? 1 : 0)}>{r.why}</td>
+                    </tr>
+                  );
+                }
+                const ms = r.ms;
+                const past = ms < now;
+                const isH = r.isH;
+                const light = place ? lightAt(ms, place.lat, place.lon) : null;
                 return (
-                  <tr key={r.offsetH} className={`border-b border-slate-800/60 ${isH ? "bg-emerald-500/[0.07]" : ""} ${past && !isH ? "text-slate-500" : "text-slate-200"}`}>
-                    <td className={`py-1 pr-3 font-bold ${isH ? "text-emerald-300" : ""}`}>{r.label}</td>
+                  <tr key={r.key} className={`border-b border-slate-800/60 ${isH ? "bg-emerald-500/[0.07]" : r.sun ? "bg-indigo-500/[0.05]" : ""} ${past && !isH ? "text-slate-500" : "text-slate-200"}`}>
+                    <td className={`py-1 pr-3 font-bold whitespace-nowrap ${isH ? "text-emerald-300" : r.sun ? "text-indigo-200" : ""}`}>{r.label}{r.sub && <span className="ml-1.5 font-normal text-slate-500">{r.sub}</span>}</td>
                     <td className="py-1 pr-3 whitespace-nowrap">{r.dtg}</td>
                     {tableCols.map((c) => {
-                      const t = inZone(r.ms, c.zone);
+                      const t = inZone(ms, c.zone);
                       // Amber when that clock's calendar day is not the DTG's
                       // Zulu day — the roll a planner misreads.
                       const zDay = r.dtg.slice(0, 2);
@@ -427,7 +451,7 @@ function HHourCard({ cols, effective, priv }: { cols: ZoneCol[]; effective: Zone
             </tbody>
           </table>
           <div className="flex flex-wrap items-center gap-3 pt-2 text-[10px] text-slate-600">
-            <span>amber date = that clock is on a different calendar day from the Zulu DTG · dimmed = already past · letter = that zone's military designator (none for a half-hour zone){place ? " · light: ☀ day ◐ civil ◑ nautical ● night · ☾ illumination and altitude when up (planning-grade, no cloud)" : ""}</span>
+            <span>amber date = that clock is on a different calendar day from the Zulu DTG · dimmed = already past{(st?.sun ?? []).length ? " · indigo = sun-relative, the night of H at the place (window by longitude, planning-grade)" : ""} · letter = that zone's military designator (none for a half-hour zone){place ? " · light: ☀ day ◐ civil ◑ nautical ● night · ☾ illumination and altitude when up (planning-grade; cloud on the At-H light card)" : ""}</span>
             <button type="button" onClick={copy} className="ml-auto text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-300">{copied ? "✓ copied" : "⧉ copy table"}</button>
             <button type="button" onClick={() => update({ hMs: null })} className="text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:text-red-400">clear H</button>
           </div>
@@ -516,7 +540,10 @@ function ConsiderationsPanel({ cons, state, place, hMs }: { cons: HConsideration
                 </>
               )}
               {cons.night?.polar && <div className="text-slate-400">no nautical darkness (polar)</div>}
-              <div className="text-[9px] text-slate-600">planning-grade · cloud not included</div>
+              {cons.night && !cons.night.polar && (cons.cloud
+                ? <div className={cons.cloud.cover === "OVC" ? "text-amber-200" : cons.cloud.cover === "BKN" ? "text-slate-200" : "text-slate-300"}>☁ {cons.cloud.clause}</div>
+                : <div className="text-slate-500">☁ cloud over the dark hours: UNKNOWN{(hMs - Date.parse(cons.asOf)) > cons.forecast.horizonDays * 86_400_000 ? ` — beyond the ${cons.forecast.horizonDays}-day forecast` : cons.forecast.live ? " — no forecast hours for that night" : " — Open-Meteo unreachable"}</div>)}
+              <div className="text-[9px] text-slate-600">planning-grade · cloud is a model (a week), the budget is astronomy</div>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 space-y-0.5">
               <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Weather at H · Open-Meteo</div>
@@ -601,6 +628,8 @@ interface ZoneInfo { zone: string; label: string; source: string }
 function ToolsBody({ eff, priv, onPrivate }: { eff: ZoneInfo; priv: boolean; onPrivate: (on: boolean) => void }) {
   const [clocks, setClocks] = useState<ClockDef[] | null>(null);
   const [forgot, setForgot] = useState<string | null>(null);
+  // The H anchor, lifted for the En route card's "= H" button.
+  const [hMs, setHMs] = useState<number | null>(null);
   useEffect(() => {
     setClocks(loadClocks());
     const onStorage = (e: StorageEvent) => { if (e.key === CLOCKS_KEY) setClocks(loadClocks()); };
@@ -650,8 +679,10 @@ function ToolsBody({ eff, priv, onPrivate }: { eff: ZoneInfo; priv: boolean; onP
         </div>
       )}
       <JulianCard zone={eff.zone} zoneLabel={eff.label} />
-      {clocks && <HHourCard cols={cols} effective={{ zone: eff.zone, label: eff.label }} priv={priv} />}
+      {clocks && <HHourCard cols={cols} effective={{ zone: eff.zone, label: eff.label }} priv={priv} onH={setHMs} />}
+      {clocks && <EnRouteCard cols={cols} hMs={hMs} />}
       <DaysCard zone={eff.zone} />
+      <UnitsCard />
     </div>
   );
 }

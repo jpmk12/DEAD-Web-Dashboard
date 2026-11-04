@@ -7,6 +7,8 @@ import { deriveWarning, scoreIndicators, type WarningAssessment, type ObservedSt
 import { resolveWarningProblem } from "./warningProblems";
 import { gatherObservations, type SensorHealth, type DivergenceState } from "./warningSensors";
 import { gatherSpectrumObservations } from "./spectrumSensors";
+import { getThemeReads } from "./themesAssemble";
+import { themeIndicator } from "./themes";
 import { recordWarningDay, getWarningBaseline, getWarningAnomalyHistory, getMobilityBaseline, recordIndicatorDay, getIndicatorHistory, getLevelSeries } from "./warningStore";
 import { getSensorBaseline, recordSensorDay } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
@@ -69,18 +71,25 @@ async function assessWarningOnce(problemId: string): Promise<WarningAssessmentPl
   // corroborated by the own-source slice the classic sensors just gathered.
   const spectrum = await gatherSpectrumObservations(geo, problemId, { pnt: pntBase, ransom: ransomBase, pntCov: pntCovBase }, classic.userNews)
     .catch(() => ({ observations: [], health: [{ indicatorId: "pnt_denial", live: false, note: "spectrum sensors failed" }], magnitudes: { pntCells: null, victims: null, pntCoverage: null, pntDate: null } }));
-  const observations = [...classic.observations, ...spectrum.observations];
-  const health: SensorHealth[] = [...classic.health, ...spectrum.health];
+  // Declared themes attached to this board ride as watching-capped
+  // indicators (lib/themes `themeIndicator`). Bounded: a cold themes read
+  // never holds the board — the themes are simply absent this pass.
+  const themes = await getThemeReads({ maxWaitMs: 4_000 }).catch(() => null);
+  const attached = (themes?.reads ?? []).filter((r) => r.boards.includes(problemId));
+  const themeRows = attached.map((r) => themeIndicator(r, problemId, observedAt));
+  const boardDef = themeRows.length ? { ...def, indicators: [...def.indicators, ...themeRows.map((t) => t.def)] } : def;
+  const observations = [...classic.observations, ...spectrum.observations, ...themeRows.flatMap((t) => (t.obs ? [t.obs] : []))];
+  const health: SensorHealth[] = [...classic.health, ...spectrum.health, ...themeRows.map((t) => ({ indicatorId: t.def.id, live: t.live, note: t.note }))];
   const { divergence } = classic;
   const { baseline, samples } = await getWarningBaseline(problemId, day, 30).catch(() => ({ baseline: null as number | null, samples: 0 }));
   const priorAnomalies = await getWarningAnomalyHistory(problemId, day, 10).catch(() => [] as number[]);
 
   // rawScore depends only on observations → compute today's anomaly, then hand
   // the full trajectory series (prior days + today) to the pure engine.
-  const rawScore = scoreIndicators(def.indicators, observations).reduce((s, i) => s + i.contribution, 0);
+  const rawScore = scoreIndicators(boardDef.indicators, observations).reduce((s, i) => s + i.contribution, 0);
   const todayAnomaly = rawScore - (baseline ?? 0);
 
-  const assessment = deriveWarning(def, observations, {
+  const assessment = deriveWarning(boardDef, observations, {
     baseline: baseline ?? undefined,
     baselineSamples: samples,
     anomalyHistory: [...priorAnomalies, todayAnomaly],

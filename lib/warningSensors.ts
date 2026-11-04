@@ -33,6 +33,7 @@ import { readChatter, chatterSurge } from "./mobilityChatter";
 import { getOwnPlaces } from "./ownPlaces";
 import { CENTCOM_GEO, type ProblemGeo } from "./warningTaxonomy";
 import type { NewsItem } from "./types";
+import { withTimeout } from "@/lib/withTimeout";
 
 // The AOR definition (bbox / countries / hubs / FIRs / mention-gate terms /
 // chokepoint) is a ProblemGeo parameter — CENTCOM_GEO carries the hand-tuned
@@ -44,15 +45,6 @@ const inBbox = (geo: ProblemGeo, lat: number, lon: number): boolean =>
   lat >= geo.bbox.latMin && lat <= geo.bbox.latMax && lon >= geo.bbox.lonMin && lon <= geo.bbox.lonMax;
 const nearHub = (geo: ProblemGeo, lat: number, lon: number): boolean =>
   geo.hubs.some((h) => haversineKm(lat, lon, h.lat, h.lon) <= HUB_RADIUS_KM);
-
-// Bound every feed so one slow/hung source can't idle the request past the
-// platform gateway timeout (the SITREP-read 502 lesson). A timeout → null →
-// that sensor degrades to "unreachable", never a hang.
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout>;
-  const to = new Promise<null>((res) => { timer = setTimeout(() => res(null), ms); });
-  return Promise.race([p.catch(() => null), to]).finally(() => clearTimeout(timer)) as Promise<T | null>;
-}
 
 // AOR relevance for free-text (X posts, newsletters, OSINT feeds aren't geo-
 // tagged) — a mention gate (geo.terms) so only AOI-relevant items feed the score.

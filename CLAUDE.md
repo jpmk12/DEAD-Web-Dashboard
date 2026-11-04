@@ -3674,14 +3674,27 @@ and up to 12 phrases; the read is what the app can state honestly:
   Feeds; the panel no longer reads empty when only chatter or themes
   exist); an Ask-pack section "OSINT › Feeds › Your themes" labelled NOT a
   sensor and never a level.
-- **Disciplines**: a theme never sets a level anywhere; own sources only
-  caps at watching and every surface says so; no theme → the card's
-  one-paragraph invitation and nothing else changes (the Glance block and
-  the Ask section are absent, not empty). Not built: attaching a theme to
-  an I&W board as a watching-capped indicator (one `ProblemGeo` join away
-  once a few themes have a month of normal), and the MOFCOM / LiveUAMap
-  captures as part of the pool (they are events and notices, not the
-  user's reading).
+- **Disciplines**: a theme never sets a level on its own surfaces; own
+  sources only caps at watching and every surface says so; no theme → the
+  card's one-paragraph invitation and nothing else changes (the Glance
+  block and the Ask section are absent, not empty). Not built: the MOFCOM /
+  LiveUAMap captures as part of the pool (they are events and notices, not
+  the user's reading).
+- **Attached to an I&W board (2026-11-04, "do 5")**: `Theme.boards`
+  (problem ids, `normalizeBoards`, ≤ `THEME_MAX_BOARDS` 8;
+  `osint_themes.boards JSON`, additive) picked as chips on the theme form
+  (✎ → "On I&W boards", the list from `/api/warning`); the row shows "on N
+  boards". `assessWarningOnce` reads the themes bounded at 4 s
+  (`getThemeReads`) and, for every theme attached to the board, appends one
+  indicator through `themeIndicator(read, problemId, now)` (PURE, tested):
+  id `theme_<id>`, weight `THEME_INDICATOR_WEIGHT` 0.2, a falsifier ("back
+  within its own normal for 7 observed days") and a provenance that says
+  it is the operator's judgement, not doctrine. **A surge is WATCHING and
+  never higher** (confidence 0.35, 0.5 corroborated); learning / normal /
+  quiet are dormant; an unanswered pool is UNOBSERVED (no observation, the
+  sensor-health row `live:false` "UNKNOWN, not quiet"). It can lift a calm
+  board to watch, never carry one to warning. A save drops the warning
+  cache so the board re-reads. Silent for a theme's first week of history.
 
 ### Glance date carries the Julian date (2026-10-27, "Tuesday, October 27 (JD)")
 `lib/date.ts` `dayOfYear(d, tz?)` / `julianDayLabel` (PURE, tested in
@@ -3804,11 +3817,40 @@ is `lib/plannerTools.ts` (PURE, client-safe, tested in
   the switch on, driving the DTG, a typed position and an offset produced
   no `/api/tools/hhour` request and no localStorage change; after a reload
   the switch was still on; flipping it off re-asked for the places.
-No new npm dep (esbuild `0`). Offered and not built (the operator picks):
-ETA / enroute-time across the clocks, a DST-change table for a zone and date
-range, a sunrise/sunset-relative offset ("BMNT-30" as an offset row), unit
-conversions (nm/km/ft/m, kts/kph, °C/°F, lbs/kg, fuel lbs ↔ gal), cloud over
-the dark hours of H's night on the Light card (`lib/lunarCloud.ts` has it).
+- **Add-ons (2026-11-04, "do the Tools add-ons")** — `lib/plannerExtras.ts`
+  (PURE, tested in `tests/plannerExtras.test.ts`), all arithmetic in the
+  browser, private mode unaffected:
+  - **Sun-relative offsets** in the H-hour table: type "BMNT-30", "EENT+15",
+    "SR+1:00", "SS", "MR", "MS" into the same offset box (`parseSunOffset` —
+    a bare number is MINUTES, the OPORD convention; "h" or a colon means
+    hours). Each is read against the night that CONTAINS H at the chosen
+    place (`lunarNight`, window placed by `zoneForLongitude` — no lookup)
+    and lands in time order as an indigo row with its H± beside it; an event
+    that does not occur (polar, no moonrise) is a row that SAYS so, never a
+    guessed time; no place → "no place chosen". Stored as `HState.sun`; the
+    copied table carries them (`hTableText(…, extra)`).
+  - **En route card** (`components/tools/ToolsExtras.tsx`): depart-at or
+    arrive-by, a time in any clock or a DTG (or "= H"), an ETE typed
+    "7:45 / 7.75 / 7h45m / 465m / 0745" (`parseDuration`) or distance ÷
+    ground speed (`eteFromDistance`, still air, said so) → depart and
+    arrive across every clock, amber on a day roll.
+  - **Units card**: distance (NM / SM / km / ft / m), speed (kt / km/h /
+    mph / m/s / ft/min), temperature, weight, fuel (lb / K lb / kg / US gal
+    / L through a stated density, JP-8 6.7 lb/gal default, editable,
+    "planning-grade, the fuel slip governs"), pressure (hPa / mb / inHg) —
+    exact factors (`convertUnit`).
+  - **Cloud over H's night**: `/api/tools/hhour` returns `cloud` /
+    `cloudKnown` (`nightCloud` over the same Open-Meteo read's
+    `hourlyCloud`) and the At-H Light card says it; past the 7-day forecast
+    or with the feed down it reads UNKNOWN with the reason. Never re-bands
+    the night.
+  - The new files carry NO network or storage door: `tests/toolsPrivacy`
+    now scans `ToolsExtras.tsx` and `toolsUi.tsx` (shared `Card` / `Label`
+    / `inputCls`) and fails on any fetch, storage or transport.
+  Verified in headless Chromium against the build (private mode, typed
+  coordinates for Muwaffaq Salti: EENT 1535Z matches the hand computation).
+No new npm dep (esbuild `0`). Still offered: a DST-change table for a zone
+and date range.
 
 ### Lunar illumination windows (2026-10-24, "how much moon darkness and lunar light I have in a day"; mockup `docs/mockups/moon-options.html` → `docs/moon-options.png`, built as recommended: C on top with A folding open beneath)
 The unit is the NIGHT'S BUDGET, not the percent: darkness from EENT to
@@ -4327,11 +4369,16 @@ deep-link to the setting it changes with a plain `?prefs=sources` href.
 Implementation note: the old collapsible model is kept as a DERIVED view
 (`openGroups` = exactly one true; `toggleGroup`/`openAndScrollTo` alias
 `selectGroup`), so the six existing `<section id="prefs-group-…">` blocks
-are untouched except for a `hidden` class when inactive. **The physical
-split into one file per section is NOT done** — the file is still one
-3.4k-line component with ~100 shared state vars; the sectioned model above
-is what makes that split mechanical later (each section's JSX + its state
-slice), and nothing else depends on it.
+are untouched except for a `hidden` class when inactive. **The editors are one file each since 2026-11-04** —
+`components/preferences/` holds `TagInput`, `NewsletterSourcesEditor`,
+`NewsSourcesEditor`, `AIControlPanel`, `MemoryPanel`, `ThemeSelector`,
+`HomeLocationEditor`, `AcledCredentialsEditor`, `TripsEditor` (plus the
+older `MissionProfileEditor`, `TrackingPanel`, `CrewStateEditor`,
+`PushSetupCard`, `SpectrumInline`) and `prefsOptions.ts`
+(`LOCAL_FEED_OPTIONS`, `TIMEZONE_OPTIONS`); `PreferencesDrawer.tsx` is the
+shell (sections, rail, save — 2,315 → 813 lines). The shell still owns the
+form state; moving each section's state slice into its editor is the next
+step if the shell grows again. The lazy-check passed after the split.
 
 ### I&W analyst annotations (2026-10-27, `lib/annotations.ts` · `lib/annotationStore.ts` · `/api/warning/annotation` · `AnnotationNotes.tsx`)
 A dated NOTE on a board or on one indicator — what the analyst knows that
@@ -5629,13 +5676,41 @@ fixed. Keep the RULE, not just the patch:
 - **Closed 2026-10-29**: the assistant OE context carries the lines, and
   the five unread series have readers — see "Close-out 2026-10-29" below.
 - **Found, NOT built (open)**: lines do not feed the Tools Where picker (a
-  line carries no coordinates); ~12 private LED / severity
-  rank copies, 17 `withTimeout` copies and 8 haversines remain (only the
-  one that folded UNKNOWN into green was a bug); bundle: all tab bodies
-  except the lazy ones are in the first-load chunk (~312 KB gzip) — a
-  `lazyClient` split followed the same day — see "First-load split"
-  below; `lib/db.ts` runs ~150 schema statements on a cold process.
+  line carries no coordinates). Closed 2026-11-04 (see "Housekeeping
+  2026-11-04"): the duplicate rank tables, `withTimeout` and haversine
+  copies, and the cold-start schema pass.
 No new npm dep (esbuild `0`).
+
+### Housekeeping 2026-11-04 (no behaviour change, lower drift risk)
+- **One `withTimeout`** — `lib/withTimeout.ts` (null on timeout OR
+  rejection; eight copies in sensors, assemblers and two routes replaced).
+  **One haversine** — `lib/geoMath.ts` (dependency-free so
+  `lib/airfields.ts` stays client-safe; `chokepointSignals`, `disasters`
+  and `hereAirfield` re-export it for existing importers).
+- **One rank per vocabulary**: LED ranks read `LED_SEVERITY`, force-posture
+  ranks `SEVERITY_RANK`, I&W levels the new `IW_LEVEL_RANK` (all in
+  `lib/levelTokens.ts` / `lib/severity.ts`, higher is worse). `lib/room.ts`
+  keeps worst-FIRST ordinals but DERIVES them (3 − rank) so the direction
+  cannot drift. Left alone on purpose: disaster (`orange`), H-hour tone
+  (`i`), ThreatBoard tone — different vocabularies.
+- **Cold start**: `lib/db.ts` stores a fingerprint of the whole schema
+  definition (CREATE statements, column / key migrations, secondary
+  indexes, the owner whose backfill is part of it) in `schema_meta`; when
+  it matches AND every table exists, the ~150-statement pass is skipped —
+  three queries instead. Any schema edit changes the fingerprint and the
+  next boot runs the full idempotent pass and re-stamps it. **Edit a table
+  only through `SCHEMA_STATEMENTS` / `COLUMN_MIGRATIONS` / `KEY_MIGRATIONS`
+  / `SECONDARY_INDEXES`** — an ALTER run by hand outside them is invisible
+  to the fingerprint.
+- **Preferences drawer split** into one file per editor (see the
+  Preferences note).
+- **Newsletter check page probes subject rules too**
+  (`lib/newsletterProbes.ts`, PURE, tested): a subject rule that finds
+  nothing in 7 days gets `last30d` (the exact phrase), `looseWords` (every
+  word in the subject, any order — a reworded subject) and `anywhere` (the
+  phrase anywhere in the message — a masthead whose subject changed);
+  sender rules keep `last30d` + `bareWord`. The diag's note says how to
+  read each.
 
 ### First-load split (2026-10-28, "press with the lazy load")
 The dashboard page's first-load JS went from **423 KB gzip (1,557 KB raw)

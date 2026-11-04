@@ -43,3 +43,12 @@ describe("the Tools tab has ONE network door and ONE storage door, both behind t
     expect(src).toMatch(/priv \? <PrivateTools/);
   });
 });
+
+describe("the Tools tab's other files carry NO network or storage door at all", () => {
+  for (const f of ["ToolsExtras.tsx", "toolsUi.tsx"]) {
+    const src = readFileSync(join(__dirname, "..", "components", "tools", f), "utf8");
+    it(`${f}: no fetch, no storage write, no other transport`, () => {
+      for (const bad of [/\bfetch\(/, /localStorage\./, /sessionStorage\./, /\bXMLHttpRequest\b/, /navigator\.sendBeacon/, /new WebSocket/, /EventSource\(/, /indexedDB/, /document\.cookie/]) expect(src).not.toMatch(bad);
+    });
+  }
+});

@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "./fetchTimeout";
+import { haversineKm } from "./geoMath";
 // Global airfield "search others" fill from OurAirports (open data, keyless).
 // Complements the curated mobility set (lib/airfields.ts) for crises with no
 // nearby gateway. Lazily fetched + cached 24h so it adds load time at most once
@@ -106,13 +107,6 @@ async function load(): Promise<OaAirfield[]> {
     }
   })();
   return loading;
-}
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371, toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
 // Fetch + parse runways.csv once (24h). Keep the longest OPEN runway per airport

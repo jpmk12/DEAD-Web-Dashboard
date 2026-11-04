@@ -279,8 +279,9 @@ export function hHourTable(hMs: number, offsets: number[]): HRow[] {
 
 /** The table as plain text for the clipboard — one line per offset, the
  *  Zulu DTG then each zone's wall clock, columns padded. */
-export function hTableText(hMs: number, offsets: number[], zones: { zone: string; label: string }[]): string {
-  const rows = hHourTable(hMs, offsets);
+export function hTableText(hMs: number, offsets: number[], zones: { zone: string; label: string }[], extra: { label: string; ms: number }[] = []): string {
+  // `extra` = sun-relative rows ("BMNT-30"), merged in time order.
+  const rows: { label: string; ms: number; dtg: string }[] = [...hHourTable(hMs, offsets), ...extra.map((e) => ({ label: e.label, ms: e.ms, dtg: dtgZulu(e.ms) }))].sort((a, b) => a.ms - b.ms);
   const head = ["Offset", "Zulu DTG", ...zones.map((z) => z.label)];
   const body = rows.map((r) => [r.label, r.dtg, ...zones.map((z) => { const t = inZone(r.ms, z.zone); return `${t.weekday} ${t.dayShort} ${t.hhmm}${t.letter && t.letter !== "Z" ? t.letter : t.letter ? "" : offsetTag(t.offsetMin)}`; })]);
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((b) => b[i].length)));

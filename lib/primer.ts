@@ -24,6 +24,7 @@
 
 import { AOR_LABELS, aorFromCountry, type Aor } from "./aor";
 import { escalatedToday, type CommandInput, type CbSitrep, type Led } from "./commandBoard";
+import { LED_SEVERITY } from "./levelTokens";
 
 export interface PrimerDoor {
   aor: Aor;
@@ -79,7 +80,7 @@ export interface Primer {
 
 export const PRIMER_MAX = 6;
 
-const LED_RANK: Record<Led, number> = { g: 0, u: 1, a: 2, r: 3 };
+const LED_RANK: Record<Led, number> = LED_SEVERITY;
 const worstLed = (s: CbSitrep["status"]): Led => (Object.values(s) as Led[]).reduce((w, l) => (LED_RANK[l] > LED_RANK[w] ? l : w), "g");
 const lc = (s: string) => s.trim().toLowerCase();
 

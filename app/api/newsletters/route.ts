@@ -14,6 +14,7 @@ import { getCachedSummaries, getAllCachedSummaries, cacheSummaries } from "@/lib
 import { parseModelArray } from "@/lib/aiJson";
 import { runLimited } from "@/lib/concurrency";
 import { gmailFailure, isGmailRateLimit } from "@/lib/gmailErrors";
+import { subjectProbes, senderProbes } from "@/lib/newsletterProbes";
 
 export const dynamic = "force-dynamic";
 
@@ -286,18 +287,16 @@ async function diagnose(rules: NewsletterSourceRule[], primary: string, secondar
     const perAccount = [];
     for (const a of accts) {
       const hit = r.enabled === false ? { skipped: "rule disabled" } : await probe(a.token, query);
-      let wider: unknown = undefined;
-      let senders: unknown = undefined;
-      if (r.matchType === "sender" && r.enabled !== false && (hit as { count?: number | null }).count === 0) {
-        const v = r.value.trim().replace(/\s+/g, "");
-        wider = await probe(a.token, `from:${v} newer_than:30d`);
-        const word = v.replace(/^.*@/, "").replace(/^www\./, "").split(".")[0];
-        if (word.length >= 3) {
-          const w = await probe(a.token, `from:${word} newer_than:30d`);
-          senders = { query: `from:${word} newer_than:30d`, ...w };
+      // A rule whose own query found nothing gets the wider probes for its
+      // match type (lib/newsletterProbes): sender → 30 days + the bare word;
+      // subject → 30 days + every word in any order + the phrase anywhere.
+      const probes: Record<string, unknown> = {};
+      if (r.enabled !== false && (hit as { count?: number | null }).count === 0) {
+        for (const pr of r.matchType === "subject" ? subjectProbes(r.value) : senderProbes(r.value)) {
+          probes[pr.key] = { query: pr.query, reads: pr.reads, ...(await probe(a.token, pr.query)) };
         }
       }
-      perAccount.push({ account: a.account, email: a.email, ...hit, ...(wider ? { last30d: wider } : {}), ...(senders ? { bareWord: senders } : {}) });
+      perAccount.push({ account: a.account, email: a.email, ...hit, ...probes });
     }
     out.push({ id: r.id, label: r.label, matchType: r.matchType, value: r.value, enabled: r.enabled !== false, query, accounts: perAccount });
   }
@@ -305,7 +304,7 @@ async function diagnose(rules: NewsletterSourceRule[], primary: string, secondar
     rules: out.length,
     cap: 12,
     secondaryConnected: Boolean(secondary),
-    note: "count = messages the rule's own query finds (7 d, newest 8). 0 with last30d > 0 = nothing this week; 0 everywhere with bareWord senders = the rule's value does not match the address they send from.",
+    note: "count = messages the rule's own query finds (7 d, newest 8). 0 with last30d > 0 = nothing this week. Sender: 0 everywhere with bareWord senders = the value does not match the address they send from. Subject: looseWords > 0 = the subject was reworded (copy one from the sample); anywhere > 0 only = the phrase is in the body, not the subject; 0 everywhere = the mail stopped or goes to another account.",
     results: out,
   };
 }

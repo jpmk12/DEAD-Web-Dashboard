@@ -31,6 +31,7 @@
 // recording gap must not be read as a level.
 
 import { SEVERITY_RANK, type Severity } from "./severity";
+import { LED_SEVERITY, IW_LEVEL_RANK } from "./levelTokens";
 
 export type DeltaKind = "posture" | "sitrep" | "iw";
 
@@ -72,8 +73,8 @@ export interface Transition {
 
 // ── Per-kind level ordinals (higher = worse), aligned to each surface's own
 // vocabulary. Posture reuses lib/severity so there is still one home for it.
-const LED_RANK: Record<string, number> = { g: 0, u: 1, a: 2, r: 3 };
-const IW_RANK: Record<string, number> = { calm: 0, watch: 1, warning: 2, alert: 3 };
+const LED_RANK: Record<string, number> = LED_SEVERITY;
+const IW_RANK: Record<string, number> = IW_LEVEL_RANK;
 
 export function rankFor(kind: DeltaKind, level: string): number | null {
   const table: Record<string, number> =

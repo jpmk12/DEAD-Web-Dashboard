@@ -26,6 +26,7 @@ import type { Aor } from "./aor";
 import type { Led, CbDemand, CbSitrep, CbOwnField, CbAlert } from "./commandBoard";
 import type { ObservedState } from "./warning";
 import type { CrewPosture } from "./crewState";
+import { LED_SEVERITY } from "./levelTokens";
 
 export type FunctionalCommand = "TRANSCOM" | "SPACECOM" | "CYBERCOM";
 export const FC_LABELS: Record<FunctionalCommand, string> = { TRANSCOM: "USTRANSCOM", SPACECOM: "USSPACECOM", CYBERCOM: "USCYBERCOM" };
@@ -133,7 +134,7 @@ export interface FcInput {
   traffic?: FcTraffic | null;
 }
 
-const LED_RANK: Record<Led, number> = { g: 0, u: 1, a: 2, r: 3 };
+const LED_RANK: Record<Led, number> = LED_SEVERITY;
 export const worstLed = (xs: Led[]): Led => xs.reduce<Led>((w, l) => (LED_RANK[l] > LED_RANK[w] ? l : w), "g");
 const stateLed = (s: ObservedState): Led => (s === "confirmed" || s === "active" ? "r" : s === "watching" ? "a" : "g");
 const cap = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);

@@ -14,6 +14,7 @@
 // Nearest wins inside a tier. The pick carries WHY, and the strip says it.
 
 import { knownCountryNames, normalizeCountryName, sameCountry } from "./countryNames";
+import { haversineKm } from "./geoMath";
 
 export const NEAR_KM = 300;
 /** A field "in the trip's country" further than this from the point is not
@@ -33,13 +34,6 @@ export interface HereField {
 export type HereWhy = "hub" | "spoke" | "star" | "country" | "nearest";
 
 export interface HerePick extends HereField { km: number; why: HereWhy }
-
-export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371, toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
-}
 
 let KNOWN: Set<string> | null = null;
 /** The country a trip names — its label's last comma part, else its raw
@@ -86,3 +80,6 @@ export function hereWhyLabel(why: HereWhy, country: string | null): string {
     default: return "nearest tracked field";
   }
 }
+
+/** Re-exported from lib/geoMath (the one home) for existing importers. */
+export { haversineKm };

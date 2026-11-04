@@ -10,7 +10,9 @@ import type { ThemesBody } from "@/lib/themesAssemble";
 // name and a few phrases; the read (lib/themes, PURE) is volume against the
 // theme's OWN normal, who is saying it, how it is framed, and whether the
 // wires also name it. No sentiment score — counts and framing only. A theme
-// never sets a level; own sources only caps at watching and the row says so.
+// never sets a level on its own surfaces; attached to an I&W board (✎ → boards)
+// it is one more indicator there, capped at watching. Own sources only caps at
+// watching and the row says so.
 
 const VOL_CHIP: Record<ThemeVolumeState, string> = {
   surge: "text-amber-300 border-amber-500/45 bg-amber-500/10",
@@ -144,6 +146,7 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
                       {read && read.reports > 0 && (
                         <span className={`text-[8px] font-mono uppercase tracking-wider rounded px-1 py-0.5 border ${read.corroborated ? "text-amber-300 border-amber-500/40" : "text-slate-500 border-slate-700"}`}>{read.corroborated ? `${read.handles} sources` : "single source"}</span>
                       )}
+                      {(t.boards?.length ?? 0) > 0 && <span className="text-[8px] font-mono uppercase tracking-wider text-violet-300/80" title="Attached to I&W boards as a watching-capped indicator — edit with ✎">on {t.boards!.length} board{t.boards!.length === 1 ? "" : "s"}</span>}
                       {read && read.ownOnly && read.reports > 0 && <span className="text-[8px] font-mono uppercase tracking-wider text-slate-600" title="No wire item names it — a theme read from your own sources alone reads as watching at most and never sets a level.">own sources only · caps at watching</span>}
                       {read && read.wires != null && read.wires > 0 && <span className="text-[8px] font-mono uppercase tracking-wider text-emerald-400/80">{read.wires} wire item{read.wires === 1 ? "" : "s"} agree</span>}
                       <span className="text-[9px] font-mono uppercase text-slate-600">{isOpen ? "▴" : "▾"}</span>
@@ -231,6 +234,16 @@ function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDon
   const [text, setText] = useState(initial?.phrases.join(", ") ?? "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // I&W boards the theme rides on as a watching-capped indicator (2026-11-04).
+  const [boards, setBoards] = useState<string[]>(initial?.boards ?? []);
+  const [boardList, setBoardList] = useState<{ problemId: string; label: string }[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/warning").then((r) => (r.ok ? r.json() : null)).then((j: { problems?: { problemId: string; label: string }[] } | null) => {
+      if (alive) setBoardList((j?.problems ?? []).map((p) => ({ problemId: p.problemId, label: p.label })));
+    }).catch(() => { if (alive) setBoardList([]); });
+    return () => { alive = false; };
+  }, []);
   const phrases = parsePhrasesText(text);
   const problem = validateThemeDraft({ name, phrases });
 
@@ -238,7 +251,7 @@ function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDon
     if (problem) { setErr(problem); return; }
     setSaving(true); setErr(null);
     try {
-      const r = await fetch("/api/osint/themes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: initial?.id, name, phrases }) });
+      const r = await fetch("/api/osint/themes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: initial?.id, name, phrases, boards }) });
       const j = await r.json().catch(() => null);
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       toast.ok(initial ? `Updated “${name.trim()}”` : `Declared “${name.trim()}”`);
@@ -261,6 +274,21 @@ function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDon
           <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Phrases — comma or newline separated, up to 12</span>
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="tanker surge, KC-135 wave, refueling bridge" className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[12px] text-slate-100 focus:border-violet-500/60 outline-none font-mono" />
         </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mr-1">On I&amp;W boards</span>
+        {boardList == null ? <span className="text-[10px] text-slate-600">loading boards…</span>
+          : boardList.length === 0 ? <span className="text-[10px] text-slate-600">no boards answered — attach later</span>
+          : boardList.map((b) => {
+            const on = boards.includes(b.problemId);
+            return (
+              <button key={b.problemId} type="button" aria-pressed={on} onClick={() => setBoards((v) => on ? v.filter((x) => x !== b.problemId) : [...v, b.problemId])}
+                className={`text-[10px] rounded border px-1.5 py-0.5 ${on ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
+                {on ? "✓ " : ""}{b.label}
+              </button>
+            );
+          })}
+        <span className="basis-full text-[9.5px] text-slate-600">an attached theme is one more indicator on that board — your own sources only, so it can lift a calm board to watch and never higher; silent until the theme has {THEME_LEARNING_DAYS} days of normal</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[10px] text-slate-600 flex-1 min-w-0">{phrases.length ? `${phrases.length} phrase${phrases.length === 1 ? "" : "s"}: ${phrases.join(" · ")}` : "phrases are matched word-bounded, case-insensitive, in your own sources only"}</span>

@@ -15,6 +15,7 @@ import { getRegulatoryDocs } from "@/lib/federalRegister";
 import { enrich, summarize, regulatoryLines } from "@/lib/regulatorySignals";
 import { getEconomicWarfare } from "@/lib/economicWarfareAssess";
 import { INSTRUMENT_META, type Instrument } from "@/lib/economicWarfare";
+import { withTimeout } from "@/lib/withTimeout";
 
 export const dynamic = "force-dynamic";
 
@@ -123,12 +124,6 @@ const cache = new Map<string, { data: MacroBrief; expires: number }>();
 const WAIT_MS = 8_000;
 const inflight = new Map<string, Promise<MacroBrief>>();
 const lastFailure = new Map<string, { at: number; message: string }>();
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout>;
-  const to = new Promise<null>((res) => { timer = setTimeout(() => res(null), ms); });
-  return Promise.race([p.catch(() => null), to]).finally(() => clearTimeout(timer)) as Promise<T | null>;
-}
 
 /** Wait briefly for a running generation; settle to the brief, its error, or `pending`. */
 async function settle(gen: Promise<MacroBrief>): Promise<NextResponse> {

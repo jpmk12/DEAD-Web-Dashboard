@@ -22,6 +22,7 @@
 import { AOR_LABELS, type Aor } from "./aor";
 import { SEVERITY_RANK, worstOf, type Severity } from "./severity";
 import { isStarCountry, type MustTrack } from "./missionProfile";
+import { LED_SEVERITY, IW_LEVEL_RANK } from "./levelTokens";
 
 export const COMMANDS: Aor[] = ["CENTCOM", "EUCOM", "INDOPACOM", "AFRICOM", "SOUTHCOM", "NORTHCOM"];
 
@@ -188,9 +189,9 @@ export interface CommandBoard {
   sources: { posture: boolean; boards: boolean; sitreps: boolean; demand: boolean; events: boolean; delta: boolean; alerts: boolean };
 }
 
-const IW_RANK: Record<IwLevel, number> = { calm: 0, watch: 1, warning: 2, alert: 3 };
-const LED_RANK: Record<Led, number> = { g: 0, u: 1, a: 2, r: 3 };
-const SEV_WEIGHT: Record<Severity, number> = { green: 0, unknown: 1, amber: 2, red: 3 };
+const IW_RANK: Record<IwLevel, number> = IW_LEVEL_RANK;
+const LED_RANK: Record<Led, number> = LED_SEVERITY;
+const SEV_WEIGHT: Record<Severity, number> = SEVERITY_RANK;
 
 const lc = (s: string) => s.trim().toLowerCase();
 

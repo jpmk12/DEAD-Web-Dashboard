@@ -11,10 +11,11 @@
 import type { LineAirframe, LineStatus } from "./missionLines";
 import { lineDayLabel, lineLabel, runwayClassFor } from "./missionLines";
 import type { Aor } from "./aor";
+import { LED_SEVERITY } from "./levelTokens";
 
 export type LineLed = "g" | "a" | "r" | "u";
 export interface LineLeds { wx: LineLed; ops: LineLed; threat: LineLed; infra: LineLed; spectrum: LineLed }
-const RANK: Record<LineLed, number> = { g: 0, u: 1, a: 2, r: 3 };
+const RANK: Record<LineLed, number> = LED_SEVERITY;
 export const worstLineLed = (...leds: LineLed[]): LineLed => leds.reduce((w, l) => (RANK[l] > RANK[w] ? l : w), "g" as LineLed);
 
 export interface LineFieldInput {

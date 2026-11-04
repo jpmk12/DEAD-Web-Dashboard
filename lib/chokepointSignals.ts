@@ -38,6 +38,7 @@
 // never counted as an act, threat or analysis piece — it is shown so the
 // row explains itself, and it is the only modality that can stand for
 // de-escalation.
+import { haversineKm } from "./geoMath";
 export type Modality = "act" | "threat" | "analysis" | "reversal";
 
 export type InterdictionClass =
@@ -230,18 +231,6 @@ export function readInterdiction(text: string): InterdictionRead | null {
 
 // ───────────────────────────── geography ─────────────────────────────
 
-/** Inlined haversine — see the header note about keeping this module
- *  dependency-free. Kilometres. */
-export function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(bLat - aLat);
-  const dLon = toRad(bLon - aLon);
-  const s = Math.sin(dLat / 2) ** 2
-    + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
-}
-
 /** A georeferenced event, narrowed so this module never imports a feed. */
 export interface GeoEvent {
   id: string;
@@ -393,3 +382,6 @@ export function readActivity(
 
   return { score, lead, acts, threats, analysis, events: nearby, line: parts.length > 0 ? parts.join(" · ") : null };
 }
+
+/** Re-exported from lib/geoMath (the one home) for existing importers. */
+export { haversineKm };

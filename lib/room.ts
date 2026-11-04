@@ -12,6 +12,8 @@
 import type { Aor } from "./aor";
 import type { CommandBoard, FieldRow, CountryRow } from "./commandBoard";
 import type { PrimerDoor } from "./primer";
+import { SEVERITY_RANK } from "./severity";
+import { LED_SEVERITY } from "./levelTokens";
 
 export type RoomKind = "country" | "field" | "board";
 
@@ -95,8 +97,10 @@ export function roomSiblings(board: CommandBoard, ref: RoomRef): RoomRef[] {
 }
 
 const ROLE_RANK = (f: FieldRow) => (f.role === "hub" ? 0 : f.star ? 1 : f.role === "spoke" ? 2 : 3);
-const SEV_RANK: Record<string, number> = { red: 0, amber: 1, unknown: 2, green: 3 };
-const LED_RANK: Record<string, number> = { r: 0, a: 1, u: 2, g: 3 };
+// Worst-FIRST ordinals here (0 = worst), derived from the one home so the
+// direction cannot drift: 3 − the higher-is-worse rank.
+const SEV_RANK: Record<string, number> = Object.fromEntries(Object.entries(SEVERITY_RANK).map(([k, v]) => [k, 3 - v]));
+const LED_RANK: Record<string, number> = Object.fromEntries(Object.entries(LED_SEVERITY).map(([k, v]) => [k, 3 - v]));
 
 /** Worst LED across a field's SITREP axes, else its posture composite as an LED, else UNKNOWN. */
 export function fieldWorst(f: FieldRow): "r" | "a" | "u" | "g" {

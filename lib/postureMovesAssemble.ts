@@ -35,6 +35,7 @@ import { chatterLeadRead, type ChatterLead } from "./seriesReads";
 import { sensorKey } from "./sensorKeys";
 import { AOR_LABELS, type Aor } from "./aor";
 import type { NewsItem } from "./types";
+import { withTimeout } from "@/lib/withTimeout";
 
 export interface PostureMovesBody {
   generatedAt: string;
@@ -63,13 +64,6 @@ export interface PostureMovesBody {
 const TTL = 15 * 60 * 1000;
 let cache: { at: number; body: PostureMovesBody } | null = null;
 let inflight: Promise<PostureMovesBody> | null = null;
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(null), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, () => { clearTimeout(t); resolve(null); });
-  });
-}
 
 /** The whole sweep, however long it takes (background callers only). */
 export async function getPostureMovesFull(): Promise<PostureMovesBody> {

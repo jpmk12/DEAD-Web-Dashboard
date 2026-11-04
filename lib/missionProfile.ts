@@ -29,6 +29,7 @@ import { CHOKEPOINTS, type Chokepoint } from "./chokepoints";
 import { countryCentroid, centroidCountryNames } from "./countryCentroids";
 import { DEFAULT_ASSETS_OF_INTEREST, sanitizeAssets, type AssetOfInterest } from "./counterspace";
 import type { CountryWatch, ForceLocation, MetarStation, SitrepBase } from "./types";
+import { haversineKm } from "./geoMath";
 
 export interface MissionAoi {
   id: string;                       // slug, e.g. "iran-hormuz"
@@ -230,13 +231,6 @@ export const SITREP_MAX = 6;
 
 export const slugify = (s: string): string =>
   s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "aoi";
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371, toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
-}
 
 const titleCase = (s: string): string =>
   s.replace(/\b[a-z]/g, (c) => c.toUpperCase()).replace(/\bOf\b/g, "of").replace(/\bAnd\b/g, "and");

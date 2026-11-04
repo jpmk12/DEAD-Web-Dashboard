@@ -52,6 +52,7 @@ import { gatherUserSourceNews } from "./warningSensors";
 import { getUserPrefs } from "./userPrefs";
 import { getMissionProfile } from "./missionProfileApply";
 import type { NewsItem } from "./types";
+import { withTimeout } from "@/lib/withTimeout";
 
 export interface InstrumentSummary {
   instrument: Instrument;
@@ -170,12 +171,6 @@ function pendingStub(): EconomicWarfareBody {
 
 function failedStub(message: string): EconomicWarfareBody {
   return emptyBody(`Actor register assembly failed (${message.slice(0, 160)}). Every actor is UNKNOWN, not calm — the next open retries.`, false);
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout>;
-  const to = new Promise<null>((res) => { timer = setTimeout(() => res(null), ms); });
-  return Promise.race([p.catch(() => null), to]).finally(() => clearTimeout(timer)) as Promise<T | null>;
 }
 
 // The tracking picture, in priority order: Mission Profile AOI countries

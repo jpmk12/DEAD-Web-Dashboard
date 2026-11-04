@@ -16,6 +16,8 @@
 // block is a SNAPSHOT with a time on it; and it is capped so it cannot crowd
 // out the conversation.
 
+import { SEVERITY_RANK } from "./severity";
+
 export interface OeForceRow {
   label: string;
   composite: string;            // red | amber | green | unknown
@@ -75,7 +77,7 @@ export interface OeSnapshot {
 export const OE_CONTEXT_MAX_CHARS = 3800;
 
 const LED: Record<string, string> = { g: "green", a: "AMBER", r: "RED", u: "unknown" };
-const SEV_RANK: Record<string, number> = { red: 3, amber: 2, unknown: 1, green: 0 };
+const SEV_RANK: Record<string, number> = SEVERITY_RANK;
 const LVL_RANK: Record<string, number> = { alert: 3, warning: 2, watch: 1, calm: 0 };
 const TRAJ: Record<string, string> = { deteriorating: "deteriorating", improving: "improving", stable: "stable" };
 

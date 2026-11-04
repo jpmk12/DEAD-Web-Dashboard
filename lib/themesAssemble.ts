@@ -20,6 +20,7 @@ import { recordSensorDay, getSensorBaseline } from "./sensorStore";
 import { sensorKey } from "./sensorKeys";
 import type { Baseline } from "./series";
 import type { NewsItem } from "./types";
+import { withTimeout } from "@/lib/withTimeout";
 
 export interface ThemesBody {
   generatedAt: string;
@@ -37,13 +38,6 @@ let inflight: Promise<ThemesBody> | null = null;
 // Bumped on a write (see lib/lineReadAssemble): an older in-flight read must
 // not be cached over a theme just saved.
 let gen = 0;
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(null), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, () => { clearTimeout(t); resolve(null); });
-  });
-}
 
 export async function getThemeReadsFull(): Promise<ThemesBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;

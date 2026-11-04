@@ -4,6 +4,7 @@ import { normEmail } from "@/lib/allowlist";
 import { listThemes, upsertTheme, deleteTheme } from "@/lib/themeStore";
 import { getThemeReads, resetThemesCache } from "@/lib/themesAssemble";
 import { validateThemeDraft, normalizeThemeDraft, parsePhrasesText, THEME_MAX } from "@/lib/themes";
+import { resetWarningCache } from "@/lib/warningAssess";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,8 @@ export async function POST(req: Request) {
     if (existing === null) return NextResponse.json({ error: "Could not save the theme — the store did not answer." }, { status: 503 });
     if (existing.length >= THEME_MAX) return NextResponse.json({ error: `The register holds ${THEME_MAX} themes — remove one first.` }, { status: 422 });
   }
-  const theme = await upsertTheme(normalizeThemeDraft({ name: body.name, phrases }), email, id);
+  const theme = await upsertTheme(normalizeThemeDraft({ name: body.name, phrases, boards: body.boards }), email, id);
+  resetWarningCache();
   if (!theme) return NextResponse.json({ error: "Could not save the theme — the store did not answer." }, { status: 503 });
   resetThemesCache();
   return NextResponse.json({ theme });

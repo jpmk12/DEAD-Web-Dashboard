@@ -31,6 +31,7 @@ import { getMissionProfile } from "./missionProfileApply";
 import { readCounterspace, fleetActorIn, hasCorroborator, counterspaceState, type SpaceActor } from "./counterspace";
 import { getCounterspaceCatalogue } from "./counterspaceAssemble";
 import type { SensorBaseline } from "./sensorStore";
+import { withTimeout } from "@/lib/withTimeout";
 
 // The cyber POSTURE read per board (PLAN-SPACE-CYBER-ASK §3) — kept beside
 // the observation so the Spectrum summary and the country room can show
@@ -52,12 +53,6 @@ export interface SpectrumGather {
   health: SpectrumHealth[];
   /** Counts to persist as the day's sensor values (null = sensor dead — write nothing). */
   magnitudes: { pntCells: number | null; victims: number | null; /** GPSJam reporting cells inside the bbox. */ pntCoverage?: number | null; /** The GPSJam file's own day — the pnt series is keyed on it, not on today. */ pntDate?: string | null };
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout>;
-  const to = new Promise<null>((res) => { timer = setTimeout(() => res(null), ms); });
-  return Promise.race([p.catch(() => null), to]).finally(() => clearTimeout(timer)) as Promise<T | null>;
 }
 
 const inBbox = (geo: ProblemGeo, lat: number, lon: number): boolean =>
