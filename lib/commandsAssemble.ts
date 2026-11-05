@@ -153,7 +153,7 @@ async function gatherShared(): Promise<Shared> {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i], a = as[i];
       if (!a) continue;
-      out.push({ problemId: a.problemId, label: a.label, aor: p.geo.aor, level: a.level, anomaly: a.anomaly, trajectory: a.trajectory, learning: a.learning, drivers: (a.drivers ?? []).map((d) => d.description) });
+      out.push({ problemId: a.problemId, label: a.label, aor: p.geo.aor, level: a.level, anomaly: a.anomaly, trajectory: a.trajectory, learning: a.learning, drivers: (a.drivers ?? []).map((d) => d.description), bbox: p.geo.bbox });
     }
     return out;
   }));

@@ -83,17 +83,17 @@ async function assemble(wait: number): Promise<LineReadsBody> {
   // Place every field (country for the posture fallback, command by country
   // then coordinates) — the shared door the Track picker and the SITREP base
   // add use. Unplaceable → no country, no command.
-  const placed = new Map<string, { country: string; aor: Aor } | null>();
+  const placed = new Map<string, { country: string; aor: Aor; lat: number; lon: number } | null>();
   await Promise.all(icaos.map(async (icao) => {
     const slot = slots.get(icao);
     if (slot) {
       const country = normalizeCountryName(slot.country) || "";
-      placed.set(icao, { country, aor: classifyAor({ lat: slot.lat, lon: slot.lon, name: country }) });
+      placed.set(icao, { country, aor: classifyAor({ lat: slot.lat, lon: slot.lon, name: country }), lat: slot.lat, lon: slot.lon });
       return;
     }
     const r = await within(resolveAirfield(icao), 4_000);
     const country = r ? normalizeCountryName(r.country) || "" : "";
-    placed.set(icao, r ? { country, aor: classifyAor({ lat: r.lat, lon: r.lon, name: country }) } : null);
+    placed.set(icao, r ? { country, aor: classifyAor({ lat: r.lat, lon: r.lon, name: country }), lat: r.lat, lon: r.lon } : null);
   }));
 
   const [sitreps, fp, taf, caps] = await Promise.all([
@@ -125,6 +125,8 @@ async function assemble(wait: number): Promise<LineReadsBody> {
     return {
       icao,
       aor: place?.aor ?? null,
+      // Coordinates for the map's line routes; 0/0 is "not placed", never the Gulf of Guinea.
+      at: place && !(place.lat === 0 && place.lon === 0) && Number.isFinite(place.lat) && Number.isFinite(place.lon) ? { lat: place.lat, lon: place.lon } : null,
       sitrepSlot: slots.has(icao),
       sitrep: sum ? { status: sum.status, driver: sum.driver, worse: sum.worse, closure: payload?.ops.closure ?? null } : null,
       posture,

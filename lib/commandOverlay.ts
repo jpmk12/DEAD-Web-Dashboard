@@ -44,7 +44,7 @@ export const COMMAND_TAG_ANCHOR: Record<CommandAor, { lat: number; lon: number }
   EUCOM: { lat: 60, lon: 40 },
   CENTCOM: { lat: 23, lon: 60 },
   AFRICOM: { lat: 2, lon: 22 },
-  INDOPACOM: { lat: 3, lon: 134 },
+  INDOPACOM: { lat: -2, lon: 124 },
 };
 
 // Natural Earth spellings the catalogue does not carry as a command token,

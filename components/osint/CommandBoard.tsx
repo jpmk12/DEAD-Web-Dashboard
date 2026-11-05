@@ -330,6 +330,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
   const quietRows = rows.filter((r) => r.quiet);
   const starAors = mustTrack.aors;
   const commandRowsForMap = useMemo(() => data?.board.rows ?? [], [data]);
+  const iwBoardsForMap = useMemo(() => Object.values(data?.board.details ?? {}).flatMap((d) => d.boards), [data]);
   const myFieldsForMap = useMemo(() => (data?.board.myFields ?? []).flatMap((f) => {
     const p = f.posture; const o = data?.ownFields.find((x) => x.icao === f.icao);
     const lat = p?.lat ?? o?.lat; const lon = p?.lon ?? o?.lon;
@@ -534,7 +535,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
       {/* ── The picture — follows whatever is open ── */}
       <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture{mapAor ? ` — following ${room ? "the room" : "the board"} · ${short(mapAor)}` : openFc ? ` — ${openFc} layers on` : ""}</p>
       <ErrorBoundary label="Crisis map" minHeight="420px">
-        <CrisisMap boardAor={mapAor} domain={openFc} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} active={active} commandRows={commandRowsForMap} onOpenRoom={openRoom} />
+        <CrisisMap boardAor={mapAor} domain={openFc} starAors={starAors} myFields={myFieldsForMap} sinceMs={data?.sinceMs ?? 0} active={active} commandRows={commandRowsForMap} onOpenRoom={openRoom} iwBoards={iwBoardsForMap} />
       </ErrorBoundary>
     </div>
 

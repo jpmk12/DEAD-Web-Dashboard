@@ -55,6 +55,8 @@ export interface CbBoard {
   trajectory: "deteriorating" | "improving" | "stable";
   learning: boolean;
   drivers: string[];
+  /** The board's declared area (the map outlines it); absent on older bodies. */
+  bbox?: { latMin: number; latMax: number; lonMin: number; lonMax: number };
 }
 
 export interface CbSitrep {

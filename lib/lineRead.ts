@@ -22,6 +22,8 @@ export interface LineFieldInput {
   icao: string;
   /** The combatant command the field sits in (by country, then coordinates); null when the app cannot place it. */
   aor?: Aor | null;
+  /** Where the field is (for the map's line routes); null / absent = not placed. */
+  at?: { lat: number; lon: number } | null;
   /** The field has a SITREP slot (configured base). */
   sitrepSlot: boolean;
   /** The SITREP rollup when the slot assembled; null when it did not. */
@@ -60,6 +62,8 @@ export interface LineDriver {
 export interface LineFieldRead {
   icao: string;
   aor: Aor | null;
+  /** Where the field is; null when the app could not place it (the map leaves the leg out). */
+  at: { lat: number; lon: number } | null;
   worst: LineLed;
   leds: LineLeds | null;
   drivers: LineDriver[];
@@ -160,7 +164,7 @@ function readField(f: LineFieldInput, line: LineReadInput["line"], today: string
 
   drivers.sort(byWorst);
   const worst = drivers.length ? worstLineLed(...drivers.map((d) => d.level)) : "g";
-  return { icao: f.icao, aor: f.aor && f.aor !== "UNKNOWN" ? f.aor : null, worst, leds, drivers, sitrepSlot: f.sitrepSlot };
+  return { icao: f.icao, aor: f.aor && f.aor !== "UNKNOWN" ? f.aor : null, at: f.at ?? null, worst, leds, drivers, sitrepSlot: f.sitrepSlot };
 }
 
 export function readLine(input: LineReadInput): LineRead {

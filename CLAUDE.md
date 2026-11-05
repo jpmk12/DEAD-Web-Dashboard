@@ -1419,6 +1419,87 @@ recentred the view and filtered the dots, nothing more. Three changes:
   navigational warnings, FAA KICZ / EASA conflict zones, NASA FIRMS.
 No new npm dep (esbuild `0`).
 
+### Crisis map batch 2: straits, I&W areas, your lines, SIGMETs, nav warnings, an event window (2026-11-05, "press on")
+Five layers and one control, each reading something the app already computes
+except the two new sources. Helpers are PURE in `lib/mapLayers.ts` (tested in
+`tests/mapLayers.test.ts`); none of them sets a level.
+- **Straits** (`straits`, Commands group, on by default; fetched only while
+  on, from the SAME `/api/markets/chokepoints` the Economy tab reads):
+  `straitTone` = reported act (red) › declared threat (amber — MARAD
+  advisories count here) › reporting (grey: ≥2 analysis pieces or ≥3 nearby
+  events) › quiet (dark: "no reporting — absence of signal, not calm"). The
+  ring at `radiusKm` is drawn only for act / threat; the popup carries the
+  lead headline, the AIS transit state, the strait's why, the MARAD / UKMTO
+  counts and a door to the Economy chokepoint board (`app:navigate markets`).
+- **I&W areas** (`iwareas`, on by default): `CbBoard.bbox` (new, optional —
+  `commandsAssemble` passes `p.geo.bbox`) → `boardAreas` → a `Rectangle`
+  outlined in the board's level (calm grey · watch sky · warning amber · alert
+  red), dashed while the board is learning, a bad or missing box skipped; the
+  popup opens the board's room. CommandBoard passes `iwBoards` from
+  `board.details[*].boards`.
+- **My lines** (`routes`, on by default; `/api/mission-lines?read=1`, re-read
+  on `lines:changed`): `LineFieldRead.at` / `LineFieldInput.at` are new —
+  `lineReadAssemble` keeps the coordinates it already resolved (SITREP slot or
+  `resolveAirfield`; 0/0 = not placed). `lineRoutes` draws legs between
+  consecutive PLACED fields, each the worse of its two ends; an unplaced field
+  is named in the popup and its legs left out (never a guessed position);
+  planned lines dashed, execution solid; points open the field's room. A store
+  that does not answer marks "Lines" in the source-down badge.
+- **SIGMETs** (`sigmets`, Threats group, off by default) — NEW SOURCE: the NWS
+  Aviation Weather Center data API, keyless, the host the METAR / TAF reads
+  already use: `/api/data/isigmet?format=json` (international, every issuing
+  FIR) + `/api/data/airsigmet?format=json` (domestic U.S.; AIRMETs dropped).
+  `lib/sigmetParse.ts` (PURE, tested): tolerant field names (both
+  endpoints' spellings), times as epoch s / ms / ISO / zone-less (= UTC),
+  coordinates as `{lat, lon}`, `[lon, lat]`, a string, or a GeoJSON feature;
+  expired rows dropped; a SIGMET with no readable area COUNTED (`noGeometry`),
+  never drawn as a guessed box; hazard by code then text — volcanic ash /
+  tropical cyclone / radioactive red (they close airspace), convection /
+  severe turbulence / severe icing amber, the rest slate. Polygon ≥3 points,
+  line 2, point 1.
+- **Nav warnings** (`navwarn`, Threats group, off by default) — NEW SOURCE:
+  NGA Maritime Safety Information broadcast warnings, keyless
+  (`msi.nga.mil/api/publications/broadcast-warn?output=json&status=active`:
+  NAVAREA IV / XII, HYDROLANT / HYDROPAC). `lib/navWarnParse.ts` (PURE,
+  tested): positions read from the TEXT ("34-30.00N 032-00.00E", "26-12N
+  124-41E"); one polygon per "BOUND BY" list — and per LETTERED sub-area
+  ("AREAS BOUND BY: A. … B. …", never one ring across both); "WITHIN n MILES
+  OF" → a circle; leftovers as ≤6 points; no position → counted (`unplaced`),
+  never placed. Only OPERATIONAL classes are drawn (firing, launch debris,
+  GNSS, mines / ordnance, security — `DRAWN_CLASSES`); wrecks / unlit lights /
+  buoys are counted by class, not drawn. Time windows inside a warning are
+  free text — shown verbatim, never parsed.
+- `lib/mapHazards.ts` (server): `getSigmets` (10-min cache) and
+  `getNavWarnings` (30-min), in-flight deduped, a failed read held 60 s,
+  `live:false` + reason = UNKNOWN on the map's badge ("AWC SIGMETs" / "NGA
+  warnings"). Routes `/api/osint/sigmets` and `/api/osint/navwarnings`;
+  **`?diag=1` (owner-only) on each runs the real fetch from production** and
+  returns status, bytes, rows, parsed, the no-geometry / class / unplaced
+  counts, five sample lines and `rawFirst` (the first raw row, 1,200 chars).
+  **Both hosts are blocked from the sandbox — both contracts are UNVERIFIED**;
+  the first diag pins them (a renamed field shows as rows > 0, parsed 0).
+- **Event window** (toolbar "Events": 24 h / 72 h / 7 d / 30 d / all,
+  default all, remembered per browser in `localStorage crisisMap:window`):
+  filters EVENTS by when they happened — conflict points, ACLED strikes,
+  UKMTO incidents and the list's kinetic rows — and NEVER standing conditions
+  (NEO, storms, hazards, disasters, strait reads). An undated event is always
+  kept; the control says "N older hidden · M undated kept" (`windowTally`;
+  a date-only stamp counts for its whole day).
+- Presets: Standard + straits / I&W areas / lines; HADR + lines; Contested +
+  I&W areas / straits / nav warnings; Mobility + lines / straits / SIGMETs;
+  Force + I&W areas / straits. The INDOPACOM command tag moved to the
+  Celebes Sea so it stays on a world-zoom screen.
+- Verified in headless Chromium with routed fixtures for the chokepoints,
+  SIGMETs, nav warnings and lines: every layer drew (red act strait with its
+  ring, a dark quiet strait, a red volcanic-ash SIGMET, an amber firing area,
+  a planned line with a red leg, the board's dashed learning box), the window
+  control stored its choice, map-check all ok. A first run crashed Glance —
+  the cause was the FIXTURE (a lines body without `unavailable`, which a real
+  body always carries), not the app.
+- Not built (offered): FAA KICZ / EASA conflict-zone restrictions (no feed;
+  KICZ may come through DAIP), NASA FIRMS active fires (needs a free key).
+No new npm dep (esbuild `0`).
+
 ### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)
 The optional **Radar** layer (off by default) animates RainViewer precip/
 convection. Two CSP facts make it work: the app's `connect-src` (next.config.ts)
