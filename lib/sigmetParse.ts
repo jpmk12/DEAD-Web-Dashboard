@@ -36,6 +36,9 @@ export interface Sigmet {
   toISO: string | null;
   /** Lat/lon points as drawn: ≥3 a polygon, 2 a line, 1 a point. */
   points: [number, number][];
+  /** Where the drawn area came from: the row's coordinates, or the ICAO
+   *  position list in the SIGMET text (when the row carried only a point). */
+  areaFrom: "coords" | "text" | null;
   movement: string | null;
   raw: string;
   tone: SigmetTone;
@@ -109,6 +112,38 @@ function pointsOf(o: Record<string, unknown>): [number, number][] {
   return out;
 }
 
+// ICAO SIGMET positions: N1435 W09102 / S0530E11930 / N14 W091.
+const ICAO_POS = /([NS])(\d{2})(\d{2})?\s?([EW])(\d{3})(\d{2})?/g;
+
+/** The first ICAO position list of ≥3 points in the SIGMET text — the
+ *  observed area ("… OBS AT 1200Z SFC/FL150 N1435 W09102 - N1428 W09052 -
+ *  …"). Positions must be joined by dashes to belong to one list, so a lone
+ *  "PSN N1428 W09052" never starts a ring. The forecast area that follows is
+ *  a second list and is not taken. */
+export function textPolygon(raw: string): [number, number][] {
+  const up = raw.toUpperCase();
+  const hits: { at: [number, number]; start: number; end: number }[] = [];
+  for (const m of up.matchAll(ICAO_POS)) {
+    const lat = (Number(m[2]) + (m[3] ? Number(m[3]) / 60 : 0)) * (m[1] === "S" ? -1 : 1);
+    const lon = (Number(m[5]) + (m[6] ? Number(m[6]) / 60 : 0)) * (m[4] === "W" ? -1 : 1);
+    if ((m[3] && Number(m[3]) >= 60) || (m[6] && Number(m[6]) >= 60) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    const start = m.index ?? 0;
+    hits.push({ at: [Math.round(lat * 1000) / 1000, Math.round(lon * 1000) / 1000], start, end: start + m[0].length });
+  }
+  let run: [number, number][] = [];
+  for (let i = 0; i < hits.length; i++) {
+    const joined = i > 0 && /^\s*-\s*$/.test(up.slice(hits[i - 1].end, hits[i].start));
+    if (joined) run.push(hits[i].at);
+    else {
+      if (run.length >= 3) break;
+      run = [hits[i].at];
+    }
+  }
+  if (run.length < 3) return [];
+  if (run.length > 3 && run[0][0] === run[run.length - 1][0] && run[0][1] === run[run.length - 1][1]) run.pop();
+  return run;
+}
+
 function geojsonPoints(geom: unknown): [number, number][] {
   const g = geom as { type?: string; coordinates?: unknown } | null;
   if (!g || !g.coordinates) return [];
@@ -145,18 +180,24 @@ export function parseSigmetRow(row: unknown, kind: Sigmet["kind"], nowMs: number
   const fromISO = sigmetTime(pick(o, "validTimeFrom", "validFrom", "issueTime", "receiptTime"));
   const toISO = sigmetTime(pick(o, "validTimeTo", "validTo"));
   if (toISO && Date.parse(toISO) <= nowMs) return null;
-  const points = feat.type === "Feature" && feat.geometry ? geojsonPoints(feat.geometry) : pointsOf(o);
+  let points = feat.type === "Feature" && feat.geometry ? geojsonPoints(feat.geometry) : pointsOf(o);
+  let areaFrom: Sigmet["areaFrom"] = points.length ? "coords" : null;
+  if (points.length < 3 && raw) {
+    const t = textPolygon(raw);
+    if (t.length >= 3) { points = t; areaFrom = "text"; }
+  }
   const fir = s(pick(o, "firName", "firId", "icaoId", "fir"));
   const series = s(pick(o, "seriesId", "series"));
   const id = [kind === "international" ? "is" : "ds", fir ?? "", series ?? "", fromISO ?? "", hazardCode ?? ""].join("|");
   const dir = s(pick(o, "dir", "movementDir")), spd = n(pick(o, "spd", "movementSpd"));
   return {
     id, kind, hazard, fir, series,
-    qualifier: s(pick(o, "qualifier", "severity")),
+    // A numeric severity (the domestic feed's 1–5) is not a qualifier word.
+    qualifier: ((q) => (q && !/^\d+$/.test(q) ? q : null))(s(pick(o, "qualifier", "severity"))),
     baseFt: feet(pick(o, "base", "altitudeLow1", "altLow")),
     topFt: feet(pick(o, "top", "altitudeHi1", "altHi")),
-    fromISO, toISO, points,
-    movement: dir ? `${dir}${spd != null ? ` ${spd} kt` : ""}` : null,
+    fromISO, toISO, points, areaFrom,
+    movement: dir ? `${/^\d{1,3}$/.test(dir) ? `${dir}°` : dir}${spd != null ? ` ${spd} kt` : ""}` : null,
     raw: raw.slice(0, 1200),
     tone: sigmetTone(hazard),
   };

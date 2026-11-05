@@ -1498,6 +1498,32 @@ except the two new sources. Helpers are PURE in `lib/mapLayers.ts` (tested in
   body always carries), not the app.
 - Not built (offered): FAA KICZ / EASA conflict-zone restrictions (no feed;
   KICZ may come through DAIP), NASA FIRMS active fires (needs a free key).
+- **First production diags (2026-11-05).** **SIGMETs VERIFIED**: isigmet
+  200, 155 rows / 155 parsed / 4 with no geometry; airsigmet 200, 1 row
+  (a convective SIGMET). The contract is as pinned — `validTimeFrom/To`
+  epoch SECONDS, `coords` as `{lat, lon}` objects, `firName` / `seriesId` /
+  `hazard` codes (VA, TC, CONVECTIVE), domestic `altitudeHi1`,
+  `movementDir` (degrees) / `movementSpd`, numeric `severity`. Two fixes
+  from it: (1) **an international SIGMET may carry ONE point in `coords`
+  (the volcano) while the area lives in the text** — Fuego's
+  "OBS … N1435 W09102 -N1428 W09052 -…". `textPolygon` (PURE, tested
+  against the verbatim row) reads the FIRST dash-joined ICAO position list
+  of ≥3 points (N/S DDMM, E/W DDDMM, minutes optional; the forecast area
+  that follows is a second list and is not taken; a lone "PSN …" never
+  starts a ring) when the row's own coordinates give fewer than three;
+  `Sigmet.areaFrom` = `coords` | `text` | null and the popup says "area
+  read from the SIGMET text". (2) A numeric `severity` is not a qualifier
+  (it read "CONVECTION (5)"); a numeric movement direction prints "250°".
+  **NGA nav warnings: HTTP 503 with an F5 "apology_objects" page** — an
+  outage or a refusal of the server's address, not yet known which. The
+  layer reads "NGA warnings" UNKNOWN on the source-down badge, as built.
+  The diag now carries `page` (title + visible text of the HTML,
+  `htmlPageSummary`), `variants` (the same URL with a plain client header,
+  a `navArea=4` query, and the site's home page — status, JSON or not,
+  page summary each) and a `read` line: every request 5xx (home page too)
+  = outage or address block; a variant answering JSON = our request is
+  what the host refuses. If it is a block, the door is the capture
+  extension (the UKMTO pattern), not a header change.
 No new npm dep (esbuild `0`).
 
 ### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)

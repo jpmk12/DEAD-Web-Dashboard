@@ -56,3 +56,11 @@ describe("the response", () => {
     expect(p.warnings[0].tone).toBe("amber");
   });
 });
+
+import { htmlPageSummary } from "@/lib/mapHazards";
+describe("the diag's page summary", () => {
+  it("names an apology page by its title and words", () => {
+    const html = '<!DOCTYPE html><html><head><title>Service Unavailable</title><style>p{}</style></head><body><h1>Our apologies</h1><p>The site is down&nbsp;for maintenance.</p><script>x()</script></body></html>';
+    expect(htmlPageSummary(html)).toEqual({ title: "Service Unavailable", text: "Our apologies The site is down for maintenance." });
+  });
+});

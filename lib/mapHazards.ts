@@ -113,15 +113,56 @@ export async function diagnoseSigmets(): Promise<unknown> {
   return { sources: out };
 }
 
+/** An HTML error page → its title and the first visible words, so a diag
+ *  can tell an outage ("Service Unavailable", "maintenance") from a refusal
+ *  ("Request Rejected", "Access Denied", a support ID). */
+export function htmlPageSummary(text: string): { title: string | null; text: string } {
+  const title = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim() || null;
+  const body = text
+    .replace(/<(script|style|noscript|title)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ").trim();
+  return { title, text: body.slice(0, 400) };
+}
+
+async function probe(url: string, headers: Record<string, string>): Promise<{ url: string; as: string; status: number; bytes: number; json: boolean; page: { title: string | null; text: string } | null; error: string | null }> {
+  const as = headers["User-Agent"] === UA ? "browser UA" : headers["User-Agent"] ?? "no UA";
+  try {
+    const res = await fetchWithTimeout(url, { headers, cache: "no-store" }, 15_000);
+    const text = (await res.text()).slice(0, 200_000);
+    let json = false;
+    try { JSON.parse(text); json = true; } catch { /* not JSON */ }
+    return { url, as, status: res.status, bytes: text.length, json, page: json ? null : htmlPageSummary(text), error: res.ok ? null : `HTTP ${res.status}` };
+  } catch (e) {
+    return { url, as, status: 0, bytes: 0, json: false, page: null, error: e instanceof Error ? e.message.slice(0, 160) : "fetch failed" };
+  }
+}
+
 export async function diagnoseNavWarnings(): Promise<unknown> {
   const r = await getJson(NGA_WARN_URL, 20_000, 12_000_000);
   const p = r.body != null ? parseNavWarnings(r.body) : null;
   const { navWarnRows } = await import("./navWarnParse");
+  // When the main request is refused, two variants say whether it is the
+  // request (a header the host's filter dislikes) or the host (every request
+  // refused = an outage or an IP block).
+  const variants = r.body == null
+    ? await Promise.all([
+      probe(NGA_WARN_URL, { "User-Agent": "dead-dashboard/1.0", Accept: "*/*" }),
+      probe("https://msi.nga.mil/api/publications/broadcast-warn?navArea=4&status=active&output=json", { "User-Agent": UA, Accept: "application/json" }),
+      probe("https://msi.nga.mil/", { "User-Agent": UA, Accept: "text/html" }),
+    ])
+    : [];
   return {
     url: NGA_WARN_URL, status: r.status, bytes: r.bytes, error: r.error,
     rows: p?.rows ?? 0, drawn: p?.warnings.length ?? 0, unplaced: p?.unplaced ?? 0, byClass: p?.byClass ?? {},
     sample: p?.warnings.slice(0, 6).map((w) => `${w.area} ${w.number} | ${w.cls} | ${w.shapes.map((s) => `${s.kind}:${s.points.length}`).join(",")} | ${w.where.slice(0, 80)}`) ?? [],
     rawFirst: r.body != null ? firstRaw(r.body, navWarnRows) : null,
-    snippet: r.body == null ? r.text.slice(0, 300) : null,
+    page: r.body == null && r.text ? htmlPageSummary(r.text) : null,
+    variants,
+    read: r.body != null ? "the feed answered JSON"
+      : variants.length && variants.every((v) => v.status >= 500 || v.status === 0) ? "every request refused, the site's home page included — an outage or a block of this server's address, not the query"
+      : variants.some((v) => v.json) ? "a variant answered JSON — the main request's headers or query are what the host refuses"
+      : "the API refused while the host answered — read `page` and `variants`",
   };
 }

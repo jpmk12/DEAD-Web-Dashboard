@@ -1522,6 +1522,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
                   <div className="font-bold text-sm">SIGMET · {x.fir ?? "?"}{x.series ? ` ${x.series}` : ""}</div>
                   <div style={{ color: col }}>{sigmetLine(x)}</div>
                   <div className="text-slate-600">{x.fromISO ? x.fromISO.slice(5, 16).replace("T", " ") + "Z" : "?"} → {x.toISO ? x.toISO.slice(5, 16).replace("T", " ") + "Z" : "?"} · {x.kind}</div>
+                  {x.areaFrom === "text" && <div className="text-slate-500">area read from the SIGMET text (the feed gave one point)</div>}
                   {x.raw && <details className="mt-1"><summary className="cursor-pointer text-slate-500">raw</summary><div className="text-slate-700 whitespace-pre-wrap max-h-[120px] overflow-auto">{x.raw}</div></details>}
                   <div className="text-slate-500 mt-1">NWS Aviation Weather Center — verify with a current briefing</div>
                 </div></Popup>
