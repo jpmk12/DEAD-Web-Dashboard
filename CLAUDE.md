@@ -1365,6 +1365,60 @@ returns status + a 200-char body snippet per layer, plus `basemapOk` and a
 which is how an upstream's "API key required" gets attributed to a service
 instead of being guessed at. Real fetches, never on a page load.
 
+### Crisis map: the combatant commands on the map (2026-11-05, "would you recommend any improvements to give me better awareness of my combatant commands" → "first batch")
+The map showed events but never the commands themselves — picking a command
+recentred the view and filtered the dots, nothing more. Three changes:
+- **Commands layer** (`commands`, its own "Commands" group, ON by default and
+  in every preset). `lib/commandOverlay.ts` (PURE, tested in
+  `tests/commandOverlay.test.ts`): `featureAor` assigns each Natural Earth
+  country to its command BY COUNTRY (the UCP rule — `aorFromCountry` over the
+  normalised name, an `ISO3_AOR` table for the spellings the catalogue lacks,
+  `NAME_AOR` for the "-99" features Northern Cyprus / Somaliland / Kosovo;
+  only Antarctica is unassigned — the test pins it and the seams: Iraq, Syria,
+  Israel, Egypt CENTCOM; Turkey, Russia EUCOM; Libya AFRICOM; Puerto Rico and
+  Greenland NORTHCOM; Cuba SOUTHCOM). `countryPostures` = worst of the country
+  row and every base in it (ISO2 joins the name); `postureFor` → null for a
+  country nobody watches (**unwatched is not green** — no tint, a dashed faint
+  wash). `countryStyle` = the command's hue (`COMMAND_HUE`, colours the
+  severity vocabulary does not use) at 0.07, the posture tint over a watched
+  country, everything outside the focused command dimmed. `commandTags`
+  builds one tag per command from the COMMAND BOARD'S OWN ROWS (`CommandRow`:
+  I&W level + learning, worst posture count, demand arrow ↑ → ↓; "no board" /
+  "nothing watched" / "demand —" said, never blank; the border is the worse of
+  the I&W tone and the posture tone, all-UNKNOWN reads unknown) — the map
+  computes no level of its own. Oceans are NOT drawn: the UCP's maritime
+  seams are not in a country file and an invented line would be a claim.
+- **Data**: `public/geo/countries-110m.json` — Natural Earth 1:110m admin-0
+  (public domain), properties trimmed to name / admin / a2 / a3, coordinates
+  rounded to 0.01° (179 KB, 56 KB gzip), fetched once per page and only while
+  the layer is on (`loadCountries`). Rendered as a react-leaflet `GeoJSON` in
+  its own `Pane` (z 350, under the overlay pane's 400) so the re-key on a
+  style change never lifts it over a marker; the tags are `divIcon` markers
+  (text escaped) — click a tag to focus that command (`pickAor`), click again
+  to clear; click a country for its command, posture and the room door.
+- **Popups open the room**: `CrisisMapProps.onOpenRoom` (CommandBoard passes
+  `openRoom`) → an "Open room →" button on the country, force-posture, NEO,
+  disaster, INFORM, outage, hub, CRF and gateway popups. A country or field
+  the board does not hold opens as "not on the board", never an error.
+- **Only on-layers fetch**: GPSJam, UKMTO, INFORM, outages and launches each
+  fetch in their own effect keyed on the toggle + the 5-min cycle
+  (`layerFetch`); turning a layer off clears its source-down mark (an unread
+  source is not a down one). Their chips show no count until turned on.
+  Conflict, ACLED, NEO, disasters and posture still load always — they feed
+  the events list and the force rail.
+- `lib/aor.ts`: "puerto rico" / "virgin islands" moved to NORTHCOM (the UCP
+  assignment; the chatter place list already said so).
+- Attribution line: "Command borders: Natural Earth"; the stale "Basemap:
+  CARTO" now reads Esri / OpenStreetMap. Verified in headless Chromium with a
+  routed posture feed: 177 country paths, Jordan tinted red and Germany green,
+  Brazil's popup "USSOUTHCOM · Not in the posture watch — UNKNOWN, not clear ·
+  Open room", a room button opening Jordan's room, only the UKMTO and border
+  requests at load with the default layers; map-check all ok. Next batch on
+  offer: lines as routes, I&W board areas, chokepoint read markers, MARAD
+  regions, a time-window control; sources AWC international SIGMETs, NGA
+  navigational warnings, FAA KICZ / EASA conflict zones, NASA FIRMS.
+No new npm dep (esbuild `0`).
+
 ### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)
 The optional **Radar** layer (off by default) animates RainViewer precip/
 convection. Two CSP facts make it work: the app's `connect-src` (next.config.ts)

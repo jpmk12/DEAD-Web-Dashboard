@@ -25,12 +25,14 @@ export const COCOM_LABEL: Record<string, string> = { ...AOR_LABELS, UNKNOWN: "�
 // Country / region tokens → AOR. Longest token wins (checked length-desc) so
 // "papua new guinea" beats "guinea" and "equatorial guinea" beats "guinea".
 const COUNTRY_AOR: Record<Aor, string[]> = {
-  NORTHCOM: ["united states", "u.s.a", "usa", "canada", "mexico", "greenland", "bahamas", "alaska"],
+  // Puerto Rico and the U.S. Virgin Islands are NORTHCOM under the UCP (the
+  // rest of the Caribbean, Cuba included, is SOUTHCOM).
+  NORTHCOM: ["united states", "u.s.a", "usa", "canada", "mexico", "greenland", "bahamas", "alaska", "puerto rico", "virgin islands"],
   SOUTHCOM: [
     "guatemala", "belize", "honduras", "el salvador", "nicaragua", "costa rica", "panama",
     "colombia", "venezuela", "guyana", "suriname", "ecuador", "peru", "brazil", "bolivia",
     "paraguay", "chile", "argentina", "uruguay", "cuba", "haiti", "dominican republic",
-    "jamaica", "trinidad", "puerto rico", "caribbean", "barbados", "grenada",
+    "jamaica", "trinidad", "caribbean", "barbados", "grenada",
   ],
   EUCOM: [
     "russia", "ukraine", "turkey", "türkiye", "united kingdom", "ireland", "france", "germany",

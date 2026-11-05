@@ -2,7 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Circle, CircleMarker, Marker, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Circle, CircleMarker, GeoJSON, Marker, Pane, Polyline, Polygon, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { CloseIcon, ExternalLinkIcon } from "@/lib/icons";
 import { FLIGHT_CAT_HEX } from "@/lib/levelTokens";
@@ -17,7 +17,7 @@ import { AMC_HUBS } from "@/lib/amcHubs";
 import { GATEWAYS } from "@/lib/airfields";
 import { countryCentroid } from "@/lib/countryCentroids";
 import ForceWatchBoard from "./ForceWatchBoard";
-import { aorFromCoords, type Aor } from "@/lib/aor";
+import { aorFromCoords, AOR_LABELS, type Aor } from "@/lib/aor";
 import { ringLevelLabel, APPROACH_FLOOR_FT, type GpsArea } from "@/lib/gpsNotams";
 import { FC_MAP_LAYERS, type FunctionalCommand } from "@/lib/functionalCommands";
 import { isMobilityType, isTankerType } from "@/lib/aircraftTypes";
@@ -28,6 +28,12 @@ import type { WeatherThreats, DisasterEvent, TravelAdvisory, FlightCategory } fr
 import { fetchUiState, patchUiState, UI_KEYS } from "@/lib/clientUiState";
 import { clientCache } from "@/lib/clientCache";
 import { openTrackPicker, type TrackPrefill } from "@/lib/trackClient";
+import {
+  featureAor, countryPostures, postureFor, countryStyle, commandTags, roughCentroid, COMMAND_HUE,
+  type CountryFeatureProps, type CommandTag,
+} from "@/lib/commandOverlay";
+import type { CommandRow } from "@/lib/commandBoard";
+import type { RoomRef } from "@/lib/room";
 
 // Crisis / situation map + synced list — the spatial twin of the Global Reach
 // Watch. What's happening (disasters, hub weather, tropical, NEO) over the AMC
@@ -51,6 +57,29 @@ const AOR_VIEW: Partial<Record<Aor, { lat: number; lon: number; zoom: number }>>
   INDOPACOM: { lat: 12, lon: 130, zoom: 3 },
 };
 const TOGGLE_KEY = "crisisMap:layers";
+
+// Natural Earth 1:110m countries (public/geo, ~56 KB gzip) — fetched once per
+// page, only when the Commands layer is on.
+type CountryFc = { type: "FeatureCollection"; features: { type: "Feature"; properties: CountryFeatureProps; geometry: { type: string; coordinates: unknown } }[] };
+let countriesPromise: Promise<CountryFc | null> | null = null;
+function loadCountries(): Promise<CountryFc | null> {
+  if (!countriesPromise) {
+    countriesPromise = fetch("/geo/countries-110m.json")
+      .then((r) => (r.ok ? (r.json() as Promise<CountryFc>) : null))
+      .catch(() => null)
+      .then((d) => { if (!d) countriesPromise = null; return d; });
+  }
+  return countriesPromise;
+}
+const escHtml = (x: string) => x.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+const TAG_BORDER: Record<CommandTag["tone"], string> = { red: "#ef4444", amber: "#f59e0b", unknown: "#94a3b8", slate: "#334155" };
+function tagIcon(t: CommandTag, dim: boolean): L.DivIcon {
+  const hue = COMMAND_HUE[t.aor];
+  const html = `<div style="opacity:${dim ? 0.45 : 1};transform:translate(-50%,-50%);white-space:nowrap;font:600 10px/1.25 ui-monospace,monospace;background:rgba(2,6,23,.82);border:1px solid ${TAG_BORDER[t.tone]};border-left:3px solid ${hue};border-radius:5px;padding:3px 6px;color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.45);cursor:pointer">`
+    + `<div style="font-weight:800;letter-spacing:.08em;color:${hue}">${t.star ? "★ " : ""}${escHtml(t.label)}</div>`
+    + `<div style="color:#cbd5e1">${escHtml(t.iw)} · ${escHtml(t.posture)} · ${escHtml(t.demand)}</div></div>`;
+  return L.divIcon({ className: "", html, iconSize: [0, 0] });
+}
 
 function km(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const R = 6371;
@@ -159,13 +188,14 @@ const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:9
 const ukmtoIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900">⚓</span>`, 13);
 const ukmtoAreaIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900;opacity:.55">⚓</span>`, 13);
 
-type LayerKey = "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "maritime" | "gps" | "gpstests" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "commands" | "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "maritime" | "gps" | "gpstests" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
 interface Vessel { mmsi: number; name: string; shipType: number; lat: number; lon: number; cog: number; sog: number; heading: number | null }
 
 // Tooltip copy for each layer toggle.
 const LAYER_DESC: Record<LayerKey, string> = {
+  commands: "Combatant commands — every country washed faintly in its command's colour (assigned BY COUNTRY, the Unified Command Plan rule), a watched country tinted by its worst force posture (red / amber / grey = UNKNOWN / green; an unwatched country has no tint — unwatched is not green), and one tag per command with its I&W level, worst posture and 7-day demand arrow from the command board. Click a country for its room; click a tag to focus the command. Oceans are not drawn — the UCP's maritime seams are not in a country file.",
   disasters: "Disaster & humanitarian events — GDACS (cyclone/quake/flood/drought/volcano), USGS quakes, and ReliefWeb complex-emergency / conflict / epidemic situations (plotted at country centroid). Dot colour = severity, size = HADR-airlift relevance. Click for details.",
   hazards: "Model weather hazards at your hubs/locations, next ~30 h (gusts, IFR/LIFR visibility, thunderstorms, snow/ice, temp extremes).",
   tropical: "Active tropical cyclones / typhoons / hurricanes (NOAA NHC).",
@@ -197,6 +227,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
 
 // Layer toggles grouped for the collapsible "Layers" panel.
 const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: string }[] }[] = [
+  { label: "Commands", keys: [{ k: "commands", label: "Commands", dot: "#818cf8" }] },
   { label: "Threats", keys: [
     { k: "disasters", label: "Disasters", dot: "#f87171" }, { k: "hazards", label: "Hub wx", dot: "#fbbf24" },
     { k: "tropical", label: "Tropical", dot: "#38bdf8" }, { k: "cone", label: "Cone" },
@@ -230,11 +261,11 @@ const ALL_KEYS: LayerKey[] = LAYER_GROUPS.flatMap((g) => g.keys.map((x) => x.k))
 const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
   Object.fromEntries(ALL_KEYS.map((k) => [k, onKeys.includes(k)])) as Record<LayerKey, boolean>;
 const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
-  { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, UKMTO maritime incidents, the node network, and reach lines.", on: preset(["disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "maritime", "enroute", "crf", "tracked", "lines", "labels"]) },
-  { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
-  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, UKMTO maritime incidents, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["disasters", "neo", "conflict", "acled", "maritime", "gps", "gpstests", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
-  { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
-  { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
+  { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, UKMTO maritime incidents, the node network, and reach lines.", on: preset(["commands", "disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "maritime", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["commands", "disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
+  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, UKMTO maritime incidents, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["commands", "disasters", "neo", "conflict", "acled", "maritime", "gps", "gpstests", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["commands", "enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
+  { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["commands", "forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
 ];
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
 interface Item { id: string; kind: "disaster" | "hazard" | "tropical" | "neo" | "kinetic" | "strike"; title: string; sub: string; tone: "red" | "amber" | "sky"; aor: Aor | null; lat: number; lon: number; score: number; href?: string; /** When the event happened / was published — null when the source carries no time. */ timeISO?: string | null }
@@ -257,6 +288,12 @@ export interface CrisisMapProps {
   myFields?: { icao: string; label: string; lat: number; lon: number }[];
   /** The user's last look at the tab (ms) — events after it are marked NEW. */
   sinceMs?: number;
+  /** The command board's rows — the command tags read them; the map
+   *  computes no level of its own. Absent = no tags. */
+  commandRows?: CommandRow[];
+  /** Open a country / airfield / board page in the room (the command
+   *  board's one door). Absent = popups carry no room button. */
+  onOpenRoom?: (ref: RoomRef) => void;
 }
 
 const EMPTY: WeatherThreats = {
@@ -292,7 +329,7 @@ function Fitter({ points, fitKey }: { points: [number, number][]; fitKey: number
   return null;
 }
 
-export default function CrisisMap({ boardAor = null, domain = null, starAors = [], myFields = [], sinceMs = 0, active = true }: CrisisMapProps = {}) {
+export default function CrisisMap({ boardAor = null, domain = null, starAors = [], myFields = [], sinceMs = 0, active = true, commandRows = [], onOpenRoom }: CrisisMapProps = {}) {
   const [data, setData] = useState<WeatherThreats>(EMPTY);
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [advisories, setAdvisories] = useState<TravelAdvisory[]>([]);
@@ -321,6 +358,8 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   type FirGroup = { code: string; name: string; lat: number; lon: number; worst: "Warning" | "Caution" | "Default"; count: number; notams: FirNotam[] };
   const [overflight, setOverflight] = useState<FirGroup[]>([]);
   const [gpsTests, setGpsTests] = useState<GpsArea[]>([]);
+  const [countriesFc, setCountriesFc] = useState<CountryFc | null>(null);
+  const [countryPick, setCountryPick] = useState<{ props: CountryFeatureProps; aor: Aor; lat: number; lon: number } | null>(null);
   // Optional precipitation/convection radar (RainViewer) — animated loop.
   type RadarFrame = { time: number; path: string; kind: "past" | "nowcast" };
   const [radarHost, setRadarHost] = useState("");
@@ -442,7 +481,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   const reach = reachOf(AF, payload);
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, maritime: true, gps: false, gpstests: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { commands: true, disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, maritime: true, gps: false, gpstests: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -549,44 +588,9 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
         if (d) markSrc(d.source === "reliefweb" ? "ReliefWeb" : "UCDP", d.ok === false);
       })
       .catch(() => {});
-    fetch("/api/osint/gpsjam", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { hexes?: { h3: string; level: number }[]; ok?: boolean } | null) => {
-        if (Array.isArray(d?.hexes)) setGpsjam(d!.hexes);
-        if (d) markSrc("GPSJam", d.ok === false);
-      })
-      .catch(() => {});
     fetch("/api/osint/acled", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { events?: AcledEvent[] } | null) => { if (Array.isArray(d?.events)) setAcled(d!.events); })
-      .catch(() => {});
-    // UKMTO maritime incidents — `ok` is false only when NEITHER door
-    // (direct fetch, browser capture) has anything: that is "source down",
-    // not a quiet sea.
-    fetch("/api/osint/ukmto", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { incidents?: UkmtoPt[]; ok?: boolean } | null) => {
-        if (Array.isArray(d?.incidents)) setMaritime(d!.incidents);
-        if (d) markSrc("UKMTO", d.ok === false);
-      })
-      .catch(() => {});
-    fetch("/api/osint/inform?product=risk", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { points?: InformPt[] } | null) => { if (Array.isArray(d?.points)) setInformRisk(d!.points); })
-      .catch(() => {});
-    fetch("/api/osint/outages", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { points?: OutagePt[]; live?: boolean } | null) => {
-        if (Array.isArray(d?.points)) setOutages(d!.points);
-        if (d) markSrc("IODA", d.live === false);
-      })
-      .catch(() => {});
-    fetch("/api/osint/launches", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { launches?: LaunchPt[]; live?: boolean } | null) => {
-        if (Array.isArray(d?.launches)) setLaunches(d!.launches);
-        if (d) markSrc("Launch Library", d.live === false);
-      })
       .catch(() => {});
     // Radar: an empty frame list is a dead index, not a dry sky — say so in
     // the source-down badge and on the map when the layer is on. Before this
@@ -645,6 +649,39 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
       .catch(() => {});
     return () => ctrl.abort();
   }, [forces, refreshKey]);
+
+  // Layers that feed nothing but their own drawing are fetched only while
+  // they are ON (each on the 5-min cycle). Before this every one of them was
+  // fetched every 5 minutes whatever the toggles said. Turning a layer off
+  // clears its source-down mark — an unread source is not a down one.
+  const layerFetch = <T,>(key: LayerKey, url: string, src: string | null, take: (d: T) => void, down: (d: T) => boolean) => {
+    if (!on[key]) { if (src) markSrc(src, false); return undefined; }
+    const ctrl = new AbortController();
+    fetch(url, { signal: ctrl.signal })
+      .then((r) => (r.ok ? (r.json() as Promise<T>) : null))
+      .then((d) => { if (!d) return; take(d); if (src) markSrc(src, down(d)); })
+      .catch(() => {});
+    return () => ctrl.abort();
+  };
+  useEffect(() => layerFetch<{ hexes?: { h3: string; level: number }[]; ok?: boolean }>("gps", "/api/osint/gpsjam", "GPSJam",
+    (d) => { if (Array.isArray(d.hexes)) setGpsjam(d.hexes); }, (d) => d.ok === false), [on.gps, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // UKMTO maritime incidents — `ok` is false only when NEITHER door (direct
+  // fetch, browser capture) has anything: that is "source down", not a quiet sea.
+  useEffect(() => layerFetch<{ incidents?: UkmtoPt[]; ok?: boolean }>("maritime", "/api/osint/ukmto", "UKMTO",
+    (d) => { if (Array.isArray(d.incidents)) setMaritime(d.incidents); }, (d) => d.ok === false), [on.maritime, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => layerFetch<{ points?: InformPt[] }>("informRisk", "/api/osint/inform?product=risk", null,
+    (d) => { if (Array.isArray(d.points)) setInformRisk(d.points); }, () => false), [on.informRisk, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => layerFetch<{ points?: OutagePt[]; live?: boolean }>("outages", "/api/osint/outages", "IODA",
+    (d) => { if (Array.isArray(d.points)) setOutages(d.points); }, (d) => d.live === false), [on.outages, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => layerFetch<{ launches?: LaunchPt[]; live?: boolean }>("launches", "/api/osint/launches", "Launch Library",
+    (d) => { if (Array.isArray(d.launches)) setLaunches(d.launches); }, (d) => d.live === false), [on.launches, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The country borders for the Commands layer — one fetch per page.
+  useEffect(() => {
+    if (!on.commands || countriesFc) return;
+    let live = true;
+    loadCountries().then((d) => { if (live && d) setCountriesFc(d); });
+    return () => { live = false; };
+  }, [on.commands, countriesFc]);
 
   // GPS test / interference areas (DAIP GPS_WAAS, the same 10-min-cached query
   // the SITREP reads) — fetched only while the layer is on.
@@ -761,6 +798,22 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
 
   // AOR filter (applies to items that carry an AOR).
   const passAor = (aor: Aor | null) => aorFilter === "ALL" || aor === null || aor === aorFilter;
+
+  // The Commands overlay: a command per country (by country, the UCP rule),
+  // the worst posture per watched country, and the board's own command rows.
+  const postures = useMemo(() => countryPostures(forces), [forces]);
+  const featureAors = useMemo(
+    () => (countriesFc ? countriesFc.features.map((f) => featureAor(f.properties, roughCentroid(f.geometry))) : []),
+    [countriesFc],
+  );
+  const commandTagList = useMemo(() => commandTags(commandRows), [commandRows]);
+  // GeoJSON styles are bound at mount, so the layer is re-keyed whenever a
+  // style input changes (it lives in its own pane, so a remount never lifts
+  // it above the other layers).
+  const overlayKey = useMemo(
+    () => `${aorFilter}|${[...postures.entries()].map(([k, v]) => `${k}:${v}`).sort().join(",")}`,
+    [aorFilter, postures],
+  );
   const disasters = allDisasters.filter((d) => passAor(d.aor === "UNKNOWN" ? null : d.aor));
   const hazShown = hazards.filter((z) => passAor(aorFromCoords(z.lat, z.lon)));
   const neoPins = neoAll.filter((x) => passAor((x.a.aor === "UNKNOWN" ? null : x.a.aor) as Aor | null));
@@ -1023,6 +1076,11 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     prefill ? (
       <button type="button" onClick={() => openTrackPicker(prefill)} className="mt-1 text-[9px] font-bold uppercase tracking-wider text-emerald-700 border border-emerald-600/40 rounded px-1.5 py-px hover:bg-emerald-500/10">{label}</button>
     ) : null;
+  // The room door for a popup — the same page the command board opens.
+  const roomBtn = (ref: RoomRef | null, label = "Open room →") =>
+    ref && onOpenRoom ? (
+      <button type="button" onClick={() => onOpenRoom(ref)} className="mt-1 mr-1 text-[9px] font-bold uppercase tracking-wider text-sky-700 border border-sky-600/40 rounded px-1.5 py-px hover:bg-sky-500/10">{label}</button>
+    ) : null;
   // Lift line for a node popup — today's mobility aircraft within 600 km vs
   // the field's own recorded normal; absent when the field has no series.
   const liftLine = (icao: string) => {
@@ -1276,6 +1334,57 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
             <Flyer target={flyTo} />
             <Fitter points={crisisPoints} fitKey={fitKey} />
 
+            {/* Combatant commands — a pane under every other vector layer
+                (overlayPane is 400) so posture tints never cover a marker. */}
+            {on.commands && countriesFc && (
+              <Pane name="commands" style={{ zIndex: 350 }}>
+                <GeoJSON
+                  key={overlayKey}
+                  data={countriesFc as unknown as GeoJSON.FeatureCollection}
+                  style={(feat) => {
+                    const i = countriesFc.features.indexOf(feat as unknown as CountryFc["features"][number]);
+                    const props = (feat?.properties ?? {}) as CountryFeatureProps;
+                    const aor = i >= 0 ? featureAors[i] : featureAor(props);
+                    return countryStyle(aor, postureFor(props, postures), aorFilter);
+                  }}
+                  onEachFeature={(feat, layer) => {
+                    layer.on("click", (e: L.LeafletMouseEvent) => {
+                      const props = feat.properties as CountryFeatureProps;
+                      const i = countriesFc.features.indexOf(feat as unknown as CountryFc["features"][number]);
+                      setCountryPick({ props, aor: i >= 0 ? featureAors[i] : featureAor(props), lat: e.latlng.lat, lon: e.latlng.lng });
+                    });
+                  }}
+                />
+              </Pane>
+            )}
+            {on.commands && countryPick && (() => {
+              const posture = postureFor(countryPick.props, postures);
+              const name = countryPick.props.admin || countryPick.props.name;
+              return (
+                <Popup position={[countryPick.lat, countryPick.lon]} eventHandlers={{ remove: () => setCountryPick(null) }}>
+                  <div className="text-[12px] font-mono leading-tight max-w-[240px]">
+                    <div className="font-bold text-sm">{name}</div>
+                    <div className="text-slate-600">{countryPick.aor === "UNKNOWN" ? "no combatant command" : AOR_LABELS[countryPick.aor]}</div>
+                    <div style={{ color: posture ? SEVERITY_DOT[posture] : "#64748b" }}>
+                      {posture ? `Posture ${posture.toUpperCase()} (worst of the country and its bases)` : "Not in the posture watch — UNKNOWN, not clear"}
+                    </div>
+                    {roomBtn({ kind: "country", id: name })}
+                    {!posture && trackBtn({ kind: "country", country: name })}
+                  </div>
+                </Popup>
+              );
+            })()}
+            {on.commands && commandTagList.map((t) => (
+              <Marker
+                key={`tag-${t.aor}`}
+                position={[t.lat, t.lon]}
+                icon={tagIcon(t, aorFilter !== "ALL" && aorFilter !== t.aor)}
+                zIndexOffset={-1000}
+                title={`${AOR_LABELS[t.aor]} — ${t.why || `${t.iw} · ${t.posture} · ${t.demand}`}. Click to focus the command.`}
+                eventHandlers={{ click: () => pickAor(aorFilter === t.aor ? "ALL" : t.aor) }}
+              />
+            ))}
+
             {/* GPS interference / EW (GPSJam) hexes — drawn first, under everything. */}
             {on.gps && gpsPolys.map((g, i) => (
               <Polygon key={`gps-${i}`} positions={g.poly} pathOptions={{ color: g.level === 2 ? "#a855f7" : "#c084fc", fillColor: g.level === 2 ? "#a855f7" : "#c084fc", fillOpacity: 0.16, weight: 0.5, opacity: 0.4 }}>
@@ -1288,7 +1397,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               const f = Math.min(Math.max(p.score, 0) / 10, 1);
               return (
                 <CircleMarker key={`ir-${i}`} center={[p.lat, p.lon]} radius={6 + f * 14} pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.08 + f * 0.16, weight: 0.5, opacity: 0.35 }}>
-                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div className="text-amber-700">INFORM Risk {p.score.toFixed(1)}/10</div><div className="text-slate-500">Structural crisis-risk baseline (INFORM, via Data360)</div></div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div className="text-amber-700">INFORM Risk {p.score.toFixed(1)}/10</div><div className="text-slate-500">Structural crisis-risk baseline (INFORM, via Data360)</div>{roomBtn({ kind: "country", id: p.country })}</div></Popup>
                 </CircleMarker>
               );
             })}
@@ -1297,7 +1406,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               const col = p.level === "critical" ? "#f43f5e" : "#f472b6";
               return (
                 <CircleMarker key={`out-${i}`} center={[p.lat, p.lon]} radius={p.level === "critical" ? 16 : 11} pathOptions={{ color: col, fillColor: col, fillOpacity: 0.18, weight: 1.2, opacity: 0.7, dashArray: "2 3" }}>
-                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div style={{ color: col }}>Connectivity outage — {p.level} ({p.sources} source{p.sources === 1 ? "" : "s"})</div><div className="text-slate-500">IODA (Georgia Tech), last 24 h — national-scale measurement, passive</div></div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{p.country}</div><div style={{ color: col }}>Connectivity outage — {p.level} ({p.sources} source{p.sources === 1 ? "" : "s"})</div><div className="text-slate-500">IODA (Georgia Tech), last 24 h — national-scale measurement, passive</div>{roomBtn({ kind: "country", id: p.country })}</div></Popup>
                 </CircleMarker>
               );
             })}
@@ -1444,13 +1553,13 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
             {on.enroute && ENROUTE.map((h) => (
               <Marker key={`er-${h.icao}`} position={[h.lat, h.lon]} icon={enrouteIcon}>
                 {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{h.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}<div className="text-slate-500">En route / mobility hub</div>{trackBtn({ kind: "airfield", icao: h.icao })}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}<div className="text-slate-500">En route / mobility hub</div>{roomBtn({ kind: "field", id: h.icao })}{trackBtn({ kind: "airfield", icao: h.icao })}</div></Popup>
               </Marker>
             ))}
             {on.crf && CRF.map((h) => (
               <Marker key={`crf-${h.icao}`} position={[h.lat, h.lon]} icon={crfIcon}>
                 {on.labels && <Tooltip permanent direction="right" offset={[7, 0]} className="cm-label cm-crf">{h.crf} · {h.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}{trackBtn({ kind: "airfield", icao: h.icao })}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{h.name}</div><div className="text-emerald-700">Contingency Response: {h.crf}</div><div><span className="text-slate-500">ICAO:</span> {h.icao}</div>{wxLine(h.icao)}{liftLine(h.icao)}{roomBtn({ kind: "field", id: h.icao })}{trackBtn({ kind: "airfield", icao: h.icao })}</div></Popup>
               </Marker>
             ))}
             {on.airfields && GATEWAYS.map((g) => {
@@ -1458,7 +1567,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               return (
               <Marker key={`af-${g.icao}`} position={[g.lat, g.lon]} icon={airfieldIcon}>
                 {showNodeLabels && <Tooltip permanent direction="right" offset={[6, 0]} className="cm-label">{g.icao}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div>{cap ? <div className={cap.cls === "C-17" ? "text-emerald-700" : cap.cls === "C-130" ? "text-amber-700" : "text-slate-500"}>Longest rwy {cap.lengthFt.toLocaleString()}ft{cap.surface ? ` · ${cap.surface}` : ""}{cap.lighted ? " · lit" : ""} — {cap.cls}{cap.cls !== "light" ? " capable" : ""}</div> : <div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div>}{wxLine(g.icao)}{liftLine(g.icao)}<div className="text-slate-500">Candidate open/reopen field for HADR / evac{cap ? " · rwy advisory (OurAirports)" : ""}</div>{trackBtn({ kind: "airfield", icao: g.icao })}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight"><div className="font-bold text-sm">{g.name}</div><div><span className="text-slate-500">ICAO:</span> {g.icao}</div>{cap ? <div className={cap.cls === "C-17" ? "text-emerald-700" : cap.cls === "C-130" ? "text-amber-700" : "text-slate-500"}>Longest rwy {cap.lengthFt.toLocaleString()}ft{cap.surface ? ` · ${cap.surface}` : ""}{cap.lighted ? " · lit" : ""} — {cap.cls}{cap.cls !== "light" ? " capable" : ""}</div> : <div className="text-sky-700">Mobility gateway · C-17/C-130-capable</div>}{wxLine(g.icao)}{liftLine(g.icao)}<div className="text-slate-500">Candidate open/reopen field for HADR / evac{cap ? " · rwy advisory (OurAirports)" : ""}</div>{roomBtn({ kind: "field", id: g.icao })}{trackBtn({ kind: "airfield", icao: g.icao })}</div></Popup>
               </Marker>
             );})}
             {on.tracked && tracked.map((t, i) => (
@@ -1477,7 +1586,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               return (
                 <CircleMarker key={`force-${f.id}`} center={[f.lat, f.lon]} radius={sel ? 13 : 10} pathOptions={{ color: sel ? "#fff" : color, fillColor: color, fillOpacity: 0.3, weight: 3 }} eventHandlers={{ click: () => pick(`force-${f.id}`, f.lat, f.lon) }}>
                   {on.labels && <Tooltip permanent direction="top" offset={[0, -8]} className="cm-label cm-crisis">{f.kind === "country" ? "🌐" : "🛡"} {f.label}</Tooltip>}
-                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div>{f.note && <div className="text-emerald-700 text-[10px]">{f.note}</div>}<div className="text-slate-700 mt-0.5">{f.topDriver}</div>{on.milair && milNearForce[f.id] > 0 && <div className="text-[10px] text-yellow-700 font-bold mt-0.5">✈ {milNearForce[f.id]} mil aircraft within {WATCH_NEAR_KM} km</div>}{trackBtn(f.kind === "country" ? { kind: "country", country: f.country || f.label } : f.icao ? { kind: "airfield", icao: f.icao } : null, "Tracking…")}</div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm">{f.kind === "country" ? "🌐" : "🛡"} {f.label}{f.icao ? ` (${f.icao})` : ""}</div><div className="text-slate-500">{f.cocom} · {f.kind === "country" ? "country" : "base"} · <span style={{ color }}>{f.composite.toUpperCase()}</span></div>{f.note && <div className="text-emerald-700 text-[10px]">{f.note}</div>}<div className="text-slate-700 mt-0.5">{f.topDriver}</div>{on.milair && milNearForce[f.id] > 0 && <div className="text-[10px] text-yellow-700 font-bold mt-0.5">✈ {milNearForce[f.id]} mil aircraft within {WATCH_NEAR_KM} km</div>}{roomBtn(f.kind === "country" ? { kind: "country", id: f.country || f.label } : f.icao ? { kind: "field", id: f.icao } : f.country ? { kind: "country", id: f.country } : null)}{trackBtn(f.kind === "country" ? { kind: "country", country: f.country || f.label } : f.icao ? { kind: "airfield", icao: f.icao } : null, "Tracking…")}</div></Popup>
                 </CircleMarker>
               );
             })}
@@ -1509,7 +1618,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
             {on.neo && neoPins.map(({ a, pos }) => { const evac = a.orderedDeparture || a.authorizedDeparture; return (
               <Marker key={`neo-${a.country}`} position={pos} icon={evac ? neoDepartIcon : neoLevel4Icon} eventHandlers={{ click: () => pick(`neo-${a.country}`, pos[0], pos[1]) }}>
                 {on.labels && evac && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{a.country}{a.aor !== "UNKNOWN" ? ` · ${a.aor}` : ""} · {a.orderedDeparture ? "ORDERED DEP" : "AUTH DEP"}</Tooltip>}
-                <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{a.country}</div><div className={evac ? "text-red-700" : "text-amber-700"}>{a.orderedDeparture ? "Ordered departure — evacuation" : a.authorizedDeparture ? "Authorized departure" : "Level 4 — Do Not Travel"}{a.level ? ` · Level ${a.level}` : ""}</div>{a.aor !== "UNKNOWN" && <div className="text-slate-500">{a.aor}</div>}{a.link && <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">State advisory ↗</a>}{trackBtn({ kind: "country", country: a.country })}</div></Popup>
+                <Popup><div className="text-[12px] font-mono leading-tight max-w-[220px]"><div className="font-bold text-sm">{a.country}</div><div className={evac ? "text-red-700" : "text-amber-700"}>{a.orderedDeparture ? "Ordered departure — evacuation" : a.authorizedDeparture ? "Authorized departure" : "Level 4 — Do Not Travel"}{a.level ? ` · Level ${a.level}` : ""}</div>{a.aor !== "UNKNOWN" && <div className="text-slate-500">{a.aor}</div>}{a.link && <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">State advisory ↗</a>}<div>{roomBtn({ kind: "country", id: a.country })}{trackBtn({ kind: "country", country: a.country })}</div></div></Popup>
               </Marker>
             ); })}
             {on.hazards && hazShown.map((z) => (
@@ -1523,7 +1632,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               return (
                 <CircleMarker key={`d-${d.id}`} center={[d.lat as number, d.lon as number]} radius={(hadr >= 55 ? 9 : d.severity === "red" ? 7 : 5) + (sel ? 3 : 0)} pathOptions={{ color: sel ? "#fff" : color, fillColor: color, fillOpacity: 0.55, weight: sel ? 3 : hadr >= 55 ? 2.5 : 1 }} eventHandlers={{ click: () => pick(`d-${d.id}`, d.lat as number, d.lon as number) }}>
                   {on.labels && significant.includes(d) && <Tooltip permanent direction="top" offset={[0, -6]} className="cm-label cm-crisis">{d.magnitude != null ? `M${d.magnitude.toFixed(1)} ` : ""}{d.type}{d.aor !== "UNKNOWN" ? ` · ${d.aor}` : ""}</Tooltip>}
-                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm mb-0.5">{d.title}</div><div className="text-slate-600">{[d.country, d.type].filter(Boolean).join(" · ")}</div><div className="mt-1 flex flex-wrap gap-1"><span className="px-1 rounded" style={{ background: color, color: "#fff" }}>{d.severity}</span>{d.aor !== "UNKNOWN" && <span className="px-1 rounded bg-sky-100 text-sky-800">{d.aor}</span>}{hadr >= 55 && <span className="px-1 rounded bg-orange-100 text-orange-800">HADR {hadr}</span>}{d.nearLocations.length > 0 && <span className="px-1 rounded bg-red-100 text-red-800">near {d.nearLocations.join(", ")}</span>}</div>{d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline mt-1 inline-block">open ↗</a>}</div></Popup>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[240px]"><div className="font-bold text-sm mb-0.5">{d.title}</div><div className="text-slate-600">{[d.country, d.type].filter(Boolean).join(" · ")}</div><div className="mt-1 flex flex-wrap gap-1"><span className="px-1 rounded" style={{ background: color, color: "#fff" }}>{d.severity}</span>{d.aor !== "UNKNOWN" && <span className="px-1 rounded bg-sky-100 text-sky-800">{d.aor}</span>}{hadr >= 55 && <span className="px-1 rounded bg-orange-100 text-orange-800">HADR {hadr}</span>}{d.nearLocations.length > 0 && <span className="px-1 rounded bg-red-100 text-red-800">near {d.nearLocations.join(", ")}</span>}</div>{d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline mt-1 inline-block">open ↗</a>}{d.country && <div>{roomBtn({ kind: "country", id: d.country })}</div>}</div></Popup>
                 </CircleMarker>
               );
             })}
@@ -1578,6 +1687,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
               <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#f87171" }}>◆</span> ACLED strike · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW · <span style={{ color: "#a78bfa" }}>◎</span> GPS test (bold = approach level · dashed = not in effect)</div>
+              <div><span style={{ color: "#818cf8" }}>▦</span> command wash (faint, dashed = not watched) · tint = worst posture of a watched country · tag = I&W · posture · demand 7 d (from the command board)</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span style={{ color: "#34d399", fontWeight: 900 }}>⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div>node ring = flight cat: <span style={{ color: CAT_COLOR.VFR }}>●</span> VFR · <span style={{ color: CAT_COLOR.MVFR }}>●</span> MVFR · <span style={{ color: CAT_COLOR.IFR }}>●</span> IFR · <span style={{ color: CAT_COLOR.LIFR }}>●</span> LIFR <span className="italic text-slate-500">(METAR; no ring = unknown)</span></div>
               <div><span style={{ color: "#5eead4" }}>– –</span> reach (→ nearest CRF) · <span style={{ color: "#5eead4" }}>···</span> {airframe} ring {reach.toLocaleString()} nm ({payload === "max" ? "max payload" : "light"}) · <span className="text-sky-400">···</span> +AR · <span className="text-slate-400">··</span> air bridge · <span className="italic">planning-grade, no wind/clearance</span></div>
@@ -1739,7 +1849,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
         })()}
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}Maritime incidents: UKMTO (UK Maritime Trade Operations) — ukmto.org{" · "}GPS/EW: GPSJam{" · "}GPS tests: DoD DAIP (GPS_WAAS){" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Basemap: CARTO / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}Maritime incidents: UKMTO (UK Maritime Trade Operations) — ukmto.org{" · "}GPS/EW: GPSJam{" · "}GPS tests: DoD DAIP (GPS_WAAS){" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Command borders: Natural Earth (public domain){" · "}Basemap: Esri / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
