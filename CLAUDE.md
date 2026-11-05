@@ -1524,6 +1524,16 @@ except the two new sources. Helpers are PURE in `lib/mapLayers.ts` (tested in
   = outage or address block; a variant answering JSON = our request is
   what the host refuses. If it is a block, the door is the capture
   extension (the UKMTO pattern), not a header change.
+  **The next diag answered it: MAINTENANCE.** Every request — the plain
+  header, the `navArea=4` query and the site's home page — got the same
+  503 page, "MSI IS CURRENTLY UNDER MAINTENANCE … The Maritime Safety
+  Information (MSI) Portal is currently unavailable". An outage on NGA's
+  side; not a block, not our query. `isMaintenancePage` (tested against
+  the verbatim text) now makes the layer's reason "NGA MSI portal is down
+  for maintenance … UNKNOWN until it returns", the diag's `read` says so,
+  and a maintenance read is held 5 min (not 60 s) before the next try.
+  The JSON contract is still UNVERIFIED — re-run the diag once the portal
+  is back.
 No new npm dep (esbuild `0`).
 
 ### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)

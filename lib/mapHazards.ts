@@ -67,12 +67,22 @@ const NAV_TTL = 30 * 60 * 1000;
 let navCache: { at: number; body: NavWarnBody } | null = null;
 let navInflight: Promise<NavWarnBody> | null = null;
 
+/** The host's own maintenance page (seen 2026-11-05: an F5 apology page,
+ *  HTTP 503, "MSI IS CURRENTLY UNDER MAINTENANCE" on every path). */
+export function isMaintenancePage(text: string): boolean {
+  return /under\s+maintenance|currently\s+unavailable|scheduled\s+maintenance/i.test(text);
+}
+const MAINTENANCE_HOLD_MS = 5 * 60_000;
+let navMaintenance = false;
+
 async function loadNav(): Promise<NavWarnBody> {
   const r = await getJson(NGA_WARN_URL, 15_000, 12_000_000);
   const p = r.body != null ? parseNavWarnings(r.body) : null;
+  navMaintenance = r.body == null && isMaintenancePage(r.text);
   return {
     live: !!p && p.rows > 0,
-    reason: r.error ?? (p && p.rows === 0 ? "the feed answered with no rows — check the response shape" : null),
+    reason: navMaintenance ? `NGA MSI portal is down for maintenance (${r.error ?? "no data"}) — UNKNOWN until it returns`
+      : r.error ?? (p && p.rows === 0 ? "the feed answered with no rows — check the response shape" : null),
     warnings: p?.warnings ?? [],
     byClass: p?.byClass ?? {},
     unplaced: p?.unplaced ?? 0,
@@ -84,7 +94,7 @@ export async function getNavWarnings(): Promise<NavWarnBody> {
   if (navCache && Date.now() - navCache.at < NAV_TTL) return navCache.body;
   if (navInflight) return navInflight;
   navInflight = loadNav()
-    .then((b) => { navCache = { at: b.live ? Date.now() : Date.now() - NAV_TTL + FAIL_HOLD_MS, body: b }; return b; })
+    .then((b) => { navCache = { at: b.live ? Date.now() : Date.now() - NAV_TTL + (navMaintenance ? MAINTENANCE_HOLD_MS : FAIL_HOLD_MS), body: b }; return b; })
     .finally(() => { navInflight = null; });
   return navInflight;
 }
@@ -161,6 +171,7 @@ export async function diagnoseNavWarnings(): Promise<unknown> {
     page: r.body == null && r.text ? htmlPageSummary(r.text) : null,
     variants,
     read: r.body != null ? "the feed answered JSON"
+      : isMaintenancePage(r.text) ? "NGA says the MSI portal is under maintenance — an outage on their side, not a block and not our query; the layer reads UNKNOWN until it returns"
       : variants.length && variants.every((v) => v.status >= 500 || v.status === 0) ? "every request refused, the site's home page included — an outage or a block of this server's address, not the query"
       : variants.some((v) => v.json) ? "a variant answered JSON — the main request's headers or query are what the host refuses"
       : "the API refused while the host answered — read `page` and `variants`",

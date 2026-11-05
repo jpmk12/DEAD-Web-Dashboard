@@ -64,3 +64,11 @@ describe("the diag's page summary", () => {
     expect(htmlPageSummary(html)).toEqual({ title: "Service Unavailable", text: "Our apologies The site is down for maintenance." });
   });
 });
+
+import { isMaintenancePage } from "@/lib/mapHazards";
+describe("NGA maintenance page (diag 2026-11-05)", () => {
+  it("is read as maintenance, not as a block", () => {
+    expect(isMaintenancePage("Maritime Safety Information MSI IS CURRENTLY UNDER MAINTENANCE Announcement The Maritime Safety Information (MSI) Portal is currently unavailable.")).toBe(true);
+    expect(isMaintenancePage("Request Rejected. Your support ID is 1234")).toBe(false);
+  });
+});
