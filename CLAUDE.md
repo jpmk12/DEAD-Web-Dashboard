@@ -3973,6 +3973,59 @@ and up to 12 phrases; the read is what the app can state honestly:
   sensor-health row `live:false` "UNKNOWN, not quiet"). It can lift a calm
   board to watch, never carry one to warning. A save drops the warning
   cache so the board re-reads. Silent for a theme's first week of history.
+- **Tuning (2026-11-08, "how the data I am collecting could help me identify
+  themes or phrases that need to be added")** — deterministic, no model
+  call. `lib/themeTuning.ts` (PURE, tested in `tests/themeTuning.test.ts`)
+  over the stored 14-day own pool (`getTuningPool` in `themesAssemble`,
+  bounded; a pool that did not answer says so, never "no match"):
+  - **Spelling variants** in `phrasePattern` (`lib/themes.ts`): a space or
+    hyphen between words is optional ("air base" = "airbase"), a
+    letter–digit seam may carry one ("KC-46" = "KC46" = "KC 46"),
+    refueling/refuelling, -ise/-ize, defence/defense. Word boundaries hold:
+    "KC-135" still never matches "KC-135R".
+  - **Exclusions** (`Theme.exclude`, `osint_themes.exclude JSON`, form field
+    "Not when"): an occurrence is BLANKED OUT before the phrases match
+    (`maskExclusions`), so "tanker" + "oil tanker" still counts "KC-46
+    tanker" in the same item. Applied everywhere a theme is read (reads,
+    wires, preview, backfill, I&W indicator).
+  - **Save-time preview** (`previewPhrases`, POST `/api/osint/themes/tune
+    {op:"preview"}`, debounced 600 ms in `ThemeForm`): what the phrase set
+    would have caught — total, sources, by kind, per phrase (a 0 is amber),
+    kept out by exclusions, three samples.
+  - **Backfill** (`backfillSeries` → `replaceSensorSeries`, a new
+    sensorStore door that replaces a key's whole series in one
+    transaction): a NEW theme, or changed phrases / exclusions, rebuilds
+    `theme:<id>` from the stored pool by an hourly sweep of the peak
+    trailing-24-h count — so a theme does not sit a week in learning, and
+    an edited theme's normal is not the old phrase set's. **Only days every
+    source kind carrying ≥ `BACKFILL_KIND_SHARE` 20 % of the theme's
+    matches fully reaches** — a day the sources did not cover is not a
+    quiet day. Only from an answered pool; the save toast names how far it
+    reached. Deleting a theme clears its series and its marks.
+  - **Per-phrase stats** (`phraseStats`): hits, sources, "caught by this
+    phrase alone", newest; `dead` (no hit with ≥7 days covered) and `noisy`
+    (judged right < `NOISY_BELOW` 0.5 once ≥ `PRECISION_MIN_JUDGED` 3 marks)
+    with a drop button.
+  - **✓ / ✕ on matches** (`theme_feedback`, PK theme + item, shared,
+    attributed; `itemKey` is the one id both sides use): a ✕-marked item is
+    NOT COUNTED from the next read (`readThemes` `rejected`), is evidence for
+    no suggestion, and offers exclusions (`exclusionCandidates` — the matched
+    phrase with its neighbouring non-stopword, "oil tanker" / "tanker
+    truck") as buttons, never applied on its own.
+  - **Suggested phrases** (`suggestPhrases` over `candidateTerms`:
+    designators, capitalised runs incl. name particles — "Al Udeid",
+    "Strait of Hormuz" — and lower-case bigrams; URLs / handles / stopwords
+    dropped): a term earns a row only with ≥ 3 matched items, ≥ 3 of them
+    naming it, ≥ 2 sources, ≥ 4× likelier than in the rest of the pool
+    (lift = (a/A)/((b+1)/(B+1))), and it must ADD 1 … 2A+5 items the theme
+    misses (never swamp it). Every row states its evidence; ties go to the
+    longer term; **never** is permanent (`osint_themes.dismissed`).
+    **Probably missing**: unmatched items naming two or more of the theme's
+    co-terms, with "＋ <term>". Adding a phrase rebuilds the series.
+  - UI: `components/osint/ThemeTuning.tsx` in the open theme row
+    (replaces the old match list). Not built (offered as a later batch):
+    proposing whole NEW themes from clusters in the pool, and per-handle
+    weighting.
 
 ### Glance date carries the Julian date (2026-10-27, "Tuesday, October 27 (JD)")
 `lib/date.ts` `dayOfYear(d, tz?)` / `julianDayLabel` (PURE, tested in

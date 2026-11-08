@@ -154,3 +154,29 @@ describe("a theme as an I&W indicator — capped at watching, silent while learn
     expect(normalizeBoards("x")).toEqual([]);
   });
 });
+
+describe("spelling variants and exclusions (2026-11-08)", () => {
+  it("matches the common spellings of a phrase without listing them, keeps word boundaries", () => {
+    const t = theme({ phrases: ["KC-46", "air base", "refueling", "mobilize", "defense"] });
+    expect(matchTheme(t, "Three KC46 out of Pease")).toBe("KC-46");
+    expect(matchTheme(t, "a KC 46 tonight")).toBe("KC-46");
+    expect(matchTheme(t, "the airbase at Incirlik")).toBe("air base");
+    expect(matchTheme(t, "the air-base at Incirlik")).toBe("air base");
+    expect(matchTheme(t, "aerial refuelling track")).toBe("refueling");
+    expect(matchTheme(t, "NATO to mobilise")).toBe("mobilize");
+    expect(matchTheme(t, "Ministry of Defence")).toBe("defense");
+    expect(matchTheme(theme({ phrases: ["KC-135"] }), "a KC-135R on the boom")).toBeNull();
+  });
+  it("an exclusion masks its span only — the phrase elsewhere in the item still counts", () => {
+    const t = theme({ phrases: ["tanker"], exclude: ["oil tanker"] });
+    expect(matchTheme(t, "IRGC seized an oil tanker")).toBeNull();
+    expect(matchTheme(t, "IRGC seized an oil tanker; a KC-46 tanker orbited nearby")).toBe("tanker");
+  });
+  it("a ✕-marked item is not counted in the read", () => {
+    const t = theme({ phrases: ["tanker surge"] });
+    const own = [item("a", "tanker surge over Qatar", "𝕏 @a"), item("b", "tanker surge again", "𝕏 @b")];
+    const [r] = readThemes([t], own, { nowMs: NOW, rejected: { t1: new Set(["a"]) } });
+    expect(r.reports).toBe(1);
+    expect(r.matches.map((m) => m.id)).toEqual(["b"]);
+  });
+});

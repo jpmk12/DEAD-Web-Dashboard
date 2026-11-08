@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail } from "@/lib/allowlist";
-import { listThemes, upsertTheme, deleteTheme } from "@/lib/themeStore";
-import { getThemeReads, resetThemesCache } from "@/lib/themesAssemble";
+import { listThemes, upsertTheme, deleteTheme, getTheme } from "@/lib/themeStore";
+import { getThemeReads, resetThemesCache, backfillThemeSeries, clearThemeSeries } from "@/lib/themesAssemble";
 import { validateThemeDraft, normalizeThemeDraft, parsePhrasesText, THEME_MAX } from "@/lib/themes";
 import { resetWarningCache } from "@/lib/warningAssess";
 
@@ -13,7 +13,11 @@ export const dynamic = "force-dynamic";
 // member), attributed by email — the mission_lines model.
 //   GET                → the register + the reads (202 pending on a cold start)
 //   GET ?list=1        → the register only
-//   POST {name, phrases | phrasesText, id?} → create / update one theme
+//   POST {name, phrases | phrasesText, exclude?, boards?, id?} → create / update
+//                      one theme; a new theme or changed phrases / exclusions
+//                      rebuilds its daily series from the stored pool
+//                      (`backfill` in the reply says how far it reached)
+// Tuning (preview, per-phrase stats, suggestions, ✓ / ✕) is /api/osint/themes/tune.
 //   DELETE ?id=        → remove a theme
 
 export async function GET(req: Request) {
@@ -45,11 +49,17 @@ export async function POST(req: Request) {
     if (existing === null) return NextResponse.json({ error: "Could not save the theme — the store did not answer." }, { status: 503 });
     if (existing.length >= THEME_MAX) return NextResponse.json({ error: `The register holds ${THEME_MAX} themes — remove one first.` }, { status: 422 });
   }
-  const theme = await upsertTheme(normalizeThemeDraft({ name: body.name, phrases, boards: body.boards }), email, id);
+  const exclude = Array.isArray(body.exclude) ? body.exclude : typeof body.excludeText === "string" ? parsePhrasesText(body.excludeText) : undefined;
+  const before = id ? await getTheme(id) : null;
+  const draft = normalizeThemeDraft({ name: body.name, phrases, boards: body.boards, exclude: exclude ?? before?.exclude ?? [] });
+  const theme = await upsertTheme(draft, email, id);
   resetWarningCache();
   if (!theme) return NextResponse.json({ error: "Could not save the theme — the store did not answer." }, { status: 503 });
   resetThemesCache();
-  return NextResponse.json({ theme });
+  const same = (a: string[] = [], b: string[] = []) => a.length === b.length && a.every((x, i) => x.toLowerCase() === b[i]?.toLowerCase());
+  const changed = !before || !same(before.phrases, theme.phrases) || !same(before.exclude, theme.exclude);
+  const backfill = changed ? await backfillThemeSeries(theme) : null;
+  return NextResponse.json({ theme, backfill });
 }
 
 export async function DELETE(req: Request) {
@@ -60,6 +70,8 @@ export async function DELETE(req: Request) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   const ok = await deleteTheme(id);
   if (!ok) return NextResponse.json({ error: "Not found, or the store did not answer." }, { status: 409 });
+  await clearThemeSeries(id);
   resetThemesCache();
+  resetWarningCache();
   return NextResponse.json({ ok: true });
 }

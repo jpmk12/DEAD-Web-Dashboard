@@ -5,6 +5,8 @@ import { relTime } from "@/lib/relTime";
 import { toast } from "@/lib/feedback";
 import { validateThemeDraft, parsePhrasesText, THEME_WINDOW_DAYS, THEME_LEARNING_DAYS, type Theme, type ThemeRead, type ThemeVolumeState } from "@/lib/themes";
 import type { ThemesBody } from "@/lib/themesAssemble";
+import type { PhrasePreview } from "@/lib/themeTuning";
+import ThemeTuning, { postTune } from "./ThemeTuning";
 
 // Declared themes — "what are my own sources saying about X". A theme is a
 // name and a few phrases; the read (lib/themes, PURE) is volume against the
@@ -21,8 +23,8 @@ const VOL_CHIP: Record<ThemeVolumeState, string> = {
   learning: "text-sky-300 border-sky-500/40 bg-sky-500/10",
   unobserved: "text-slate-300 border-slate-500 bg-slate-700/40",
 };
-const VOL_WORD: Record<ThemeVolumeState, string> = { surge: "surge", normal: "normal", quiet: "quiet", learning: "learning", unobserved: "unknown" };
 const MOD_CLS: Record<string, string> = { act: "text-red-300", threat: "text-amber-300", analysis: "text-slate-400", reversal: "text-emerald-300" };
+const VOL_WORD: Record<ThemeVolumeState, string> = { surge: "surge", normal: "normal", quiet: "quiet", learning: "learning", unobserved: "unknown" };
 
 export default function ThemesCard({ active = true }: { active?: boolean }) {
   const [body, setBody] = useState<ThemesBody | null>(null);
@@ -174,31 +176,15 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
                 {isOpen && (
                   <div className="px-3.5 pb-3 space-y-2 text-[11px]">
                     <div className="text-slate-500">
-                      phrases: {t.phrases.map((p) => <span key={p} className="inline-block mr-1.5 mb-0.5 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300 font-mono text-[10px]">{p}</span>)}
-                      <span className="text-slate-600">· declared by {t.by.split("@")[0] || "crew"} {t.updatedAt ? relTime(t.updatedAt) : ""}</span>
+                      <span className="text-slate-600">declared by {t.by.split("@")[0] || "crew"} {t.updatedAt ? relTime(t.updatedAt) : ""}</span>
                     </div>
                     {read && (
                       <>
                         <div className="text-slate-400">{read.line}</div>
                         <DayStrip byDay={read.byDay} />
-                        {read.matches.length > 0 ? (
-                          <ul className="space-y-1">
-                            {read.matches.map((m) => (
-                              <li key={m.id} className="flex items-start gap-2">
-                                <span className={`text-[8px] font-mono uppercase tracking-wider border rounded px-1 py-0.5 flex-shrink-0 mt-0.5 border-slate-700 ${MOD_CLS[m.modality]}`}>{m.modality}</span>
-                                <span className="min-w-0 flex-1">
-                                  {m.link ? <a href={m.link} target="_blank" rel="noopener noreferrer" className="text-slate-200 hover:text-violet-300">{m.title}</a> : <span className="text-slate-200">{m.title}</span>}
-                                  <span className="block text-[10px] text-slate-600">{m.source} · {relTime(m.pubDate)} · matched “{m.phrase}”</span>
-                                </span>
-                              </li>
-                            ))}
-                            {read.reports > read.matches.length && <li className="text-[10px] text-slate-600">… {read.reports - read.matches.length} more counted, not listed</li>}
-                          </ul>
-                        ) : (
-                          <div className="text-slate-600">{read.volume.state === "unobserved" ? "Your sources did not answer this pass — UNKNOWN, not quiet." : `No item in your sources names it in ${THEME_WINDOW_DAYS} d — absence of a post, not evidence of calm.`}</div>
-                        )}
                       </>
                     )}
+                    <ThemeTuning theme={t} read={read} onChanged={() => load(true)} />
                   </div>
                 )}
               </li>
@@ -232,6 +218,9 @@ function DayStrip({ byDay }: { byDay: Record<string, number> }) {
 function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDone: () => void; onCancel: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [text, setText] = useState(initial?.phrases.join(", ") ?? "");
+  const [exText, setExText] = useState(initial?.exclude?.join(", ") ?? "");
+  // What the phrase set WOULD catch in the stored pool, before saving.
+  const [preview, setPreview] = useState<{ p: PhrasePreview | null; note: string | null; loading: boolean }>({ p: null, note: null, loading: false });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // I&W boards the theme rides on as a watching-capped indicator (2026-11-04).
@@ -245,16 +234,30 @@ function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDon
     return () => { alive = false; };
   }, []);
   const phrases = parsePhrasesText(text);
+  const exclude = parsePhrasesText(exText);
   const problem = validateThemeDraft({ name, phrases });
+  const pKey = JSON.stringify([phrases, exclude]);
+  useEffect(() => {
+    const [ph, ex] = JSON.parse(pKey) as [string[], string[]];
+    if (!ph.length) { setPreview({ p: null, note: null, loading: false }); return; }
+    let alive = true;
+    setPreview((v) => ({ ...v, loading: true }));
+    const id = setTimeout(() => {
+      postTune({ op: "preview", phrases: ph, exclude: ex })
+        .then((j) => { if (alive) setPreview({ p: (j.preview as PhrasePreview) ?? null, note: j.answered === false ? String(j.note ?? "") : null, loading: false }); })
+        .catch(() => { if (alive) setPreview({ p: null, note: "preview unavailable", loading: false }); });
+    }, 600);
+    return () => { alive = false; clearTimeout(id); };
+  }, [pKey]);
 
   const save = async () => {
     if (problem) { setErr(problem); return; }
     setSaving(true); setErr(null);
     try {
-      const r = await fetch("/api/osint/themes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: initial?.id, name, phrases, boards }) });
+      const r = await fetch("/api/osint/themes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: initial?.id, name, phrases, exclude, boards }) });
       const j = await r.json().catch(() => null);
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-      toast.ok(initial ? `Updated “${name.trim()}”` : `Declared “${name.trim()}”`);
+      toast.ok(initial ? `Updated “${name.trim()}”` : `Declared “${name.trim()}”`, typeof j?.backfill === "string" ? j.backfill : undefined);
       onDone();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Save failed";
@@ -275,6 +278,11 @@ function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDon
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="tanker surge, KC-135 wave, refueling bridge" className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[12px] text-slate-100 focus:border-violet-500/60 outline-none font-mono" />
         </label>
       </div>
+      <label className="block">
+        <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Not when — exclusion phrases (optional)</span>
+        <input value={exText} onChange={(e) => setExText(e.target.value)} placeholder="oil tanker, tanker truck" className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[12px] text-slate-100 focus:border-violet-500/60 outline-none font-mono" />
+      </label>
+      <PreviewLine preview={preview} />
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mr-1">On I&amp;W boards</span>
         {boardList == null ? <span className="text-[10px] text-slate-600">loading boards…</span>
@@ -296,6 +304,32 @@ function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDon
         <button type="button" onClick={save} disabled={saving || !!problem} title={problem ?? undefined} className="text-[9.5px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-violet-500/50 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 disabled:opacity-40">{saving ? "…" : initial ? "Save" : "Declare"}</button>
       </div>
       {(err || (problem && (name || text))) && <p className="text-[10.5px] text-amber-300">{err ?? problem}</p>}
+    </div>
+  );
+}
+
+function PreviewLine({ preview }: { preview: { p: PhrasePreview | null; note: string | null; loading: boolean } }) {
+  const { p, note, loading } = preview;
+  if (note) return <p className="text-[10px] text-amber-300">Preview: {note}</p>;
+  if (!p) return loading ? <p className="text-[10px] text-slate-600">checking your sources…</p> : null;
+  const kinds = Object.entries(p.byKind).map(([k, n]) => `${k} ${n}`).join(" · ");
+  return (
+    <div className={`text-[10.5px] space-y-0.5 ${loading ? "opacity-60" : ""}`}>
+      <div className="text-slate-300">
+        Would have caught <span className="font-mono tabular-nums">{p.total}</span> item{p.total === 1 ? "" : "s"} from {p.sources} source{p.sources === 1 ? "" : "s"} in the last {p.days} d{kinds ? ` (${kinds})` : ""}
+        {p.excluded > 0 && <span className="text-slate-500"> · {p.excluded} kept out by exclusions</span>}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {p.byPhrase.map((b) => (
+          <span key={b.phrase} className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${b.hits ? "border-slate-700 text-slate-300" : "border-amber-500/40 text-amber-300"}`} title={b.hits ? undefined : "No item in your stored sources names this — check the spelling, or it is a term your sources do not use"}>{b.phrase} {b.hits}</span>
+        ))}
+      </div>
+      {p.samples.length > 0 && (
+        <ul className="text-[10px] text-slate-500 space-y-0.5">
+          {p.samples.slice(0, 3).map((s) => <li key={s.id} className="truncate" title={s.title}>“{s.phrase}” · {s.source} · {s.title}</li>)}
+        </ul>
+      )}
+      {p.total === 0 && <p className="text-[10px] text-slate-600">Nothing in your stored sources — the theme will read quiet until a source uses one of these phrases.</p>}
     </div>
   );
 }

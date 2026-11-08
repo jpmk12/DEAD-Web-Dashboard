@@ -148,6 +148,19 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (id)
   ) ENGINE=InnoDB`,
 
+  // The crew's ✓ / ✕ on a theme's matched items (lib/themeStore,
+  // lib/themeTuning): a phrase's precision, and the items a suggestion must
+  // not learn from. One mark per theme per item; the phrase that matched it.
+  `CREATE TABLE IF NOT EXISTS theme_feedback (
+    theme_id    VARCHAR(36)  NOT NULL,
+    item_id     VARCHAR(255) NOT NULL,
+    verdict     VARCHAR(4)   NOT NULL,
+    phrase      VARCHAR(60)  NOT NULL DEFAULT '',
+    by_email    VARCHAR(255) NULL,
+    created_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (theme_id, item_id)
+  ) ENGINE=InnoDB`,
+
   // Crew state history (lib/crewStore.snapshotCrewDay): the day's LAST counts
   // per qualification, so availability can be read as a series and joined
   // to the recorded demand outlooks (lib/crewTrend). Counts only, no names.
@@ -858,6 +871,10 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // distance. NULL = the page carried none; never filled in.
   // A declared theme attached to I&W boards (2026-11-04): problem ids, JSON.
   { table: "osint_themes", column: "boards", ddl: "ALTER TABLE osint_themes ADD COLUMN boards JSON NULL" },
+  // Theme tuning (2026-11-08): exclusion phrases and the suggested terms the
+  // crew declined ("never suggest" — permanent).
+  { table: "osint_themes", column: "exclude", ddl: "ALTER TABLE osint_themes ADD COLUMN exclude JSON NULL" },
+  { table: "osint_themes", column: "dismissed", ddl: "ALTER TABLE osint_themes ADD COLUMN dismissed JSON NULL" },
   { table: "captured_events", column: "lat", ddl: "ALTER TABLE captured_events ADD COLUMN lat DOUBLE NULL" },
   { table: "captured_events", column: "lon", ddl: "ALTER TABLE captured_events ADD COLUMN lon DOUBLE NULL" },
   { table: "trips", column: "source",   ddl: "ALTER TABLE trips ADD COLUMN source   VARCHAR(16)  NOT NULL DEFAULT 'manual'" },

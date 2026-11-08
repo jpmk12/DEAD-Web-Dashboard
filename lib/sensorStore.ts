@@ -85,3 +85,32 @@ export async function getSensorBaseline(
   const series = rows.map((r) => ({ day: String(r.day), value: Number(r.value) })).reverse();
   return opts.weekday ? bestBaseline(series, today, days) : flatBaseline(series, today, days);
 }
+
+/** Replace a key's WHOLE series with these points (a rebuilt series — the
+ *  theme backfill). Registered keys only; values that are not finite are
+ *  dropped, never written as 0. An empty list clears the series. */
+export async function replaceSensorSeries(sensorKey: string, points: SeriesPoint[]): Promise<boolean> {
+  if (!sensorKeyDef(sensorKey)) return false;
+  const key = sensorKey.slice(0, 96);
+  const rows = points.filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.day) && Number.isFinite(p.value));
+  const pool = await getDb();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(`DELETE FROM sensor_daily WHERE sensor_key = ?`, [key]);
+    for (let i = 0; i < rows.length; i += 200) {
+      const chunk = rows.slice(i, i + 200);
+      await conn.query(
+        `INSERT INTO sensor_daily (sensor_key, day, value, updated_at) VALUES ?`,
+        [chunk.map((p) => [key, p.day, p.value, new Date()])],
+      );
+    }
+    await conn.commit();
+    return true;
+  } catch {
+    await conn.rollback().catch(() => {});
+    return false;
+  } finally {
+    conn.release();
+  }
+}

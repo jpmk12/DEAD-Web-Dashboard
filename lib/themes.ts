@@ -37,9 +37,15 @@ export interface Theme {
   /** I&W boards (problem ids) the theme is attached to as a watching-capped
    *  indicator (2026-11-04). Absent / empty = attached to none. */
   boards?: string[];
+  /** Exclusion phrases (2026-11-08): an occurrence of one is masked out of
+   *  the text before the theme's phrases are matched — "tanker" with the
+   *  exclusion "oil tanker" still matches "KC-46 tanker", never "oil tanker". */
+  exclude?: string[];
+  /** Suggested terms the crew declined ("never suggest") — permanent. */
+  dismissed?: string[];
 }
 
-export interface ThemeDraft { name: string; phrases: string[]; boards?: string[] }
+export interface ThemeDraft { name: string; phrases: string[]; boards?: string[]; exclude?: string[] }
 
 /** Boards a theme may attach to: problem-id-shaped, deduped, at most this many. */
 export const THEME_MAX_BOARDS = 8;
@@ -158,8 +164,19 @@ export function normalizePhrases(raw: unknown[]): string[] {
   return out;
 }
 
-export function normalizeThemeDraft(d: { name: unknown; phrases: unknown; boards?: unknown }): ThemeDraft {
-  return { name: String(d.name).replace(/\s+/g, " ").trim().slice(0, THEME_NAME_MAX), phrases: normalizePhrases(Array.isArray(d.phrases) ? d.phrases : []).slice(0, THEME_MAX_PHRASES), boards: normalizeBoards(d.boards) };
+export function normalizeThemeDraft(d: { name: unknown; phrases: unknown; boards?: unknown; exclude?: unknown }): ThemeDraft {
+  return {
+    name: String(d.name).replace(/\s+/g, " ").trim().slice(0, THEME_NAME_MAX),
+    phrases: normalizePhrases(Array.isArray(d.phrases) ? d.phrases : []).slice(0, THEME_MAX_PHRASES),
+    boards: normalizeBoards(d.boards),
+    exclude: normalizeExclusions(d.exclude),
+  };
+}
+
+/** Exclusion phrases: the phrase rules, at most THEME_MAX_PHRASES, junk dropped. */
+export function normalizeExclusions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return normalizePhrases(raw).filter((p) => p.length >= THEME_PHRASE_MIN && p.length <= THEME_PHRASE_MAX).slice(0, THEME_MAX_PHRASES);
 }
 
 /** "tanker surge, KC-135 wave\nrefueling bridge" → the list; commas and newlines split, a phrase may hold spaces. */
@@ -169,22 +186,84 @@ export function parsePhrasesText(text: string): string[] {
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** One regex per theme: every phrase, word-bounded by lookarounds (a phrase
- *  may start or end with a non-word character, so \b alone would miss it). */
+// Spelling variants every phrase matches without being listed (2026-11-08):
+// a space or hyphen between words is optional and either ("air base" =
+// "air-base" = "airbase"); a letter-digit seam may carry one ("KC-46" =
+// "KC46" = "KC 46"); British / American doubling and -ise / -ize ("refueling"
+// = "refuelling", "mobilize" = "mobilise"); defence / defense. Word
+// boundaries are unchanged: "KC-135" still never matches "KC-135R".
+function wordPattern(w: string): string {
+  let out = "";
+  for (let i = 0; i < w.length; i++) {
+    const c = w[i];
+    const prev = w[i - 1];
+    if (i > 0 && prev && /[\p{L}]/u.test(prev) !== /[\p{L}]/u.test(c) && /[\p{L}\p{N}]/u.test(prev) && /[\p{L}\p{N}]/u.test(c)) out += "[-\\s]?";
+    out += escapeRe(c);
+  }
+  return out
+    .replace(/el(l)?(ing|ed|er|ers)$/i, (_m, _l, end: string) => `el{1,2}${end}`)
+    .replace(/i[sz](e|ed|es|ing|ation|ations)$/i, (_m, end: string) => `i[sz]${end}`)
+    .replace(/^(off|def)en[cs]e$/i, (_m, head: string) => `${head}en[cs]e`);
+}
+
+/** One phrase → its variant-tolerant pattern (no boundaries, no flags). */
+export function phrasePattern(phrase: string): string {
+  const parts = phrase.trim().split(/([\s\u2010-\u2015-]+)/);
+  return parts.map((p, i) => (i % 2 === 1 ? "[-\\s\\u2010-\\u2015]?" : wordPattern(p))).join("");
+}
+
+const BOUNDED = (alt: string) => `(?<![\\p{L}\\p{N}])(?:${alt})(?![\\p{L}\\p{N}])`;
+const reCache = new Map<string, RegExp>();
+function cachedRe(key: string, src: string, flags: string): RegExp {
+  const k = `${flags}\u0000${key}`;
+  let re = reCache.get(k);
+  if (!re) {
+    re = new RegExp(src, flags);
+    if (reCache.size > 500) reCache.clear();
+    reCache.set(k, re);
+  }
+  re.lastIndex = 0;
+  return re;
+}
+
+/** One regex per theme: every phrase (with its variants), word-bounded by
+ *  lookarounds (a phrase may start or end with a non-word character, so \b
+ *  alone would miss it). */
 export function themeRegex(phrases: string[]): RegExp | null {
-  const parts = phrases.map((p) => p.trim()).filter((p) => p.length >= THEME_PHRASE_MIN).map(escapeRe);
+  const parts = phrases.map((p) => p.trim()).filter((p) => p.length >= THEME_PHRASE_MIN).map(phrasePattern);
   if (!parts.length) return null;
-  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${parts.join("|")})(?![\\p{L}\\p{N}])`, "iu");
+  return cachedRe(parts.join("\u0001"), BOUNDED(parts.join("|")), "iu");
+}
+
+/** Which declared phrase a matched span is a spelling of (its own spelling). */
+export function whichPhrase(phrases: string[], hit: string): string {
+  const exact = phrases.find((p) => p.toLowerCase() === hit.toLowerCase());
+  if (exact) return exact;
+  for (const p of phrases) {
+    if (p.trim().length < THEME_PHRASE_MIN) continue;
+    const pat = phrasePattern(p);
+    if (cachedRe(`^${pat}`, `^(?:${pat})$`, "iu").test(hit)) return p;
+  }
+  return hit;
+}
+
+/** The text with every exclusion phrase blanked out (so a theme phrase inside
+ *  "oil tanker" is not seen, while "KC-46 tanker" elsewhere still is). */
+export function maskExclusions(text: string, exclude: string[] | undefined): string {
+  if (!exclude?.length || !text) return text;
+  const parts = exclude.map((p) => p.trim()).filter((p) => p.length >= THEME_PHRASE_MIN).map(phrasePattern);
+  if (!parts.length) return text;
+  const re = cachedRe(`x\u0000${parts.join("\u0001")}`, BOUNDED(parts.join("|")), "giu");
+  return text.replace(re, (m) => " ".repeat(m.length));
 }
 
 /** The first phrase a text names, in the theme's own spelling, else null. */
-export function matchTheme(theme: Pick<Theme, "phrases">, text: string): string | null {
+export function matchTheme(theme: Pick<Theme, "phrases" | "exclude">, text: string): string | null {
   const re = themeRegex(theme.phrases);
   if (!re || !text) return null;
-  const m = re.exec(text);
+  const m = re.exec(maskExclusions(text, theme.exclude));
   if (!m) return null;
-  const hit = m[0].toLowerCase();
-  return theme.phrases.find((p) => p.toLowerCase() === hit) ?? m[0];
+  return whichPhrase(theme.phrases, m[0]);
 }
 
 export function sourceKindOf(source: string): ThemeSourceKind {
@@ -221,7 +300,16 @@ export interface ReadThemesOpts {
   wires?: NewsItem[] | null;
   /** False when the own-source pool itself did not answer. */
   observed?: boolean;
+  /** Items the crew marked ✕ per theme id (theme_feedback) — not counted:
+   *  a report the crew judged off-theme is not a report of it. */
+  rejected?: Record<string, Set<string>>;
   windowDays?: number;
+}
+
+/** The stable id of an own-source item — the key a ✓ / ✕ mark is stored
+ *  under (lib/themeTuning uses the same). */
+export function itemKey(n: Pick<NewsItem, "id" | "source" | "title">): string {
+  return (n.id || `${n.source}|${n.title}`).slice(0, 255);
 }
 
 /** Read every theme against the own-source pool. Items outside the window
@@ -241,6 +329,7 @@ export function readThemes(themes: Theme[], own: NewsItem[], opts: ReadThemesOpt
 
   return themes.map((th) => {
     const re = themeRegex(th.phrases);
+    const rejected = opts.rejected?.[th.id];
     const matches: ThemeMatch[] = [];
     const handles = new Set<string>();
     const byDay: Record<string, number> = {};
@@ -249,7 +338,9 @@ export function readThemes(themes: Theme[], own: NewsItem[], opts: ReadThemesOpt
     let today = 0;
     if (re) {
       for (const r of ownRows) {
-        const m = re.exec(r.text);
+        const itemId = itemKey(r.n);
+        if (rejected?.has(itemId)) continue;
+        const m = re.exec(maskExclusions(r.text, th.exclude));
         if (!m) continue;
         reports++;
         const source = (r.n.source || "").trim() || "unknown";
@@ -259,15 +350,14 @@ export function readThemes(themes: Theme[], own: NewsItem[], opts: ReadThemesOpt
         if (now - r.t <= DAY) today++;
         const modality = gradeModality(r.text);
         framing[modality]++;
-        const hit = m[0].toLowerCase();
         matches.push({
-          id: r.n.id, phrase: th.phrases.find((p) => p.toLowerCase() === hit) ?? m[0], source, kind: sourceKindOf(source),
+          id: itemId, phrase: whichPhrase(th.phrases, m[0]), source, kind: sourceKindOf(source),
           title: clip(r.text, 220), link: r.n.link || "", pubDate: new Date(r.t).toISOString(), modality,
         });
       }
     }
     matches.sort((a, b) => Date.parse(b.pubDate) - Date.parse(a.pubDate));
-    const wires = wireRows && re ? wireRows.filter((r) => re.test(r.text)).length : null;
+    const wires = wireRows && re ? wireRows.filter((r) => re.test(maskExclusions(r.text, th.exclude))).length : null;
     const volume = themeVolume(today, opts.baselines?.[th.id] ?? null, observed);
     const read: ThemeRead = {
       id: th.id, name: th.name, phrases: th.phrases,
