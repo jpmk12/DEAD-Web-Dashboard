@@ -316,8 +316,9 @@ function PreviewLine({ preview }: { preview: { p: PhrasePreview | null; note: st
   return (
     <div className={`text-[10.5px] space-y-0.5 ${loading ? "opacity-60" : ""}`}>
       <div className="text-slate-300">
-        Would have caught <span className="font-mono tabular-nums">{p.total}</span> item{p.total === 1 ? "" : "s"} from {p.sources} source{p.sources === 1 ? "" : "s"} in the last {p.days} d{kinds ? ` (${kinds})` : ""}
+        Preview — these phrases match <span className="font-mono tabular-nums">{p.total}</span> item{p.total === 1 ? "" : "s"} from {p.sources} source{p.sources === 1 ? "" : "s"} already in your stored sources (last {p.days} d){kinds ? ` (${kinds})` : ""}
         {p.excluded > 0 && <span className="text-slate-500"> · {p.excluded} kept out by exclusions</span>}
+        <span className="block text-[9.5px] text-slate-600">matched now; the theme counts them once you save (the card&apos;s count covers the last 7 d)</span>
       </div>
       <div className="flex flex-wrap gap-1">
         {p.byPhrase.map((b) => (
