@@ -8,7 +8,9 @@ import { COOKIE_NAME, getValidSecondaryToken } from "@/lib/secondaryAuth";
 import { getUserPrefs, buildUserContext, senderMatches } from "@/lib/userPrefs";
 import { getCachedClassifications, cacheClassifications, type CachedHit } from "@/lib/emailCache";
 import { isFeatureEnabled } from "@/lib/aiFeatures";
-import { extractJsonArray } from "@/lib/aiJson";
+import { parseModelArray } from "@/lib/aiJson";
+import { runLimited } from "@/lib/concurrency";
+import { gmailFailure } from "@/lib/gmailErrors";
 import { logCall } from "@/lib/anthropicLog";
 import { normEmail } from "@/lib/allowlist";
 import { EmailMessage, EmailPriority } from "@/lib/types";
@@ -49,6 +51,9 @@ function isValidClassification(c: unknown): c is { id: string; priority: EmailPr
   );
 }
 
+/** Uncached emails per classifier call — keeps the reply well under max_tokens. */
+const CLASSIFY_BATCH = 25;
+
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -83,18 +88,27 @@ export async function GET() {
   }
 
   // Fetch both inboxes + user prefs in parallel; treat each failure independently
-  const [primaryEmails, secondaryEmails, prefs] = await Promise.all([
-    getUnreadEmails(session.accessToken as string, "primary", primaryEmail).catch(() => [] as EmailMessage[]),
-    secondaryAccessToken
-      ? getUnreadEmails(secondaryAccessToken, "secondary", secondaryEmail).catch(() => [] as EmailMessage[])
-      : Promise.resolve([] as EmailMessage[]),
+  // A failed inbox read is NAMED (`unread[account].error`), never an empty
+  // inbox — before, any refusal read as "nothing unread".
+  const read = (token: string, account: EmailMessage["account"], email: string) =>
+    getUnreadEmails(token, account, email).then(
+      (r) => ({ ...r, error: null as string | null }),
+      (err) => ({ emails: [] as EmailMessage[], total: 0, failed: 0, error: gmailFailure(err).reason }),
+    );
+  const [primaryRead, secondaryRead, prefs] = await Promise.all([
+    read(session.accessToken as string, "primary", primaryEmail),
+    secondaryAccessToken ? read(secondaryAccessToken, "secondary", secondaryEmail) : Promise.resolve(null),
     getUserPrefs(normEmail(session.user?.email)).catch(() => null),
   ]);
+  const unread = {
+    primary: { loaded: primaryRead.emails.length, total: primaryRead.total, failed: primaryRead.failed, error: primaryRead.error },
+    ...(secondaryRead ? { secondary: { loaded: secondaryRead.emails.length, total: secondaryRead.total, failed: secondaryRead.failed, error: secondaryRead.error } } : {}),
+  };
 
-  const allEmails = [...primaryEmails, ...secondaryEmails];
+  const allEmails = [...primaryRead.emails, ...(secondaryRead?.emails ?? [])];
 
   if (!allEmails.length) {
-    return NextResponse.json({ emails: [], secondaryConnected: !!secondaryAccessToken });
+    return NextResponse.json({ emails: [], secondaryConnected: !!secondaryAccessToken, unread });
   }
 
   const userEmail = normEmail(session.user?.email);
@@ -128,79 +142,75 @@ export async function GET() {
   const fresh = new Map<string, CachedHit>();
 
   if (uncached.length > 0 && isFeatureEnabled("email_triage", prefs)) {
-    try {
-      const modelStart = Date.now();
-      const examplesBlock = correctionExamples(corrections);
-      const response = await anthropic.messages.create({
-        model: "claude-haiku-4-5",
-        max_tokens: 4096,
-        // The corrections block is a SECOND system block, deliberately outside
-        // promptHash: a correction shapes emails not yet classified and never
-        // re-classifies the cached inbox (decision 2, REVIEW-2026-10 §4).
-        system: [
-          { type: "text" as const, text: systemText, cache_control: { type: "ephemeral" as const } },
-          ...(examplesBlock ? [{ type: "text" as const, text: examplesBlock }] : []),
-        ],
-        messages: [
-          {
-            role: "user",
-            content: JSON.stringify(
-              uncached.map(({ id, subject, from, date, bodyPreview }) => ({
-                id,
-                subject: String(subject ?? "").replace(/[\n\r]/g, " ").slice(0, 200),
-                from: String(from ?? "").replace(/[\n\r]/g, " ").slice(0, 100),
-                date,
-                // 800 → 400 with signature / quoted-reply stripping. Cuts the
-                // average input payload by ~60% on cold-cache fetches with no
-                // measurable hit to classification quality.
-                bodyPreview: trimBodyForClassifier(String(bodyPreview ?? "")),
-              }))
-            ),
-          },
-        ],
-      });
+    // Batches of CLASSIFY_BATCH, four calls in flight: one call over a hundred
+    // emails would overrun max_tokens, and a cut-off reply used to fail the
+    // WHOLE parse — every email "not triaged" and re-sent on the next load.
+    const examplesBlock = correctionExamples(corrections);
+    const batches: EmailMessage[][] = [];
+    for (let i = 0; i < uncached.length; i += CLASSIFY_BATCH) batches.push(uncached.slice(i, i + CLASSIFY_BATCH));
+    await runLimited(batches, 4, async (batch) => {
+      try {
+        const modelStart = Date.now();
+        const response = await anthropic.messages.create({
+          model: "claude-haiku-4-5",
+          max_tokens: 4096,
+          // The corrections block is a SECOND system block, deliberately outside
+          // promptHash: a correction shapes emails not yet classified and never
+          // re-classifies the cached inbox (decision 2, REVIEW-2026-10 §4).
+          system: [
+            { type: "text" as const, text: systemText, cache_control: { type: "ephemeral" as const } },
+            ...(examplesBlock ? [{ type: "text" as const, text: examplesBlock }] : []),
+          ],
+          messages: [
+            {
+              role: "user",
+              content: JSON.stringify(
+                batch.map(({ id, subject, from, date, bodyPreview }) => ({
+                  id,
+                  subject: String(subject ?? "").replace(/[\n\r]/g, " ").slice(0, 200),
+                  from: String(from ?? "").replace(/[\n\r]/g, " ").slice(0, 100),
+                  date,
+                  // 800 → 400 with signature / quoted-reply stripping.
+                  bodyPreview: trimBodyForClassifier(String(bodyPreview ?? "")),
+                }))
+              ),
+            },
+          ],
+        }, { timeout: 60_000, maxRetries: 1 });
 
-      // Fire-and-forget usage log; never blocks the response.
-      logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
+        logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
-      const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
-      // Claude sometimes wraps the array in a ```json fence or adds prose;
-      // extractJsonArray strips fences and slices to the outermost [...].
-      const parsedRaw: unknown = JSON.parse(extractJsonArray(raw));
-      // Validate every entry — Claude has been observed returning lowercase
-      // priorities ("high") that wouldn't sort correctly, or dropping fields
-      // entirely on truncation. Bad entries fall back to Low + snippet below.
-      const parsed = Array.isArray(parsedRaw) ? parsedRaw.filter(isValidClassification) : [];
-      for (const c of parsed) {
-        // Dates ride the same call (lib/mailDates validates on the client;
-        // here only the shape is kept, capped, so a bad reply cannot bloat the cache).
-        const dates = Array.isArray(c.dates)
-          ? (c.dates as unknown[]).filter((d): d is Record<string, unknown> => !!d && typeof d === "object").slice(0, 3)
-              .map((d) => ({ when: typeof d.when === "string" ? d.when.slice(0, 16) : null, whenText: String(d.whenText ?? "").slice(0, 60), what: String(d.what ?? "").slice(0, 120) }))
-          : undefined;
-        const why = typeof c.why === "string" ? c.why.replace(/[\n\r]/g, " ").trim().slice(0, 160) : undefined;
-        fresh.set(c.id, { priority: c.priority, summary: c.summary, dates: dates && dates.length ? dates : undefined, why: why || undefined });
+        const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
+        // A cut-off reply keeps the entries it finished (parseModelArray).
+        const parsedRaw = parseModelArray(raw).value;
+        const ids = new Set(batch.map((e) => e.id));
+        const parsed = parsedRaw.filter(isValidClassification).filter((c) => ids.has(c.id));
+        for (const c of parsed) {
+          const dates = Array.isArray(c.dates)
+            ? (c.dates as unknown[]).filter((d): d is Record<string, unknown> => !!d && typeof d === "object").slice(0, 3)
+                .map((d) => ({ when: typeof d.when === "string" ? d.when.slice(0, 16) : null, whenText: String(d.whenText ?? "").slice(0, 60), what: String(d.what ?? "").slice(0, 120) }))
+            : undefined;
+          const why = typeof c.why === "string" ? c.why.replace(/[\n\r]/g, " ").trim().slice(0, 160) : undefined;
+          fresh.set(c.id, { priority: c.priority, summary: c.summary, dates: dates && dates.length ? dates : undefined, why: why || undefined });
+        }
+
+        const toCache = batch
+          .filter((e) => fresh.has(e.id))
+          .map((e) => ({
+            id: e.id,
+            accountEmail: e.accountEmail,
+            priority: fresh.get(e.id)!.priority,
+            summary: fresh.get(e.id)!.summary,
+            promptHash,
+            dates: fresh.get(e.id)!.dates,
+            why: fresh.get(e.id)!.why,
+          }));
+        cacheClassifications(toCache).catch((err) => console.error("Email cache write failed:", err));
+      } catch (err) {
+        console.error("Email classification batch failed:", err instanceof Error ? err.message : err);
+        // Fall through; this batch's misses default to Low + snippet below.
       }
-
-      // Fire-and-forget cache write — only for emails we actually got back
-      const toCache = uncached
-        .filter((e) => fresh.has(e.id))
-        .map((e) => ({
-          id: e.id,
-          accountEmail: e.accountEmail,
-          priority: fresh.get(e.id)!.priority,
-          summary: fresh.get(e.id)!.summary,
-          promptHash,
-          dates: fresh.get(e.id)!.dates,
-          why: fresh.get(e.id)!.why,
-        }));
-      cacheClassifications(toCache).catch((err) =>
-        console.error("Email cache write failed:", err),
-      );
-    } catch (err) {
-      console.error("Email classification failed:", err);
-      // Fall through; misses default to Low + snippet in merge below.
-    }
+    });
   }
 
   // Merge cache ∪ fresh, then apply deterministic VIP/mute overrides on top.
@@ -237,5 +247,6 @@ export async function GET() {
   return NextResponse.json({
     emails: classified,
     secondaryConnected: !!secondaryAccessToken,
+    unread,
   });
 }

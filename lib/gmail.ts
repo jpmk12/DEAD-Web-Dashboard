@@ -1,6 +1,9 @@
 import { gmail as gmailApi, gmail_v1 } from "@googleapis/gmail";
 import { OAuth2Client } from "google-auth-library";
 import { EmailMessage } from "./types";
+import { runLimited } from "./concurrency";
+import { gmailFailure, isGmailRateLimit } from "./gmailErrors";
+import { markReadWithFallback } from "./gmailMark";
 
 function buildClient(accessToken: string) {
   const oauth2Client = new OAuth2Client();
@@ -85,23 +88,45 @@ function header(msg: gmail_v1.Schema$Message, name: string): string {
   );
 }
 
+/** Unread inbox mail read per load, per account (was 25 — the list held
+ *  the newest 25 and "mark all read" then had to be pressed again for the
+ *  next 25; 2026-11-09). */
+export const UNREAD_FETCH_MAX = 100;
+const GET_CONCURRENCY = 6;
+
+export interface UnreadInbox {
+  emails: EmailMessage[];
+  /** Gmail's own estimate of unread inbox mail (may exceed what was read). */
+  total: number;
+  /** Messages listed but not fetched (refused twice) — named, not dropped silently. */
+  failed: number;
+}
+
 export async function getUnreadEmails(
   accessToken: string,
   account: EmailMessage["account"],
-  accountEmail = ""
-): Promise<EmailMessage[]> {
+  accountEmail = "",
+  max = UNREAD_FETCH_MAX,
+): Promise<UnreadInbox> {
   const gmail = buildClient(accessToken);
 
-  const listRes = await gmail.users.messages.list({
-    userId: "me",
-    labelIds: ["INBOX", "UNREAD"],
-    maxResults: 25,
-  });
-
-  const messageRefs = (listRes.data.messages ?? [])
-    .map((r) => r.id)
-    .filter((id): id is string => Boolean(id));
-  if (!messageRefs.length) return [];
+  // Page the list (100 ids per page is Gmail's own ceiling for one call).
+  const messageRefs: string[] = [];
+  let total = 0;
+  let pageToken: string | undefined;
+  do {
+    const listRes = await gmail.users.messages.list({
+      userId: "me",
+      labelIds: ["INBOX", "UNREAD"],
+      maxResults: Math.min(100, max - messageRefs.length),
+      ...(pageToken ? { pageToken } : {}),
+    });
+    total = Math.max(total, listRes.data.resultSizeEstimate ?? 0);
+    for (const r of listRes.data.messages ?? []) if (r.id) messageRefs.push(r.id);
+    pageToken = listRes.data.nextPageToken ?? undefined;
+  } while (pageToken && messageRefs.length < max);
+  total = Math.max(total, messageRefs.length);
+  if (!messageRefs.length) return { emails: [], total, failed: 0 };
 
   // Partition into cache hits and the ids we still need to fetch.
   const hits: EmailMessage[] = [];
@@ -111,21 +136,25 @@ export async function getUnreadEmails(
     if (cached) hits.push(cached); else need.push(id);
   }
 
-  if (need.length === 0) {
-    // Preserve the order Gmail returned (most recent first).
-    const byId = new Map(hits.map((m) => [m.id, m]));
-    return messageRefs.map((id) => byId.get(id)!).filter(Boolean);
-  }
+  // A few at a time, each retried once on a rate limit. One refused message
+  // used to reject the whole Promise.all — and the caller's catch turned that
+  // into an EMPTY inbox for the account.
+  let failed = 0;
+  const fetched = await runLimited(need, GET_CONCURRENCY, async (id) => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return (await gmail.users.messages.get({ userId: "me", id, format: "full" })).data;
+      } catch (err) {
+        if (attempt === 0 && isGmailRateLimit(err)) { await new Promise((r) => setTimeout(r, 1200)); continue; }
+        break;
+      }
+    }
+    failed++;
+    return null;
+  });
 
-  const fetched = await Promise.all(
-    need.map((id) =>
-      gmail.users.messages.get({ userId: "me", id, format: "full" })
-    )
-  );
-
-  const parsed: EmailMessage[] = fetched.flatMap((res) => {
-    const msg = res.data;
-    if (!msg.id) return [];
+  const parsed: EmailMessage[] = fetched.flatMap((msg) => {
+    if (!msg?.id) return [];
     const payload = msg.payload ?? {};
     const m: EmailMessage = {
       id: msg.id,
@@ -151,7 +180,9 @@ export async function getUnreadEmails(
 
   // Re-order to match Gmail's original order; cache hits + freshly parsed.
   const byId = new Map<string, EmailMessage>([...hits, ...parsed].map((m) => [m.id, m]));
-  return messageRefs.map((id) => byId.get(id)).filter((m): m is EmailMessage => !!m);
+  const emails = messageRefs.map((id) => byId.get(id)).filter((m): m is EmailMessage => !!m);
+  if (failed) console.error(`getUnreadEmails: ${failed}/${need.length} messages not fetched`);
+  return { emails, total, failed };
 }
 
 /** Message ids only — one messages.list call, no message bodies. The Family
@@ -446,31 +477,19 @@ export async function markAsReadBatch(accessToken: string, ids: string[]): Promi
 }
 
 /** Removes UNREAD from each id. Returns the ids Gmail REFUSED — the caller
- *  must not report success for those (REVIEW-2026-10 E5). */
+ *  must not report success for those (REVIEW-2026-10 E5). One batchModify per
+ *  chunk; one-by-one only when a chunk is refused (lib/gmailMark). */
 export async function markAsRead(
   accessToken: string,
   ids: string[]
 ): Promise<string[]> {
   const gmail = buildClient(accessToken);
-  // allSettled so one failed modify doesn't abort the remaining ids; ten at a
-  // time so a long list does not burst past the per-user rate limit (a
-  // refused modify is a newsletter left unread with no word said).
-  const results: PromiseSettledResult<unknown>[] = [];
-  for (let i = 0; i < ids.length; i += 10) {
-    results.push(...await Promise.allSettled(
-      ids.slice(i, i + 10).map((id) =>
-        gmail.users.messages.modify({
-          userId: "me",
-          id,
-          requestBody: { removeLabelIds: ["UNREAD"] },
-        })
-      )
-    ));
-  }
-  const failed = ids.filter((_, i) => results[i].status === "rejected");
-  if (failed.length > 0) {
-    const first = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
-    console.error(`markAsRead: ${failed.length}/${ids.length} messages failed`, first?.reason instanceof Error ? first.reason.message : first?.reason);
-  }
+  const failed = await markReadWithFallback(ids, {
+    batch: async (chunk) => { await gmail.users.messages.batchModify({ userId: "me", requestBody: { ids: chunk, removeLabelIds: ["UNREAD"] } }); },
+    single: async (id) => { await gmail.users.messages.modify({ userId: "me", id, requestBody: { removeLabelIds: ["UNREAD"] } }); },
+    isRate: isGmailRateLimit,
+    isAuth: (err) => gmailFailure(err).cls === "auth",
+  });
+  if (failed.length > 0) console.error(`markAsRead: ${failed.length}/${ids.length} messages refused`);
   return failed;
 }

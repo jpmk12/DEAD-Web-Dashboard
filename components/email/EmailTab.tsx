@@ -13,6 +13,8 @@ import EmailCard from "./EmailCard";
 import AddAccountButton from "./AddAccountButton";
 import BulkActionBar from "./BulkActionBar";
 
+interface UnreadInfo { loaded: number; total: number; failed: number; error: string | null }
+
 // The Email tab (REVIEW-2026-10 §4, E1–E7). The job is the SIFT: action
 // items → Low (verify, clear) → Medium → High. So the list is always
 // grouped High → Medium → Low, each group with its own "Mark N read"; Low
@@ -63,6 +65,11 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>("All");
   const [markingRead, setMarkingRead] = useState(false);
+  // Per-account read of the unread inbox (2026-11-09): how many the server
+  // loaded vs Gmail's own count, and a failed read named instead of an
+  // empty inbox.
+  const [unread, setUnread] = useState<Record<string, UnreadInfo>>({});
+  const unreadRef = useRef<Record<string, UnreadInfo>>({});
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [secondaryConnected, setSecondaryConnected] = useState(false);
   const [secondaryEmail, setSecondaryEmail] = useState<string | undefined>();
@@ -105,6 +112,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
       const emailList: EmailMessage[] = data.emails ?? [];
       setEmails(emailList);
       setSecondaryConnected(data.secondaryConnected ?? false);
+      if (data.unread && typeof data.unread === "object") { setUnread(data.unread); unreadRef.current = data.unread; }
       setLastUpdated(new Date());
       publish(emailList);
     } catch {
@@ -356,6 +364,10 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
         setSelected((prev) => { const n = new Set(prev); done.forEach((id) => n.delete(id)); return n; });
         if (expandedId && done.has(expandedId)) setExpandedId(null);
       }
+      // More unread in Gmail than this load held → read the next ones now,
+      // instead of leaving the operator to press refresh and mark again.
+      const moreWaiting = Object.values(unreadRef.current).some((u) => u && u.total > u.loaded);
+      if (done.size && moreWaiting) fetchEmails(true);
       if (refused) toast.error("Could not mark read", refused);
       else if (failed) toast.warn(`Gmail refused ${failed} — left in place`, "try again, or sign in again if it persists");
       const keptTotal = keptN + keptByServer;
@@ -425,6 +437,17 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
   };
 
   // ---- the grouped list ----
+  // Unread not yet loaded = Gmail's count minus what this load held, per
+  // account — stays right as rows are marked read and leave the list.
+  const beyond = Object.values(unread).reduce((n, u) => n + Math.max(0, (u?.total ?? 0) - (u?.loaded ?? 0)), 0);
+  const unreadTotal = emails.length + beyond;
+  const unreadNotes = Object.entries(unread).flatMap(([acct, u]) => {
+    const who = acct === "secondary" ? "2nd account" : Object.keys(unread).length > 1 ? "primary" : "inbox";
+    if (u?.error) return [`${who}: not read — ${u.error}`];
+    if (u?.failed) return [`${who}: ${u.failed} not fetched — refresh to retry`];
+    return [];
+  });
+
   const counts = useMemo(() => ({
     High: emails.filter((e) => e.priority === "High").length,
     Medium: emails.filter((e) => e.priority === "Medium").length,
@@ -616,9 +639,10 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
         <div className="flex items-center gap-2">
           <Mail size={14} strokeWidth={2.25} className="text-emerald-500" />
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">Inbox</h2>
-          {!loading && (
-            <span className="text-xs text-slate-600 font-mono">{emails.length} unread{counts.Kept ? ` · ${counts.Kept} kept` : ""}</span>
-          )}
+          {!loading && (<>
+            <span className="text-xs text-slate-600 font-mono" title="Unread inbox mail loaded per account (up to 100 each); marking read loads the next ones">{emails.length} unread{unreadTotal > emails.length ? ` of ~${unreadTotal}` : ""}{counts.Kept ? ` · ${counts.Kept} kept` : ""}</span>
+            {unreadNotes.length > 0 && <span className="text-[10.5px] text-amber-300" title="UNKNOWN, not an empty inbox">{unreadNotes.join(" · ")}</span>}
+          </>)}
         </div>
         <div className="flex items-center gap-3">
           <AddAccountButton connected={secondaryConnected} primaryEmail={primaryEmail} secondaryEmail={secondaryEmail} onRevoked={() => { setSecondaryConnected(false); setSecondaryEmail(undefined); fetchEmails(true); }} />

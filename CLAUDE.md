@@ -5408,6 +5408,36 @@ inputs).
   action)` — a djb2 of the normalised text, stable across refreshes).
 - Mockup: `docs/mockups/email-proposed.html` → `docs/email.png`. No new
   npm dep (esbuild `0`).
+- **"I have to retry several times to read and mark all my emails read"
+  (2026-11-09).** Four causes, all fixed: (1) **the inbox read held the
+  newest 25 unread per account** — "mark all read" cleared those 25 and the
+  next 25 waited for a refresh. `getUnreadEmails` now pages to
+  `UNREAD_FETCH_MAX` 100 per account and returns `{emails, total, failed}`
+  (`total` = Gmail's `resultSizeEstimate`); the response carries
+  `unread[account] {loaded, total, failed, error}`, the header reads "N
+  unread of ~T", and a successful mark-read RE-READS the inbox at once when
+  Gmail holds more than was loaded. (2) **One refused `messages.get`
+  emptied the whole account** (`Promise.all` rejected → the route's catch
+  returned `[]`): bodies are fetched 6 at a time (`runLimited`), each
+  retried once on a rate limit; a message still refused is counted
+  (`failed`) and named in amber, and a failed inbox read is named
+  (`gmailFailure` reason), never an empty inbox. (3) **Mark-read sent one
+  `messages.modify` per id** — `markAsRead` now goes through
+  `lib/gmailMark.ts` `markReadWithFallback` (PURE, tested in
+  `tests/gmailMark.test.ts`): ONE `batchModify` per ≤1,000 ids; on a rate
+  limit the batch is retried once after 1.2 s; only a refused batch falls
+  back to one-by-one (4 at a time, each retried once on a rate limit); an
+  auth refusal fails the chunk without retries; the ids still refused are
+  returned and the client leaves them in place. `/api/gmail/mark-read`
+  accepts up to 500 ids. Newsletters, Family and Household get the batch
+  path too (they call `markAsRead`). (4) **The classifier was one Haiku
+  call over every uncached email** — with 100 emails the reply overran
+  `max_tokens`, the bare `JSON.parse` threw and EVERY email read "not
+  triaged" and was re-sent on the next load. Now batches of
+  `CLASSIFY_BATCH` 25, four in flight, each `{timeout: 60 s, maxRetries:
+  1}`, parsed through `parseModelArray` (a cut-off reply keeps what it
+  finished), ids validated against the batch, each batch cached as it
+  lands; a failed batch leaves only its own emails untriaged.
 
 ### Family tab rebuilt (2026-10-06, `docs/REVIEW-2026-10.md` §5 F1–F9, all three decisions yes)
 `FamilyTab` now reads: attention line → Needs you → kids (left) / While you

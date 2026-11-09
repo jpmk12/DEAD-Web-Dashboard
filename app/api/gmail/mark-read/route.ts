@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 // - `failed` carries what Gmail refused; the client puts those back.
 
 const VALID_ACCOUNTS = new Set(["primary", "secondary"]);
-const MAX_IDS = 100;
+const MAX_IDS = 500;
 
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   const { ids, account, meta } = body as Record<string, unknown>;
 
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_IDS) {
-    return NextResponse.json({ error: "ids must be a non-empty array (max 100)" }, { status: 400 });
+    return NextResponse.json({ error: "ids must be a non-empty array (max 500)" }, { status: 400 });
   }
   if (ids.some((id) => typeof id !== "string" || id.length === 0)) {
     return NextResponse.json({ error: "All ids must be non-empty strings" }, { status: 400 });
