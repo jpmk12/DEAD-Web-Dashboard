@@ -7,6 +7,7 @@ import { validateThemeDraft, parsePhrasesText, THEME_WINDOW_DAYS, THEME_LEARNING
 import type { ThemesBody } from "@/lib/themesAssemble";
 import type { PhrasePreview } from "@/lib/themeTuning";
 import ThemeTuning, { postTune } from "./ThemeTuning";
+import ProposedThemes from "./ProposedThemes";
 
 // Declared themes — "what are my own sources saying about X". A theme is a
 // name and a few phrases; the read (lib/themes, PURE) is volume against the
@@ -32,6 +33,9 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Theme | null>(null);
+  // A proposal opened in the form ("Edit, then track") — a new theme, filled in.
+  const [draft, setDraft] = useState<{ name: string; phrases: string[] } | null>(null);
+  const [propTick, setPropTick] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const tries = useRef(0);
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,6 +81,7 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       toast.ok(`Removed “${t.name}”`);
       load(true);
+      setPropTick((n) => n + 1);
     } catch (e) { toast.error("Could not remove the theme", e); }
     finally { setBusy(null); }
   };
@@ -105,17 +110,26 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
         )}
         <span className="ml-auto flex items-center gap-1.5">
           <button type="button" onClick={() => load(true)} className="text-[9.5px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-slate-700 text-slate-500 hover:text-slate-300" title="Re-read now">↻</button>
-          <button type="button" onClick={() => { setEditing(null); setAdding((v) => !v); }} aria-expanded={adding} className="text-[9.5px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-violet-500/50 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20">＋ Theme {adding ? "▴" : "▾"}</button>
+          <button type="button" onClick={() => { setEditing(null); setDraft(null); setAdding((v) => !v); }} aria-expanded={adding} className="text-[9.5px] font-bold uppercase tracking-wider rounded px-2 py-1 border border-violet-500/50 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20">＋ Theme {adding ? "▴" : "▾"}</button>
         </span>
       </div>
 
       {(adding || editing) && (
         <ThemeForm
+          key={editing?.id ?? (draft ? `draft:${draft.name}` : "new")}
           initial={editing}
-          onDone={() => { setAdding(false); setEditing(null); load(true); }}
-          onCancel={() => { setAdding(false); setEditing(null); }}
+          draft={draft}
+          onDone={() => { setAdding(false); setEditing(null); setDraft(null); load(true); setPropTick((n) => n + 1); }}
+          onCancel={() => { setAdding(false); setEditing(null); setDraft(null); }}
         />
       )}
+
+      <ProposedThemes
+        active={active}
+        reloadTick={propTick}
+        onTracked={() => load(true)}
+        onEdit={(p) => { setEditing(null); setDraft({ name: p.name, phrases: p.phrases }); setAdding(true); }}
+      />
 
       {status === "error" && <p className="px-3.5 py-2 text-[11px] text-red-400 border-b border-slate-800">Could not read the themes.</p>}
 
@@ -169,7 +183,7 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
                     )}
                   </button>
                   <span className="flex items-center gap-1 flex-shrink-0 pt-0.5">
-                    <button type="button" onClick={() => { setAdding(false); setEditing(t); }} className="text-[9.5px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border border-slate-700 text-slate-500 hover:text-slate-300" title="Edit the phrases">✎</button>
+                    <button type="button" onClick={() => { setAdding(false); setDraft(null); setEditing(t); }} className="text-[9.5px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border border-slate-700 text-slate-500 hover:text-slate-300" title="Edit the phrases">✎</button>
                     <button type="button" onClick={() => remove(t)} disabled={busy === t.id} aria-label={`Remove ${t.name}`} className="text-[11px] rounded px-1.5 py-0.5 border border-slate-700 text-slate-500 hover:text-red-300 hover:border-red-500/40 disabled:opacity-40" title="Remove this theme">✕</button>
                   </span>
                 </div>
@@ -184,7 +198,7 @@ export default function ThemesCard({ active = true }: { active?: boolean }) {
                         <DayStrip byDay={read.byDay} />
                       </>
                     )}
-                    <ThemeTuning theme={t} read={read} onChanged={() => load(true)} />
+                    <ThemeTuning theme={t} read={read} onChanged={() => { load(true); setPropTick((n) => n + 1); }} />
                   </div>
                 )}
               </li>
@@ -215,9 +229,9 @@ function DayStrip({ byDay }: { byDay: Record<string, number> }) {
   );
 }
 
-function ThemeForm({ initial, onDone, onCancel }: { initial: Theme | null; onDone: () => void; onCancel: () => void }) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [text, setText] = useState(initial?.phrases.join(", ") ?? "");
+function ThemeForm({ initial, draft, onDone, onCancel }: { initial: Theme | null; draft?: { name: string; phrases: string[] } | null; onDone: () => void; onCancel: () => void }) {
+  const [name, setName] = useState(initial?.name ?? draft?.name ?? "");
+  const [text, setText] = useState(initial?.phrases.join(", ") ?? draft?.phrases.join(", ") ?? "");
   const [exText, setExText] = useState(initial?.exclude?.join(", ") ?? "");
   // What the phrase set WOULD catch in the stored pool, before saving.
   const [preview, setPreview] = useState<{ p: PhrasePreview | null; note: string | null; loading: boolean }>({ p: null, note: null, loading: false });

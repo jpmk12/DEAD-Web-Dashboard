@@ -161,6 +161,16 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (theme_id, item_id)
   ) ENGINE=InnoDB`,
 
+  // Proposed themes the crew declined ("never") — lib/themeProposals. Shared
+  // like the register itself, permanent, attributed. The key is the
+  // proposal's stable dismiss key (seed:… / narrow:…).
+  `CREATE TABLE IF NOT EXISTS theme_proposal_dismissed (
+    dkey        VARCHAR(191) NOT NULL,
+    by_email    VARCHAR(255) NULL,
+    created_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (dkey)
+  ) ENGINE=InnoDB`,
+
   // Crew state history (lib/crewStore.snapshotCrewDay): the day's LAST counts
   // per qualification, so availability can be read as a series and joined
   // to the recorded demand outlooks (lib/crewTrend). Counts only, no names.

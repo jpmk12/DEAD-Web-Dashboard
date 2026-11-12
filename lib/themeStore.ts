@@ -135,3 +135,36 @@ export async function deleteTheme(id: string): Promise<boolean> {
     return false;
   }
 }
+
+// ── Proposed themes the crew declined (lib/themeProposals) ──────────────
+
+interface DismissRow extends RowDataPacket { dkey: string }
+
+/** Every declined proposal key. NULL when the store did not answer — the
+ *  caller then proposes nothing rather than re-proposing a declined one. */
+export async function listProposalDismissed(): Promise<Set<string> | null> {
+  try {
+    const pool = await getDb();
+    const [rows] = await pool.query<DismissRow[]>(`SELECT dkey FROM theme_proposal_dismissed LIMIT 2000`);
+    return new Set(rows.map((r) => r.dkey));
+  } catch {
+    return null;
+  }
+}
+
+/** Decline a proposal ("never") — permanent, shared, attributed. */
+export async function addProposalDismissed(key: string, by: string): Promise<boolean> {
+  const k = key.trim().slice(0, 191);
+  if (!k) return false;
+  try {
+    const pool = await getDb();
+    await pool.execute(
+      `INSERT INTO theme_proposal_dismissed (dkey, by_email, created_at) VALUES (?, ?, NOW(3))
+       ON DUPLICATE KEY UPDATE by_email = VALUES(by_email)`,
+      [k, by.slice(0, 255)],
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}

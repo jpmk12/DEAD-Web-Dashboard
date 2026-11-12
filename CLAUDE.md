@@ -4025,7 +4025,59 @@ and up to 12 phrases; the read is what the app can state honestly:
   - UI: `components/osint/ThemeTuning.tsx` in the open theme row
     (replaces the old match list). Not built (offered as a later batch):
     proposing whole NEW themes from clusters in the pool, and per-handle
-    weighting.
+    weighting. (Whole new themes from the PROFILE were built 2026-11-12 —
+    next note.)
+- **Proposed themes (2026-11-12, "use my profile to find themes I may be
+  interested in automatically")** — deterministic, no model call, never
+  creates a theme on its own (a theme writes a series and can ride an I&W
+  board, so the crew's tap decides). `lib/themeProposals.ts` (PURE, tested
+  in `tests/themeProposals.test.ts`):
+  - **Seeds** (`profileSeeds`): one per declared thing — hub / spokes / ★
+    fields (ICAO + `fieldShortName`, "Muwaffaq Salti AB, Jordan" →
+    "Muwaffaq Salti"), ★ countries and every AOI country (name +
+    `COUNTRY_ALIASES`: demonym, capital, the actors written about there —
+    IRGC, Kremlin, PLA, Houthis…), each AOI's chokepoints (name +
+    `CHOKEPOINTS` keywords), the watchlist and priority topics. A thing
+    declared twice is one seed, the stronger origin wins, both labels kept.
+    Origin weight (hub 40 › spoke 30 › ★ field 28 › ★ country 25 › AOI
+    country 18 (+6 primary) / chokepoint 18 (+4) › watchlist 10 › topic 8)
+    only ORDERS.
+  - **Evidence** (`proposeThemes`) over the stored 14-day own pool
+    (`getTuningPool`): phrases that name nothing are dropped and said
+    (`droppedPhrases`); a seed needs ≥ `PROPOSE_MIN_ITEMS` 5 items from ≥
+    `PROPOSE_MIN_SOURCES` 2 sources; ≤ `PROPOSE_MAX_ADDS` 3 co-terms (lift ≥
+    4, ≥ 3 items, ≥ 2 sources, the suggested-phrase swamp guard) are added
+    with their reason; one existing theme catching > `PROPOSE_MAX_OVERLAP`
+    50 % of its items drops it ("your theme X already catches N %"). A
+    **narrower** proposal per seed: co-terms that mostly appear in the seed's
+    context (`b ≤ a`), clustered when ≥ 30 % of a term's items already name
+    a member — a theme is an OR of phrases, so a narrower theme must be made
+    of terms specific enough to stand alone ("Jordan · Azraq & Tower"). A
+    narrower one inside a much broader existing theme (≥ 2× its size) is
+    still offered. Two proposals sharing > 80 % of items of similar size →
+    only the stronger. Score = weight + open boost (`surface_opens` via
+    `openBoosts`, ≤ 20 — interest orders, never admits) + breadth; ≤
+    `PROPOSE_MAX` 6 shown; every other seed is listed with WHY it was left
+    out (`skipped`).
+  - **Server** `lib/themeProposalsAssemble.ts` (per-user 30-min cache keyed
+    on a signature of profile `updatedAt`, the seed keys, the register's
+    phrases / exclusions and the declined count — any change recomputes at
+    once). A register, declined list or pool that does not answer proposes
+    NOTHING and says so (never re-offers a declined one by accident); a full
+    register (`THEME_MAX`) says so. Star-field labels come from
+    `getOwnPlaces`.
+  - **Route** `/api/osint/themes/propose`: GET; POST `{op:"track", key}`
+    (re-reads the proposal server-side — a stale key is 409 — then the same
+    write as ＋ Theme + `backfillThemeSeries`, so it starts with history);
+    POST `{op:"dismiss", key}` → `theme_proposal_dismissed` (shared,
+    permanent, attributed; keys `seed:<seed>` / `narrow:<seed>:<terms>`).
+  - **UI** `components/osint/ProposedThemes.tsx`: a "◇ Proposed themes"
+    fold at the top of the Themes card (fold remembered per browser) — name,
+    phrases (sky = found in your sources, with the reason on hover), Why,
+    dropped phrases, three examples, Track / Edit, then track (opens the
+    theme form filled in — `ThemeForm.draft`) / Never; "N declared things
+    read · M not proposed — why ▾". Renders nothing when there is nothing
+    to say. Verified in headless Chromium with routed fixtures.
 
 ### Glance date carries the Julian date (2026-10-27, "Tuesday, October 27 (JD)")
 `lib/date.ts` `dayOfYear(d, tz?)` / `julianDayLabel` (PURE, tested in
