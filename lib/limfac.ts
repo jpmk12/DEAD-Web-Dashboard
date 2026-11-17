@@ -214,7 +214,12 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
         routine: Boolean(rwyNext.recurring) || WORKS_RE.test(rwyNext.text),
       };
     }
-    const xwRed = p.ops.runwayWinds.find((r) => r.flag === "r");
+    // Crosswind on the BEST runway end — a field with an aligned runway is not
+    // limited by the crossing one. Payloads without the outlook keep the old rule.
+    const xwNow = p.weather.crosswind ? p.weather.crosswind.now : null;
+    const xwRed = p.weather.crosswind ? (xwNow?.flag === "r" ? xwNow : null) : p.ops.runwayWinds.find((r) => r.flag === "r");
+    // Freezing precipitation OBSERVED at the field (the icing read's METAR red).
+    const fzObserved = (p.weather.icing?.drivers ?? []).find((d) => d.tone === "r" && d.source === "METAR") ?? null;
     const lifr = p.weather.now?.flightCategory === "LIFR";
     const closure = p.ops.closure ?? { now: p.ops.fieldClosed, next: null, indeterminate: false };
     if (!daipUp) {
@@ -248,6 +253,10 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
     } else if (xwRed) {
       const id = push({ fn: "launch_recovery", capability: "pmc", window: null, driver: `Crosswind exceedance RWY ${xwRed.ident} (${xwRed.crossKt}kt${xwRed.gustCrossKt ? `G${xwRed.gustCrossKt}` : ""})`, impact: "Crosswind above advisory threshold; recovery limited to favourable runway ends." });
       addFn("launch_recovery", "pmc", `Crosswind exceedance RWY ${xwRed.ident}`, null, [id]);
+    } else if (fzObserved) {
+      const id = push({ fn: "launch_recovery", capability: "pmc", window: null, driver: "Freezing precipitation at the field (METAR)", impact: "Airframe and runway icing now: de-ice / anti-ice before departure, holdover times apply, braking action degraded and crosswind limits reduced on a contaminated runway.", mitigation: "Confirm de-ice capacity and fluid stock with the field; request braking action / RCR; plan holdover-time sequencing." });
+      addFn("launch_recovery", "pmc", "Freezing precipitation — de-ice, braking degraded", null, [id]);
+      ccir.push({ key: "freezing_precip", text: "Freezing precipitation observed at the field" });
     } else if (lifr) {
       const id = push({ fn: "launch_recovery", capability: "pmc", window: null, driver: "LIFR conditions", impact: "Ceiling/visibility at LIFR; launch/recovery restricted to lowest-minima aircraft/crews." });
       addFn("launch_recovery", "pmc", "LIFR conditions", null, [id]);
@@ -282,6 +291,14 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
       const drv = navaidWin ? `${navaidWin.label} U/S` : "NAVAID/approach U/S";
       const id = push({ fn: "all_weather_night", capability: "pmc", window: win, driver: drv, impact: "Approach unavailable (VFR — not currently required); night/instrument capability reduced." });
       addFn("all_weather_night", "pmc", `${drv} (VFR — not required now)`, win, [id]);
+    } else if ((p.weather.icing?.sigmets ?? []).some((x) => x.inEffect)) {
+      // A SIGMET icing is severe icing; one in effect over the approach band
+      // limits who can fly the approach, whatever the ceiling.
+      const sg = p.weather.icing!.sigmets.find((x) => x.inEffect)!;
+      const win = sg.toMs ? `until ${new Date(sg.toMs).toISOString().slice(11, 16).replace(":", "")}Z` : null;
+      const id = push({ fn: "all_weather_night", capability: "pmc", window: win, driver: "SIGMET icing over the approach", impact: "Severe icing forecast in the approach band — aircraft not certified for known icing cannot fly the approach; certified aircraft should minimise time in it.", mitigation: "Plan descents above / below the band where possible; brief anti-ice use; pre-coordinate an alternate outside the area.", ccir: true });
+      addFn("all_weather_night", "pmc", `SIGMET icing over the approach${win ? ` ${win}` : ""}`, win, [id]);
+      ccir.push({ key: "icing_sigmet", text: `Severe icing SIGMET over the approach${win ? ` (${win})` : ""}` });
     } else {
       // A field whose TAF verifies as under-forecasting is noted, never
       // downgraded — the capability is real, the forecast is the caveat.

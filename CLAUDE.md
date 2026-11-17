@@ -1886,6 +1886,83 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
   is routine — state the window, ask only when it is not routine or the
   field is closed NOW. An in-effect designated closure with an UNKNOWN
   count is PMC "runway count UNKNOWN", never "single-runway ops".
+- **Icing at the field and on approach, and crosswind across 24 h
+  (2026-11-17, "I would like to know if icing conditions are expected at or
+  on approach to an airfield … add some cross wind analysis")**. Both are
+  PURE reads over sources the app already reaches, no model call.
+  - **`lib/icingSignals.ts`** (tested in `tests/icingSignals.test.ts`):
+    five inputs, each read for what it can honestly say — METAR (`wxRaw`,
+    new on `MetarObs`: FZRA / FZDZ / FZFG / PL; and the lowest BKN / OVC /
+    VV base whose estimated temperature by the standard lapse rate
+    `LAPSE_C_PER_KFT` 1.98 is 0 to −20 °C — cloud the approach descends
+    through), TAF (`wxRaw` on `TafPeriod`: FZ / PL codes with their
+    window; a TAF has no temperatures, so no FZ code says nothing aloft),
+    the MODEL PROFILE (Open-Meteo pressure levels 1000–600 hPa at the
+    field: a level 0 to −20 °C with RH ≥ 85 % is `possible`, RH ≥ 95 % and
+    ≥ −15 °C `likely`; only levels inside the approach band — field to
+    `APPROACH_TOP_AGL_FT` 10,000 ft AGL — count; a layer is bounded by the
+    levels that earn its label; WMO 56/57/66/67 = model freezing
+    precipitation; freezing level), SIGMETs (the parsed AWC list, hazard
+    `icing`, inside the polygon or a vertex within `APPROACH_RADIUS_NM` 30,
+    base below the band top) and PIREPs (≤ `PIREP_RADIUS_NM` 60, ≤ 3 h;
+    `pirepIntensity` takes the WORSE word of "LGT-MOD"; the raw `/IC` group
+    is the fallback). **Colour**: RED only for icing observed or warned —
+    METAR freezing rain / drizzle, a SIGMET icing in effect (severe by
+    definition), a SEV PIREP in the band; AMBER for freezing fog, ice
+    pellets, a cloud deck at icing temperatures, TAF freezing / frozen
+    precipitation, a MOD PIREP, a model layer LIKELY inside
+    `MODEL_AMBER_HOURS` 12 h, model surface freezing precipitation, a SIGMET
+    starting soon; a POSSIBLE layer (or a likely one past 12 h) is a note;
+    **UNKNOWN when neither the METAR nor the model answered** — never green.
+    Every model line says "(model, planning-grade)"; "no PIREP is not 'no
+    icing'" is printed (PIREPs are sparse outside the U.S.).
+    `contaminationWindows` (freezing / frozen precipitation observed, in the
+    TAF, or modelled) feed the crosswind read.
+  - **`lib/crosswind.ts`** (tested in `tests/crosswind.test.ts`): the
+    BEST runway end per wind — least crosswind among the ends with a
+    headwind (`bestEnd`) — because a field with an aligned runway is not
+    limited by its crossing one; `crosswindOutlook` reads every TAF period
+    (`windDir` / `windSpeedKt` / `windGustKt` / `windVariable`, new on
+    `TafPeriod`), or the model's 10-m wind in knots when the TAF carries
+    none (hours merged into runs), over 24 h → rows (dashed = TEMPO / PROB
+    risk), the peak and one sentence. Same advisory bands as
+    `crosswindFlag` (20 / 30 kt, gust 25 / 35) — never flight-manual
+    limits. A variable wind is listed, never computed. **Contamination**:
+    a period with ≥ `CONTAM_XWIND_KT` 15 kt crosswind (gust 20) overlapping
+    a contamination window reads AMBER ("a contaminated runway cuts the
+    usable crosswind"). No runway headings → UNKNOWN.
+  - **Server**: `lib/fieldWx.ts` — `getFieldProfile` (Open-Meteo, 36 h
+    UTC, knots, 30-min cache per point) and `getPireps` (AWC
+    `/api/data/pirep?id=&distance=100&age=3`, 10-min cache; a 204 is "no
+    reports"), failures held 2 min and read `live:false`; `getSigmets`
+    bounded 12 s. `assembleSitrep` builds `weather.icing` +
+    `weather.crosswind` (both optional on the payload) and the weather LED
+    is RAISED by an amber / red icing or crosswind read (green / UNKNOWN
+    never changes what the METAR and TAF said).
+  - **Consumers**: the Weather card's **Icing — field & approach** and
+    **Crosswind — best runway, next 24 h** blocks
+    (`components/osint/IcingCrosswind.tsx`, a 30-h model-layer strip);
+    `sitrepSummary` (tile driver "icing risk" / "xwind 22G31kt", the brief
+    line's Icing clause and the best-runway crosswind clause — the old
+    any-end rule only for payloads without the outlook); the Commander's
+    Read (CROSSWIND NOW / 24H and ICING lines, rules: model lines are
+    "conducive / likely", never "icing reported"; judge by the best
+    runway; the bands are advisory; the fingerprint carries both levels);
+    `deriveMissionImpact` — Launch & Recovery's crosswind exceedance is the
+    BEST end's (before, any red end made the field PMC even with an aligned
+    runway), METAR freezing precipitation → PMC + CCIR "Freezing
+    precipitation observed", a SIGMET icing in effect over the approach →
+    All-Weather PMC + CCIR; the HTML export and Save-to-Docs markdown.
+    The Weather tab's airfield-card crosswind now uses `bestEnd` too.
+  - **Unverified from the sandbox** (both hosts are blocked): the PIREP JSON
+    field names (`obsTime`, `lat` / `lon`, `fltLvl`, `icgInt1`, `icgType1`,
+    `rawOb` — read tolerantly, raw `/IC` fallback) and the Open-Meteo
+    pressure-level column names. `GET /api/sitrep/icing-diag[?icao=]`
+    (owner-only) runs both from production: profile status / hours /
+    levels in the first hour; PIREP status / rows / parsed / with icing /
+    `rawFirst`. `parsed` 0 with `rows` > 0 means a renamed field. Not
+    built: G-AIRMET icing (domestic graphical AIRMETs) and CIP / FIP
+    gridded icing products. No new npm dep (esbuild `0`).
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

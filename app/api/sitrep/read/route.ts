@@ -65,7 +65,7 @@ export async function POST(req: Request) {
   const fingerprint = [
     s.status.wx, s.status.ops, s.status.threat, s.status.infra,
     s.mission.state, s.mission.limfacs.length, s.mission.ccir.length, s.mission.upcoming?.window ?? "-", s.ops.runwayCount,
-    s.weather.tafWorst?.worst ?? "-",
+    s.weather.tafWorst?.worst ?? "-", s.weather.icing?.level ?? "-", s.weather.crosswind?.level ?? "-",
     s.ops.notamCount, s.threats.news.length, s.threats.disasters.length,
   ].join("|");
   const cacheKey = `${icao}|${fingerprint}`;
@@ -95,9 +95,24 @@ export async function POST(req: Request) {
   lines.push(`RUNWAYS AT FIELD: ${o.runwayCount > 0 ? `${o.runwayCount}${o.runwayCount === 1 ? " — the ONLY runway; closing it closes the field for that window" : ""}` : "UNKNOWN (OurAirports did not answer)"}`);
   if (mi.upcoming) lines.push(`NEXT RUNWAY CLOSURE (not started): ${upcomingClosureLine(mi.upcoming)}`);
   for (const g of o.groups) for (const n of g.items.slice(0, 3)) lines.push(`NOTAM [${g.label}${n.amber ? "/LIMITING" : ""}]: ${n.text.slice(0, 160)}`);
-  const xw = o.runwayWinds.filter((r) => r.flag !== "g");
-  if (xw.length > 0) lines.push(`CROSSWIND (advisory): ${xw.map((r) => `RWY ${r.ident} cross ${r.crossKt}kt${r.gustCrossKt ? ` gust ${r.gustCrossKt}` : ""}`).join("; ")}`);
-  else if (o.runwayWinds.length > 0) lines.push(`CROSSWIND: all runway ends within advisory limits (best headwind RWY ${o.runwayWinds[0].ident})`);
+  const xo = w.crosswind;
+  if (xo) {
+    // The BEST runway is what limits the field — say it, then the 24-h peak.
+    lines.push(`CROSSWIND NOW (best runway, advisory): ${xo.now ? `RWY ${xo.now.ident} cross ${xo.now.crossKt}kt${xo.now.gustCrossKt ? ` gust ${xo.now.gustCrossKt}` : ""}, ${xo.now.headKt >= 0 ? `head ${xo.now.headKt}` : `tail ${-xo.now.headKt}`}kt` : xo.runwaysKnown ? "wind calm/variable or no METAR" : "UNKNOWN — runway headings unavailable"}`);
+    lines.push(`CROSSWIND 24H (${xo.source ?? "no forecast wind"}): ${xo.summary}`);
+  } else {
+    const xw = o.runwayWinds.filter((r) => r.flag !== "g");
+    if (xw.length > 0) lines.push(`CROSSWIND (advisory): ${xw.map((r) => `RWY ${r.ident} cross ${r.crossKt}kt${r.gustCrossKt ? ` gust ${r.gustCrossKt}` : ""}`).join("; ")}`);
+    else if (o.runwayWinds.length > 0) lines.push(`CROSSWIND: all runway ends within advisory limits (best headwind RWY ${o.runwayWinds[0].ident})`);
+  }
+  const ic = w.icing;
+  if (ic) {
+    lines.push(`ICING (field + approach to ${"10,000"} ft AGL): ${ic.level === "u" ? "UNKNOWN" : ic.level === "r" ? "OBSERVED / WARNED" : ic.level === "a" ? "EXPECTED / LIKELY" : "none indicated"} — ${ic.summary}`);
+    for (const d of ic.drivers.slice(0, 5)) lines.push(`ICING [${d.source}${d.tone === "r" ? "/RED" : d.tone === "a" ? "/AMBER" : "/NOTE"}]: ${d.text.slice(0, 220)}`);
+    if (ic.freezingLevel) lines.push(`FREEZING LEVEL (model): ${ic.freezingLevel.msl} ft MSL (${ic.freezingLevel.agl} ft AGL)`);
+    if (ic.sources.pirep === false) lines.push("PIREPS: AWC PIREP feed UNREACHABLE — UNKNOWN");
+    else if (ic.sources.pirep && !ic.pireps.length) lines.push("PIREPS: no icing PIREPs within 60 NM in 3 h (sparse outside the U.S. — not evidence of no icing)");
+  }
   const gn = s.spectrum?.pnt.notams;
   if (gn) {
     if (!gn.live) lines.push("GPS NOTAMS: DAIP GPS/WAAS list UNREACHABLE — UNKNOWN");
@@ -137,6 +152,8 @@ export async function POST(req: Request) {
     `watch = 0-3 items to re-check later. Be concrete: times in Z, runway numbers, capability terms (FMC/PMC/NMC). No hedging boilerplate; if the airfield is FMC say so plainly. ` +
     `Runways: use RUNWAYS AT FIELD exactly — never say "single-runway operations" for a field with one runway (closing its only runway closes the field for that window), and never assume a second runway when the count is unknown. ` +
     `A scheduled or works closure (construction, maintenance, a recurring NOTAM schedule) is routine: state the window plainly and recommend planning movements outside it; raise an ask only when the closure is NOT routine or the field is closed NOW. ` +
+    `Icing: ICING lines marked [model] are planning-grade conditions (temperature and humidity), not observed icing — say "conducive / likely", never "icing reported"; only METAR freezing precipitation, a SIGMET or a PIREP is observed or warned icing. Give the altitude band and window. ` +
+    `Crosswind: judge the field by the BEST runway's crosswind (CROSSWIND NOW / 24H); the bands are advisory planning numbers, never flight-manual limits; a crosswind on a contaminated (icy / freezing-precipitation) runway is the combination to call out. ` +
     `Data marked UNKNOWN means the source was unreachable — say "unknown", never assume clear or FMC.\n\n${lines.join("\n")}`;
 
   try {

@@ -162,7 +162,7 @@ export function decodeMetar(m: AwcMetar): MetarObs {
     windSpeedKt, windGustKt,
     visibilityMi, ceilingFt, tempC, dewpointC, altimeterInHg,
     pressureTendency: num(m.presTend),
-    weather, clouds,
+    weather, wxRaw: (m.wxString ?? "").trim(), clouds,
     summary: bits.join(" "),
   };
 }
@@ -194,6 +194,8 @@ export function decodeTaf(t: AwcTaf): TafReport {
       changeType: p.fcstChange ?? "",
       flightCategory: cat,
       summary: bits.join(", "),
+      windDir, windVariable: p.wdir === "VRB", windSpeedKt, windGustKt: num(p.wgst),
+      wxRaw: (p.wxString ?? "").trim(),
     };
   });
   const issued = typeof t.issueTime === "number"

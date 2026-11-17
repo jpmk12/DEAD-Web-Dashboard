@@ -4,7 +4,7 @@ import { StationWx } from "@/lib/types";
 import { decodeMetar, decodeTaf } from "@/lib/metar";
 import { fetchWithTimeout } from "@/lib/fetchTimeout";
 import { airfieldRunways } from "@/lib/ourAirports";
-import { runwayWinds } from "@/lib/sitrepSignals";
+import { bestEnd, runwayEnds } from "@/lib/crosswind";
 
 export const dynamic = "force-dynamic";
 
@@ -86,9 +86,10 @@ export async function GET(request: Request) {
       const m = stations[icao]?.metar;
       if (!m || m.windSpeedKt == null) return;
       const rws = await airfieldRunways(icao).catch(() => []);
-      const winds = runwayWinds(rws, m.windDir, m.windVariable, m.windSpeedKt, m.windGustKt);
-      // The favoured end (most headwind) is what a crew would use.
-      stations[icao].xwind = winds[0] ?? null;
+      // The BEST end — least crosswind among the ends with a headwind — the
+      // SITREP's own rule (lib/crosswind): a field is limited by its better
+      // runway, not by whichever end has the most headwind.
+      stations[icao].xwind = m.windVariable ? null : bestEnd(runwayEnds(rws), m.windDir, m.windSpeedKt, m.windGustKt);
     }));
   }
 

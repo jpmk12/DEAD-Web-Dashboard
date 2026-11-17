@@ -125,6 +125,16 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
   for (const a of p.weather.alerts) {
     weatherRows.push(row(a.lifeThreatening || a.severity === "Extreme" ? "r" : "a", `<b>${esc(a.event)}</b> [${esc(a.severity)}${a.lifeThreatening ? " / LIFE-THREAT" : ""}] — ${esc(a.headline.slice(0, 180))}`, "NWS"));
   }
+  // Icing at the field and on approach, then crosswind on the best runway.
+  const ice = p.weather.icing;
+  if (ice) {
+    weatherRows.push(row(ice.level, `<b>Icing (field + approach to 10,000 ft AGL):</b> ${esc(ice.summary)}${ice.freezingLevel ? ` · freezing level ${ice.freezingLevel.msl.toLocaleString("en-US")} ft MSL` : ""}`, "icing"));
+    for (const d of ice.drivers.slice(1, 6)) weatherRows.push(row(d.tone === "i" ? "b" : d.tone, esc(d.text), d.source));
+  }
+  const xwo = p.weather.crosswind;
+  if (xwo) {
+    weatherRows.push(row(xwo.level, `<b>Crosswind (best runway, 24 h, advisory):</b> ${xwo.now ? `now RWY ${esc(xwo.now.ident)} x${xwo.now.crossKt}${xwo.now.gustCrossKt ? `G${xwo.now.gustCrossKt}` : ""}kt · ` : ""}${esc(xwo.summary)}`, xwo.source === "model" ? "model" : "TAF"));
+  }
   if (p.weather.outlook.length > 0) {
     weatherRows.push(row("b", `Outlook: ${p.weather.outlook.map((d) => `${esc(d.date.slice(5))} ${d.hiF ?? "?"}/${d.loF ?? "?"}°F precip ${d.precipPct ?? "?"}%`).join(" · ")}`, "Open-Meteo"));
   }

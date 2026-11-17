@@ -9,6 +9,11 @@ import type { SitrepBase, TafReport, MetarObs } from "./types";
 import { getFlightCategories, getTafOutlook, CAT_RANK, type AviationWx, type TafOutlook } from "./aviationWx";
 import { decodeMetar, decodeTaf } from "./metar";
 import { fetchWithTimeout } from "./fetchTimeout";
+import { getFieldProfile, getPireps } from "./fieldWx";
+import { getSigmets } from "./mapHazards";
+import { readIcing, type IcingRead } from "./icingSignals";
+import { crosswindOutlook, type XwindOutlook } from "./crosswind";
+import { withTimeout } from "./withTimeout";
 import { getNotams, notamTimeState, type Notam } from "./notams";
 import { airfieldCapabilities, airfieldRunways, type RunwayCap } from "./ourAirports";
 import { aggregateThreats } from "./severeWeather";
@@ -114,6 +119,10 @@ export interface SitrepPayload {
     outlook: SitrepOutlookDay[];
     windDirDeg: number | null;
     windVariable: boolean;
+    /** Icing at the field and on approach (lib/icingSignals) — absent on older payloads. */
+    icing?: IcingRead | null;
+    /** Crosswind on the best runway, now and across the TAF / model 24 h (lib/crosswind). */
+    crosswind?: XwindOutlook | null;
   };
   astro: AstroData;
   ops: {
@@ -198,9 +207,13 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
 
   const cat = p.weather.now?.flightCategory ?? null;
   const tafWorst = p.weather.tafWorst?.worst ?? null;
-  const wxShort = cat
+  const ice = p.weather.icing ?? null;
+  const xwo = p.weather.crosswind ?? null;
+  const iceShort = ice && (ice.level === "r" || ice.level === "a") ? (ice.level === "r" ? "ICING" : "icing risk") : "";
+  const xwShort = xwo && (xwo.level === "r" || xwo.level === "a") && xwo.peak?.best ? `xwind ${xwo.peak.best.crossKt}${xwo.peak.best.gustCrossKt ? `G${xwo.peak.best.gustCrossKt}` : ""}kt` : "";
+  const wxShort = [cat
     ? `${cat}${tafWorst && tafWorst !== cat ? ` → ${tafWorst} fcst` : ""}`
-    : "no METAR";
+    : "no METAR", iceShort, xwShort].filter(Boolean).join(" · ");
   const limitingNotam = p.ops.groups.flatMap((g) => g.items).find((n) => n.amber);
   const opsShort = p.ops.fieldClosed ? "FIELD CLOSED (NOTAM)"
     : p.ops.closure?.next ? `field closure scheduled ${p.ops.closure.next}`
@@ -238,9 +251,13 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
   const wxClause = cat
     ? `${cat} now${tafWorst && tafWorst !== cat && CAT_RANK[tafWorst] > CAT_RANK[cat] ? `, TAF drops ${tafWorst}${tafFrom}` : ""}`
     : "no current METAR";
-  const xw = p.ops.runwayWinds.find((r) => r.flag !== "g");
-  const xwClause = xw ? `; crosswind advisory RWY ${xw.ident} (${xw.crossKt}kt${xw.gustCrossKt ? ` G${xw.gustCrossKt}` : ""})` : "";
-  const line = `${fieldClause}; ${wxClause}. ${infraShort.charAt(0).toUpperCase()}${infraShort.slice(1)}${xwClause}.`;
+  // Crosswind on the BEST runway (a field with an aligned runway is not limited
+  // by its other one); the old any-end rule only when no outlook was built.
+  const xw = xwo ? null : p.ops.runwayWinds.find((r) => r.flag !== "g");
+  const xwClause = xwo && (xwo.level === "a" || xwo.level === "r") ? `; ${xwo.summary.charAt(0).toLowerCase()}${xwo.summary.slice(1)}`
+    : xw ? `; crosswind advisory RWY ${xw.ident} (${xw.crossKt}kt${xw.gustCrossKt ? ` G${xw.gustCrossKt}` : ""})` : "";
+  const iceClause = ice && (ice.level === "r" || ice.level === "a") ? ` Icing: ${ice.summary.length > 160 ? `${ice.summary.slice(0, 159)}…` : ice.summary}.` : "";
+  const line = `${fieldClause}; ${wxClause}. ${infraShort.charAt(0).toUpperCase()}${infraShort.slice(1)}${xwClause}.${iceClause}`;
 
   return {
     icao: p.base.icao, label: p.base.label,
@@ -402,7 +419,7 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
       getInfraSources(base).catch((): SitrepInfra => ({ internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null })),
     ]);
 
-  const [runways, fuelRes, gpsRes, historyRows, manualLimfacs, gps, scales, kev, profile] = await Promise.all([
+  const [runways, fuelRes, gpsRes, historyRows, manualLimfacs, gps, scales, kev, profile, fieldProfile, pirepRes, sigmetRes] = await Promise.all([
     airfieldRunways(icao).catch(() => []),
     getFuelNotams().catch(() => null),
     getGpsNotams().catch(() => null),
@@ -412,6 +429,9 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
     getNoaaScales().catch(() => ({ live: false, now: { date: "", R: null, S: null, G: null }, outlook: [] })),
     getKev().catch(() => ({ live: false, entries: [] })),
     getMissionProfile().catch(() => null),
+    getFieldProfile(base.lat, base.lon).catch(() => null),
+    getPireps(icao).catch(() => null),
+    withTimeout(getSigmets(), 12_000),
   ]);
 
   // Center (ARTCC) enroute NOTAMs — the "what's between us and everywhere
@@ -466,6 +486,34 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
 
   const severeAlert = sitAlerts.some((a) => a.lifeThreatening || a.severity === "Extreme");
 
+  // Icing at the field and on approach, then the crosswind outlook on the
+  // best runway — freezing / frozen precipitation from the icing read is the
+  // crosswind's contamination input (lib/icingSignals, lib/crosswind).
+  const icing = readIcing({
+    nowMs: now,
+    field: { lat: base.lat, lon: base.lon },
+    metar: obs,
+    taf: rawWx.taf?.periods ?? null,
+    profile: fieldProfile,
+    sigmets: sigmetRes ? { live: sigmetRes.live, items: sigmetRes.sigmets } : null,
+    pireps: pirepRes ? { live: pirepRes.live, items: pirepRes.items } : null,
+  });
+  const crosswind = crosswindOutlook({
+    nowMs: now,
+    runways,
+    metar: obs ? { windDir: obs.windDir, windVariable: obs.windVariable, windSpeedKt: obs.windSpeedKt ?? nowWx?.windKt ?? null, windGustKt: obs.windGustKt ?? nowWx?.gustKt ?? null } : null,
+    taf: rawWx.taf?.periods ?? null,
+    model: fieldProfile?.live ? fieldProfile.hours.map((h) => ({ t: h.t, windDir: h.windDir, windKt: h.windKt, gustKt: h.gustKt })) : null,
+    contamination: icing.contaminationWindows,
+  });
+  // The weather LED earns colour from icing and crosswind too; their own
+  // UNKNOWN is said on their rows and never greys a live METAR's LED.
+  const wxBase = wxLed(nowWx?.flightCategory ?? null, tafWorst?.worst ?? null, sitAlerts.length, severeAlert);
+  // Only amber / red raise it — a green or UNKNOWN icing / crosswind read
+  // never changes what the METAR and TAF said.
+  const raise = (acc: Led, l: Led): Led => ((l === "a" || l === "r") && LED_RANK[l] > LED_RANK[acc] ? l : acc);
+  const wxStatus = raise(raise(wxBase, icing.level), crosswind.level);
+
   // ── Spectrum at the field ──
   const spec = profile?.spectrum ?? { polarRoutes: false, satcom: "", edgeVendors: [], spaceActivity: true };
   const raim = baseNotams.filter((n) => n.category === "gps_raim").map((n) => n.text.slice(0, 160));
@@ -497,7 +545,7 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
     base,
     generatedAt: new Date(now).toISOString(),
     status: {
-      wx: wxLed(nowWx?.flightCategory ?? null, tafWorst?.worst ?? null, sitAlerts.length, severeAlert),
+      wx: wxStatus,
       ops: opsLed(notams.configured, notams.live, limiting, fieldClosed),
       threat: threatLed(fp?.composite ?? null),
       infra: infraLed(
@@ -519,6 +567,8 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
       outlook,
       windDirDeg: obs?.windDir ?? null,
       windVariable: Boolean(obs?.windVariable),
+      icing,
+      crosswind,
     },
     astro: astroData(base.lat, base.lon, now),
     ops: {

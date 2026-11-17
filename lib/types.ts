@@ -346,6 +346,8 @@ export interface MetarObs {
   altimeterInHg: number | null;
   pressureTendency: number | null; // 3-hr pressure change (sign = rising/falling)
   weather: string;           // decoded present-weather phrase ("light rain, mist")
+  /** The raw present-weather codes ("-FZRA BR") — what the icing read matches. */
+  wxRaw?: string;
   clouds: { cover: string; baseFt: number | null }[];
   summary: string;           // plain-English one-liner
 }
@@ -356,6 +358,12 @@ export interface TafPeriod {
   changeType: string;        // "" | "BECMG" | "TEMPO" | "FM" | "PROB30" ...
   flightCategory: FlightCategory;
   summary: string;           // plain-English line for this period
+  /** The period's wind (crosswind outlook) and raw weather codes (icing read). */
+  windDir?: number | null;
+  windVariable?: boolean;
+  windSpeedKt?: number | null;
+  windGustKt?: number | null;
+  wxRaw?: string;
 }
 
 export interface TafReport {

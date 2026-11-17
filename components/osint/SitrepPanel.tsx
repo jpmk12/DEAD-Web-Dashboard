@@ -13,6 +13,7 @@ import { LED_CLASS as LED_BG, LED_GLOW } from "@/lib/levelTokens";
 import { fieldChatterLine } from "@/lib/mobilityChatter";
 import { relTime } from "@/lib/relTime";
 import { fieldGpsLine, prnLine } from "@/lib/gpsNotams";
+import IcingCrosswind from "@/components/osint/IcingCrosswind";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
 // LEDs carry the glow on top.
@@ -303,6 +304,8 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
     md.push(`\n## Weather`);
     if (p.weather.metarRaw) md.push(`\`${p.weather.metarRaw}\``);
     if (p.weather.tafWorst) md.push(`- TAF worst (24h): **${p.weather.tafWorst.worst}**`);
+    if (p.weather.icing) md.push(`- Icing (field + approach): **${p.weather.icing.level === "r" ? "OBSERVED / WARNED" : p.weather.icing.level === "a" ? "EXPECTED" : p.weather.icing.level === "u" ? "UNKNOWN" : "none indicated"}** — ${p.weather.icing.summary}`);
+    if (p.weather.crosswind) md.push(`- Crosswind (best runway, 24 h, advisory): ${p.weather.crosswind.summary}`);
     for (const a of p.weather.alerts) md.push(`- [${a.severity}] ${a.event} — ${a.headline}`);
     for (const d of p.weather.outlook) md.push(`- ${d.date}: ${d.hiF ?? "?"}/${d.loF ?? "?"}°F, precip ${d.precipPct ?? "?"}%, wind ${d.windMph ?? "?"} mph`);
     md.push(`\n## Ops`);
@@ -601,6 +604,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                   <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">Verified</span>{payload.weather.tafSkill.label}
                 </p>
               )}
+              <IcingCrosswind icing={payload.weather.icing ?? null} crosswind={payload.weather.crosswind ?? null} />
               {payload.weather.alerts.map((a, i) => (
                 <Row key={i} sev={a.lifeThreatening || a.severity === "Extreme" ? "r" : "a"} src="NWS">
                   <b className="text-slate-100">{a.event}</b>{a.headline ? <span className="text-slate-400"> — {a.headline.slice(0, 120)}</span> : null}
