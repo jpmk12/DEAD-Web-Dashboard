@@ -51,7 +51,7 @@ export default function IcingCrosswind({ icing, crosswind }: { icing: IcingRead 
             approach = field to 10,000 ft AGL, 30 NM · sources:{" "}
             {[
               ["METAR", icing.sources.metar],
-              ["TAF", icing.sources.taf],
+              [icing.militaryTaf ? "TAF (military icing groups)" : "TAF", icing.sources.taf],
               ["model", icing.sources.model],
               ["SIGMET", icing.sources.sigmet],
               ["PIREP", icing.sources.pirep],

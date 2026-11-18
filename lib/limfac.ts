@@ -291,10 +291,10 @@ export function deriveMissionImpact(p: SitrepPayload, manual: ManualLimfac[] = [
       const drv = navaidWin ? `${navaidWin.label} U/S` : "NAVAID/approach U/S";
       const id = push({ fn: "all_weather_night", capability: "pmc", window: win, driver: drv, impact: "Approach unavailable (VFR — not currently required); night/instrument capability reduced." });
       addFn("all_weather_night", "pmc", `${drv} (VFR — not required now)`, win, [id]);
-    } else if ((p.weather.icing?.sigmets ?? []).some((x) => x.inEffect)) {
+    } else if ((p.weather.icing?.sigmets ?? []).some((x) => x.inEffect && !x.unplaced)) {
       // A SIGMET icing is severe icing; one in effect over the approach band
       // limits who can fly the approach, whatever the ceiling.
-      const sg = p.weather.icing!.sigmets.find((x) => x.inEffect)!;
+      const sg = p.weather.icing!.sigmets.find((x) => x.inEffect && !x.unplaced)!;
       const win = sg.toMs ? `until ${new Date(sg.toMs).toISOString().slice(11, 16).replace(":", "")}Z` : null;
       const id = push({ fn: "all_weather_night", capability: "pmc", window: win, driver: "SIGMET icing over the approach", impact: "Severe icing forecast in the approach band — aircraft not certified for known icing cannot fly the approach; certified aircraft should minimise time in it.", mitigation: "Plan descents above / below the band where possible; brief anti-ice use; pre-coordinate an alternate outside the area.", ccir: true });
       addFn("all_weather_night", "pmc", `SIGMET icing over the approach${win ? ` ${win}` : ""}`, win, [id]);

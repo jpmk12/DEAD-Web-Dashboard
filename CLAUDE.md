@@ -1963,6 +1963,39 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     `rawFirst`. `parsed` 0 with `rows` > 0 means a renamed field. Not
     built: G-AIRMET icing (domestic graphical AIRMETs) and CIP / FIP
     gridded icing products. No new npm dep (esbuild `0`).
+  - **Overseas fields (2026-11-18, "make this work for my overseas bases like
+    ETAD")**. METAR, TAF, the Open-Meteo profile, OurAirports runways and the
+    AWC international SIGMETs were already global; PIREPs are sparse abroad
+    and the read says so. Two additions:
+    **Military TAF icing groups** — `lib/tafGroups.ts` (PURE, tested in
+    `tests/tafGroups.test.ts`): a U.S. military TAF (USAF / Army fields
+    abroad) carries `6IchhhT` (Ic 0 trace · 1–3 light · 4–6 moderate · 7–9
+    severe, each mixed / rime in cloud / clear in precipitation; hhh base in
+    hundreds of ft AGL; t thickness in thousands of ft, 0 = not stated). AWC's
+    decoded JSON drops it, so `parseTafHazards(raw, issued, now)` reads the
+    RAW TAF: header (TAF [AMD|COR] ICAO DDHHMMZ DDHH/DDHH; day + hour placed
+    in the month nearest the issue time, so a month rollover works), change
+    groups → windows (FM and BECMG are prevailing and run to the next
+    prevailing change — a BECMG from the START of its window; TEMPO / PROBnn
+    [TEMPO] are overlays, labelled), RMK ignored, a group whose time cannot be
+    placed dropped. `military` = `QNH….INS` or any 6 / 5 group — only then
+    does a missing icing group mean "none forecast". `readIcing` takes
+    `tafRaw` / `tafIssued`: groups inside 24 h with a base in the approach
+    band become TAF drivers — **moderate / severe AMBER, light a note, never
+    red** (a TAF is a forecast; red stays observed or warned), severe first,
+    "(military icing group 620304)" quoted; a quiet read on a military TAF
+    says "the military TAF forecasts no icing group". `IcingRead.tafGroups`,
+    `.militaryTaf`; the card's source line reads "TAF (military icing
+    groups)"; the Commander's Read is told a [TAF] icing line is the weather
+    flight's own forecast (say "forecast", prefer it to the model).
+    **SIGMET with no readable area** ("ENTIRE FIR", no coordinates): named
+    as a NOTE when its FIR is in the field's region (`firFamily`: the ICAO
+    two-letter prefix plus ET↔ED, RO↔RJ, OT↔OB; never for K fields), with
+    `unplaced: true` — it never colours and never drives the All-Weather PMC
+    (`limfac.ts` skips it). `/api/sitrep/icing-diag?icao=ETAD` now also
+    returns the raw TAF, `military` and the groups read from it. Not built:
+    military turbulence groups (`5BhhhT`, recognised only as a military
+    marker). No new npm dep (esbuild `0`).
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

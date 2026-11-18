@@ -36,6 +36,7 @@
 import { haversineKm } from "./geoMath";
 import type { MetarObs, TafPeriod } from "./types";
 import type { Sigmet } from "./sigmetParse";
+import { parseTafHazards, icingGroupLabel, type TafIcingGroup } from "./tafGroups";
 
 export const APPROACH_TOP_AGL_FT = 10_000;
 export const APPROACH_RADIUS_NM = 30;
@@ -242,14 +243,38 @@ function insideRing(p: LatLonPt, ring: [number, number][]): boolean {
   return inside;
 }
 
-export interface SigmetIcing { line: string; inEffect: boolean; covers: boolean; fromMs: number | null; toMs: number | null; baseFt: number | null; topFt: number | null }
+export interface SigmetIcing {
+  line: string; inEffect: boolean; covers: boolean; fromMs: number | null; toMs: number | null; baseFt: number | null; topFt: number | null;
+  /** Issued for the field's region but with no area the app can read — named, never placed, never colours. */
+  unplaced?: boolean;
+}
+
+/** ICAO location-indicator prefixes that share a country's FIRs (a German military field is ET…, its FIRs ED…). */
+const PREFIX_FAMILY: Record<string, string[]> = { ET: ["ED"], ED: ["ET"], RO: ["RJ"], RJ: ["RO"], OT: ["OB"], OB: ["OT"] };
+export function firFamily(fieldIcao: string | null | undefined): string[] {
+  const p = (fieldIcao ?? "").trim().toUpperCase().slice(0, 2);
+  return /^[A-Z]{2}$/.test(p) && !p.startsWith("K") ? [p, ...(PREFIX_FAMILY[p] ?? [])] : [];
+}
 
 /** SIGMET icing over the field (inside) or near it (a vertex within the approach radius), whose levels reach the approach band. */
-export function sigmetIcing(sigmets: Sigmet[], field: LatLonPt, elevFt: number, nowMs: number, horizonH = 12): SigmetIcing[] {
+export function sigmetIcing(sigmets: Sigmet[], field: LatLonPt, elevFt: number, nowMs: number, horizonH = 12, fieldIcao: string | null = null): SigmetIcing[] {
   const out: SigmetIcing[] = [];
   const bandTop = elevFt + APPROACH_TOP_AGL_FT;
+  const family = firFamily(fieldIcao);
   for (const s of sigmets) {
-    if (s.hazard !== "icing" || !s.points.length) continue;
+    if (s.hazard !== "icing") continue;
+    if (!s.points.length) {
+      // No readable area: name it only when the issuing FIR is in the field's own region.
+      const fir = /^[A-Z]{4}/.exec((s.fir ?? "").trim().toUpperCase())?.[0] ?? "";
+      if (!family.length || !family.includes(fir.slice(0, 2))) continue;
+      const f = s.fromISO ? Date.parse(s.fromISO) : null, t = s.toISO ? Date.parse(s.toISO) : null;
+      if ((t != null && t <= nowMs) || (f != null && f > nowMs + horizonH * 3_600_000)) continue;
+      out.push({
+        line: `SIGMET icing in ${fir} FIR with no area the app can read${/ENTIRE FIR/.test(s.raw.toUpperCase()) ? " (ENTIRE FIR)" : ""} — not placed against the field; read the SIGMET`,
+        inEffect: f == null || f <= nowMs, covers: false, fromMs: f, toMs: t, baseFt: s.baseFt, topFt: s.topFt, unplaced: true,
+      });
+      continue;
+    }
     const from = s.fromISO ? Date.parse(s.fromISO) : null;
     const to = s.toISO ? Date.parse(s.toISO) : null;
     if (to != null && to <= nowMs) continue;
@@ -350,6 +375,11 @@ export interface IcingInputs {
   field: LatLonPt;
   metar: Pick<MetarObs, "tempC" | "dewpointC" | "clouds" | "wxRaw"> | null;
   taf: TafPeriod[] | null;
+  /** The raw TAF and its issue time — read for U.S. military icing groups (6IchhhT). */
+  tafRaw?: string | null;
+  tafIssued?: string | null;
+  /** The field's ICAO — places a SIGMET with no readable area by its FIR's region. */
+  icao?: string | null;
   profile: FieldProfile | null;
   sigmets: { live: boolean; items: Sigmet[] } | null;
   pireps: { live: boolean; items: Pirep[] } | null;
@@ -362,6 +392,10 @@ export interface IcingRead {
   drivers: IcingDriver[];
   windows: IcingWindow[];
   tafWindows: TafIcingWindow[];
+  /** Military TAF icing groups inside the next 24 h (base inside the approach band). */
+  tafGroups: TafIcingGroup[];
+  /** The TAF is a U.S. military TAF — the absence of an icing group is the forecaster saying none. */
+  militaryTaf: boolean;
   sigmets: SigmetIcing[];
   pireps: PirepNear[];
   /** Freezing level now (model), feet MSL and AGL. */
@@ -409,6 +443,24 @@ export function readIcing(i: IcingInputs): IcingRead {
     drivers.push({ tone: "a", source: "TAF", text: `TAF ${w.change ? `${w.change} ` : ""}${w.what} ${win(w.fromMs, w.toMs)}` });
     if (w.freezing || /pellets/.test(w.what)) contamination.push({ fromMs: w.fromMs, toMs: w.toMs, what: `${w.what} (TAF)` });
   }
+  // 2b. Military TAF icing groups — the forecaster's own icing statement.
+  // A forecast, so never red (red is observed or warned); moderate / severe
+  // amber, light a note; severe leads.
+  const hz = i.tafRaw ? parseTafHazards(i.tafRaw, i.tafIssued ?? null, now) : null;
+  const militaryTaf = Boolean(hz?.military);
+  const horizon = now + 24 * 3_600_000;
+  const INT_ORDER = { severe: 0, moderate: 1, light: 2, trace: 3 } as const;
+  const tafGroups = (hz?.groups ?? [])
+    .filter((g) => g.toMs > now && g.fromMs < horizon && g.intensity !== "trace" && g.baseFtAgl <= APPROACH_TOP_AGL_FT)
+    .map((g) => ({ ...g, fromMs: Math.max(g.fromMs, now), toMs: Math.min(g.toMs, horizon) }))
+    .sort((a, b) => INT_ORDER[a.intensity] - INT_ORDER[b.intensity] || a.fromMs - b.fromMs);
+  for (const g of tafGroups.slice(0, 4)) {
+    const inEffect = g.fromMs <= now;
+    drivers.push({
+      tone: g.intensity === "light" ? "i" : "a", source: "TAF",
+      text: `TAF ${g.change ? `${g.change} ` : ""}forecasts ${g.intensity === "severe" ? icingGroupLabel(g).replace(/^severe/, "SEVERE") : icingGroupLabel(g)} ${inEffect ? `now–${hhmm(g.toMs)}` : win(g.fromMs, g.toMs)} (military icing group ${g.code})`,
+    });
+  }
 
   // 3. Model profile
   const modelLive = Boolean(i.profile?.live && elevM != null);
@@ -436,8 +488,9 @@ export function readIcing(i: IcingInputs): IcingRead {
   }
 
   // 4. SIGMET
-  const sig = i.sigmets?.live ? sigmetIcing(i.sigmets.items, i.field, elevFt ?? 0, now) : [];
+  const sig = i.sigmets?.live ? sigmetIcing(i.sigmets.items, i.field, elevFt ?? 0, now, 12, i.icao ?? null) : [];
   for (const s of sig) {
+    if (s.unplaced) { drivers.push({ tone: "i", source: "SIGMET", text: s.line }); continue; }
     drivers.push({ tone: s.inEffect ? "r" : "a", source: "SIGMET", text: s.inEffect ? `${s.line} — in effect${s.toMs ? ` until ${hhmm(s.toMs)}` : ""} (a SIGMET icing is severe icing)` : `${s.line} — from ${s.fromMs ? hhmm(s.fromMs) : "?"}` });
   }
 
@@ -458,10 +511,10 @@ export function readIcing(i: IcingInputs): IcingRead {
   const summary = level === "u" ? "Icing UNKNOWN — neither the METAR nor the model profile answered"
     : drivers[0] && drivers[0].tone !== "i" ? drivers[0].text
     : drivers[0] ? `No icing expected inside 12 h; ${drivers[0].text.charAt(0).toLowerCase()}${drivers[0].text.slice(1)}`
-    : `No icing indicated at the field or on approach${negOnly ? " · a PIREP reported no icing nearby" : ""}${freezingLevel ? ` · freezing level ${freezingLevel.msl.toLocaleString("en-US")} ft MSL` : ""}`;
+    : `No icing indicated at the field or on approach${militaryTaf && !tafGroups.length ? " · the military TAF forecasts no icing group" : ""}${negOnly ? " · a PIREP reported no icing nearby" : ""}${freezingLevel ? ` · freezing level ${freezingLevel.msl.toLocaleString("en-US")} ft MSL` : ""}`;
 
   return {
-    level, summary, drivers, windows, tafWindows, sigmets: sig, pireps: near, freezingLevel,
+    level, summary, drivers, windows, tafWindows, tafGroups, militaryTaf, sigmets: sig, pireps: near, freezingLevel,
     contaminationWindows: contamination,
     sources: { metar: metarLive, taf: tafLive, model: modelLive, sigmet: i.sigmets ? i.sigmets.live : null, pirep: i.pireps ? i.pireps.live : null },
     elevFt,

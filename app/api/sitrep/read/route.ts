@@ -109,6 +109,7 @@ export async function POST(req: Request) {
   if (ic) {
     lines.push(`ICING (field + approach to ${"10,000"} ft AGL): ${ic.level === "u" ? "UNKNOWN" : ic.level === "r" ? "OBSERVED / WARNED" : ic.level === "a" ? "EXPECTED / LIKELY" : "none indicated"} — ${ic.summary}`);
     for (const d of ic.drivers.slice(0, 5)) lines.push(`ICING [${d.source}${d.tone === "r" ? "/RED" : d.tone === "a" ? "/AMBER" : "/NOTE"}]: ${d.text.slice(0, 220)}`);
+    if (ic.militaryTaf && !(ic.tafGroups ?? []).length) lines.push("TAF ICING GROUPS: military TAF — the forecaster wrote no icing group for the next 24 h");
     if (ic.freezingLevel) lines.push(`FREEZING LEVEL (model): ${ic.freezingLevel.msl} ft MSL (${ic.freezingLevel.agl} ft AGL)`);
     if (ic.sources.pirep === false) lines.push("PIREPS: AWC PIREP feed UNREACHABLE — UNKNOWN");
     else if (ic.sources.pirep && !ic.pireps.length) lines.push("PIREPS: no icing PIREPs within 60 NM in 3 h (sparse outside the U.S. — not evidence of no icing)");
@@ -152,7 +153,7 @@ export async function POST(req: Request) {
     `watch = 0-3 items to re-check later. Be concrete: times in Z, runway numbers, capability terms (FMC/PMC/NMC). No hedging boilerplate; if the airfield is FMC say so plainly. ` +
     `Runways: use RUNWAYS AT FIELD exactly — never say "single-runway operations" for a field with one runway (closing its only runway closes the field for that window), and never assume a second runway when the count is unknown. ` +
     `A scheduled or works closure (construction, maintenance, a recurring NOTAM schedule) is routine: state the window plainly and recommend planning movements outside it; raise an ask only when the closure is NOT routine or the field is closed NOW. ` +
-    `Icing: ICING lines marked [model] are planning-grade conditions (temperature and humidity), not observed icing — say "conducive / likely", never "icing reported"; only METAR freezing precipitation, a SIGMET or a PIREP is observed or warned icing. Give the altitude band and window. ` +
+    `Icing: ICING lines marked [model] are planning-grade conditions (temperature and humidity), not observed icing — say "conducive / likely", never "icing reported"; only METAR freezing precipitation, a SIGMET or a PIREP is observed or warned icing. An ICING [TAF] line quoting a military icing group is the base weather flight's own FORECAST — say "forecast", give its layer and window, and prefer it to the model where they disagree. Give the altitude band and window. ` +
     `Crosswind: judge the field by the BEST runway's crosswind (CROSSWIND NOW / 24H); the bands are advisory planning numbers, never flight-manual limits; a crosswind on a contaminated (icy / freezing-precipitation) runway is the combination to call out. ` +
     `Data marked UNKNOWN means the source was unreachable — say "unknown", never assume clear or FMC.\n\n${lines.join("\n")}`;
 
