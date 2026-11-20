@@ -3,7 +3,7 @@
 // already on the app's host list:
 //   - Open-Meteo pressure-level forecast at the field (temperature, relative
 //     humidity and geopotential height at 1000–600 hPa, freezing level, the
-//     weather code and the 10-m wind in knots), hourly, UTC, 36 h.
+//     weather code and the 10-m wind in knots), hourly, UTC, 4 days (icing reads 30 h; the 72-h outlook reads the rest).
 //   - AWC PIREPs within 100 statute miles of the ICAO, last 3 h.
 // Cached 30 min (profile, per rounded point) and 10 min (PIREPs, per ICAO);
 // a failed read is held 2 min; every read is fail-safe → `live:false` with the
@@ -20,8 +20,8 @@ const FAIL_TTL = 2 * 60_000;
 export function fieldProfileUrl(lat: number, lon: number): string {
   const lv = PROFILE_LEVELS.flatMap((p) => [`temperature_${p}hPa`, `relative_humidity_${p}hPa`, `geopotential_height_${p}hPa`]);
   return `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
-    `&hourly=${["temperature_2m", "freezing_level_height", "weather_code", "precipitation", "wind_direction_10m", "wind_speed_10m", "wind_gusts_10m", ...lv].join(",")}` +
-    `&wind_speed_unit=kn&timezone=GMT&forecast_days=2`;
+    `&hourly=${["temperature_2m", "freezing_level_height", "weather_code", "precipitation", "wind_direction_10m", "wind_speed_10m", "wind_gusts_10m", "cloud_cover", "visibility", "precipitation_probability", ...lv].join(",")}` +
+    `&wind_speed_unit=kn&timezone=GMT&forecast_days=4`;
 }
 
 export function pirepUrl(icao: string): string {

@@ -36,12 +36,39 @@ export interface TafIcingGroup {
   change: string;
 }
 
+/** U.S. military turbulence group 5BhhhT (WMO 0300 B, hhh base hundreds ft AGL, t thickness thousands ft). */
+export type TafTurbIntensity = "none" | "light" | "moderate" | "severe" | "extreme";
+export interface TafTurbGroup {
+  code: string;
+  intensity: TafTurbIntensity;
+  where: "clear air" | "in cloud" | null;
+  frequency: "occasional" | "frequent" | null;
+  baseFtAgl: number;
+  topFtAgl: number | null;
+  fromMs: number;
+  toMs: number;
+  change: string;
+}
+
+/** Low-level wind shear group WShhh/dddffKT (civil and military TAFs alike). */
+export interface TafShearGroup {
+  code: string;
+  heightFtAgl: number;
+  windDir: number;
+  windKt: number;
+  fromMs: number;
+  toMs: number;
+  change: string;
+}
+
 export interface TafHazards {
   /** The header (ICAO + validity) was read. */
   ok: boolean;
   /** A U.S. military TAF (QNH…INS, or any 6/5 group) — only then does an absent icing group mean "none forecast". */
   military: boolean;
   groups: TafIcingGroup[];
+  turbulence: TafTurbGroup[];
+  shear: TafShearGroup[];
   validFromMs: number | null;
   validToMs: number | null;
 }
@@ -50,7 +77,8 @@ const ICING_INT: TafIcingIntensity[] = ["trace", "light", "light", "light", "mod
 const ICING_TYPE: (string | null)[] = [null, "mixed", "rime in cloud", "clear in precipitation", "mixed", "rime in cloud", "clear in precipitation", "mixed", "rime in cloud", "clear in precipitation"];
 
 const ICE_RX = /^6(\d)(\d{3})(\d)$/;
-const TURB_RX = /^5[\dX]\d{4}$/;
+const TURB_RX = /^5([\dX])(\d{3})(\d)$/;
+const WS_RX = /^WS(\d{3})\/(\d{3})(\d{2,3})KT$/;
 const WINDOW_RX = /^(\d{2})(\d{2})\/(\d{2})(\d{2})$/;
 const FM_RX = /^FM(\d{2})(\d{2})(\d{2})$/;
 const ISSUE_RX = /^(\d{2})(\d{2})(\d{2})Z$/;
@@ -61,6 +89,29 @@ export function decodeIcingGroup(token: string): Omit<TafIcingGroup, "fromMs" | 
   if (!m) return null;
   const ic = Number(m[1]), base = Number(m[2]) * 100, t = Number(m[3]);
   return { code: token, intensity: ICING_INT[ic], type: ICING_TYPE[ic], baseFtAgl: base, topFtAgl: t > 0 ? base + t * 1000 : null };
+}
+
+const TURB_TABLE: Record<string, [TafTurbIntensity, TafTurbGroup["where"], TafTurbGroup["frequency"]]> = {
+  "0": ["none", null, null], "1": ["light", null, null],
+  "2": ["moderate", "clear air", "occasional"], "3": ["moderate", "clear air", "frequent"],
+  "4": ["moderate", "in cloud", "occasional"], "5": ["moderate", "in cloud", "frequent"],
+  "6": ["severe", "clear air", "occasional"], "7": ["severe", "clear air", "frequent"],
+  "8": ["severe", "in cloud", "occasional"], "9": ["severe", "in cloud", "frequent"],
+  X: ["extreme", null, null],
+};
+
+export function decodeTurbGroup(token: string): Omit<TafTurbGroup, "fromMs" | "toMs" | "change"> | null {
+  const m = TURB_RX.exec(token);
+  if (!m) return null;
+  const [intensity, where, frequency] = TURB_TABLE[m[1]];
+  const base = Number(m[2]) * 100, t = Number(m[3]);
+  return { code: token, intensity, where, frequency, baseFtAgl: base, topFtAgl: t > 0 ? base + t * 1000 : null };
+}
+
+export function decodeShearGroup(token: string): Omit<TafShearGroup, "fromMs" | "toMs" | "change"> | null {
+  const m = WS_RX.exec(token);
+  if (!m) return null;
+  return { code: token, heightFtAgl: Number(m[1]) * 100, windDir: Number(m[2]), windKt: Number(m[3]) };
 }
 
 /** Day + hour (+ minute) placed in the month nearest the reference instant; null when the day cannot exist. */
@@ -81,7 +132,7 @@ export function placeDayHour(dd: number, hh: number, mm: number, refMs: number):
 interface Seg { change: string; prevailing: boolean; fromMs: number | null; toMs: number | null; tokens: string[] }
 
 export function parseTafHazards(raw: string | null | undefined, issuedISO: string | null | undefined, nowMs: number): TafHazards {
-  const empty: TafHazards = { ok: false, military: false, groups: [], validFromMs: null, validToMs: null };
+  const empty: TafHazards = { ok: false, military: false, groups: [], turbulence: [], shear: [], validFromMs: null, validToMs: null };
   if (!raw || !raw.trim()) return empty;
   const text = raw.replace(/\s+/g, " ").trim().split(/ RMK /)[0];
   const military = /\bQNH\d{4}INS\b/.test(text);
@@ -144,22 +195,35 @@ export function parseTafHazards(raw: string | null | undefined, issuedISO: strin
   });
 
   const groups: TafIcingGroup[] = [];
+  const turbulence: TafTurbGroup[] = [];
+  const shear: TafShearGroup[] = [];
   let anyMil = military;
   for (const s of segs) {
+    const placed = s.fromMs != null && s.toMs != null && s.toMs > s.fromMs; // unplaced → dropped, never guessed
+    const when = placed ? { fromMs: s.fromMs!, toMs: Math.min(s.toMs!, vTo), change: s.change } : null;
     for (const tok of s.tokens) {
-      if (TURB_RX.test(tok)) { anyMil = true; continue; }
+      const tb = decodeTurbGroup(tok);
+      if (tb) { anyMil = true; if (when) turbulence.push({ ...tb, ...when }); continue; }
+      const ws = decodeShearGroup(tok);
+      if (ws) { if (when) shear.push({ ...ws, ...when }); continue; }
       const g = decodeIcingGroup(tok);
       if (!g) continue;
       anyMil = true;
-      if (s.fromMs == null || s.toMs == null || s.toMs <= s.fromMs) continue; // unplaced → dropped, never guessed
-      groups.push({ ...g, fromMs: s.fromMs, toMs: Math.min(s.toMs, vTo), change: s.change });
+      if (when) groups.push({ ...g, ...when });
     }
   }
-  return { ok: true, military: anyMil, groups, validFromMs: vFrom, validToMs: vTo };
+  return { ok: true, military: anyMil, groups, turbulence, shear, validFromMs: vFrom, validToMs: vTo };
 }
 
 export function icingGroupLabel(g: Pick<TafIcingGroup, "intensity" | "type" | "baseFtAgl" | "topFtAgl">): string {
   const ft = (f: number) => (f <= 0 ? "SFC" : `${f.toLocaleString("en-US")} ft`);
   const layer = g.topFtAgl != null ? `${ft(g.baseFtAgl)}–${ft(g.topFtAgl)} AGL` : `from ${ft(g.baseFtAgl)} AGL (thickness not stated)`;
   return `${g.intensity}${g.type ? ` ${g.type}` : ""} icing ${layer}`;
+}
+
+export function turbGroupLabel(g: Pick<TafTurbGroup, "intensity" | "where" | "frequency" | "baseFtAgl" | "topFtAgl">): string {
+  const ft = (f: number) => (f <= 0 ? "SFC" : `${f.toLocaleString("en-US")} ft`);
+  const layer = g.topFtAgl != null ? `${ft(g.baseFtAgl)}–${ft(g.topFtAgl)} AGL` : `from ${ft(g.baseFtAgl)} AGL (thickness not stated)`;
+  const qual = [g.frequency, g.where].filter(Boolean).join(" ");
+  return `${g.intensity} turbulence${qual ? ` (${qual})` : ""} ${layer}`;
 }

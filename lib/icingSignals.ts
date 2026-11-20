@@ -74,6 +74,10 @@ export interface ProfileHour {
   windDir: number | null;
   windKt: number | null;
   gustKt: number | null;
+  /** The 72-h outlook's columns (absent in older cached profiles). */
+  cloudPct?: number | null;
+  visM?: number | null;
+  precipPct?: number | null;
   levels: ProfileLevel[];
 }
 export interface FieldProfile { live: boolean; elevationM: number | null; hours: ProfileHour[]; reason: string | null }
@@ -110,6 +114,9 @@ export function parseFieldProfile(json: unknown): FieldProfile {
       windDir: col("wind_direction_10m", i),
       windKt: col("wind_speed_10m", i),
       gustKt: col("wind_gusts_10m", i),
+      cloudPct: col("cloud_cover", i),
+      visM: col("visibility", i),
+      precipPct: col("precipitation_probability", i),
       levels: levels.sort((a, b) => a.heightM - b.heightM),
     });
   }
@@ -258,11 +265,16 @@ export function firFamily(fieldIcao: string | null | undefined): string[] {
 
 /** SIGMET icing over the field (inside) or near it (a vertex within the approach radius), whose levels reach the approach band. */
 export function sigmetIcing(sigmets: Sigmet[], field: LatLonPt, elevFt: number, nowMs: number, horizonH = 12, fieldIcao: string | null = null): SigmetIcing[] {
+  return sigmetsNear(sigmets, "icing", field, elevFt, nowMs, horizonH, fieldIcao);
+}
+
+/** The same geometry for any SIGMET hazard (turbulence reads it too). */
+export function sigmetsNear(sigmets: Sigmet[], hazard: Sigmet["hazard"], field: LatLonPt, elevFt: number, nowMs: number, horizonH = 12, fieldIcao: string | null = null): SigmetIcing[] {
   const out: SigmetIcing[] = [];
   const bandTop = elevFt + APPROACH_TOP_AGL_FT;
   const family = firFamily(fieldIcao);
   for (const s of sigmets) {
-    if (s.hazard !== "icing") continue;
+    if (s.hazard !== hazard) continue;
     if (!s.points.length) {
       // No readable area: name it only when the issuing FIR is in the field's own region.
       const fir = /^[A-Z]{4}/.exec((s.fir ?? "").trim().toUpperCase())?.[0] ?? "";
@@ -270,7 +282,7 @@ export function sigmetIcing(sigmets: Sigmet[], field: LatLonPt, elevFt: number, 
       const f = s.fromISO ? Date.parse(s.fromISO) : null, t = s.toISO ? Date.parse(s.toISO) : null;
       if ((t != null && t <= nowMs) || (f != null && f > nowMs + horizonH * 3_600_000)) continue;
       out.push({
-        line: `SIGMET icing in ${fir} FIR with no area the app can read${/ENTIRE FIR/.test(s.raw.toUpperCase()) ? " (ENTIRE FIR)" : ""} — not placed against the field; read the SIGMET`,
+        line: `SIGMET ${hazard} in ${fir} FIR with no area the app can read${/ENTIRE FIR/.test(s.raw.toUpperCase()) ? " (ENTIRE FIR)" : ""} — not placed against the field; read the SIGMET`,
         inEffect: f == null || f <= nowMs, covers: false, fromMs: f, toMs: t, baseFt: s.baseFt, topFt: s.topFt, unplaced: true,
       });
       continue;
@@ -285,7 +297,7 @@ export function sigmetIcing(sigmets: Sigmet[], field: LatLonPt, elevFt: number, 
     if (!near) continue;
     const lv = s.baseFt != null || s.topFt != null ? `${s.baseFt == null ? "?" : s.baseFt === 0 ? "SFC" : `${s.baseFt.toLocaleString("en-US")} ft`}–${s.topFt == null ? "?" : s.topFt >= 18000 ? `FL${Math.round(s.topFt / 100)}` : `${s.topFt.toLocaleString("en-US")} ft`}` : "levels not stated";
     out.push({
-      line: `SIGMET icing${s.qualifier ? ` (${s.qualifier})` : ""} ${covers ? "over the field" : "within 30 NM"} · ${lv}${s.fir ? ` · ${s.fir}` : ""}`,
+      line: `SIGMET ${hazard}${s.qualifier ? ` (${s.qualifier})` : ""} ${covers ? "over the field" : "within 30 NM"} · ${lv}${s.fir ? ` · ${s.fir}` : ""}`,
       inEffect: from == null || from <= nowMs, covers, fromMs: from, toMs: to, baseFt: s.baseFt, topFt: s.topFt,
     });
   }

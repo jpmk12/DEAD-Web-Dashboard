@@ -1993,9 +1993,57 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     two-letter prefix plus ET↔ED, RO↔RJ, OT↔OB; never for K fields), with
     `unplaced: true` — it never colours and never drives the All-Weather PMC
     (`limfac.ts` skips it). `/api/sitrep/icing-diag?icao=ETAD` now also
-    returns the raw TAF, `military` and the groups read from it. Not built:
-    military turbulence groups (`5BhhhT`, recognised only as a military
-    marker). No new npm dep (esbuild `0`).
+    returns the raw TAF, `military` and the groups read from it. No new npm
+    dep (esbuild `0`).
+  - **Turbulence & wind shear, and a 72-h outlook (2026-11-20, "add the
+    turbulence group … a 72 hour weather outlook on the WX section for SITREP
+    fields similar to my weather tab")**. Both PURE, no model call, no new
+    host.
+    **`lib/tafGroups.ts`** now also reads the military turbulence group
+    `5BhhhT` (`decodeTurbGroup`: B 0 none · 1 light · 2/3 moderate clear air
+    occasional / frequent · 4/5 moderate in cloud · 6–9 severe in the same
+    order · X extreme; hhh / t as the icing group) and the low-level wind
+    shear group `WShhh/dddffKT` (`decodeShearGroup` — civil AND military
+    TAFs; it does not make a TAF "military"); `TafHazards.turbulence` /
+    `.shear`, placed in the period they are written in like the icing
+    groups. **`lib/turbulence.ts` `readTurbulence`** (tested in
+    `tests/turbulence.test.ts`): METAR "WS R23" / "WS ALL RWY"
+    (`metarWindShear`) → RED (observed); a SIGMET turbulence or mountain wave
+    over / within 30 NM reaching the approach band (`sigmetsNear` — the icing
+    geometry, now shared; `sigmetIcing` wraps it) → RED in effect, amber
+    starting, a note when unplaced; TAF moderate / severe / extreme groups and
+    TAF wind-shear groups inside 24 h → AMBER (a forecast, never red), light a
+    note; a gust spread ≥ `GUST_SPREAD_KT` 15 kt in the METAR or a TAF
+    period → amber "mechanical turbulence on short final likely"; UNKNOWN
+    when neither METAR, TAF nor SIGMET answered; a quiet read on a civil TAF
+    says "a civil TAF carries no turbulence forecast — its silence is not
+    smooth air". `weather.turbulence` raises the wx LED (amber / red only),
+    joins the tile driver ("turbulence risk" / "TURB / SHEAR"), the brief
+    line, the Commander's Read (TURBULENCE lines + the rule), the export and
+    the markdown, and renders as a third block in `IcingCrosswind`. NOT wired
+    into `deriveMissionImpact` and no PIREP turbulence (the PIREP turbulence
+    fields are as unverified as the icing ones).
+    **`lib/fieldOutlook.ts` `fieldOutlook`** (tested in
+    `tests/fieldOutlook.test.ts`): the model profile the SITREP already reads
+    (`getFieldProfile`, now `forecast_days=4` with `cloud_cover`,
+    `visibility`, `precipitation_probability` — icing and crosswind keep
+    their own 30 / 24-h horizons) cut into twelve 6-h Zulu blocks from the
+    block holding now: worst WMO code (`wmoSeverity`: thunder › freezing ›
+    snow › heavy rain › rain › drizzle › fog › cloud), temperature range,
+    the strongest wind with its direction, max gust / precip chance / cloud,
+    min visibility, summed precip, the worst TAF category over the block
+    where the TAF reaches (base + TEMPO / PROB folded), day / night by solar
+    hour for the icon; grouped by Zulu day with hi / lo / max precip.
+    **Flags are amber at most** (thunderstorms, freezing precipitation, snow,
+    wind ≥ 25 / gusts ≥ 30 kt, model visibility < 3 mi BEYOND the TAF, TAF
+    IFR / LIFR) and the outlook never moves the wx LED; no profile → UNKNOWN.
+    `weather.outlook72` → `components/osint/FieldOutlookStrip.tsx` (one row
+    per Zulu day, four blocks, the Weather tab's icon / temp / precip read
+    plus wind kt, vis and the TAF chip; amber border + reasons on hover),
+    replacing the old 3-day tiles (still shown for a cached payload without
+    it); OUTLOOK 72H line in the Commander's Read (mention only when
+    flagged), the export (per-day rows) and the markdown. Verified rendered
+    with sample data. No new npm dep (esbuild `0`).
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

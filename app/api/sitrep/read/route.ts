@@ -65,7 +65,7 @@ export async function POST(req: Request) {
   const fingerprint = [
     s.status.wx, s.status.ops, s.status.threat, s.status.infra,
     s.mission.state, s.mission.limfacs.length, s.mission.ccir.length, s.mission.upcoming?.window ?? "-", s.ops.runwayCount,
-    s.weather.tafWorst?.worst ?? "-", s.weather.icing?.level ?? "-", s.weather.crosswind?.level ?? "-",
+    s.weather.tafWorst?.worst ?? "-", s.weather.icing?.level ?? "-", s.weather.crosswind?.level ?? "-", s.weather.turbulence?.level ?? "-", s.weather.outlook72?.flagged ?? "-",
     s.ops.notamCount, s.threats.news.length, s.threats.disasters.length,
   ].join("|");
   const cacheKey = `${icao}|${fingerprint}`;
@@ -114,6 +114,13 @@ export async function POST(req: Request) {
     if (ic.sources.pirep === false) lines.push("PIREPS: AWC PIREP feed UNREACHABLE — UNKNOWN");
     else if (ic.sources.pirep && !ic.pireps.length) lines.push("PIREPS: no icing PIREPs within 60 NM in 3 h (sparse outside the U.S. — not evidence of no icing)");
   }
+  const tb = w.turbulence;
+  if (tb) {
+    lines.push(`TURBULENCE / WIND SHEAR (field + approach): ${tb.level === "u" ? "UNKNOWN" : tb.level === "r" ? "OBSERVED / WARNED" : tb.level === "a" ? "FORECAST" : "none indicated"} — ${tb.summary}`);
+    for (const d of tb.drivers.slice(1, 4)) lines.push(`TURBULENCE [${d.source}${d.tone === "r" ? "/RED" : d.tone === "a" ? "/AMBER" : "/NOTE"}]: ${d.text.slice(0, 220)}`);
+  }
+  const o72 = w.outlook72;
+  if (o72) lines.push(`OUTLOOK 72H (model planning-grade; TAF categories inside the TAF): ${o72.summary}`);
   const gn = s.spectrum?.pnt.notams;
   if (gn) {
     if (!gn.live) lines.push("GPS NOTAMS: DAIP GPS/WAAS list UNREACHABLE — UNKNOWN");
@@ -154,6 +161,7 @@ export async function POST(req: Request) {
     `Runways: use RUNWAYS AT FIELD exactly — never say "single-runway operations" for a field with one runway (closing its only runway closes the field for that window), and never assume a second runway when the count is unknown. ` +
     `A scheduled or works closure (construction, maintenance, a recurring NOTAM schedule) is routine: state the window plainly and recommend planning movements outside it; raise an ask only when the closure is NOT routine or the field is closed NOW. ` +
     `Icing: ICING lines marked [model] are planning-grade conditions (temperature and humidity), not observed icing — say "conducive / likely", never "icing reported"; only METAR freezing precipitation, a SIGMET or a PIREP is observed or warned icing. An ICING [TAF] line quoting a military icing group is the base weather flight's own FORECAST — say "forecast", give its layer and window, and prefer it to the model where they disagree. Give the altitude band and window. ` +
+    `Turbulence: a [TAF] turbulence or wind-shear line is a FORECAST — say "forecast" with its layer and window; only a SIGMET in effect or wind shear reported in the METAR is warned / observed; a civil TAF carries no turbulence groups, so do not call the air smooth from its silence. Outlook 72h: mention it only when a block is flagged, as planning-grade. ` +
     `Crosswind: judge the field by the BEST runway's crosswind (CROSSWIND NOW / 24H); the bands are advisory planning numbers, never flight-manual limits; a crosswind on a contaminated (icy / freezing-precipitation) runway is the combination to call out. ` +
     `Data marked UNKNOWN means the source was unreachable — say "unknown", never assume clear or FMC.\n\n${lines.join("\n")}`;
 

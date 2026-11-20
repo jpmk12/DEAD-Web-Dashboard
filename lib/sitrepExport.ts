@@ -10,6 +10,7 @@
 // explicit: a big "AS OF …Z — NOT LIVE" stamp, per-row source tags, and the
 // same UNKNOWN-≠-clear discipline as the pane.
 
+import { wmoWordShort } from "./fieldOutlook";
 import type { SitrepPayload } from "./sitrep";
 import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led } from "./sitrepSignals";
 import type { FlightCategory } from "./types";
@@ -131,11 +132,23 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
     weatherRows.push(row(ice.level, `<b>Icing (field + approach to 10,000 ft AGL):</b> ${esc(ice.summary)}${ice.freezingLevel ? ` · freezing level ${ice.freezingLevel.msl.toLocaleString("en-US")} ft MSL` : ""}`, "icing"));
     for (const d of ice.drivers.slice(1, 6)) weatherRows.push(row(d.tone === "i" ? "b" : d.tone, esc(d.text), d.source));
   }
+  const tb = p.weather.turbulence;
+  if (tb) {
+    weatherRows.push(row(tb.level, `<b>Turbulence / wind shear (field + approach):</b> ${esc(tb.summary)}`, "turb"));
+    for (const d of tb.drivers.slice(1, 4)) weatherRows.push(row(d.tone === "i" ? "b" : d.tone, esc(d.text), d.source));
+  }
   const xwo = p.weather.crosswind;
   if (xwo) {
     weatherRows.push(row(xwo.level, `<b>Crosswind (best runway, 24 h, advisory):</b> ${xwo.now ? `now RWY ${esc(xwo.now.ident)} x${xwo.now.crossKt}${xwo.now.gustCrossKt ? `G${xwo.now.gustCrossKt}` : ""}kt · ` : ""}${esc(xwo.summary)}`, xwo.source === "model" ? "model" : "TAF"));
   }
-  if (p.weather.outlook.length > 0) {
+  const o72 = p.weather.outlook72;
+  if (o72?.live) {
+    weatherRows.push(row(o72.flagged ? "a" : "b", `<b>72-h outlook (6-h blocks, model planning-grade):</b> ${esc(o72.summary)}`, "model"));
+    for (const d of o72.days) {
+      const cells = d.blocks.map((b) => `${String(new Date(b.fromMs).getUTCHours()).padStart(2, "0")}Z ${esc(wmoWordShort(b.code))}${b.windKt != null ? ` ${b.windDir != null ? String(b.windDir).padStart(3, "0") : "VRB"}/${b.windKt}${b.gustKt != null && b.gustKt > b.windKt + 4 ? `G${b.gustKt}` : ""}kt` : ""}${b.precipPct != null ? ` ${b.precipPct}%` : ""}${b.taf ? ` [${b.taf}]` : ""}${b.flags.length ? " ⚠" : ""}`).join(" · ");
+      weatherRows.push(row("b", `${esc(d.date.slice(5))}Z: ${d.hiC ?? "?"}/${d.loC ?? "?"}°C · ${cells}`, "model"));
+    }
+  } else if (p.weather.outlook.length > 0) {
     weatherRows.push(row("b", `Outlook: ${p.weather.outlook.map((d) => `${esc(d.date.slice(5))} ${d.hiF ?? "?"}/${d.loF ?? "?"}°F precip ${d.precipPct ?? "?"}%`).join(" · ")}`, "Open-Meteo"));
   }
   if (p.weather.tafSkill && p.weather.tafSkill.paired > 0) {

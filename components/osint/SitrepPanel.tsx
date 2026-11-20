@@ -14,6 +14,7 @@ import { fieldChatterLine } from "@/lib/mobilityChatter";
 import { relTime } from "@/lib/relTime";
 import { fieldGpsLine, prnLine } from "@/lib/gpsNotams";
 import IcingCrosswind from "@/components/osint/IcingCrosswind";
+import FieldOutlookStrip from "@/components/osint/FieldOutlookStrip";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
 // LEDs carry the glow on top.
@@ -307,7 +308,9 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
     if (p.weather.icing) md.push(`- Icing (field + approach): **${p.weather.icing.level === "r" ? "OBSERVED / WARNED" : p.weather.icing.level === "a" ? "EXPECTED" : p.weather.icing.level === "u" ? "UNKNOWN" : "none indicated"}** — ${p.weather.icing.summary}`);
     if (p.weather.crosswind) md.push(`- Crosswind (best runway, 24 h, advisory): ${p.weather.crosswind.summary}`);
     for (const a of p.weather.alerts) md.push(`- [${a.severity}] ${a.event} — ${a.headline}`);
-    for (const d of p.weather.outlook) md.push(`- ${d.date}: ${d.hiF ?? "?"}/${d.loF ?? "?"}°F, precip ${d.precipPct ?? "?"}%, wind ${d.windMph ?? "?"} mph`);
+    if (p.weather.turbulence) md.push(`- Turbulence / wind shear: **${p.weather.turbulence.level === "r" ? "OBSERVED / WARNED" : p.weather.turbulence.level === "a" ? "FORECAST" : p.weather.turbulence.level === "u" ? "UNKNOWN" : "none indicated"}** — ${p.weather.turbulence.summary}`);
+    if (p.weather.outlook72) md.push(`- ${p.weather.outlook72.summary}`);
+    if (!p.weather.outlook72) for (const d of p.weather.outlook) md.push(`- ${d.date}: ${d.hiF ?? "?"}/${d.loF ?? "?"}°F, precip ${d.precipPct ?? "?"}%, wind ${d.windMph ?? "?"} mph`);
     md.push(`\n## Ops`);
     md.push(`- Field: ${p.ops.fieldClosed ? "CLOSED" : p.ops.limiting ? "LIMITED" : p.ops.configured && p.ops.live ? "OPEN" : "UNKNOWN"} · ${p.ops.notamCount} active NOTAMs${p.ops.capability ? ` · ${p.ops.capability.lengthFt} ft ${p.ops.capability.surface} (${p.ops.capability.cls})` : ""}`);
     for (const g of p.ops.groups) for (const n of g.items) md.push(`- ${n.amber ? "**" : ""}[${g.label}] ${n.text.slice(0, 200)}${n.amber ? "**" : ""}`);
@@ -604,14 +607,15 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
                   <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 mr-1">Verified</span>{payload.weather.tafSkill.label}
                 </p>
               )}
-              <IcingCrosswind icing={payload.weather.icing ?? null} crosswind={payload.weather.crosswind ?? null} />
+              <IcingCrosswind icing={payload.weather.icing ?? null} crosswind={payload.weather.crosswind ?? null} turbulence={payload.weather.turbulence ?? null} />
               {payload.weather.alerts.map((a, i) => (
                 <Row key={i} sev={a.lifeThreatening || a.severity === "Extreme" ? "r" : "a"} src="NWS">
                   <b className="text-slate-100">{a.event}</b>{a.headline ? <span className="text-slate-400"> — {a.headline.slice(0, 120)}</span> : null}
                 </Row>
               ))}
               {payload.weather.alerts.length === 0 && <Row sev="g" src="NWS">No active weather alerts for this point</Row>}
-              {payload.weather.outlook.length > 0 && (
+              {payload.weather.outlook72 && <FieldOutlookStrip outlook={payload.weather.outlook72} />}
+              {!payload.weather.outlook72 && payload.weather.outlook.length > 0 && (
                 <div className="grid grid-cols-3 gap-1.5 mt-2.5">
                   {payload.weather.outlook.map((d) => (
                     <div key={d.date} className="border border-slate-800/60 rounded-lg px-2 py-1.5 text-[10px] text-slate-400">

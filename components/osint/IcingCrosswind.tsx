@@ -2,6 +2,7 @@
 
 import type { IcingRead } from "@/lib/icingSignals";
 import type { XwindOutlook } from "@/lib/crosswind";
+import type { TurbulenceRead } from "@/lib/turbulence";
 
 // Two rows of the SITREP Weather card: icing at the field and on the approach
 // (lib/icingSignals) and crosswind on the best runway across the next 24 h
@@ -18,8 +19,8 @@ const CHIP: Record<string, string> = {
 const hhmm = (ms: number) => { const d = new Date(ms); return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`; };
 const LEVEL_WORD: Record<string, string> = { r: "OBSERVED / WARNED", a: "EXPECTED", g: "NONE INDICATED", u: "UNKNOWN" };
 
-export default function IcingCrosswind({ icing, crosswind }: { icing: IcingRead | null; crosswind: XwindOutlook | null }) {
-  if (!icing && !crosswind) return null;
+export default function IcingCrosswind({ icing, crosswind, turbulence = null }: { icing: IcingRead | null; crosswind: XwindOutlook | null; turbulence?: TurbulenceRead | null }) {
+  if (!icing && !crosswind && !turbulence) return null;
   return (
     <div className="mb-2.5 space-y-2.5">
       {icing && (
@@ -61,6 +62,31 @@ export default function IcingCrosswind({ icing, crosswind }: { icing: IcingRead 
               </span>
             ))}
             · model layers are planning-grade (temperature + humidity), not an icing forecast product · no PIREP is not "no icing"
+          </p>
+        </div>
+      )}
+
+      {turbulence && (
+        <div className="border border-slate-800/60 rounded-lg px-2.5 py-2">
+          <p className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            <span className={`w-2 h-2 rounded-full ${DOT[turbulence.level]}`} />
+            Turbulence &amp; wind shear — field &amp; approach
+            <span className={`font-mono normal-case tracking-normal ${TXT[turbulence.level]}`}>{turbulence.level === "r" ? "OBSERVED / WARNED" : turbulence.level === "a" ? "FORECAST" : turbulence.level === "g" ? "NONE INDICATED" : "UNKNOWN"}</span>
+          </p>
+          <p className={`text-[11px] mt-1 ${TXT[turbulence.level]}`}>{turbulence.summary}</p>
+          {turbulence.drivers.length > 1 && (
+            <ul className="mt-1 space-y-0.5">
+              {turbulence.drivers.slice(1, 6).map((d, i) => (
+                <li key={i} className="flex items-start gap-2 text-[10.5px] text-slate-400">
+                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${DOT[d.tone]}`} />
+                  <span className="flex-1 min-w-0">{d.text}</span>
+                  <span className="text-[8.5px] font-mono text-slate-600 flex-shrink-0">{d.source}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-[9px] text-slate-600 mt-1">
+            sources: METAR{turbulence.sources.metar ? "" : " n/a"} · {turbulence.militaryTaf ? "TAF (military turbulence groups)" : turbulence.sources.taf ? "TAF (wind shear, gusts — a civil TAF has no turbulence groups)" : "TAF n/a"} · SIGMET{turbulence.sources.sigmet === false ? " down" : turbulence.sources.sigmet == null ? " n/a" : ""} · gust spread ≥15 kt = mechanical turbulence near the ground (rule of thumb) · a TAF group is a forecast, never red
           </p>
         </div>
       )}
