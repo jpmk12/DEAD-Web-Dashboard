@@ -4,7 +4,7 @@ import { getUserPrefs } from "@/lib/userPrefs";
 import { diagnoseFieldWx } from "@/lib/fieldWx";
 import { fetchWithTimeout } from "@/lib/fetchTimeout";
 import { decodeTaf } from "@/lib/metar";
-import { parseTafHazards, icingGroupLabel } from "@/lib/tafGroups";
+import { parseTafHazards, icingGroupLabel, turbGroupLabel } from "@/lib/tafGroups";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,13 @@ async function tafDiag(icao: string): Promise<unknown> {
     const hz = parseTafHazards(t.raw, t.issuedAt, Date.now());
     return {
       status: res.status, raw: t.raw, issued: t.issuedAt, headerRead: hz.ok, military: hz.military,
-      groups: hz.groups.map((g) => `${g.code} | ${g.change || "base"} | ${new Date(g.fromMs).toISOString().slice(5, 16)}Z → ${new Date(g.toMs).toISOString().slice(5, 16)}Z | ${icingGroupLabel(g)}`),
+      // ASCII only — a diag is pasted through pipes that mangle arrows and dashes.
+      groups: hz.groups.map((g) => `${g.code} | ${g.change || "base"} | ${span(g)} | ${ascii(icingGroupLabel(g))}`),
+      turbulence: hz.turbulence.map((g) => `${g.code} | ${g.change || "base"} | ${span(g)} | ${ascii(turbGroupLabel(g))}`),
+      shear: hz.shear.map((g) => `${g.code} | ${g.change || "base"} | ${span(g)} | ${g.heightFtAgl} ft AGL ${String(g.windDir).padStart(3, "0")}/${g.windKt} kt`),
     };
   } catch (e) { return { status: 0, error: e instanceof Error ? e.message : String(e) }; }
 }
+
+const span = (g: { fromMs: number; toMs: number }) => `${new Date(g.fromMs).toISOString().slice(5, 16)}Z -> ${new Date(g.toMs).toISOString().slice(5, 16)}Z`;
+const ascii = (t: string) => t.replace(/[\u2013\u2014]/g, "-").replace(/[^\x20-\x7e]/g, "");

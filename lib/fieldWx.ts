@@ -83,6 +83,14 @@ export async function diagnoseFieldWx(icao: string, lat: number, lon: number): P
     out.profile = {
       status: res.status, bytes: text.length, live: parsed?.live ?? false, elevationM: parsed?.elevationM ?? null,
       hours: parsed?.hours.length ?? 0, levelsFirstHour: parsed?.hours[0]?.levels.length ?? 0,
+      // The 72-h outlook's columns: hours carrying each (0 of N = the name changed).
+      outlookColumns: parsed?.live ? {
+        cloud: parsed.hours.filter((h) => h.cloudPct != null).length,
+        visibility: parsed.hours.filter((h) => h.visM != null).length,
+        precipChance: parsed.hours.filter((h) => h.precipPct != null).length,
+        weatherCode: parsed.hours.filter((h) => h.weatherCode != null).length,
+        gust: parsed.hours.filter((h) => h.gustKt != null).length,
+      } : undefined,
       snippet: parsed?.live ? undefined : text.slice(0, 300),
     };
   } catch (e) { out.profile = { status: 0, error: e instanceof Error ? e.message : String(e) }; }

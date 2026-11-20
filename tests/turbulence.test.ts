@@ -84,3 +84,12 @@ describe("readTurbulence", () => {
     expect(r.level).toBe("u");
   });
 });
+
+describe("a light turbulence group alone", () => {
+  it("is a note on a green read, the TAF capitalised", () => {
+    const raw = "TAF ETAD 180500Z 1806/1912 24008KT 9999 SCT040 510006 QNH2992INS";
+    const r = readTurbulence({ nowMs: NOW, field: FIELD, icao: "ETAD", elevFt: 1200, metar: { windSpeedKt: 8, windGustKt: null, raw: "ETAD 180630Z 24008KT" }, taf: [], hazards: parseTafHazards(raw, ISSUED, NOW), sigmets: { live: true, items: [] } });
+    expect(r.level).toBe("g");
+    expect(r.summary).toMatch(/^No turbulence or wind shear above light · TAF forecasts light turbulence/);
+  });
+});

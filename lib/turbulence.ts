@@ -138,7 +138,7 @@ export function readTurbulence(i: TurbulenceInputs): TurbulenceRead {
   ].filter(Boolean).join(" · ");
   const summary = level === "u" ? "Turbulence UNKNOWN — neither the METAR, the TAF nor the SIGMET list answered"
     : drivers[0] && drivers[0].tone !== "i" ? drivers[0].text
-    : drivers[0] ? `No turbulence warned or forecast above light; ${drivers[0].text.charAt(0).toLowerCase()}${drivers[0].text.slice(1)}`
+    : drivers[0] ? `No turbulence or wind shear above light · ${drivers[0].text}`
     : `No turbulence or wind shear indicated · ${quiet}`;
 
   return {

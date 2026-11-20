@@ -110,3 +110,24 @@ describe("SIGMET with no readable area", () => {
     expect(firFamily("KWRI")).toEqual([]);
   });
 });
+
+describe("ETAD's real TAF (production diag 2026-11-20)", () => {
+  const RAW = "TAF AMD ETAD 201040Z 2010/2111 24012G25KT 9000 -RA OVC007 620409 510006 QNH2948INS TEMPO 2010/2018 6000 RA BKN010 BECMG 2017/2018 31010G20KT 9000 -RA SCT007 BKN010 OVC015 620507 QNH2963INS BECMG 2021/2022 31010G15KT 9999 NSW SCT040 QNH2985INS BECMG 2102/2103 28006KT 3200 BR BKN006 QNH2999INS TX08/2013Z TN00/2103Z";
+  const ISS = "2026-11-20T10:40:00.000Z";
+  const T = Date.parse("2026-11-20T11:00:00Z");
+  it("reads both icing groups and the turbulence group in their periods", () => {
+    const hz = parseTafHazards(RAW, ISS, T);
+    expect(hz.military).toBe(true);
+    expect(hz.groups.map((g) => [g.code, g.change, new Date(g.fromMs).toISOString(), new Date(g.toMs).toISOString()])).toEqual([
+      ["620409", "", "2026-11-20T10:00:00.000Z", "2026-11-20T17:00:00.000Z"],
+      ["620507", "BECMG", "2026-11-20T17:00:00.000Z", "2026-11-20T21:00:00.000Z"],
+    ]);
+    expect(hz.turbulence.map((g) => [g.code, g.intensity])).toEqual([["510006", "light"]]);
+  });
+  it("light icing only is a note: green, the TAF named as such, never contradicted", () => {
+    const r = readIcing({ nowMs: T, field: { lat: 49.97, lon: 6.69 }, icao: "ETAD", metar: { tempC: 6, dewpointC: 5, clouds: [], wxRaw: "-RA" }, taf: [], profile: null, sigmets: null, pireps: null, tafRaw: RAW, tafIssued: ISS });
+    expect(r.level).toBe("g");
+    expect(r.summary).toMatch(/^No moderate or severe icing forecast, warned or likely inside 12 h · TAF forecasts light rime in cloud icing/);
+    expect(r.summary).not.toMatch(/No icing expected/);
+  });
+});

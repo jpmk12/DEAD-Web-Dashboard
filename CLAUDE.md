@@ -2044,6 +2044,22 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     it); OUTLOOK 72H line in the Commander's Read (mention only when
     flagged), the export (per-day rows) and the markdown. Verified rendered
     with sample data. No new npm dep (esbuild `0`).
+  - **First production diag at ETAD (2026-11-20) — VERIFIED**: the Open-Meteo
+    profile answered 96 h × 9 levels; AWC's PIREP query ACCEPTS an overseas
+    ICAO (204, no reports — PIREPs are sparse abroad, as the read says); the
+    military TAF parsed (`TAF AMD` header, `QNH….INS` → military) and its two
+    icing groups landed in their periods (620409 base 10–17Z, 620507 BECMG
+    17–21Z — light rime in cloud). One fix from it: with only LIGHT icing (a
+    note) the summary read "No icing expected inside 12 h; tAF forecasts light
+    rime…" — a contradiction with a mangled "TAF". A note-level lead now reads
+    "No moderate or severe icing forecast, warned or likely inside 12 h · TAF
+    forecasts light …" (turbulence: "No turbulence or wind shear above light ·
+    …"), the lead's text unchanged; pinned against the verbatim TAF in
+    `tests/tafGroups.test.ts`. The diag's group lines are ASCII now (the `→`
+    and en dash arrived as `â†’` / `â€“`), and it also lists the TAF's
+    `turbulence` and `shear` groups and `profile.outlookColumns` (hours
+    carrying cloud / visibility / precip chance / weather code / gust — a 0
+    means Open-Meteo renamed the column).
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

@@ -158,7 +158,7 @@ describe("readIcing", () => {
     const dry = parseFieldProfile(profileJson(10, () => false));
     const r = readIcing({ ...base, metar: { tempC: 8, dewpointC: 2, clouds: [], wxRaw: "" }, profile: { ...dry, hours: dry.hours.map((h) => ({ ...h, weatherCode: 3 })) } });
     expect(r.level).toBe("g");
-    expect(r.summary).toMatch(/^No icing expected inside 12 h/);
+    expect(r.summary).toMatch(/^No moderate or severe icing forecast, warned or likely inside 12 h · /);
   });
   it("a SIGMET icing in effect is red", () => {
     const r = readIcing({ ...base, metar: null, profile, sigmets: { live: true, items: [sig({})] } });

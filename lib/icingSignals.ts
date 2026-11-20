@@ -522,7 +522,7 @@ export function readIcing(i: IcingInputs): IcingRead {
     : metarLive || modelLive ? "g" : "u";
   const summary = level === "u" ? "Icing UNKNOWN — neither the METAR nor the model profile answered"
     : drivers[0] && drivers[0].tone !== "i" ? drivers[0].text
-    : drivers[0] ? `No icing expected inside 12 h; ${drivers[0].text.charAt(0).toLowerCase()}${drivers[0].text.slice(1)}`
+    : drivers[0] ? `No moderate or severe icing forecast, warned or likely inside 12 h · ${drivers[0].text}`
     : `No icing indicated at the field or on approach${militaryTaf && !tafGroups.length ? " · the military TAF forecasts no icing group" : ""}${negOnly ? " · a PIREP reported no icing nearby" : ""}${freezingLevel ? ` · freezing level ${freezingLevel.msl.toLocaleString("en-US")} ft MSL` : ""}`;
 
   return {
