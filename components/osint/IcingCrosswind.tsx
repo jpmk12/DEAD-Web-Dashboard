@@ -96,28 +96,53 @@ export default function IcingCrosswind({ icing, crosswind, turbulence = null }: 
           <p className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
             <span className={`w-2 h-2 rounded-full ${DOT[crosswind.level]}`} />
             Crosswind — best runway, next 24 h
-            {crosswind.now && (
-              <span className={`font-mono normal-case tracking-normal ${TXT[crosswind.now.flag]}`}>
-                now RWY {crosswind.now.ident} x{crosswind.now.crossKt}{crosswind.now.gustCrossKt ? `G${crosswind.now.gustCrossKt}` : ""}kt · {crosswind.now.headKt >= 0 ? `head ${crosswind.now.headKt}` : `TAIL ${-crosswind.now.headKt}`}
-              </span>
-            )}
             <span className="ml-auto font-normal normal-case tracking-normal text-slate-600">{crosswind.source === "taf" ? "TAF" : crosswind.source === "model" ? "model (no TAF wind)" : ""}</span>
           </p>
-          <p className={`text-[11px] mt-1 ${TXT[crosswind.level]}`}>{crosswind.summary}</p>
-          {crosswind.rows.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {crosswind.rows.map((r, i) => (
-                <span
-                  key={i}
-                  title={`${r.wind}${r.best ? ` · RWY ${r.best.ident} head ${r.best.headKt} cross ${r.best.crossKt}${r.best.gustCrossKt ? ` gust ${r.best.gustCrossKt}` : ""} kt` : r.variable ? " · variable — no component" : ""}${r.contaminated ? ` · ${r.contaminated}` : ""}`}
-                  className={`text-[10px] font-mono px-2 py-1 rounded-md border ${CHIP[r.flag]} ${/TEMPO|PROB/.test(r.change) ? "border-dashed" : ""}`}
-                >
-                  {hhmm(r.fromMs)}–{hhmm(r.toMs)}{r.change && r.change !== "model" ? ` ${r.change}` : ""} · {r.best ? `${r.best.ident} x${r.best.crossKt}${r.best.gustCrossKt ? `G${r.best.gustCrossKt}` : ""}` : r.wind}{r.contaminated ? " · ice" : ""}
-                </span>
-              ))}
+          {crosswind.now && (
+            <div className={`mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-md border px-2 py-1.5 ${CHIP[crosswind.now.flag]}`}>
+              <span className="text-[10px] uppercase tracking-widest text-slate-400">Now</span>
+              <span className="text-[11px] text-slate-300">RWY <b className="font-mono">{crosswind.now.ident}</b></span>
+              <span className="text-[11px]">crosswind <b className="font-mono text-[15px]">{crosswind.now.crossKt}{crosswind.now.gustCrossKt ? <>G{crosswind.now.gustCrossKt}</> : null}</b> kt</span>
+              <span className="text-[11px] text-slate-300">{crosswind.now.headKt >= 0 ? <>headwind <b className="font-mono">{crosswind.now.headKt}</b> kt</> : <span className="text-amber-300">TAILWIND <b className="font-mono">{-crosswind.now.headKt}</b> kt</span>}</span>
             </div>
           )}
-          <p className="text-[9px] text-slate-600 mt-1">best runway = least crosswind with a headwind · advisory bands 20 / 30 kt (gust 25 / 35), not flight-manual limits · dashed = TEMPO / PROB risk · &quot;ice&quot; = freezing or frozen precipitation in the same window</p>
+          <p className={`text-[11px] mt-1 ${TXT[crosswind.level]}`}>{crosswind.summary}</p>
+          {crosswind.rows.length > 0 && (
+            <div className="mt-1.5 overflow-x-auto">
+              <table className="w-full text-[10.5px] font-mono tabular-nums border-separate border-spacing-y-0.5">
+                <thead>
+                  <tr className="text-[9px] uppercase tracking-wider text-slate-500 font-sans">
+                    <th className="text-left font-normal pr-2">Window (Z)</th>
+                    <th className="text-left font-normal pr-2">Wind</th>
+                    <th className="text-left font-normal pr-2">RWY</th>
+                    <th className="text-right font-normal pr-2">Crosswind</th>
+                    <th className="text-right font-normal pr-2">Head / tail</th>
+                    <th className="text-left font-normal"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {crosswind.rows.map((r, i) => {
+                    const risk = /TEMPO|PROB/.test(r.change);
+                    return (
+                      <tr key={i} className={risk ? "text-slate-400" : "text-slate-300"}>
+                        <td className="pr-2 whitespace-nowrap">{hhmm(r.fromMs)}–{hhmm(r.toMs)}{r.change && r.change !== "model" ? <span className={`ml-1 text-[9px] ${risk ? "border border-dashed border-slate-600 rounded px-1" : "text-slate-500"}`}>{r.change}</span> : null}</td>
+                        <td className="pr-2 whitespace-nowrap">{r.wind}</td>
+                        <td className="pr-2">{r.best ? r.best.ident : "—"}</td>
+                        <td className="pr-2 text-right whitespace-nowrap">
+                          {r.best
+                            ? <span className={`inline-block px-1.5 rounded border font-bold ${CHIP[r.flag]} ${risk ? "border-dashed" : ""}`}>{r.best.crossKt}{r.best.gustCrossKt ? `G${r.best.gustCrossKt}` : ""} kt</span>
+                            : <span className="text-slate-500">{r.variable ? "variable — n/a" : "—"}</span>}
+                        </td>
+                        <td className="pr-2 text-right whitespace-nowrap">{r.best ? (r.best.headKt >= 0 ? `H ${r.best.headKt}` : <span className="text-amber-300">T {-r.best.headKt}</span>) : ""}</td>
+                        <td className="text-amber-300 text-[9.5px] font-sans" title={r.contaminated ?? undefined}>{r.contaminated ? "ice / contaminated" : ""}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-[9px] text-slate-600 mt-1">best runway = least crosswind with a headwind · crosswind in kt (G = gust component) · advisory bands 20 / 30 kt (gust 25 / 35), not flight-manual limits · dashed = TEMPO / PROB risk · &quot;ice&quot; = freezing or frozen precipitation in the same window</p>
         </div>
       )}
     </div>

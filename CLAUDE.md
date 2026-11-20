@@ -1954,6 +1954,13 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     precipitation observed", a SIGMET icing in effect over the approach →
     All-Weather PMC + CCIR; the HTML export and Save-to-Docs markdown.
     The Weather tab's airfield-card crosswind now uses `bestEnd` too.
+    **Crosswind is on the face, not behind a hover (2026-11-20, "I had to
+    mouse over to see it")**: the card's Now line reads "RWY 23 · crosswind
+    18G28 kt · headwind 3 kt" (TAILWIND in amber), and the 24-h windows are a
+    table — window (Z) + change · wind · best RWY · crosswind (its own
+    coloured cell, dashed for TEMPO / PROB) · head / tail · "ice /
+    contaminated" — instead of chips that packed it into "23 x18G28" and kept
+    the wind and head / tail components in a tooltip.
   - **Unverified from the sandbox** (both hosts are blocked): the PIREP JSON
     field names (`obsTime`, `lat` / `lon`, `fltLvl`, `icgInt1`, `icgType1`,
     `rawOb` — read tolerantly, raw `/IC` fallback) and the Open-Meteo
