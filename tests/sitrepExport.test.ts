@@ -123,6 +123,28 @@ describe("renderSitrepHtml", () => {
     expect(h).toContain("Force Protection assessment unavailable");
     expect(h).not.toContain("all clear");
   });
+
+  it("a read that did not answer in time is UNKNOWN, never quiet", () => {
+    const p = fakePayload();
+    p.threats.disasters = [];
+    p.threats.news = [];
+    p.threats.newsLive = false;
+    p.partial = ["disasters", "local news"];
+    const h = renderSitrepHtml(p, null);
+    expect(h).toContain("Natural disasters not read in time this pass");
+    expect(h).toContain("Local reporting not read this pass");
+    expect(h).not.toContain("No natural disasters within 500 km");
+    expect(h).not.toContain("Nothing impact-relevant in local reporting");
+  });
+
+  it("an answered, empty read still says so (newsLive absent on older payloads)", () => {
+    const p = fakePayload();
+    p.threats.disasters = [];
+    p.threats.news = [];
+    const h = renderSitrepHtml(p, null);
+    expect(h).toContain("No natural disasters within 500 km");
+    expect(h).toContain("Nothing impact-relevant in local reporting");
+  });
 });
 
 describe("esc", () => {

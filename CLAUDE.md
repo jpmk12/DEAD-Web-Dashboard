@@ -6279,6 +6279,57 @@ only; every tracked airfield has a register of its own by command.
   Profile, read by the registry and the assembler).
 No new npm dep (esbuild `0`).
 
+### OSINT page loads in tiers; the SITREP first (2026-11-24, "the entire page is useless until the whole thing loads … at least enhance how quickly the SITREP section loads")
+The command board was all-or-nothing: `/api/commands` waited 8 s for the
+shared gather (posture for every base, every I&W board, demand, events,
+alerts, convergence, up to 12 SITREP assemblies, then the functional
+sources) and answered an EMPTY stub until it landed, and the room — so the
+SITREP — could not open without the board. Now:
+- **The route answers in ~2.5 s** (`DEFAULT_WAIT_MS` 2_500): the full board
+  if it settled; else the previous picture flagged `pending` (stale-while-
+  revalidate — the footer's "as of" and the note "showing the picture from
+  HH:MMZ — refreshing…" say how old); else the **quick tier**
+  (`CommandsBody.partial`, always `pending`): `quickParts()` reads the prefs
+  and the Mission Profile and each SITREP base's summary within
+  `QUICK_SITREP_MS` 1.5 s (the same assemblies the full gather is running —
+  deduped in `lib/sitrep`; Glance's `/api/sitrep/summary` at page load
+  usually has them warm), and `quickBodyFrom` runs the pure `commandBoard`
+  with every team surface null → My airfields + the field rows under their
+  commands, enough for the room (`tests/commandQuick.test.ts`). The quick
+  tier is built WHILE the full assembly gets its wait. A base still
+  assembling is `sitrepPendingStub` ("assembling — UNKNOWN until it
+  lands"), never "assembly failed" (the summary route uses it too).
+- **The client** (`CommandBoard`): a `partial` body renders My airfields,
+  the room and the airfield register ("N so far"; posture "assembling…",
+  never "not watched"), and says "assembling" where the primer, the command
+  rows and the functional rows go — absent is not quiet. A partial body
+  NEVER replaces a whole board already held. Polls every 5 s (was 8), up to
+  ~3 min.
+- **One SITREP assembly is faster** (`assembleSitrepOnce`): the two source
+  groups, the ARTCC NOTAMs and the posture-moves read start AT ONCE (the
+  second group never depended on the first — a cold base was the SUM of the
+  two slowest reads). The four slow, non-weather reads — `disasters`,
+  single-base `force posture`, `local news` (GDELT gate), `infrastructure` —
+  are bounded at `SLOW_READ_MS` 12 s; past it the read is named in
+  `payload.partial`, reads UNKNOWN on its card ("not read in time this pass
+  — UNKNOWN, not clear"; `threats.newsLive: false` → "not read … UNKNOWN,
+  not quiet", in the pane AND the HTML export — an empty list from a dead
+  read never reads "nothing impact-relevant"), and the payload is cached
+  only `PARTIAL_TTL_MS` 30 s so the next read, its sources now in their own
+  caches, is whole. METAR / TAF / NOTAMs / runways are not bounded here
+  (their own fetch timeouts) — they are what a SITREP is for.
+- **The room's SITREP** (`SitrepPanel single`) no longer asks
+  `/api/sitrep/summary` (the tile strip is hidden there; it started every
+  base's assembly and competed with the one field opened), shows "Still
+  reading X — shown as UNKNOWN for now" on a partial payload, and re-reads
+  quietly after `PARTIAL_REFILL_MS` 35 s, at most twice per base per visit.
+- Verified in headless Chromium against the build with a routed quick-tier
+  body: My airfields, the "assembling" lines and the register rendered, a
+  field card opened the room and fired exactly one `/api/sitrep?icao=`, no
+  summary request, no page errors. Not measured: real cold-start times in
+  production (every upstream is blocked from the sandbox).
+No new npm dep (esbuild `0`).
+
 ### Review 2026-10-28 (loose ends · bugs · performance · coherence) — what changed and the rules it left behind
 Four parallel reviews after the October feature run (≈45 commits, 206
 files), each finding confirmed by reading the code path before it was

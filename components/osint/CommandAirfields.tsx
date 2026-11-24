@@ -18,7 +18,7 @@ import { COCOM_LABEL, type Aor } from "@/lib/aor";
 const LED_DOT: Record<string, string> = LED_CLASS;
 const HIDE_KEY = "commands.afHideGreen";
 
-export default function CommandAirfields({ board, room, onOpen, star, mtBusy, edit, canEdit }: {
+export default function CommandAirfields({ board, room, onOpen, star, mtBusy, edit, canEdit, partial = false }: {
   board: CommandBoard;
   room: RoomRef | null;
   onOpen: (ref: RoomRef) => void;
@@ -26,6 +26,10 @@ export default function CommandAirfields({ board, room, onOpen, star, mtBusy, ed
   mtBusy: boolean;
   edit: EditOps | null;
   canEdit: boolean;
+  /** The command board's quick tier: only the SITREP bases and your own
+   *  fields are here yet, and posture has not been read — say so, never
+   *  "not watched". */
+  partial?: boolean;
 }) {
   const [filter, setFilter] = useState<Aor | "ALL">("ALL");
   const [hideGreen, setHideGreen] = useState(false);
@@ -40,7 +44,7 @@ export default function CommandAirfields({ board, room, onOpen, star, mtBusy, ed
     <section className="border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
       <div className="px-3.5 py-2 border-b border-slate-800 flex items-center gap-2 flex-wrap">
         <span className="text-xs font-bold uppercase tracking-widest text-slate-300">✈ Airfields by command</span>
-        <span className="text-[10px] text-slate-500">{total} tracked · hub › ★ › spokes › rest · worst first</span>
+        <span className="text-[10px] text-slate-500">{partial ? `${total} so far — SITREP bases and your own fields; the rest arrive with the posture read` : `${total} tracked · hub › ★ › spokes › rest · worst first`}</span>
         <span className="flex-1" />
         <button onClick={() => setFilter("ALL")} className={`text-[10px] rounded-full px-2.5 py-0.5 border ${filter === "ALL" ? "border-sky-500/50 bg-sky-500/15 text-sky-200" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>All <span className="font-mono text-slate-500">{total}</span></button>
         {groups.map((g) => (
@@ -66,7 +70,7 @@ export default function CommandAirfields({ board, room, onOpen, star, mtBusy, ed
               {COCOM_LABEL[g.aor]}
               <span className="ml-auto font-mono font-normal normal-case tracking-normal text-slate-500 truncate">{g.fields.length} field{g.fields.length === 1 ? "" : "s"}{g.worst && g.worstLed !== "g" ? ` · worst: ${g.worst.icao} — ${g.worst.sitrep?.driver ?? g.worst.posture?.topDriver ?? "UNKNOWN"}` : g.fields.length ? " · all green" : ""}{g.aor === "UNKNOWN" ? " · no command — the field has no coordinates or country on record" : ""}</span>
             </div>
-            {rows.map((f) => <Row key={f.icao} f={f} sel={sameRoom(room, { kind: "field", id: f.icao })} onOpen={onOpen} star={star} mtBusy={mtBusy} edit={edit} />)}
+            {rows.map((f) => <Row key={f.icao} f={f} sel={sameRoom(room, { kind: "field", id: f.icao })} onOpen={onOpen} star={star} mtBusy={mtBusy} edit={edit} partial={partial} />)}
             {hidden > 0 && <p className="px-3.5 py-1.5 text-[10px] text-slate-500 border-t border-slate-800/60"><b className="text-slate-400">{hidden} green field{hidden === 1 ? "" : "s"}</b> hidden — {g.fields.filter((f) => fieldWorst(f) === "g").map((f) => f.icao).join(" · ")}</p>}
           </div>
         );
@@ -75,9 +79,9 @@ export default function CommandAirfields({ board, room, onOpen, star, mtBusy, ed
   );
 }
 
-function Row({ f, sel, onOpen, star, mtBusy, edit }: { f: FieldRow; sel: boolean; onOpen: (ref: RoomRef) => void; star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean; edit: EditOps | null }) {
+function Row({ f, sel, onOpen, star, mtBusy, edit, partial }: { f: FieldRow; sel: boolean; onOpen: (ref: RoomRef) => void; star: (k: "aor" | "country" | "icao", v: string) => void; mtBusy: boolean; edit: EditOps | null; partial: boolean }) {
   const worst = fieldWorst(f);
-  const driver = f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "posture UNKNOWN — not watched";
+  const driver = f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : partial ? "posture assembling…" : "posture UNKNOWN — not watched";
   return (
     <button onClick={() => onOpen({ kind: "field", id: f.icao })} id={`cb-af-${f.icao}`}
       className={`w-full text-left grid grid-cols-[22px_1fr_auto_20px] lg:grid-cols-[22px_1.4fr_1.3fr_96px_1fr_.9fr_.7fr_20px] gap-2.5 items-center px-3.5 py-2 border-t border-slate-800/60 hover:bg-slate-800/30 ${sel ? "bg-sky-500/[0.07] shadow-[inset_3px_0_0_#38bdf8]" : ""} ${worst === "r" ? "bg-red-500/[0.03]" : ""}`}>
@@ -90,7 +94,7 @@ function Row({ f, sel, onOpen, star, mtBusy, edit }: { f: FieldRow; sel: boolean
       </span>
       <span className={`hidden lg:block text-[11px] truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{driver}{f.sitrep && f.sitrep.worse.length > 0 && <span className="ml-1 text-amber-400 font-bold" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>▲</span>}</span>
       <span className="hidden lg:block">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <span className="text-[9px] text-slate-600">no SITREP</span>}</span>
-      <span className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-slate-400"><Dot sev={f.posture?.composite ?? null} />{f.posture ? f.posture.composite : <span className="text-slate-600">not watched</span>}</span>
+      <span className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-slate-400"><Dot sev={f.posture?.composite ?? null} />{f.posture ? f.posture.composite : <span className="text-slate-600">{partial ? "assembling…" : "not watched"}</span>}</span>
       <span className="hidden lg:flex items-center gap-1.5">
         {edit ? <RoleSwitch icao={f.icao} role={f.role} onSet={(r) => edit.setRole(f.icao, r)} disabled={edit.busy} /> : <span className="text-[9px] text-slate-600">{f.role ?? "—"}</span>}
         {edit && <Untrack label={f.icao} onClick={() => edit.untrackField(f.icao, f.role)} disabled={edit.busy} />}

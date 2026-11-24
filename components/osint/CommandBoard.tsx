@@ -132,13 +132,21 @@ export default function CommandBoard({ active }: { active: boolean }) {
         // for ten seconds (bug report 2026-10-07). Keep the picture, note
         // that it is refreshing, and let the poll bring the new one.
         const empty = !body.board?.rows?.length && !body.board?.myFields?.length;
-        const stale = (body.pending || body.error) && empty && !!dataRef.current;
+        const held = dataRef.current;
+        // The quick tier (your airfields only) never replaces a whole board we
+        // already hold — it is the first answer on a cold server, not news.
+        const stale = !!held && (((body.pending || body.error) && empty) || (!!body.partial && !held.partial));
         if (!stale) setData(body);
         setError(stale ? null : body.error ?? null);
         if (status === 202 || body.pending) {
-          setPendingNote(dataRef.current && !empty ? "refreshing the command picture…" : "assembling the command picture — first load takes a moment");
+          const shown = stale ? held : body;
+          setPendingNote(
+            shown?.partial ? "your airfields and their SITREPs are ready — assembling posture, boards, demand and events…"
+            : shown && !empty ? `showing the picture from ${shown.generatedAt.slice(11, 16)}Z — refreshing…`
+            : "assembling the command picture — first load takes a moment");
           if (pollTimer.current) clearTimeout(pollTimer.current);
-          if (pollTries.current < 12) { pollTries.current += 1; pollTimer.current = setTimeout(load, 8_000); }
+          // 5 s between polls (the route answers in ~3 s now), for up to ~3 min.
+          if (pollTries.current < 36) { pollTries.current += 1; pollTimer.current = setTimeout(load, 5_000); }
         } else { setPendingNote(null); pollTries.current = 0; }
       })
       .catch(() => setError("could not reach /api/commands"));
@@ -341,6 +349,8 @@ export default function CommandBoard({ active }: { active: boolean }) {
 
   if (!armed) return null;
 
+  // The quick tier: My airfields and the room are real; the rest is assembling.
+  const partial = !!data?.partial;
   const crumbParts: string[] = [];
   if (openAor) crumbParts.push(short(openAor));
   if (room && data) {
@@ -367,12 +377,13 @@ export default function CommandBoard({ active }: { active: boolean }) {
           <button onClick={() => setPrimerOpen((v) => !v)} className="text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">{primerOpen ? "fold ▴" : "unfold ▾"}</button>
         </div>
         {!data && !error && <p className="px-3.5 py-3 text-[11px] text-slate-500">Assembling…</p>}
-        {data && !primerOpen && (
+        {partial && <p className="px-3.5 py-3 text-[11px] text-slate-500">Ranking needs the posture, boards and demand — still assembling. Your airfields and their SITREPs are ready below.</p>}
+        {data && !partial && !primerOpen && (
           <p className="px-3.5 py-2 text-[11px] text-slate-400 truncate">
             {data.primer.items.length ? `${data.primer.items.length} to look at — ${data.primer.items[0].subject} ${data.primer.items[0].text}` : data.primer.footer}
           </p>
         )}
-        {data && primerOpen && (
+        {data && !partial && primerOpen && (
           <>
             {data.primer.items.length === 0 && <p className="px-3.5 py-3 text-[11.5px] text-slate-400">Nothing to drill into first. {data.primer.footer}</p>}
             {data.primer.items.map((it: PrimerItem, i) => (
@@ -443,7 +454,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
                         <span className="ml-auto">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <Dot sev={f.posture?.composite ?? null} />}</span>
                         {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>▲</span>}
                       </div>
-                      <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : "not watched — posture UNKNOWN"}</p>
+                      <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : partial ? "posture assembling…" : "not watched — posture UNKNOWN"}</p>
                       <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.aor !== "UNKNOWN" ? short(f.aor) : "—"} · {f.country || "—"} · {f.hasSitrep ? "SITREP →" : "★ to get a SITREP"}</p>
                     </button>
                     {canEdit && (
@@ -493,14 +504,14 @@ export default function CommandBoard({ active }: { active: boolean }) {
           <span /><span>command</span><span>I&amp;W</span><span>posture</span><span>bases</span><span>demand · 7d</span><span>events</span><span>Δ since look</span><span />
         </div>
 
-        {!data && !error && <p className="px-3.5 py-4 text-[11px] text-slate-500">Assembling the command picture…</p>}
-        {data && shownRows.length === 0 && quietRows.length === rows.length && (
+        {(partial || (!data && !error)) && <p className="px-3.5 py-4 text-[11px] text-slate-500">Assembling the command picture…{partial ? " (posture, boards, demand and events — your airfields are ready above)" : ""}</p>}
+        {data && !partial && shownRows.length === 0 && quietRows.length === rows.length && (
           <p className="px-3.5 py-4 text-[11.5px] text-slate-400">Nothing is watched yet. Declare a hub, spokes and an AOI in <b>Preferences → Mission Profile</b>, or <button type="button" onClick={() => openTrackPicker()} className="text-emerald-400 hover:underline">track a country or airfield</button>, and the commands fill in. {quietRows.length} commands are quiet — absence of signal, not evidence of calm.</p>
         )}
-        {data && shownRows.map((r) => (
+        {data && !partial && shownRows.map((r) => (
           <CommandRowView key={r.aor} row={r} data={data} openAor={openAor} setOpenAor={setOpenAor} room={room} openRoom={openRoom} star={star} mtBusy={mtBusy} flash={flash} edit={editOps} />
         ))}
-        {data && quietRows.length > 0 && (
+        {data && !partial && quietRows.length > 0 && (
           <div className="border-t border-slate-800">
             <button onClick={() => setOthersOpen((v) => !v)} className="w-full text-left px-3.5 py-2 flex items-center gap-2 text-[11px] text-slate-400 hover:bg-slate-800/40">
               <span className="text-slate-600">{othersOpen ? "▾" : "▸"}</span>
@@ -513,7 +524,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
             ))}
           </div>
         )}
-        {data && (
+        {data && !partial && (
           <p className="px-3.5 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 font-mono">
             as of {data.generatedAt.slice(11, 16)}Z · sources: {Object.entries(data.board.sources).map(([k, v]) => `${k}${v ? "" : " ✕"}`).join(" · ")}{data.primer.sourcesDown.length ? ` · down: ${data.primer.sourcesDown.join(", ")}` : ""} · UNKNOWN is never folded into green
           </p>
@@ -530,7 +541,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
       )}
 
       {/* ── Airfields by command — the full register (A′) ── */}
-      {data && <CommandAirfields board={data.board} room={room} onOpen={openRoom} star={star} mtBusy={mtBusy} edit={editOps} canEdit={canEdit} />}
+      {data && <CommandAirfields board={data.board} room={room} onOpen={openRoom} star={star} mtBusy={mtBusy} edit={editOps} canEdit={canEdit} partial={partial} />}
 
       {/* ── The picture — follows whatever is open ── */}
       <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 -mb-2">Picture{mapAor ? ` — following ${room ? "the room" : "the board"} · ${short(mapAor)}` : openFc ? ` — ${openFc} layers on` : ""}</p>

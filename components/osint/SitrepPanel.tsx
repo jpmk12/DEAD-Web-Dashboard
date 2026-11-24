@@ -42,6 +42,10 @@ const SEG_BG: Record<FlightCategory, string> = {
 };
 
 const LAST_BASE_KEY = "sitrep-last-base";
+/** A partial payload is cached 30 s server-side (lib/sitrep PARTIAL_TTL_MS);
+ *  the quiet re-read waits past it. At most two per base per visit. */
+const PARTIAL_REFILL_MS = 35_000;
+const PARTIAL_REFILL_MAX = 2;
 
 // Inline ARTCC setter shown in the Ops card when a base has no center
 // configured. Saves via the bases route ("artcc" op).
@@ -170,9 +174,12 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
       .catch(() => {});
   }, []);
 
+  // The tile strip is hidden in `single` mode (the room), so the all-bases
+  // summary is not asked for there — it started every base's assembly at
+  // once and competed with the one field the user opened (2026-11-24).
   useEffect(() => {
-    if (active && bases !== null && bases.length > 0) loadSummaries();
-  }, [active, bases, loadSummaries]);
+    if (!single && active && bases !== null && bases.length > 0) loadSummaries();
+  }, [single, active, bases, loadSummaries]);
 
   // Load configured bases once the pane is active.
   useEffect(() => {
@@ -241,15 +248,34 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
       .catch((e) => { if (my === loadSeq.current) setError(e instanceof Error ? e.message : "SITREP failed"); })
       .finally(() => { if (my === loadSeq.current) setLoading(false); });
     // The freshly assembled payload may have moved this base's LEDs — keep the
-    // tile strip in step (server-side cache makes this cheap).
-    loadSummaries();
-  }, [loadSummaries, loadRead]);
+    // tile strip in step (server-side cache makes this cheap). Not in `single`.
+    if (!single) loadSummaries();
+  }, [single, loadSummaries, loadRead]);
 
   useEffect(() => {
     if (!active || !icao) return;
     try { localStorage.setItem(LAST_BASE_KEY, icao); } catch {}
     loadSitrep(icao);
   }, [active, icao, loadSitrep]);
+
+  // A payload with slow reads still out (`partial`) is cached only briefly on
+  // the server while those reads land in their own caches — ask again once,
+  // quietly, so the cards fill in without a click. Capped per base so a read
+  // that stays down does not loop.
+  const refills = useRef<Record<string, number>>({});
+  useEffect(() => {
+    if (!active || !payload?.partial?.length || !icao || payload.base.icao !== icao) return;
+    if ((refills.current[icao] ?? 0) >= PARTIAL_REFILL_MAX) return;
+    const t = setTimeout(() => {
+      refills.current[icao] = (refills.current[icao] ?? 0) + 1;
+      const my = loadSeq.current;
+      fetch(`/api/sitrep?icao=${icao}`).then((r) => r.json()).then((d) => {
+        if (my !== loadSeq.current || d?.error || !d?.base) return;
+        setPayload(d);
+      }).catch(() => {});
+    }, PARTIAL_REFILL_MS);
+    return () => clearTimeout(t);
+  }, [active, icao, payload]);
 
   const addBase = async () => {
     const v = addInput.trim().toUpperCase();
@@ -486,6 +512,11 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
       )}
 
       {error && <p className="text-xs text-red-400 px-1">{error}</p>}
+      {payload?.partial && payload.partial.length > 0 && (
+        <p className="text-[10.5px] text-slate-400 border border-slate-700/70 bg-slate-900/50 rounded-lg px-3 py-1.5">
+          Still reading <b className="text-slate-200">{payload.partial.join(", ")}</b> — shown as UNKNOWN for now; the cards fill in by themselves in a moment.
+        </p>
+      )}
       {loading && !payload && (
         <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-28 bg-slate-900/60 border border-slate-800 rounded-xl animate-pulse" />)}</div>
       )}
@@ -874,7 +905,9 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               ) : (
                 <Row sev="u" src="FP">Force Protection assessment unavailable this cycle</Row>
               )}
-              {payload.threats.disasters.length === 0
+              {payload.partial?.includes("disasters")
+                ? <Row sev="u" src="GDACS">Natural disasters not read in time this pass — UNKNOWN, not clear</Row>
+                : payload.threats.disasters.length === 0
                 ? <Row sev="g" src="GDACS">No natural disasters within 500 km</Row>
                 : payload.threats.disasters.map((d, i) => (
                     <Row key={i} sev={d.severity === "red" ? "r" : "a"} src="GDACS">
@@ -884,7 +917,9 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-2 mb-0.5">
                 Local reporting — impact-filtered <span className="font-mono font-normal">({payload.threats.news.length} of {payload.threats.newsScanned})</span>
               </p>
-              {payload.threats.news.length === 0 && <Row sev="g" src="GDELT">Nothing impact-relevant in local reporting</Row>}
+              {payload.threats.news.length === 0 && (payload.threats.newsLive === false
+                ? <Row sev="u" src="GDELT">Local reporting not read this pass (GDELT busy or down) — UNKNOWN, not quiet</Row>
+                : <Row sev="g" src="GDELT">Nothing impact-relevant in local reporting</Row>)}
               {payload.threats.news.map((n, i) => (
                 <Row key={i} sev="a" src="GDELT">
                   <a href={n.link} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-300">{n.title.slice(0, 140)}</a>

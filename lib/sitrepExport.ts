@@ -232,10 +232,15 @@ ${limfacHtml ? `<div class="mi-sh">LIMFAC register</div>${limfacHtml}` : ""}
   } else {
     threatRows.push(row("u", "Force Protection assessment unavailable this cycle — UNKNOWN", "FP"));
   }
-  threatRows.push(p.threats.disasters.length === 0
+  const notRead = (name: string) => !!p.partial?.includes(name);
+  threatRows.push(notRead("disasters")
+    ? row("u", "Natural disasters not read in time this pass — UNKNOWN, not clear", "GDACS")
+    : p.threats.disasters.length === 0
     ? row("g", "No natural disasters within 500 km", "GDACS")
     : p.threats.disasters.map((d) => row(d.severity === "red" ? "r" : "a", `<b>${esc(d.type)}</b> ${d.km} km — ${esc(d.title.slice(0, 140))}`, "GDACS")).join(""));
-  threatRows.push(p.threats.news.length === 0
+  threatRows.push(p.threats.news.length === 0 && p.threats.newsLive === false
+    ? row("u", "Local reporting not read this pass (GDELT busy or down) — UNKNOWN, not quiet", "GDELT")
+    : p.threats.news.length === 0
     ? row("g", `Nothing impact-relevant in local reporting (${p.threats.newsScanned} scanned)`, "GDELT")
     : p.threats.news.map((n) => row("a", `${esc(n.title.slice(0, 160))} <span class="dim">(matched: ${n.matched.map(esc).join(", ")})</span>`, "GDELT")).join(""));
 

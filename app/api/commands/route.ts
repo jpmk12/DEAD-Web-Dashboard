@@ -11,8 +11,10 @@ export const dynamic = "force-dynamic";
 // look (the client passes back the first response's `sinceMs` on its polls
 // so the delta does not vanish once the tab bumps its own last-seen).
 //
-// Bounded (REVIEW-2026-10 §6 / the latency rule): a cold assembly answers
-// `pending: true` within 8 s and the board polls. Nothing here calls a
+// Bounded (REVIEW-2026-10 §6 / the latency rule): past ~2.5 s a cold
+// assembly answers the previous picture flagged `pending`, else the QUICK
+// tier (`partial`: your airfields + their SITREP summaries — enough to open a
+// SITREP), and the board polls every 5 s until the whole picture lands. Nothing here calls a
 // model; the AI read is /api/commands/read, on tap.
 
 export async function GET(req: Request) {

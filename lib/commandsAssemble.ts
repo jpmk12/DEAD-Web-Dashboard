@@ -16,7 +16,7 @@
 import { getUserPrefs } from "./userPrefs";
 import { getMissionProfile } from "./missionProfileApply";
 import { getForceProtectionCached } from "./forceProtectionCached";
-import { assembleSitrep, sitrepSummary, sitrepStub, type SitrepSummary } from "./sitrep";
+import { assembleSitrep, sitrepSummary, sitrepStub, sitrepPendingStub, type SitrepSummary } from "./sitrep";
 import { activeWarningProblems } from "./warningProblems";
 import { assessWarning } from "./warningAssess";
 import { getDemandHorizon } from "./demandAssemble";
@@ -59,12 +59,25 @@ export interface CommandsBody {
   mustTrack: MustTrack;
   ownFields: CbOwnField[];
   pending?: boolean;
+  /** The QUICK tier (2026-11-24): only the declaration and the SITREP
+   *  summaries — your airfields and the room — while the rest of the board
+   *  assembles. Posture, boards, demand, events and alerts are absent (not
+   *  quiet); the client shows "assembling" where they go. Always `pending`. */
+  partial?: boolean;
   /** Set when the shared assembly threw — the board is a stub and says so. */
   error?: string;
 }
 
 const TTL = 5 * 60 * 1000;
-export const DEFAULT_WAIT_MS = 8_000;
+/** How long the route waits for the full assembly before answering what it
+ *  has (the previous picture flagged `pending`, else the quick tier). It was
+ *  8 s, and the page showed nothing at all for those 8 s and every poll after
+ *  — "the entire page is useless until the whole thing loads" (2026-11-24). */
+export const DEFAULT_WAIT_MS = 2_500;
+/** The quick tier waits this long for each base's SITREP summary (they are
+ *  usually warm — Glance asks for them at load); a base still assembling
+ *  reads "assembling", never "assembly failed". */
+const QUICK_SITREP_MS = 1_500;
 
 interface Shared {
   at: number;
@@ -114,6 +127,10 @@ function aorOf(lat: number | null | undefined, lon: number | null | undefined, n
   return classifyAor({ lat, lon, name });
 }
 
+function toCbSitrep(s: SitrepSummary): CbSitrep {
+  return { icao: s.icao, label: s.label, country: country(s.country), aor: isAor(s.aor) ? s.aor : aorOf(null, null, country(s.country)), status: s.status, driver: s.driver, worse: s.worse };
+}
+
 function ownFieldsOf(profile: MissionProfile): CbOwnField[] {
   const out: CbOwnField[] = [];
   for (const hub of allHubs(profile)) if (!out.some((o) => o.icao === hub.icao)) out.push({ icao: hub.icao, label: hub.label, role: "hub", country: country(hub.country) || "United States", lat: hub.lat, lon: hub.lon });
@@ -138,8 +155,7 @@ async function gatherShared(): Promise<Shared> {
 
   // SITREP summaries — every configured base, stubbed when its assembly fails.
   const sitrepBases = prefs?.sitrepBases ?? [];
-  const sitrepP = settle(Promise.all(sitrepBases.map((b) => assembleSitrep(b).then(sitrepSummary).catch(() => sitrepStub(b)))).then((rows: SitrepSummary[]): CbSitrep[] =>
-    rows.map((s) => ({ icao: s.icao, label: s.label, country: country(s.country), aor: isAor(s.aor) ? s.aor : aorOf(null, null, country(s.country)), status: s.status, driver: s.driver, worse: s.worse }))));
+  const sitrepP = settle(Promise.all(sitrepBases.map((b) => assembleSitrep(b).then(sitrepSummary).catch(() => sitrepStub(b)))).then((rows: SitrepSummary[]): CbSitrep[] => rows.map(toCbSitrep)));
 
   // Boards — the declared command from ProblemGeo.aor.
   const boardsP = settle(activeWarningProblems().then(async (ps): Promise<CbBoard[]> => {
@@ -337,6 +353,29 @@ function bodyFrom(shared: Shared, sinceMs: number, delta: CbDelta[] | null, pend
   return { generatedAt: new Date(shared.at).toISOString(), sinceMs, board, primer: pr, functional: shared.functional, mustTrack: shared.input.mustTrack, ownFields: shared.input.ownFields, ...(pending ? { pending: true } : {}) };
 }
 
+/** The quick tier's inputs: the declaration (hubs, spokes, ★) and each SITREP
+ *  base's summary within `QUICK_SITREP_MS`. Two DB reads plus the SITREP
+ *  cache — the same assemblies the full gather is running (deduped in
+ *  lib/sitrep), so asking for them here costs nothing extra. */
+async function quickParts(): Promise<{ mustTrack: MustTrack; ownFields: CbOwnField[]; sitreps: CbSitrep[] } | null> {
+  const [prefs, profile] = await Promise.all([getUserPrefs().catch(() => null), getMissionProfile().catch(() => null)]);
+  if (!prefs && !profile) return null;
+  const bases = prefs?.sitrepBases ?? [];
+  const sums = await Promise.all(bases.map((b) => within(assembleSitrep(b).then(sitrepSummary), QUICK_SITREP_MS).then((x) => x ?? sitrepPendingStub(b))));
+  return { mustTrack: profile?.mustTrack ?? EMPTY_MUST_TRACK, ownFields: profile ? ownFieldsOf(profile) : [], sitreps: sums.map(toCbSitrep) };
+}
+
+/** Exported for tests: the quick body from its parts. Every team surface the
+ *  full gather reads is null (absent, said "assembling" by the client), so the
+ *  pure join yields My airfields and the field rows under their commands —
+ *  enough for the room to open a SITREP. */
+export function quickBodyFrom(parts: { mustTrack: MustTrack; ownFields: CbOwnField[]; sitreps: CbSitrep[] }, sinceMs: number): CommandsBody {
+  const input: CommandInput = { nowMs: Date.now(), sinceMs, mustTrack: parts.mustTrack, ownFields: parts.ownFields, posture: null, boards: null, sitreps: parts.sitreps, demand: null, events: null, delta: null, alerts: null, crewMismatchAors: [] };
+  const board = commandBoard(input);
+  const pr = primer({ ...input, convergence: null, decisionsDue: null, sourcesDown: [] });
+  return { generatedAt: new Date().toISOString(), sinceMs, board, primer: pr, functional: null, mustTrack: parts.mustTrack, ownFields: parts.ownFields, pending: true, partial: true };
+}
+
 function stub(sinceMs: number, note: string, error?: string): CommandsBody {
   const input: CommandInput = { nowMs: Date.now(), sinceMs, mustTrack: EMPTY_MUST_TRACK, ownFields: [], posture: null, boards: null, sitreps: null, demand: null, events: null, delta: null, alerts: null, crewMismatchAors: [] };
   const board = commandBoard(input);
@@ -358,11 +397,16 @@ export async function getCommandBoardBounded(email: string, opts: { maxWaitMs?: 
     const u = await deltaP;
     return cache ? bodyFrom(cache, u.sinceMs, u.delta) : stub(u.sinceMs, `assembly failed: ${lastFailure.message}`, lastFailure.message);
   }
+  // Nothing to show at all → build the quick tier WHILE the full assembly
+  // gets its wait (both read the same SITREP assemblies).
+  const quickP = cache ? null : quickParts().catch(() => null);
   const shared = await within(getShared(), maxWaitMs);
   const u = await deltaP;
   if (shared) return bodyFrom(shared, u.sinceMs, u.delta);
   if (cache) return bodyFrom(cache, u.sinceMs, u.delta, true);
   if (lastFailure && Date.now() - lastFailure.at < 60_000) return stub(u.sinceMs, `assembly failed: ${lastFailure.message}`, lastFailure.message);
+  const quick = quickP ? await quickP : null;
+  if (quick) return quickBodyFrom(quick, u.sinceMs);
   return stub(u.sinceMs, "assembling the command picture — first load takes a moment");
 }
 

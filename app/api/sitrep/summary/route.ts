@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
-import { assembleSitrep, sitrepSummary, sitrepStub } from "@/lib/sitrep";
+import { assembleSitrep, sitrepSummary, sitrepStub, sitrepPendingStub } from "@/lib/sitrep";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ export async function GET() {
     bases.map((b) => within(assembleSitrep(b).then(sitrepSummary), WAIT_MS).then((s) => {
       if (s) return s;
       pending = true;
-      return sitrepStub(b);
+      return sitrepPendingStub(b);
     }).catch(() => sitrepStub(b)))
   );
   return NextResponse.json({ bases: summaries, ...(pending ? { pending: true } : {}) }, { status: pending ? 202 : 200 });

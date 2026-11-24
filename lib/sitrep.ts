@@ -23,7 +23,7 @@ import { aggregateThreats } from "./severeWeather";
 import { getCurrentConditions, type CurrentConditions } from "./currentConditions";
 import { getDisasters, haversineKm } from "./disasters";
 import { getForceProtection } from "./forceProtection";
-import { gdeltLocalNews } from "./localNews";
+import { gdeltLocalNewsLive } from "./localNews";
 import { getCenterNotams, getFuelNotams, getGpsNotams } from "./airspace";
 import { gpsNotamsForField, fuelNotamsForField, type FieldGpsNotam } from "./gpsNotams";
 import { firsForCountry } from "./firData";
@@ -176,8 +176,15 @@ export interface SitrepPayload {
     disasters: { title: string; type: string; severity: string; km: number }[];
     news: { title: string; link: string; matched: string[] }[];
     newsScanned: number;
+    /** false when GDELT did not answer (or not within the bound) — the list is
+     *  UNKNOWN, never "nothing impact-relevant". Absent on older payloads. */
+    newsLive?: boolean;
   };
   spectrum: SitrepSpectrum;
+  /** Slow reads that did not answer within the assembly's bound this pass
+   *  (posture, local news, infrastructure, disasters). Each reads UNKNOWN on
+   *  its card; the payload is cached briefly so the next open fills it in. */
+  partial?: string[];
   // Leadership-facing mission-capability rollup: per-function FMC/PMC/NMC, the
   // ranked LIMFAC register (auto-derived + commander-entered), and CCIR flags.
   mission: MissionImpact;
@@ -281,6 +288,12 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
 /** All-UNKNOWN summary for a base whose assembly failed — a missing tile would
  *  read as "fine". Shared by the summary route, the heartbeat and the command
  *  board so every surface degrades the same way. */
+/** All-UNKNOWN summary for a base still ASSEMBLING (not failed) — the strip
+ *  says so instead of "assembly failed" while the first read is in flight. */
+export function sitrepPendingStub(base: SitrepBase): SitrepSummary {
+  return { ...sitrepStub(base), driver: "assembling — UNKNOWN until it lands", line: `${base.icao} is still assembling — status UNKNOWN, not clear.` };
+}
+
 export function sitrepStub(base: SitrepBase): SitrepSummary {
   return {
     icao: base.icao,
@@ -295,6 +308,11 @@ export function sitrepStub(base: SitrepBase): SitrepSummary {
 }
 
 const TTL_MS = 10 * 60 * 1000;
+/** A payload with a slow read missing is kept only this long — the read keeps
+ *  running into its own cache, so the next open is whole. */
+const PARTIAL_TTL_MS = 30 * 1000;
+/** The bound on the four slow, non-weather reads of an assembly. */
+export const SLOW_READ_MS = 12_000;
 const cache = new Map<string, { payload: SitrepPayload; expires: number }>();
 
 /** Lift at a hub against its own normal — null when the field has no series. */
@@ -404,32 +422,20 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
   const icao = base.icao.toUpperCase();
   const now = Date.now();
 
-  const [cats, tafOutlook, rawWx, notams, caps, alerts, current, outlook, disasters, fpResult, newsRaw, infraSources] =
-    await Promise.all([
-      getFlightCategories([icao]).catch(() => ({ live: false, byIcao: {} as Record<string, AviationWx> })),
-      getTafOutlook([icao], 24).catch(() => ({} as Record<string, TafOutlook>)),
-      fetchRawWx(icao),
-      getNotams([icao]).catch(() => ({ configured: false, live: false, byIcao: {} as Record<string, Notam[]> })),
-      airfieldCapabilities([icao]).catch(() => ({} as Record<string, RunwayCap>)),
-      aggregateThreats([{ label: base.label, lat: base.lat, lon: base.lon }]).catch(() => []),
-      getCurrentConditions(base.lat, base.lon).catch(() => null),
-      fetchOutlook(base.lat, base.lon),
-      getDisasters().catch(() => []),
-      getForceProtection([], [{
-        id: `sitrep-${icao}`,
-        label: base.label,
-        icao,
-        lat: base.lat,
-        lon: base.lon,
-        country: base.country || "United States",
-        cocom: classifyAor({ lat: base.lat, lon: base.lon, name: base.country }),
-        kind: "base" as const,
-      }], { record: false }).catch(() => null),
-      gdeltLocalNews(base.place || base.label).catch(() => []),
-      getInfraSources(base).catch((): SitrepInfra => ({ internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null })),
-    ]);
-
-  const [runways, fuelRes, gpsRes, historyRows, manualLimfacs, gps, scales, kev, profile, fieldProfile, pirepRes, sigmetRes] = await Promise.all([
+  // Every source starts AT ONCE (2026-11-24, "the SITREP should load
+  // faster"): the second group never depended on the first, and running them
+  // one after the other made a cold base the SUM of its two slowest reads.
+  // The four slow, non-weather reads are BOUNDED (`SLOW_READ_MS`): past the
+  // bound the read is named in `partial`, reads UNKNOWN on its card, and the
+  // payload is cached briefly so the next open — when the read has landed in
+  // its own cache — fills it in. Weather, NOTAMs and runways are not bounded
+  // here; each carries its own fetch timeout and they are what a SITREP is for.
+  const partial: string[] = [];
+  const slow = <T,>(p: Promise<T>, name: string): Promise<T | null> =>
+    withTimeout(p, SLOW_READ_MS).then((v) => { if (v == null) partial.push(name); return v; });
+  const postureMovesP = getPostureMoves(3_000).catch(() => null);
+  const centerP = base.artcc ? getCenterNotams(base.artcc).catch(() => null) : Promise.resolve(null);
+  const groupB = Promise.all([
     airfieldRunways(icao).catch(() => []),
     getFuelNotams().catch(() => null),
     getGpsNotams().catch(() => null),
@@ -442,13 +448,44 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
     getFieldProfile(base.lat, base.lon).catch(() => null),
     getPireps(icao).catch(() => null),
     withTimeout(getSigmets(), 12_000),
-  ]);
+  ] as const);
+
+  const [cats, tafOutlook, rawWx, notams, caps, alerts, current, outlook, disastersRead, fpResult, newsRead, infraRead] =
+    await Promise.all([
+      getFlightCategories([icao]).catch(() => ({ live: false, byIcao: {} as Record<string, AviationWx> })),
+      getTafOutlook([icao], 24).catch(() => ({} as Record<string, TafOutlook>)),
+      fetchRawWx(icao),
+      getNotams([icao]).catch(() => ({ configured: false, live: false, byIcao: {} as Record<string, Notam[]> })),
+      airfieldCapabilities([icao]).catch(() => ({} as Record<string, RunwayCap>)),
+      aggregateThreats([{ label: base.label, lat: base.lat, lon: base.lon }]).catch(() => []),
+      getCurrentConditions(base.lat, base.lon).catch(() => null),
+      fetchOutlook(base.lat, base.lon),
+      slow(getDisasters(), "disasters"),
+      slow(getForceProtection([], [{
+        id: `sitrep-${icao}`,
+        label: base.label,
+        icao,
+        lat: base.lat,
+        lon: base.lon,
+        country: base.country || "United States",
+        cocom: classifyAor({ lat: base.lat, lon: base.lon, name: base.country }),
+        kind: "base" as const,
+      }], { record: false }), "force posture"),
+      slow(gdeltLocalNewsLive(base.place || base.label), "local news"),
+      slow(getInfraSources(base), "infrastructure"),
+    ]);
+  const disasters = disastersRead ?? [];
+  const newsRaw = newsRead?.items ?? [];
+  const newsLive = !!newsRead?.live;
+  const infraSources: SitrepInfra = infraRead ?? { internet: { live: false, entity: null, led: "u", series: [] }, water: null, nas: null };
+
+  const [runways, fuelRes, gpsRes, historyRows, manualLimfacs, gps, scales, kev, profile, fieldProfile, pirepRes, sigmetRes] = await groupB;
 
   // Center (ARTCC) enroute NOTAMs — the "what's between us and everywhere
   // else" layer the user's ops summary needs (KWRI → ZNY). Optional per base.
   let center: SitrepPayload["ops"]["center"] = null;
   if (base.artcc) {
-    const c = await getCenterNotams(base.artcc).catch(() => null);
+    const c = await centerP;
     if (c) {
       const items = (c.groups[0]?.notams ?? [])
         .filter((n) => notamTimeState(n, now) !== "expired")
@@ -631,6 +668,7 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
       disasters: nearDisasters,
       news: impactNews,
       newsScanned: newsRaw.length,
+      newsLive,
     },
     spectrum,
     // Placeholder — filled right after the payload exists (deriveMissionImpact
@@ -695,14 +733,15 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
   } catch { payload.weather.tafSkill = null; payload.ops.lift = null; payload.tempo = null; }
   // Lift chatter naming this field from the own-source sweep (15-min cached
   // elsewhere; bounded here — a cold sweep reads null, never "no chatter").
-  try {
-    const pm = await getPostureMoves(3_000);
-    payload.ops.liftChatter = pm.pending ? null : pm.fieldChatter?.[icao.toUpperCase()] ?? null;
-  } catch { payload.ops.liftChatter = null; }
+  {
+    const pm = await postureMovesP;
+    payload.ops.liftChatter = !pm || pm.pending ? null : pm.fieldChatter?.[icao.toUpperCase()] ?? null;
+  }
   if (!payload.history.some((h) => h.day === today)) {
     payload.history = [...payload.history, { day: today, wx: payload.status.wx, ops: payload.status.ops, threat: payload.status.threat }].slice(-7);
   }
 
-  cache.set(cacheKey, { payload, expires: now + TTL_MS });
+  if (partial.length) payload.partial = partial;
+  cache.set(cacheKey, { payload, expires: now + (partial.length ? PARTIAL_TTL_MS : TTL_MS) });
   return payload;
 }
