@@ -61,6 +61,8 @@ export interface ThemeSeed {
 
 export interface SeedInput {
   hub?: { icao: string; label: string; country?: string } | null;
+  /** Hubs beyond the primary. */
+  moreHubs?: { icao: string; label: string; country?: string }[];
   spokes?: { icao: string; label: string; country?: string }[];
   /** ★ airfields (label when the app knows one). */
   starFields?: { icao: string; label?: string }[];
@@ -148,6 +150,7 @@ export function profileSeeds(input: SeedInput): ThemeSeed[] {
     });
   };
   if (input.hub?.icao) field(input.hub, "hub", `your hub ${input.hub.icao.toUpperCase()}`);
+  for (const h of input.moreHubs ?? []) field(h, "hub", `your hub ${h.icao.toUpperCase()}`);
   for (const s of input.spokes ?? []) field(s, "spoke", `your spoke ${s.icao.toUpperCase()}`);
   for (const s of input.starFields ?? []) field(s, "star-field", `★ field ${s.icao.toUpperCase()}`);
 

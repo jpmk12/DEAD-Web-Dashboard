@@ -758,6 +758,7 @@ export default function GlanceTab({
   // the active TDY location are pinned to the top and marked (REVIEW-2026-10
   // G9): the app knows which airfields matter most; the list should too.
   const mineNames: string[] = [];
+  for (const h of profile?.moreHubs ?? []) mineNames.push(h.label, h.icao, h.country);
   if (profile?.home) mineNames.push(profile.home.label, profile.home.icao, profile.home.country);
   else if (profile?.homeIcao) mineNames.push(profile.homeIcao);
   for (const sp of profile?.spokes ?? []) mineNames.push(sp.label, sp.icao, sp.country);

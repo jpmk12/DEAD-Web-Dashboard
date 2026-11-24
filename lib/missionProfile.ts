@@ -127,8 +127,12 @@ export function sanitizeEconomyEdits(raw: unknown): EconomyEdits {
 }
 
 export interface MissionProfile {
-  homeIcao: string;                 // "" = unset (the HUB)
-  home?: MissionSpoke | null;       // resolved hub, when the editor resolved it
+  homeIcao: string;                 // "" = unset (the PRIMARY hub)
+  home?: MissionSpoke | null;       // resolved primary hub, when the editor resolved it
+  /** Hubs beyond the primary (2026-11-24, "add multiple hubs and spokes").
+   *  Absent on older rows. `allHubs()` is the one reader — never read
+   *  `home` alone when the question is "is this one of my hubs". */
+  moreHubs?: MissionSpoke[];
   spokes: MissionSpoke[];           // hub-and-spoke: other own-force airfields
   theaters: Aor[];                  // COCOMs the user owns
   aois: MissionAoi[];
@@ -222,12 +226,13 @@ const VALID_AORS: Aor[] = ["NORTHCOM", "SOUTHCOM", "EUCOM", "CENTCOM", "AFRICOM"
 const MAX_AOIS = 8;
 const MAX_AOI_COUNTRIES = 25;
 const BASES_PER_AOI = 6;
-const MAX_SPOKES = 8;
+export const MAX_HUBS = 6;            // primary + 5 more
+export const MAX_SPOKES = 12;
 const NEAR_BASE_KM = 1800;          // "supports this AOI" radius for theater hubs
 const NEAR_CHOKE_KM = 2500;         // chokepoint relevance radius
-// Full-SITREP slots. 4 → 6 with must-tracks (REVIEW-2026-10 §6): ★ fields
-// take the slots first, the hub always holds one.
-export const SITREP_MAX = 6;
+// Full-SITREP slots. 4 → 6 with must-tracks (REVIEW-2026-10 §6), 6 → 12 with
+// multiple hubs (2026-11-24): every hub holds one first, then ★ fields.
+export const SITREP_MAX = 12;
 
 export const slugify = (s: string): string =>
   s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "aoi";
@@ -291,10 +296,23 @@ export function sanitizeMissionProfile(raw: unknown): MissionProfile {
     }
   }
   const home = asSpoke(r.home);
+  const homeIcao = typeof r.homeIcao === "string" ? r.homeIcao.trim().toUpperCase().slice(0, 4) : "";
+  // More hubs: never the primary, never twice, never also a spoke (a hub
+  // outranks the spoke entry for the same field).
+  const moreHubs: MissionSpoke[] = [];
+  if (Array.isArray(r.moreHubs)) {
+    const taken = new Set([homeIcao, home?.icao ?? ""].filter(Boolean));
+    for (const v of r.moreHubs.slice(0, MAX_HUBS * 2)) {
+      const h = asSpoke(v);
+      if (h && !taken.has(h.icao) && moreHubs.length < MAX_HUBS - 1) { taken.add(h.icao); moreHubs.push(h); }
+    }
+  }
+  const hubIcaos = new Set([homeIcao, home?.icao ?? "", ...moreHubs.map((h) => h.icao)].filter(Boolean));
   return {
-    homeIcao: typeof r.homeIcao === "string" ? r.homeIcao.trim().toUpperCase().slice(0, 4) : "",
+    homeIcao,
     ...(home ? { home } : {}),
-    spokes,
+    ...(moreHubs.length ? { moreHubs } : {}),
+    spokes: spokes.filter((sp) => !hubIcaos.has(sp.icao)),
     theaters: strArr(r.theaters, 6, 12).filter((t): t is Aor => VALID_AORS.includes(t as Aor)),
     aois,
     spectrum: sanitizeSpectrum(r.spectrum),
@@ -331,17 +349,11 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
   // ── Own-force airfields (hub & spoke) come FIRST: crews and aircraft LIVE
   // here, so they outrank AOI theater picks for every capped list. The hub is
   // the resolved `home` object, else a curated lookup of homeIcao.
-  const hub: MissionSpoke | null =
-    profile.home ??
-    (profile.homeIcao
-      ? (() => {
-          const a = ALL_AIRFIELDS.find((x) => x.icao === profile.homeIcao);
-          return a ? { icao: a.icao, label: a.name, lat: a.lat, lon: a.lon, country: a.country ?? "United States" } : null;
-        })()
-      : null);
+  const hubs = allHubs(profile);
+  const hubSet = new Set(hubs.map((h) => h.icao));
   const ownForce: { sp: MissionSpoke; role: "hub" | "spoke" }[] = [
-    ...(hub ? [{ sp: hub, role: "hub" as const }] : []),
-    ...profile.spokes.filter((s) => s.icao !== hub?.icao).map((sp) => ({ sp, role: "spoke" as const })),
+    ...hubs.map((sp) => ({ sp, role: "hub" as const })),
+    ...profile.spokes.filter((s) => !hubSet.has(s.icao)).map((sp) => ({ sp, role: "spoke" as const })),
   ];
   for (const { sp, role } of ownForce) {
     if (seenBase.has(sp.icao)) continue;
@@ -433,7 +445,7 @@ export function deriveTracking(profile: MissionProfile): DerivedTracking {
     sitSeen.add(c.icao);
     sitrepCandidates.push(c);
   };
-  if (hub) pushCand({ icao: hub.icao, label: hub.label, lat: hub.lat, lon: hub.lon, country: hub.country || "United States", place: hub.label });
+  for (const hub of hubs) pushCand({ icao: hub.icao, label: hub.label, lat: hub.lat, lon: hub.lon, country: hub.country || "United States", place: hub.label });
   for (const icao of profile.mustTrack?.icaos ?? []) {
     const own = ownForce.find(({ sp }) => sp.icao === icao)?.sp;
     const b = bases.find((x) => x.icao === icao);
@@ -481,7 +493,9 @@ export const isDerivedId = (id: string): boolean => id.startsWith("mp-");
 export function missionSummaryLine(profile: MissionProfile): string {
   const parts: string[] = [];
   const hub = profile.home?.label ?? profile.homeIcao;
-  if (hub) parts.push(`hub ${hub}${profile.homeIcao && profile.home ? ` (${profile.homeIcao})` : ""}`);
+  const more = (profile.moreHubs ?? []).map((h) => h.icao);
+  if (hub) parts.push(`${more.length ? "hubs" : "hub"} ${hub}${profile.homeIcao && profile.home ? ` (${profile.homeIcao})` : ""}${more.length ? ` + ${more.join("/")}` : ""}`);
+  else if (more.length) parts.push(`hubs ${more.join("/")}`);
   if (profile.spokes.length) parts.push(`spokes ${profile.spokes.map((s) => s.icao).join("/")}`);
   if (profile.theaters.length) parts.push(`theaters ${profile.theaters.join("+")}`);
   for (const a of profile.aois) {
@@ -499,22 +513,26 @@ export function missionSummaryLine(profile: MissionProfile): string {
 
 // ── Own-force role (hub / spoke / none) as ONE change ───────────────────────
 // The command board's role switch (REVIEW-2026-10 §6 follow-up, 2026-10-07):
-// "make OJAQ a spoke", "KCHS is the hub now", "KADW is no longer ours" — each
-// a single declaration change, computed here so the rule is testable and the
+// "make OJAQ a spoke", "KCHS is a hub", "KADW is no longer ours" — each a
+// single declaration change, computed here so the rule is testable and the
 // server only resolves the field and saves. Disciplines:
-//   • There is ONE hub. Promoting a field demotes the previous hub to a SPOKE
-//     — never silently out of the declaration (crews still live there).
-//   • A field is never in both lists.
+//   • SEVERAL hubs (2026-11-24, "I want to add multiple hubs and spokes"):
+//     the first declared is the PRIMARY (`homeIcao` / `home` — every older
+//     reader still sees one hub); the rest live in `moreHubs`. Making a field
+//     a hub ADDS it — no other hub is demoted. Removing the primary promotes
+//     the next hub to primary, never leaves a hole while others remain.
+//     Cap `MAX_HUBS` (primary included) and `MAX_SPOKES`.
+//   • A field is never both a hub and a spoke.
 //   • Assigning a role lifts that field's `mp-b-`/`mp-m-` exclusions: the
 //     operator has just said it is own force, so Apply may materialize it.
 //   • Nothing is guessed: the caller supplies the resolved field (coords +
-//     label); the previous hub is kept as a spoke only when it is resolvable
-//     (the stored `home` object or the curated catalogue), else a WARNING.
-//   • `undo` is the exact sequence of role changes that puts things back.
+//     label).
+//   • `undo` is the exact sequence of role changes that puts things back —
+//     a removed PRIMARY hub comes back as the primary (`primary: true`).
 
 export type OwnForceRole = "hub" | "spoke" | null;
 
-export interface OwnForceOp { icao: string; role: OwnForceRole }
+export interface OwnForceOp { icao: string; role: OwnForceRole; primary?: boolean }
 
 export interface OwnForceChange {
   profile: MissionProfile;
@@ -526,16 +544,7 @@ export interface OwnForceChange {
 
 const upperIcao = (s: string | undefined | null): string => (s ?? "").trim().toUpperCase();
 
-/** The declared own-force role of an ICAO, if any. */
-export function ownForceRoleOf(profile: MissionProfile, icaoRaw: string): OwnForceRole {
-  const icao = upperIcao(icaoRaw);
-  if (!icao) return null;
-  const hub = upperIcao(profile.home?.icao || profile.homeIcao);
-  if (hub && hub === icao) return "hub";
-  return profile.spokes.some((s) => upperIcao(s.icao) === icao) ? "spoke" : null;
-}
-
-/** The hub as a resolved field: the stored object, else the curated catalogue. */
+/** The PRIMARY hub as a resolved field: the stored object, else the curated catalogue. */
 export function resolvedHub(profile: MissionProfile): MissionSpoke | null {
   if (profile.home) return profile.home;
   if (!profile.homeIcao) return null;
@@ -543,18 +552,68 @@ export function resolvedHub(profile: MissionProfile): MissionSpoke | null {
   return a ? { icao: a.icao, label: a.name, lat: a.lat, lon: a.lon, country: a.country ?? "United States" } : null;
 }
 
-export function setOwnForceRole(profileIn: MissionProfile, field: MissionSpoke, role: OwnForceRole): OwnForceChange {
+/** Every declared hub, primary first, resolved (an unresolvable primary is left out). */
+export function allHubs(profile: MissionProfile): MissionSpoke[] {
+  const out: MissionSpoke[] = [];
+  const seen = new Set<string>();
+  const primary = resolvedHub(profile);
+  if (primary) { out.push(primary); seen.add(upperIcao(primary.icao)); }
+  for (const h of profile.moreHubs ?? []) {
+    const k = upperIcao(h.icao);
+    if (!seen.has(k)) { seen.add(k); out.push(h); }
+  }
+  return out;
+}
+
+/** Every declared hub ICAO, primary first — includes a primary the catalogue cannot resolve. */
+export function hubIcaos(profile: MissionProfile): string[] {
+  const out = [upperIcao(profile.home?.icao || profile.homeIcao), ...(profile.moreHubs ?? []).map((h) => upperIcao(h.icao))].filter(Boolean);
+  return [...new Set(out)];
+}
+
+/** The declared own-force role of an ICAO, if any. */
+export function ownForceRoleOf(profile: MissionProfile, icaoRaw: string): OwnForceRole {
+  const icao = upperIcao(icaoRaw);
+  if (!icao) return null;
+  if (hubIcaos(profile).includes(icao)) return "hub";
+  return profile.spokes.some((s) => upperIcao(s.icao) === icao) ? "spoke" : null;
+}
+
+/** Remove a hub; the next hub becomes primary when the primary goes. */
+function dropHub(profile: MissionProfile, icao: string): { profile: MissionProfile; wasPrimary: boolean; promoted: string | null } {
+  const primary = upperIcao(profile.home?.icao || profile.homeIcao);
+  const more = (profile.moreHubs ?? []).filter((h) => upperIcao(h.icao) !== icao);
+  if (primary !== icao) {
+    const next = { ...profile, moreHubs: more };
+    if (!more.length) delete (next as { moreHubs?: MissionSpoke[] }).moreHubs;
+    return { profile: next, wasPrimary: false, promoted: null };
+  }
+  const [head, ...rest] = more;
+  const next: MissionProfile = { ...profile, homeIcao: head ? upperIcao(head.icao) : "", moreHubs: rest };
+  if (head) next.home = head; else delete (next as { home?: MissionSpoke | null }).home;
+  if (!rest.length) delete (next as { moreHubs?: MissionSpoke[] }).moreHubs;
+  return { profile: next, wasPrimary: true, promoted: head ? upperIcao(head.icao) : null };
+}
+
+export function setOwnForceRole(profileIn: MissionProfile, field: MissionSpoke, role: OwnForceRole, opts: { primary?: boolean } = {}): OwnForceChange {
   const icao = upperIcao(field.icao);
   const changes: string[] = [];
   const warnings: string[] = [];
   if (!/^[A-Z0-9]{4}$/.test(icao)) return { profile: profileIn, changes, warnings: ["A valid 4-character ICAO is required"], undo: [] };
   const current = ownForceRoleOf(profileIn, icao);
-  if (current === role) {
-    return { profile: profileIn, changes, warnings: [role ? `${icao} is already the ${role}` : `${icao} is not an own-force field`], undo: [] };
+  const isPrimary = current === "hub" && upperIcao(profileIn.home?.icao || profileIn.homeIcao) === icao;
+  if (current === role && !(role === "hub" && opts.primary && !isPrimary)) {
+    return { profile: profileIn, changes, warnings: [role ? `${icao} is already ${role === "hub" ? "a hub" : "a spoke"}` : `${icao} is not an own-force field`], undo: [] };
   }
   const resolved: MissionSpoke = { icao, label: (field.label || icao).trim().slice(0, 80), lat: field.lat, lon: field.lon, country: (field.country || "").trim().slice(0, 60) };
-  let profile: MissionProfile = { ...profileIn, spokes: profileIn.spokes.filter((s) => upperIcao(s.icao) !== icao), excludedIds: [...profileIn.excludedIds] };
   const undo: OwnForceOp[] = [];
+  let profile: MissionProfile = { ...profileIn, spokes: profileIn.spokes.filter((s) => upperIcao(s.icao) !== icao), excludedIds: [...profileIn.excludedIds] };
+  // Take the field out of the hub lists first (re-added below when it stays a hub).
+  let dropped = { wasPrimary: false, promoted: null as string | null };
+  if (current === "hub") {
+    const d = dropHub(profile, icao);
+    profile = d.profile; dropped = { wasPrimary: d.wasPrimary, promoted: d.promoted };
+  }
   const liftExclusions = () => {
     const drop = new Set([`mp-b-${icao}`, `mp-m-${icao}`]);
     if (profile.excludedIds.some((id) => drop.has(id))) {
@@ -562,68 +621,66 @@ export function setOwnForceRole(profileIn: MissionProfile, field: MissionSpoke, 
       changes.push(`${icao}'s Apply exclusion lifted`);
     }
   };
+  const restoreOp: OwnForceOp = current === "hub" ? { icao, role: "hub", ...(dropped.wasPrimary ? { primary: true } : {}) } : { icao, role: current };
 
   if (role === "hub") {
-    const oldHub = resolvedHub(profileIn);
-    const oldHubIcao = upperIcao(profileIn.home?.icao || profileIn.homeIcao);
-    profile = { ...profile, homeIcao: icao, home: resolved };
-    changes.push(`${icao} is now the hub${current === "spoke" ? " (was a spoke)" : ""}`);
-    if (oldHubIcao && oldHubIcao !== icao) {
-      if (oldHub && !profile.spokes.some((s) => upperIcao(s.icao) === oldHubIcao)) {
-        if (profile.spokes.length >= MAX_SPOKES) {
-          warnings.push(`${oldHubIcao} (the previous hub) could not be kept as a spoke — spokes are full (${MAX_SPOKES}); track it again if crews still live there`);
-        } else {
-          profile = { ...profile, spokes: [...profile.spokes, oldHub] };
-          changes.push(`${oldHubIcao} is now a spoke (was the hub)`);
-        }
-      } else if (!oldHub) {
-        warnings.push(`${oldHubIcao} (the previous hub) is not in the catalogue and could not be kept as a spoke — track it again if needed`);
-      }
-      undo.push({ icao: oldHubIcao, role: "hub" });
+    const hubsNow = hubIcaos(profile);
+    if (hubsNow.length >= MAX_HUBS) {
+      return { profile: profileIn, changes, warnings: [`Hubs are full (${MAX_HUBS}) — remove one first`], undo: [] };
     }
-    undo.push({ icao, role: current });
+    const primaryNow = upperIcao(profile.home?.icao || profile.homeIcao);
+    if (!primaryNow) {
+      profile = { ...profile, homeIcao: icao, home: resolved };
+      changes.push(`${icao} is now the primary hub${current === "spoke" ? " (was a spoke)" : ""}`);
+    } else if (opts.primary) {
+      const old = resolvedHub(profile);
+      const more = [...(old ? [old] : []), ...(profile.moreHubs ?? [])].filter((h) => upperIcao(h.icao) !== icao);
+      profile = { ...profile, homeIcao: icao, home: resolved, moreHubs: more };
+      if (!old) warnings.push(`${primaryNow} (the previous primary hub) is not in the catalogue and could not be kept as a hub — track it again if needed`);
+      changes.push(`${icao} is now the primary hub${current === "spoke" ? " (was a spoke)" : ""}${old ? ` — ${primaryNow} stays a hub` : ""}`);
+    } else {
+      profile = { ...profile, moreHubs: [...(profile.moreHubs ?? []), resolved] };
+      changes.push(`${icao} is now a hub${current === "spoke" ? " (was a spoke)" : ""} — ${primaryNow} stays the primary`);
+    }
+    undo.push(restoreOp);
     liftExclusions();
     return { profile, changes, warnings, undo };
   }
 
+  if (dropped.wasPrimary) {
+    changes.push(dropped.promoted ? `${dropped.promoted} is now the primary hub` : `no hub is declared now`);
+  }
+
   if (role === "spoke") {
     if (profile.spokes.length >= MAX_SPOKES) {
-      return { profile: profileIn, changes, warnings: [`Spokes are full (${MAX_SPOKES}) — remove one first`], undo: [] };
+      return { profile: profileIn, changes: [], warnings: [`Spokes are full (${MAX_SPOKES}) — remove one first`], undo: [] };
     }
-    if (current === "hub") {
-      profile = { ...profile, homeIcao: "" };
-      delete (profile as { home?: MissionSpoke | null }).home;
-      changes.push(`${icao} is now a spoke (was the hub — no hub is declared now)`);
-    } else changes.push(`${icao} is now a spoke`);
+    changes.unshift(`${icao} is now a spoke${current === "hub" ? " (was a hub)" : ""}`);
     profile = { ...profile, spokes: [...profile.spokes, resolved] };
-    undo.push({ icao, role: current });
+    undo.push(restoreOp);
     liftExclusions();
     return { profile, changes, warnings, undo };
   }
 
   // role === null — drop the declaration (tracking is the caller's call).
-  if (current === "hub") {
-    profile = { ...profile, homeIcao: "" };
-    delete (profile as { home?: MissionSpoke | null }).home;
-    changes.push(`${icao} is no longer the hub — no hub is declared now`);
-  } else changes.push(`${icao} is no longer a spoke`);
-  undo.push({ icao, role: current });
+  changes.unshift(current === "hub" ? `${icao} is no longer a hub` : `${icao} is no longer a spoke`);
+  undo.push(restoreOp);
   return { profile, changes, warnings, undo };
 }
 
 /**
  * The SITREP base set the ★ declaration implies, given what is configured
- * today: hub first, then ★ ICAOs (declaration order), then the existing set
- * in its current order, capped at SITREP_MAX. `resolved` supplies a base for
- * any ★ ICAO neither list knows (the server resolves it; null = unknown
- * field, skipped). Pure so the ordering rule is testable; the server only
- * does the resolving and the save.
+ * today: every hub first (primary first), then ★ ICAOs (declaration order),
+ * then the existing set in its current order, capped at SITREP_MAX.
+ * `resolved` supplies a base for any ★ ICAO neither list knows (the server
+ * resolves it; null = unknown field, skipped). Pure so the ordering rule is
+ * testable; the server only does the resolving and the save.
  */
 export function sitrepBasesForStars(
   current: SitrepBase[],
   candidates: SitrepBase[],
   mustTrackIcaos: string[],
-  hubIcao: string,
+  hubs: string | string[],
   resolved: Record<string, SitrepBase | null> = {},
 ): SitrepBase[] {
   const out: SitrepBase[] = [];
@@ -634,7 +691,7 @@ export function sitrepBasesForStars(
     if (!b || seen.has(b.icao) || out.length >= SITREP_MAX) return;
     seen.add(b.icao); out.push(b);
   };
-  if (hubIcao) push(find(hubIcao));
+  for (const h of (Array.isArray(hubs) ? hubs : [hubs])) if (h) push(find(h));
   for (const icao of mustTrackIcaos) push(find(icao));
   for (const b of current) push(b);
   return out;

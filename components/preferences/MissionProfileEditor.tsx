@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
   deriveTracking, suggestChokepoints, suggestAoiCountries, slugify, EMPTY_PROFILE, SITREP_MAX, DEFAULT_SPECTRUM, EMPTY_MUST_TRACK,
-  toggleMustTrack, isStarCountry,
+  toggleMustTrack, isStarCountry, MAX_HUBS, MAX_SPOKES,
   type MissionProfile, type MissionAoi, type MissionSpoke,
 } from "@/lib/missionProfile";
 import { CHOKEPOINTS } from "@/lib/chokepoints";
@@ -97,6 +97,7 @@ function MustTrackEditor({ profile, canEdit, patch }: { profile: MissionProfile;
   const countries = [...new Set(profile.aois.flatMap((a) => a.countries))];
   const fields = [
     ...(profile.home ? [profile.home.icao] : profile.homeIcao ? [profile.homeIcao] : []),
+    ...(profile.moreHubs ?? []).map((h) => h.icao),
     ...profile.spokes.map((s) => s.icao),
   ];
   const extraStars = mt.icaos.filter((i) => !fields.includes(i));
@@ -110,7 +111,7 @@ function MustTrackEditor({ profile, canEdit, patch }: { profile: MissionProfile;
     <div className="border border-slate-800 rounded-lg p-3 space-y-2.5 bg-slate-950/40">
       <div>
         <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">★ Must-tracks</label>
-        <p className="text-[10px] text-slate-600 mt-0.5">What matters most. A ★ orders and pins on the OSINT command board (★ rows first, never folded; the primer breaks ties toward ★; ★ airfields take the {SITREP_MAX} full-SITREP slots, hub first; ★ commands always have a map chip). It never adds tracking by itself.</p>
+        <p className="text-[10px] text-slate-600 mt-0.5">What matters most. A ★ orders and pins on the OSINT command board (★ rows first, never folded; the primer breaks ties toward ★; ★ airfields take the {SITREP_MAX} full-SITREP slots, hubs first; ★ commands always have a map chip). It never adds tracking by itself.</p>
       </div>
       <div className="flex flex-wrap items-center gap-1.5"><span className="text-[10.5px] text-slate-400 w-24">Commands</span>{AORS.map((a) => chip(mt.aors.includes(a), a, () => set("aor", a)))}</div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -361,7 +362,7 @@ export default function MissionProfileEditor() {
         </button>
         {canEdit && (
           <>
-            <button type="button" onClick={plan ? apply : previewApply} disabled={busy || (profile.aois.length === 0 && profile.spokes.length === 0 && !profile.homeIcao)}
+            <button type="button" onClick={plan ? apply : previewApply} disabled={busy || (profile.aois.length === 0 && profile.spokes.length === 0 && !profile.homeIcao && !(profile.moreHubs ?? []).length)}
               className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded disabled:opacity-40 ${plan ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400" : "border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/10"}`}>
               {busy ? "…" : plan ? (plan.diff.empty ? "Nothing to apply" : "Confirm — write these changes") : "Apply — preview changes"}
             </button>
@@ -448,15 +449,23 @@ function OwnForceEditor({ profile, canEdit, patch }: {
     return { icao: d.icao, label: d.label, lat: d.lat, lon: d.lon, country: d.country ?? "" };
   };
 
-  const addSpoke = async () => {
+  const more = profile.moreHubs ?? [];
+  const hubCount = (profile.homeIcao ? 1 : 0) + more.length;
+  const taken = (icao: string) => icao === profile.homeIcao || more.some((h) => h.icao === icao) || profile.spokes.some((s) => s.icao === icao);
+
+  const add = async (as: "hub" | "spoke") => {
     const icao = input.trim().toUpperCase();
     if (!/^[A-Z0-9]{4}$/.test(icao) || busy) return;
-    if (icao === profile.homeIcao || profile.spokes.some((s) => s.icao === icao)) { setInput(""); return; }
+    if (taken(icao)) { setErr(`${icao} is already declared — remove it first to change its role.`); return; }
+    if (as === "hub" && hubCount >= MAX_HUBS) { setErr(`Hubs are full (${MAX_HUBS}).`); return; }
+    if (as === "spoke" && profile.spokes.length >= MAX_SPOKES) { setErr(`Spokes are full (${MAX_SPOKES}).`); return; }
     setBusy(true); setErr(null);
     const sp = await resolve(icao);
     setBusy(false);
     if (!sp) { setErr(`Couldn't resolve ${icao} — check the ICAO.`); return; }
-    patch({ spokes: [...profile.spokes, sp].slice(0, 8) });
+    if (as === "spoke") patch({ spokes: [...profile.spokes, sp] });
+    else if (!profile.homeIcao) patch({ homeIcao: sp.icao, home: sp });
+    else patch({ moreHubs: [...more, sp] });
     setInput("");
   };
 
@@ -469,17 +478,24 @@ function OwnForceEditor({ profile, canEdit, patch }: {
     }
   };
 
+  // Make another hub the primary: the old primary stays a hub (first of the rest).
+  const makePrimary = (h: MissionSpoke) => {
+    const old = profile.home ?? null;
+    const rest = more.filter((x) => x.icao !== h.icao);
+    patch({ homeIcao: h.icao, home: h, moreHubs: old ? [old, ...rest] : rest });
+  };
+
   return (
     <div>
       <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
-        Own force airfields — hub &amp; spokes
+        Own force airfields — hubs &amp; spokes
       </label>
       <p className="text-[10px] text-slate-600 mb-1.5">
-        Where your crews and aircraft live — distinct from your residence (Home Location, in the You group). Every field here gets METAR, force-protection watch, and SITREP candidacy.
+        Where your crews and aircraft live — distinct from your residence (Home Location, in the You group). Every field here gets METAR, force-protection watch, and SITREP candidacy. Up to {MAX_HUBS} hubs (the first is the primary) and {MAX_SPOKES} spokes; {SITREP_MAX} full-SITREP slots, hubs first.
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex items-center gap-1.5 border border-emerald-500/40 bg-emerald-500/10 rounded-full pl-2 pr-1 py-0.5">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">Hub</span>
+        <span className="inline-flex items-center gap-1.5 border border-emerald-500/40 bg-emerald-500/10 rounded-full pl-2 pr-1 py-0.5" title="The primary hub">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">Hub · primary</span>
           <input
             value={profile.homeIcao}
             onChange={(e) => void setHome(e.target.value)}
@@ -489,28 +505,47 @@ function OwnForceEditor({ profile, canEdit, patch }: {
           />
           {profile.home && <span className="text-[10px] text-slate-500 max-w-[160px] truncate">{profile.home.label}</span>}
         </span>
+        {more.map((h) => (
+          <span key={h.icao} className="inline-flex items-center gap-1.5 border border-emerald-500/30 rounded-full px-2 py-0.5">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400/80">Hub</span>
+            <span className="text-[11px] font-mono font-bold text-slate-200">{h.icao}</span>
+            <span className="text-[10px] text-slate-500 max-w-[150px] truncate">{h.label}</span>
+            {canEdit && (
+              <>
+                <button type="button" onClick={() => makePrimary(h)} className="text-[9px] text-slate-500 hover:text-emerald-300" title={`Make ${h.icao} the primary hub (${profile.homeIcao || "the current primary"} stays a hub)`}>↑ primary</button>
+                <button type="button" onClick={() => patch({ moreHubs: more.filter((x) => x.icao !== h.icao) })}
+                  className="text-slate-600 hover:text-red-400 text-xs" title={`Remove ${h.icao} as a hub`} aria-label={`Remove hub ${h.icao}`}>✕</button>
+              </>
+            )}
+          </span>
+        ))}
         {profile.spokes.map((sp) => (
           <span key={sp.icao} className="inline-flex items-center gap-1.5 border border-slate-700 rounded-full px-2 py-0.5">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Spoke</span>
             <span className="text-[11px] font-mono font-bold text-slate-200">{sp.icao}</span>
             <span className="text-[10px] text-slate-500 max-w-[150px] truncate">{sp.label}</span>
             {canEdit && (
               <button type="button" onClick={() => patch({ spokes: profile.spokes.filter((x) => x.icao !== sp.icao) })}
-                className="text-slate-600 hover:text-red-400 text-xs" title="Remove spoke">✕</button>
+                className="text-slate-600 hover:text-red-400 text-xs" title={`Remove spoke ${sp.icao}`} aria-label={`Remove spoke ${sp.icao}`}>✕</button>
             )}
           </span>
         ))}
-        {canEdit && profile.spokes.length < 8 && (
+        {canEdit && (hubCount < MAX_HUBS || profile.spokes.length < MAX_SPOKES) && (
           <span className="inline-flex items-center gap-1">
             <input
               value={input}
               onChange={(e) => { setInput(e.target.value.toUpperCase().slice(0, 4)); setErr(null); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addSpoke(); } }}
-              placeholder="+ spoke ICAO"
-              className="w-24 bg-slate-950 border border-dashed border-slate-700 rounded-full px-2 py-0.5 text-[11px] font-mono text-slate-300 placeholder-slate-600"
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void add("spoke"); } }}
+              placeholder="+ ICAO"
+              className="w-20 bg-slate-950 border border-dashed border-slate-700 rounded-full px-2 py-0.5 text-[11px] font-mono text-slate-300 placeholder-slate-600"
             />
-            <button type="button" onClick={() => void addSpoke()} disabled={busy || input.length !== 4}
-              className="text-[10px] font-bold text-slate-500 hover:text-emerald-400 disabled:opacity-40">
-              {busy ? "…" : "add"}
+            <button type="button" onClick={() => void add("hub")} disabled={busy || input.length !== 4 || hubCount >= MAX_HUBS}
+              className="text-[10px] font-bold text-slate-500 hover:text-emerald-400 disabled:opacity-40" title={hubCount >= MAX_HUBS ? `Hubs are full (${MAX_HUBS})` : "Add as a hub"}>
+              {busy ? "…" : "add hub"}
+            </button>
+            <button type="button" onClick={() => void add("spoke")} disabled={busy || input.length !== 4 || profile.spokes.length >= MAX_SPOKES}
+              className="text-[10px] font-bold text-slate-500 hover:text-emerald-400 disabled:opacity-40" title={profile.spokes.length >= MAX_SPOKES ? `Spokes are full (${MAX_SPOKES})` : "Add as a spoke (Enter)"}>
+              add spoke
             </button>
           </span>
         )}

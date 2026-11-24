@@ -94,6 +94,37 @@ export function wmoWordShort(code: number | null): string {
   return "clear";
 }
 
+/**
+ * A block flag as a short chip for the tile face ("TS", "FZRA", "SN",
+ * "G34", "WIND 27", "VIS 2", "IFR") — the full sentence stays the tooltip.
+ */
+export function flagChip(flag: string): string {
+  const f = flag.toLowerCase();
+  if (/thunder/.test(f)) return "TS";
+  if (/freezing rain/.test(f)) return "FZRA";
+  if (/freezing drizzle/.test(f)) return "FZDZ";
+  if (/freezing/.test(f)) return "FZ";
+  if (/snow/.test(f)) return "SN";
+  const g = /gusts? to (\d+)/.exec(f); if (g) return `G${g[1]}`;
+  const w = /wind (\d+)/.exec(f); if (w) return `WIND ${w[1]}`;
+  const v = /visibility ([\d.]+)/.exec(f); if (v) return `VIS ${v[1]}`;
+  const c = /\b(lifr|ifr)\b/.exec(f); if (c) return c[1].toUpperCase();
+  return flag.split(" ")[0].toUpperCase().slice(0, 6);
+}
+
+/** Short word for the tile face (capitalised), from the block's worst WMO code. */
+export function wmoTileWord(code: number | null): string {
+  if (code == null) return "—";
+  if (code >= 95) return code >= 96 ? "T-storm + hail" : "T-storms";
+  if (code === 45 || code === 48) return code === 48 ? "Rime fog" : "Fog";
+  if ([80, 81, 82].includes(code)) return code === 82 ? "Heavy showers" : "Showers";
+  if ([85, 86].includes(code)) return "Snow showers";
+  if (code === 77) return "Snow grains";
+  const w = wmoWordShort(code);
+  const light = [51, 56, 61, 66, 71].includes(code) ? "Light " : "";
+  return (light + w).replace(/^./, (c) => c.toUpperCase());
+}
+
 const CAT_RANK: Record<OutlookCategory, number> = { VFR: 0, MVFR: 1, IFR: 2, LIFR: 3 };
 const asCat = (c: unknown): OutlookCategory | null => (c === "VFR" || c === "MVFR" || c === "IFR" || c === "LIFR" ? c : null);
 

@@ -14,7 +14,7 @@ import type { RowDataPacket } from "mysql2";
 import { getDb } from "./db";
 import { getUserPrefs, saveUserPrefs } from "./userPrefs";
 import {
-  sanitizeMissionProfile, sanitizeMustTrack, sanitizeEconomyEdits, sanitizeSpectrum, deriveTracking, sitrepBasesForStars, DEFAULT_SPECTRUM,
+  sanitizeMissionProfile, sanitizeMustTrack, sanitizeEconomyEdits, sanitizeSpectrum, deriveTracking, sitrepBasesForStars, hubIcaos, DEFAULT_SPECTRUM,
   type MissionProfile, type DerivedTracking, type MustTrack, type EconomyEdits, type SpectrumDependencies,
 } from "./missionProfile";
 import { planApply, type ApplyDiff } from "./missionApplyPlan";
@@ -59,8 +59,7 @@ export async function patchMustTrack(raw: unknown): Promise<{ mustTrack: MustTra
   for (const icao of mustTrack.icaos.filter((i) => !known.has(i))) {
     resolved[icao] = await resolveAirfield(icao).catch(() => null);
   }
-  const hubIcao = next.home?.icao ?? next.homeIcao;
-  const sitrepBases = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, mustTrack.icaos, hubIcao, resolved);
+  const sitrepBases = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, mustTrack.icaos, hubIcaos(next), resolved);
   const changed = sitrepBases.length !== prefs.sitrepBases.length || sitrepBases.some((b, i) => b.icao !== prefs.sitrepBases[i]?.icao);
   if (changed) await saveUserPrefs({ ...prefs, sitrepBases });
   await saveMissionProfile(next);

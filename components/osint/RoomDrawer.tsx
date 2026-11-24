@@ -1,5 +1,6 @@
 "use client";
 
+import { SITREP_MAX } from "@/lib/missionProfile";
 import { useEffect, useMemo, useState } from "react";
 import { CloseIcon } from "@/lib/icons";
 import CountryRoom, { type CountrySection } from "@/components/ground/CountryRoom";
@@ -108,7 +109,7 @@ export default function RoomDrawer({ room, board, forces, active, pinned, onPin,
             <button onClick={() => next && onOpen(next)} disabled={!next} title={next ? `→ ${next.id}` : "last in the command"} className="text-[10px] font-mono px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-100 disabled:opacity-35 max-w-[150px] truncate">{next ? next.id : ""} ›</button>
           </span>
           <button onClick={onPin} title={pinned ? "Unpin — the room slides over the board again" : "Pin as a side column on a wide screen"} className={`hidden xl:inline-block text-[9.5px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${pinned ? "border-sky-500/60 text-sky-300 bg-sky-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>⇥ pin</button>
-          <button onClick={onClose} title="close (Esc)" aria-label="Close" className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800"><CloseIcon size={14} /></button>
+          <button onClick={onClose} title="Close the room (Esc) — nothing is removed" aria-label="Close the room" className="h-7 rounded-md inline-flex items-center gap-1 px-2 border border-slate-700 text-[10px] font-bold uppercase tracking-wider text-slate-300 hover:text-slate-50 hover:bg-slate-800"><CloseIcon size={13} />Close</button>
         </div>
 
         {/* title line */}
@@ -130,7 +131,7 @@ export default function RoomDrawer({ room, board, forces, active, pinned, onPin,
                 {country?.fields[0] && <span className="text-[10px] font-mono text-slate-500">pinned <button onClick={() => onOpen({ kind: "field", id: country.fields[0].icao })} className="text-sky-300 hover:underline">{country.fields[0].icao}</button></span>}
                 <Star on={!!country?.star} label={room.id} onClick={() => star("country", room.id)} disabled={mtBusy} />
                 {country?.unwatched && <button onClick={() => openTrackPicker({ kind: "country", country: room.id })} className="text-[9px] font-bold uppercase tracking-wider text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded px-1.5 py-px">Track</button>}
-                {edit && country && (!country.unwatched || country.star) && <Untrack label={`${room.id} (posture watch${country.star ? " + ★" : ""})`} onClick={() => edit.untrackCountry(room.id)} disabled={edit.busy} />}
+                {edit && country && (!country.unwatched || country.star) && <Untrack labelled label={`${room.id} (posture watch${country.star ? " + ★" : ""})`} onClick={() => edit.untrackCountry(room.id)} disabled={edit.busy} />}
               </span>
             </>
           )}
@@ -147,7 +148,7 @@ export default function RoomDrawer({ room, board, forces, active, pinned, onPin,
                 {!edit && field?.role && <span className="text-[8px] font-bold uppercase tracking-widest border border-slate-700 rounded px-1 py-px text-slate-400">{field.role}</span>}
                 <Star on={!!field?.star} label={room.id} onClick={() => star("icao", room.id)} disabled={mtBusy} />
                 {field && !field.posture && <button onClick={() => openTrackPicker({ kind: "airfield", icao: field.icao })} className="text-[9px] font-bold uppercase tracking-wider text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded px-1.5 py-px">Track</button>}
-                {edit && field && <Untrack label={field.icao} onClick={() => edit.untrackField(field.icao, field.role)} disabled={edit.busy} />}
+                {edit && field && <Untrack labelled label={field.icao} onClick={() => edit.untrackField(field.icao, field.role)} disabled={edit.busy} />}
               </span>
             </>
           )}
@@ -207,7 +208,7 @@ export default function RoomDrawer({ room, board, forces, active, pinned, onPin,
                 <div className="border border-slate-800 rounded-xl px-3.5 py-3 bg-slate-900/40 text-[12px] text-slate-300">
                   <p className="font-bold text-slate-100 mb-1">{room.id} has no full SITREP slot.</p>
                   <p className="text-slate-400">Posture: {field?.posture ? <><span className={SEVERITY_TEXT[field.posture.composite as Severity]}>{SEV_WORD[field.posture.composite]}</span> — {field.posture.topDriver}</> : "not in the posture watch — UNKNOWN, not clear"}.</p>
-                  <p className="text-slate-500 mt-1.5">★ it to give it one of the 6 full-SITREP slots (hub first): weather, NOTAMs, threats, infrastructure, spectrum, mission impact.</p>
+                  <p className="text-slate-500 mt-1.5">★ it to give it one of the {SITREP_MAX} full-SITREP slots (hubs first): weather, NOTAMs, threats, infrastructure, spectrum, mission impact.</p>
                   <button onClick={() => star("icao", room.id)} disabled={mtBusy} className="mt-2 text-[9.5px] font-bold uppercase tracking-wider px-2 py-1 rounded border border-amber-500/50 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">★ Get a SITREP</button>
                 </div>
               </div>

@@ -34,6 +34,7 @@ import { Users,
   Sunset,
   FolderHeart,
   X,
+  Trash2,
   ExternalLink,
   Wrench,
   type LucideIcon,
@@ -83,6 +84,10 @@ export const FamilyFileIcon = FolderHeart;
 // a header "close this surface" button is always <CloseIcon>; the inline
 // "remove this row" glyph stays the Unicode ✕ so the two never read alike.
 export const CloseIcon = X;
+// "Stop tracking this" — removes a field / country from every list. NEVER
+// an ✕ beside a drawer's close (2026-11-24: "the stop tracking button is
+// really easy to confuse with the close window button").
+export const StopTrackIcon = Trash2;
 // A link that leaves the app (new tab). The ↗ glyph is reserved for the
 // I&W "deteriorating" trajectory, so external links carry this instead.
 export const ExternalLinkIcon = ExternalLink;

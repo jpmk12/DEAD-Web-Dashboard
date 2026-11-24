@@ -55,3 +55,28 @@ describe("fieldOutlook", () => {
     expect(wmoSeverity(null)).toBe(-1);
   });
 });
+
+import { flagChip, wmoTileWord } from "../lib/fieldOutlook";
+describe("outlook tile words", () => {
+  it("shortens every flag the outlook writes to a chip", () => {
+    expect(flagChip("thunderstorms (model)")).toBe("TS");
+    expect(flagChip("freezing rain (model)")).toBe("FZRA");
+    expect(flagChip("freezing drizzle (model)")).toBe("FZDZ");
+    expect(flagChip("snow (model)")).toBe("SN");
+    expect(flagChip("gusts to 34 kt (model)")).toBe("G34");
+    expect(flagChip("wind 27 kt (model)")).toBe("WIND 27");
+    expect(flagChip("visibility 2.5 mi (model)")).toBe("VIS 2.5");
+    expect(flagChip("IFR (TAF)")).toBe("IFR");
+    expect(flagChip("LIFR (TAF)")).toBe("LIFR");
+  });
+  it("names the block's weather in words", () => {
+    expect(wmoTileWord(95)).toBe("T-storms");
+    expect(wmoTileWord(61)).toBe("Light rain");
+    expect(wmoTileWord(63)).toBe("Rain");
+    expect(wmoTileWord(82)).toBe("Heavy showers");
+    expect(wmoTileWord(45)).toBe("Fog");
+    expect(wmoTileWord(3)).toBe("Overcast");
+    expect(wmoTileWord(0)).toBe("Clear");
+    expect(wmoTileWord(null)).toBe("—");
+  });
+});

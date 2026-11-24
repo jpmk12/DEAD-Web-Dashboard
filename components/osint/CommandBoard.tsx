@@ -14,7 +14,7 @@ import type { ForceAssessment } from "@/lib/forceProtection";
 import type { CommandsBody } from "@/lib/commandsAssemble";
 import type { CommandRow, CountryRow, CbBoard, Led } from "@/lib/commandBoard";
 import type { PrimerDoor, PrimerItem } from "@/lib/primer";
-import { toggleMustTrack, type MustTrack } from "@/lib/missionProfile";
+import { toggleMustTrack, SITREP_MAX, type MustTrack } from "@/lib/missionProfile";
 import { AOR_LABELS, type Aor } from "@/lib/aor";
 import { parseRoomParam, roomParam, roomAor, doorRoom, findField, findCountry, sameRoom, type RoomRef } from "@/lib/room";
 import FunctionalCommands from "./FunctionalCommands";
@@ -473,7 +473,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
 
         {mtPanel && data && (
           <div className="px-3.5 py-2.5 border-b border-slate-800 bg-slate-950/40 text-[11px] space-y-1.5">
-            <p className="text-[10px] text-slate-500">A ★ orders and pins — it never adds tracking. ★ commands sort first and always have a map chip; ★ countries lead their command; ★ airfields take the full-SITREP slots (6, hub first). {canEdit ? "Saved to the Mission Profile." : "Owner-set team config — read-only for crew."}</p>
+            <p className="text-[10px] text-slate-500">A ★ orders and pins — it never adds tracking. ★ commands sort first and always have a map chip; ★ countries lead their command; ★ airfields take the full-SITREP slots ({SITREP_MAX}, hubs first). {canEdit ? "Saved to the Mission Profile." : "Owner-set team config — read-only for crew."}</p>
             <div className="flex flex-wrap items-center gap-1.5"><span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 w-20">Commands</span>
               {rows.map((r) => <button key={r.aor} onClick={() => star("aor", r.aor)} disabled={mtBusy} className={`text-[10px] font-mono rounded px-1.5 py-0.5 border ${r.star ? "border-amber-500/50 text-amber-300 bg-amber-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{r.star ? "★" : "☆"} {r.aor}</button>)}
             </div>

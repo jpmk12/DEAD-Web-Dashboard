@@ -25,7 +25,7 @@
 
 import { classifyAor, type Aor } from "./aor";
 import {
-  deriveTracking, isDerivedId, slugify, sitrepBasesForStars, isStarCountry, toggleMustTrack, SITREP_MAX,
+  deriveTracking, isDerivedId, slugify, sitrepBasesForStars, isStarCountry, toggleMustTrack, SITREP_MAX, allHubs, hubIcaos,
   type MissionProfile,
 } from "./missionProfile";
 import { normalizeCountryName, sameCountry } from "./countryNames";
@@ -95,8 +95,7 @@ const upper = (s: string | undefined | null): string => (s ?? "").trim().toUpper
 
 function hubAndSpokes(profile: MissionProfile): Map<string, "hub" | "spoke"> {
   const m = new Map<string, "hub" | "spoke">();
-  const hub = profile.home?.icao ?? profile.homeIcao;
-  if (hub) m.set(upper(hub), "hub");
+  for (const hub of hubIcaos(profile)) m.set(upper(hub), "hub");
   for (const s of profile.spokes) if (!m.has(upper(s.icao))) m.set(upper(s.icao), "spoke");
   return m;
 }
@@ -170,7 +169,7 @@ export function buildRegistry(prefs: TrackingPrefs, profile: MissionProfile): Tr
     if (!rec.lat && !rec.lon) rec.aor = "UNKNOWN";
   }
   for (const icao of stars) {
-    const sp = profile.spokes.find((s) => upper(s.icao) === icao) ?? (profile.home && upper(profile.home.icao) === icao ? profile.home : null);
+    const sp = profile.spokes.find((s) => upper(s.icao) === icao) ?? allHubs(profile).find((h) => upper(h.icao) === icao) ?? null;
     const rec = ensure(icao, { icao, label: sp?.label ?? icao, lat: sp?.lat ?? 0, lon: sp?.lon ?? 0, country: normalizeCountryName(sp?.country) });
     rec.roles.star = true;
     if (!rec.lat && !rec.lon) rec.aor = "UNKNOWN";
@@ -178,7 +177,7 @@ export function buildRegistry(prefs: TrackingPrefs, profile: MissionProfile): Tr
   // Hub/spokes with no role at all still list (declared, not yet applied).
   for (const [icao, role] of own) {
     if (byKey.has(icao)) continue;
-    const sp = role === "hub" ? profile.home : profile.spokes.find((s) => upper(s.icao) === icao);
+    const sp = role === "hub" ? allHubs(profile).find((h) => upper(h.icao) === icao) : profile.spokes.find((s) => upper(s.icao) === icao);
     if (!sp) continue;
     ensure(icao, { icao, label: sp.label, lat: sp.lat, lon: sp.lon, country: normalizeCountryName(sp.country) });
   }
@@ -415,8 +414,7 @@ export function planTrack(prefsIn: TrackingPrefs, profileIn: MissionProfile, req
   if (req.roles.star === true && !prior.star) {
     profile = { ...profile, mustTrack: toggleMustTrack(profile.mustTrack, "icao", icao) };
     const derived = deriveTracking(profile);
-    const hubIcao = profile.home?.icao ?? profile.homeIcao;
-    const nextSitrep = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, profile.mustTrack.icaos, hubIcao, { [icao]: base });
+    const nextSitrep = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, profile.mustTrack.icaos, hubIcaos(profile), { [icao]: base });
     const dropped = prefs.sitrepBases.filter((b) => !nextSitrep.some((n) => n.icao === b.icao)).map((b) => b.icao);
     const gained = nextSitrep.some((n) => n.icao === icao) && !prior.sitrep;
     prefs.sitrepBases = nextSitrep;

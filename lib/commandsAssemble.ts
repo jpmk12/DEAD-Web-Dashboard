@@ -35,7 +35,7 @@ import { computeDelta } from "./oeDelta";
 import { aorFromCoords, aorFromCountry, classifyAor, AOR_LABELS, type Aor } from "./aor";
 import { ALL_AIRFIELDS } from "./airfields";
 import { normalizeCountryName } from "./countryNames";
-import { EMPTY_MUST_TRACK, type MissionProfile, type MustTrack } from "./missionProfile";
+import { EMPTY_MUST_TRACK, allHubs, type MissionProfile, type MustTrack } from "./missionProfile";
 import {
   commandBoard, type CommandBoard, type CommandInput, type CbPosture, type CbBoard, type CbSitrep, type CbDemand,
   type CbEvent, type CbDelta, type CbAlert, type CbOwnField,
@@ -116,11 +116,7 @@ function aorOf(lat: number | null | undefined, lon: number | null | undefined, n
 
 function ownFieldsOf(profile: MissionProfile): CbOwnField[] {
   const out: CbOwnField[] = [];
-  const hub = profile.home ?? (profile.homeIcao ? (() => {
-    const a = ALL_AIRFIELDS.find((x) => x.icao === profile.homeIcao);
-    return a ? { icao: a.icao, label: a.name, lat: a.lat, lon: a.lon, country: a.country ?? "United States" } : null;
-  })() : null);
-  if (hub) out.push({ icao: hub.icao, label: hub.label, role: "hub", country: country(hub.country) || "United States", lat: hub.lat, lon: hub.lon });
+  for (const hub of allHubs(profile)) if (!out.some((o) => o.icao === hub.icao)) out.push({ icao: hub.icao, label: hub.label, role: "hub", country: country(hub.country) || "United States", lat: hub.lat, lon: hub.lon });
   for (const s of profile.spokes) if (!out.some((o) => o.icao === s.icao)) out.push({ icao: s.icao, label: s.label, role: "spoke", country: country(s.country) || "United States", lat: s.lat, lon: s.lon });
   return out;
 }

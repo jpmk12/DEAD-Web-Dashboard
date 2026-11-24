@@ -220,7 +220,7 @@ describe("hub-and-spoke own-force airfields", () => {
   });
 });
 
-import { setOwnForceRole, ownForceRoleOf, resolvedHub } from "@/lib/missionProfile";
+import { setOwnForceRole, ownForceRoleOf, resolvedHub, hubIcaos, MAX_HUBS, MAX_SPOKES } from "@/lib/missionProfile";
 
 describe("setOwnForceRole — hub / spoke / none as one change (the command board's role switch)", () => {
   const KWRI = { icao: "KWRI", label: "JB MDL", lat: 40.0155, lon: -74.5917, country: "United States" };
@@ -236,16 +236,15 @@ describe("setOwnForceRole — hub / spoke / none as one change (the command boar
     expect(resolvedHub({ ...EMPTY_PROFILE })).toBeNull();
   });
 
-  it("promoting a spoke to hub demotes the previous hub to a SPOKE — never out of the declaration", () => {
+  it("making a spoke a hub ADDS a hub — the primary stays primary, nothing is demoted", () => {
     const r = setOwnForceRole(WITH_HOME, { ...HUB_AND_SPOKE.spokes[0] }, "hub");
-    expect(r.profile.homeIcao).toBe("KCHS");
-    expect(r.profile.home?.icao).toBe("KCHS");
-    expect(r.profile.spokes.map((s) => s.icao)).toEqual(["KADW", "KWRI"]);
-    expect(r.changes.join(" | ")).toMatch(/KCHS is now the hub \(was a spoke\)/);
-    expect(r.changes.join(" | ")).toMatch(/KWRI is now a spoke \(was the hub\)/);
+    expect(r.profile.homeIcao).toBe("KWRI");
+    expect(hubIcaos(r.profile)).toEqual(["KWRI", "KCHS"]);
+    expect(r.profile.spokes.map((s) => s.icao)).toEqual(["KADW"]);
+    expect(r.changes.join(" | ")).toMatch(/KCHS is now a hub \(was a spoke\) — KWRI stays the primary/);
     expect(r.warnings).toEqual([]);
-    // Undo is the exact sequence: old hub back, then the promoted field to its prior role.
-    expect(r.undo).toEqual([{ icao: "KWRI", role: "hub" }, { icao: "KCHS", role: "spoke" }]);
+    expect(r.undo).toEqual([{ icao: "KCHS", role: "spoke" }]);
+    expect(ownForceRoleOf(r.profile, "KCHS")).toBe("hub");
   });
 
   it("the undo sequence puts the declaration back exactly", () => {
@@ -253,31 +252,48 @@ describe("setOwnForceRole — hub / spoke / none as one change (the command boar
     let p = fwd.profile;
     for (const op of fwd.undo) {
       const field = op.icao === "KWRI" ? KWRI : HUB_AND_SPOKE.spokes.find((s) => s.icao === op.icao)!;
-      p = setOwnForceRole(p, field, op.role).profile;
+      p = setOwnForceRole(p, field, op.role, { primary: op.primary }).profile;
     }
     expect(p.homeIcao).toBe("KWRI");
     expect(p.home?.icao).toBe("KWRI");
+    expect(hubIcaos(p)).toEqual(["KWRI"]);
     expect(p.spokes.map((s) => s.icao).sort()).toEqual(["KADW", "KCHS"]);
   });
 
-  it("a new field can become the hub straight away; a field in neither list becomes a spoke", () => {
+  it("a new field becomes a hub straight away; with no hub declared it becomes the primary", () => {
     const h = setOwnForceRole(WITH_HOME, KTIK, "hub");
-    expect(h.profile.homeIcao).toBe("KTIK");
-    expect(h.profile.spokes.map((s) => s.icao)).toEqual(["KCHS", "KADW", "KWRI"]);
-    expect(h.undo).toEqual([{ icao: "KWRI", role: "hub" }, { icao: "KTIK", role: null }]);
+    expect(h.profile.homeIcao).toBe("KWRI");
+    expect(hubIcaos(h.profile)).toEqual(["KWRI", "KTIK"]);
+    expect(h.profile.spokes.map((s) => s.icao)).toEqual(["KCHS", "KADW"]);
+    expect(h.undo).toEqual([{ icao: "KTIK", role: null }]);
+    const first = setOwnForceRole({ ...EMPTY_PROFILE }, KTIK, "hub");
+    expect(first.profile.homeIcao).toBe("KTIK");
+    expect(first.changes[0]).toMatch(/KTIK is now the primary hub/);
     const s = setOwnForceRole(WITH_HOME, KTIK, "spoke");
     expect(s.profile.spokes.map((x) => x.icao)).toEqual(["KCHS", "KADW", "KTIK"]);
     expect(s.profile.homeIcao).toBe("KWRI");
     expect(s.undo).toEqual([{ icao: "KTIK", role: null }]);
   });
 
-  it("the hub demoted to spoke leaves NO hub declared, and says so", () => {
+  it("removing the PRIMARY hub promotes the next hub; undo brings it back as the primary", () => {
+    const two = setOwnForceRole(WITH_HOME, KTIK, "hub").profile;
+    const r = setOwnForceRole(two, KWRI, null);
+    expect(r.profile.homeIcao).toBe("KTIK");
+    expect(r.profile.home?.icao).toBe("KTIK");
+    expect(hubIcaos(r.profile)).toEqual(["KTIK"]);
+    expect(r.changes.join(" | ")).toMatch(/KWRI is no longer a hub \| KTIK is now the primary hub/);
+    expect(r.undo).toEqual([{ icao: "KWRI", role: "hub", primary: true }]);
+    const back = setOwnForceRole(r.profile, KWRI, "hub", { primary: true }).profile;
+    expect(hubIcaos(back)).toEqual(["KWRI", "KTIK"]);
+  });
+
+  it("the only hub moved to spoke leaves NO hub declared, and says so", () => {
     const r = setOwnForceRole(WITH_HOME, KWRI, "spoke");
     expect(r.profile.homeIcao).toBe("");
     expect(r.profile.home).toBeUndefined();
     expect(r.profile.spokes.map((s) => s.icao)).toEqual(["KCHS", "KADW", "KWRI"]);
-    expect(r.changes[0]).toMatch(/was the hub — no hub is declared now/);
-    expect(r.undo).toEqual([{ icao: "KWRI", role: "hub" }]);
+    expect(r.changes.join(" | ")).toMatch(/KWRI is now a spoke \(was a hub\) \| no hub is declared now/);
+    expect(r.undo).toEqual([{ icao: "KWRI", role: "hub", primary: true }]);
   });
 
   it("clearing a role drops the field from the declaration; a field is never in both lists", () => {
@@ -288,13 +304,13 @@ describe("setOwnForceRole — hub / spoke / none as one change (the command boar
     expect(h.profile.homeIcao).toBe("");
     expect(h.profile.spokes.some((s) => s.icao === "KWRI")).toBe(false);
     for (const p of [r.profile, h.profile]) {
-      const hub = p.home?.icao || p.homeIcao;
-      expect(p.spokes.some((s) => s.icao === hub && hub)).toBe(false);
+      const hubs = hubIcaos(p);
+      expect(p.spokes.some((s) => hubs.includes(s.icao))).toBe(false);
     }
   });
 
   it("the same role again is a no-op warning, never a change", () => {
-    expect(setOwnForceRole(WITH_HOME, KWRI, "hub")).toMatchObject({ changes: [], undo: [], warnings: ["KWRI is already the hub"] });
+    expect(setOwnForceRole(WITH_HOME, KWRI, "hub")).toMatchObject({ changes: [], undo: [], warnings: ["KWRI is already a hub"] });
     expect(setOwnForceRole(WITH_HOME, KTIK, null)).toMatchObject({ changes: [], undo: [], warnings: ["KTIK is not an own-force field"] });
   });
 
@@ -307,24 +323,31 @@ describe("setOwnForceRole — hub / spoke / none as one change (the command boar
     expect(setOwnForceRole(p, HUB_AND_SPOKE.spokes[0], null).profile.excludedIds).toEqual(p.excludedIds);
   });
 
-  it("full spokes: a new spoke is refused with a warning; a demoted hub that cannot fit is named, not dropped silently", () => {
-    const many = Array.from({ length: 8 }, (_, i) => ({ icao: `KA0${i}`, label: `F${i}`, lat: 30 + i, lon: -90, country: "United States" }));
+  it("full lists refuse with a warning and change nothing", () => {
+    const many = Array.from({ length: MAX_SPOKES }, (_, i) => ({ icao: `KA${String(i).padStart(2, "0")}`, label: `F${i}`, lat: 30 + i, lon: -90, country: "United States" }));
     const full: MissionProfile = { ...WITH_HOME, spokes: many };
     const s = setOwnForceRole(full, KTIK, "spoke");
     expect(s.changes).toEqual([]);
-    expect(s.warnings[0]).toMatch(/Spokes are full/);
-    const h = setOwnForceRole(full, KTIK, "hub");
-    expect(h.profile.homeIcao).toBe("KTIK");
-    expect(h.profile.spokes.some((x) => x.icao === "KWRI")).toBe(false);
-    expect(h.warnings[0]).toMatch(/KWRI \(the previous hub\) could not be kept as a spoke/);
+    expect(s.warnings[0]).toMatch(/Spokes are full \(12\)/);
+    const hubs = Array.from({ length: MAX_HUBS - 1 }, (_, i) => ({ icao: `KH${String(i).padStart(2, "0")}`, label: `H${i}`, lat: 30 + i, lon: -80, country: "United States" }));
+    const fullHubs: MissionProfile = { ...WITH_HOME, moreHubs: hubs };
+    const h = setOwnForceRole(fullHubs, KTIK, "hub");
+    expect(h.changes).toEqual([]);
+    expect(h.warnings[0]).toMatch(/Hubs are full \(6\)/);
   });
 
-  it("sanitize round-trips a profile the switch produced", () => {
-    const r = setOwnForceRole(WITH_HOME, KTIK, "hub");
+  it("sanitize round-trips several hubs; a hub is never also a spoke; every hub derives first", () => {
+    const r = setOwnForceRole(setOwnForceRole(WITH_HOME, KTIK, "hub").profile, { ...HUB_AND_SPOKE.spokes[0] }, "hub");
     const p = sanitizeMissionProfile(JSON.parse(JSON.stringify(r.profile)));
-    expect(p.homeIcao).toBe("KTIK");
-    expect(p.home?.label).toBe("Tinker AFB, OK");
-    expect(deriveTracking(p).bases[0]).toMatchObject({ icao: "KTIK", note: "Own force — hub" });
+    expect(hubIcaos(p)).toEqual(["KWRI", "KTIK", "KCHS"]);
+    expect(p.moreHubs?.[0].label).toBe("Tinker AFB, OK");
+    const d = deriveTracking(p);
+    expect(d.bases.slice(0, 3).map((b) => [b.icao, b.note])).toEqual([["KWRI", "Own force — hub"], ["KTIK", "Own force — hub"], ["KCHS", "Own force — hub"]]);
+    expect(d.sitrepCandidates.slice(0, 3).map((b) => b.icao)).toEqual(["KWRI", "KTIK", "KCHS"]);
+    // A stored row listing the same field as hub and spoke keeps it as a hub only.
+    const messy = sanitizeMissionProfile({ ...JSON.parse(JSON.stringify(p)), spokes: [...p.spokes, KTIK] });
+    expect(messy.spokes.some((s) => s.icao === "KTIK")).toBe(false);
+    expect(missionSummaryLine(p)).toMatch(/hubs JB MDL \(KWRI\) \+ KTIK\/KCHS/);
   });
 });
 
@@ -425,19 +448,21 @@ describe("must-tracks", () => {
     expect(mt.icaos).toEqual(["OJAQ"]);
   });
 
-  it("SITREP candidates: hub first, then ★ fields, then spokes; cap is 6", () => {
+  it("SITREP candidates: hub first, then ★ fields, then spokes; cap is 12", () => {
     const p: MissionProfile = { ...HUB_AND_SPOKE, mustTrack: { aors: [], countries: [], icaos: ["OTBH", "KADW"] } };
     const d = deriveTracking(p);
-    expect(SITREP_MAX).toBe(6);
+    expect(SITREP_MAX).toBe(12);
     expect(d.sitrepCandidates.map((s) => s.icao).slice(0, 4)).toEqual(["KWRI", "OTBH", "KADW", "KCHS"]);
     expect(d.warningProblems[0].ownHubs.map((h) => h.icao)).toEqual(["KWRI", "KCHS", "KADW"]);
   });
 
   it("sitrepBasesForStars: hub, ★ in order, then the current set, capped — unknown ★ skipped unless resolved", () => {
     const b = (icao: string) => ({ icao, label: icao, lat: 0, lon: 0, country: "X", place: icao });
-    const current = [b("OJAQ"), b("ETAD"), b("LLBG"), b("ORER"), b("OEPS"), b("OKAS")];
-    const out = sitrepBasesForStars(current, [b("KWRI")], ["LLBG", "ZZZZ", "OTBH"], "KWRI", { OTBH: b("OTBH") });
-    expect(out.map((x) => x.icao)).toEqual(["KWRI", "LLBG", "OTBH", "OJAQ", "ETAD", "ORER"]);
-    expect(out).toHaveLength(6);
+    const current = [b("OJAQ"), b("ETAD"), b("LLBG"), b("ORER"), b("OEPS"), b("OKAS"), b("OTHH"), b("OMAM"), b("LTAG"), b("ETAR"), b("LGSA")];
+    const out = sitrepBasesForStars(current, [b("KWRI"), b("KTIK")], ["LLBG", "ZZZZ", "OTBH"], ["KWRI", "KTIK"], { OTBH: b("OTBH") });
+    expect(out.map((x) => x.icao)).toEqual(["KWRI", "KTIK", "LLBG", "OTBH", "OJAQ", "ETAD", "ORER", "OEPS", "OKAS", "OTHH", "OMAM", "LTAG"]);
+    expect(out).toHaveLength(SITREP_MAX);
+    // A single hub string still works (older callers).
+    expect(sitrepBasesForStars([b("OJAQ")], [b("KWRI")], [], "KWRI").map((x) => x.icao)).toEqual(["KWRI", "OJAQ"]);
   });
 });

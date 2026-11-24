@@ -50,6 +50,7 @@ export async function getThemeProposals(email: string): Promise<ProposalsBody> {
   const label = (icao: string) => own.find((p) => p.icao === icao)?.label ?? "";
   const input: SeedInput = {
     hub: profile?.homeIcao ? { icao: profile.homeIcao, label: profile.home?.label || label(profile.homeIcao.toUpperCase()) } : null,
+    moreHubs: (profile?.moreHubs ?? []).map((h) => ({ icao: h.icao, label: h.label || label(h.icao) })),
     spokes: (profile?.spokes ?? []).map((s) => ({ icao: s.icao, label: s.label || label(s.icao) })),
     starFields: [
       ...(profile?.mustTrack.icaos ?? []).map((i) => ({ icao: i, label: label(i) })),

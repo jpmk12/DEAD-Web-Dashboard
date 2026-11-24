@@ -2051,6 +2051,20 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     it); OUTLOOK 72H line in the Commander's Read (mention only when
     flagged), the export (per-day rows) and the markdown. Verified rendered
     with sample data. No new npm dep (esbuild `0`).
+    **Tiles rebuilt (2026-11-24, "improve the graphical weather tiles to give
+    me a better understanding of the weather for each time slice")**: the
+    four-to-a-row grid could carry only an icon and two numbers in the
+    ~280-px half-width card, so the strip is now twelve 104-px tiles grouped
+    under their Zulu day in a row that scrolls sideways inside its own box.
+    Each tile: time + the TAF category chip ("model" beyond the TAF) · icon
+    + the weather in WORDS (`wmoTileWord`: "Light rain", "T-storms", "Fog")
+    · temperature hi / lo °F with °C beneath · wind with an arrow pointing
+    where it BLOWS TO and the gust (amber near the flag) · precipitation
+    chance as a bar + mm · cloud cover as a bar · visibility (amber < 3 mi)
+    · the flags as short chips (`flagChip`: TS, FZRA, SN, G34, WIND 27,
+    VIS 2.5 — IFR / LIFR not repeated under the TAF chip). Night blocks sit
+    on a darker sky. Both helpers PURE and tested; colour rules unchanged
+    (amber at most, never moves the LED).
   - **First production diag at ETAD (2026-11-20) — VERIFIED**: the Open-Meteo
     profile answered 96 h × 9 levels; AWC's PIREP query ACCEPTS an overseas
     ICAO (204, no reports — PIREPs are sparse abroad, as the read says); the
@@ -6152,6 +6166,38 @@ interactive prototype the design was approved from is
   - The Mission Profile editor is unaffected (it re-reads on open); a role
     set here shows there as the hub/spoke declaration, and Apply derives
     from it as before.
+- **Several hubs, more slots, and a stop-tracking control that cannot be
+  mistaken for close (2026-11-24, "the stop tracking button … is really
+  easy to confuse with the close window button" · "I want to be able to
+  add multiple hubs and spokes and want more than 4 airfield slots")**.
+  - **Hubs**: `MissionProfile.moreHubs` (additive, absent on older rows)
+    holds hubs beyond the PRIMARY (`homeIcao` / `home`, which every older
+    reader still sees as "the hub"). `allHubs(profile)` / `hubIcaos(profile)`
+    in `lib/missionProfile.ts` are the ONE reader — never ask `home` alone
+    whether a field is one of your hubs. `MAX_HUBS` 6 (primary included),
+    `MAX_SPOKES` 8 → 12; the sanitizer drops a hub listed twice and a spoke
+    that is also a hub (the hub wins). `setOwnForceRole` (tested): making a
+    field a hub ADDS it — nothing is demoted any more; the first hub
+    declared becomes the primary; removing the primary promotes the next
+    hub; `{ primary: true }` (also on `OwnForceOp`, passed through
+    `/api/track {op:"role"}`) puts a hub first, the old primary staying a
+    hub; undo of a removed primary carries `primary: true`, so it comes
+    back as the primary. Every hub derives as "Own force — hub", every hub
+    takes a SITREP candidacy and a slot first (`sitrepBasesForStars` takes
+    a list), the registry / command board / Glance "mine" / theme seeds /
+    summary line read all hubs. Editor: "Hub · primary" input, more hubs as
+    chips (↑ primary, ✕), one ICAO box with "add hub" / "add spoke".
+  - **Slots**: `SITREP_MAX` 6 → **12** (hubs first, then ★). Each base is a
+    full SITREP assembly; GDELT local news runs through the one 5.2-s gate,
+    so on a cold start the later bases read their local-news line stale /
+    UNKNOWN for a pass — said, never guessed.
+  - **Stop tracking**: `Untrack` (`boardBits.tsx`) is a TRASH glyph
+    (`StopTrackIcon` = lucide `Trash2` in `lib/icons.tsx`), never an ✕, and
+    takes TWO taps — the first arms it ("remove?" in red, disarms after 4 s,
+    on pointer-leave or Esc), the second removes (Undo still offered). In
+    the room drawer it is the labelled form ("Stop tracking" → "Confirm —
+    stop tracking ETAD"), and the drawer's close button reads "✕ Close"
+    with "nothing is removed" in its tooltip.
 - **Back on the board — dismiss (same day)**: `ReactivationCard.dismiss`
   dropped the row before checking the response, so a crew member (the
   POST is owner-only — the key lands in the shared prefs row) saw the row

@@ -9,7 +9,7 @@ import {
   buildRegistry, planTrack, planRestore,
   type TrackingRegistry, type TrackingPrefs, type TrackRequest, type TrackRoles, type TrackPlan,
 } from "./trackingRegistry";
-import { setOwnForceRole, ownForceRoleOf, deriveTracking, sitrepBasesForStars, type MissionSpoke, type OwnForceOp, type MissionProfile } from "./missionProfile";
+import { setOwnForceRole, ownForceRoleOf, deriveTracking, sitrepBasesForStars, allHubs, hubIcaos, type MissionSpoke, type OwnForceOp, type MissionProfile } from "./missionProfile";
 import { resolveAirfield } from "./resolveAirfield";
 import { ALL_AIRFIELDS } from "./airfields";
 import { centroidCountryNames } from "./countryCentroids";
@@ -263,20 +263,21 @@ export interface RoleOutcome extends TrackOutcome {
 function parseRoleOps(raw: unknown): OwnForceOp[] | string {
   const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? [raw] : [];
   const out: OwnForceOp[] = [];
-  for (const v of list.slice(0, 4)) {
+  for (const v of list.slice(0, 8)) {
     if (!v || typeof v !== "object") continue;
     const o = v as Record<string, unknown>;
     const icao = String(o.icao ?? "").trim().toUpperCase();
     if (!/^[A-Z0-9]{4}$/.test(icao)) return `A valid 4-character ICAO is required (got “${String(o.icao ?? "")}”)`;
     const role = o.role === "hub" ? "hub" : o.role === "spoke" ? "spoke" : o.role == null || o.role === "none" ? null : undefined;
     if (role === undefined) return "role must be hub | spoke | null";
-    out.push({ icao, role });
+    out.push({ icao, role, ...(role === "hub" && o.primary === true ? { primary: true } : {}) });
   }
   return out;
 }
 
 async function resolveField(icao: string, prefs: TrackingPrefs, profile: MissionProfile): Promise<MissionSpoke | null> {
-  if (profile.home && profile.home.icao.toUpperCase() === icao) return profile.home;
+  const hub = allHubs(profile).find((h) => h.icao.toUpperCase() === icao);
+  if (hub) return hub;
   const sp = profile.spokes.find((s) => s.icao.toUpperCase() === icao);
   if (sp) return sp;
   const reg = buildRegistry(prefs, profile);
@@ -304,7 +305,7 @@ export async function applyOwnForceOps(rawOps: unknown, thenBody?: TrackBody | n
       if (op.role != null) { warnings.push(`${op.icao} not found in hubs, gateways, or OurAirports`); continue; }
     }
     const stub: MissionSpoke = field ?? { icao: op.icao, label: op.icao, lat: 0, lon: 0, country: "" };
-    const r = setOwnForceRole(profile, stub, op.role);
+    const r = setOwnForceRole(profile, stub, op.role, { primary: op.primary });
     profile = r.profile;
     changes.push(...r.changes);
     warnings.push(...r.warnings);
@@ -324,15 +325,14 @@ export async function applyOwnForceOps(rawOps: unknown, thenBody?: TrackBody | n
     }
   }
 
-  // The SITREP set follows the hub (hub first, ★ next, current, cap).
-  const hubIcao = profile.home?.icao ?? profile.homeIcao;
+  // The SITREP set follows the hubs (hubs first, ★ next, current, cap).
   const derived = deriveTracking(profile);
-  const sitrepBases = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, profile.mustTrack.icaos, hubIcao);
+  const sitrepBases = sitrepBasesForStars(prefs.sitrepBases, derived.sitrepCandidates, profile.mustTrack.icaos, hubIcaos(profile));
   if (sitrepBases.length !== prefs.sitrepBases.length || sitrepBases.some((b, i) => b.icao !== prefs.sitrepBases[i]?.icao)) {
     const gained = sitrepBases.filter((b) => !prefs.sitrepBases.some((p) => p.icao === b.icao)).map((b) => b.icao);
     const dropped = prefs.sitrepBases.filter((p) => !sitrepBases.some((b) => b.icao === p.icao)).map((b) => b.icao);
     prefs = { ...prefs, sitrepBases };
-    if (gained.length) changes.push(`${gained.join(", ")} takes a SITREP slot (hub first)`);
+    if (gained.length) changes.push(`${gained.join(", ")} takes a SITREP slot (hubs first)`);
     if (dropped.length) warnings.push(`${dropped.join(", ")} dropped from SITREP to make room (${sitrepBases.length} slots)`);
   }
 
