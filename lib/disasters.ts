@@ -323,7 +323,39 @@ export function computeHadrScore(d: {
   return Math.round(Math.min(100, scaled));
 }
 
+// One shared read (2026-11-24, the load-time review): getDisasters had no
+// cache at all, and it is called by the weather threats, the force-posture
+// fallback, convergence, the warning sensors and EVERY SITREP base — up to a
+// dozen at once on a page load, five upstream fetches each. Now: fresh for
+// 10 min, an older read (up to 30 min) is served at once while the next one
+// runs, one fetch in flight at a time, an empty read kept only 60 s.
+const DISASTER_TTL = 10 * 60 * 1000;
+const DISASTER_STALE_MAX = 30 * 60 * 1000;
+const DISASTER_EMPTY_TTL = 60 * 1000;
+let disasterCache: { at: number; data: DisasterEvent[] } | null = null;
+let disasterInflight: Promise<DisasterEvent[]> | null = null;
+
+function refreshDisasters(): Promise<DisasterEvent[]> {
+  if (!disasterInflight) {
+    disasterInflight = readDisasters()
+      .then((data) => { disasterCache = { at: Date.now(), data }; return data; })
+      .finally(() => { disasterInflight = null; });
+  }
+  return disasterInflight;
+}
+
 export async function getDisasters(): Promise<DisasterEvent[]> {
+  const c = disasterCache;
+  if (c) {
+    const age = Date.now() - c.at;
+    const ttl = c.data.length ? DISASTER_TTL : DISASTER_EMPTY_TTL;
+    if (age < ttl) return c.data;
+    if (c.data.length && age < DISASTER_STALE_MAX) { refreshDisasters().catch(() => {}); return c.data; }
+  }
+  return refreshDisasters();
+}
+
+async function readDisasters(): Promise<DisasterEvent[]> {
   const [gdacs, usgs, rw, tsunami, ash] = await Promise.all([
     fetchGdacs(), fetchUsgsQuakes(), fetchReliefWeb(), fetchTsunamiCenters(), fetchVolcanicAsh(),
   ]);

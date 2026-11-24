@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { activeWarningProblems } from "@/lib/warningProblems";
-import { assessWarning } from "@/lib/warningAssess";
+import { assessWarning, assessWarningStale } from "@/lib/warningAssess";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,13 @@ export async function GET() {
   // running into its 10-min cache.
   let pending = false;
   const problems = (
-    await Promise.all(active.map((p) => within(assessWarning(p.def.id).catch(() => null), WAIT_MS).then((a) => { if (a === null) pending = true; return a; })))
+    // A board with any previous read answers with it at once (refreshing
+    // behind) — an expired cache no longer holds the reply 12 s (2026-11-24).
+    await Promise.all(active.map((p) => {
+      const stale = assessWarningStale(p.def.id);
+      if (stale) return stale;
+      return within(assessWarning(p.def.id).catch(() => null), WAIT_MS).then((a) => { if (a === null) pending = true; return a; });
+    }))
   ).filter(Boolean);
 
   return NextResponse.json({ problems, ...(pending ? { pending: true } : {}) }, { status: pending && problems.length === 0 ? 202 : 200 });

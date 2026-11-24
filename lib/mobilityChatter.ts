@@ -835,12 +835,4 @@ export function chatterToMoves(clusters: ChatterCluster[]): PostureMove[] {
 }
 
 /** The newest chatter line for a command, for a strip. */
-export function chatterLine(c: ChatterCluster, relTime?: (iso: string) => string): string {
-  const parts = [`${c.reports} report${c.reports === 1 ? "" : "s"} from ${c.sources} ${c.sources === 1 ? "handle" : "handles"}`];
-  const what = [c.tankers ? `tankers ${c.tankers}` : "", c.airlifters ? `airlift ${c.airlifters}` : ""].filter(Boolean).join(" · ");
-  if (what) parts.push(what);
-  if (c.count) parts.push(`up to ${c.count} stated`);
-  if (c.places.length) parts.push(`${c.direction === "away" ? "from" : "toward"} ${c.places.join(" / ")}`);
-  if (relTime) parts.push(`newest ${relTime(c.pubDate)}`);
-  return `${c.aor} · ${c.direction === "away" ? "returning" : c.direction === "toward" ? "inbound" : "moving"} — ${parts.join(" · ")}`;
-}
+export { chatterLine } from "./chatterLine";

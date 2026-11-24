@@ -45,6 +45,17 @@ export async function assessWarning(problemId: string): Promise<WarningAssessmen
   return p;
 }
 
+/** The board's last assessment even when past its TTL, starting a refresh
+ *  when it is — so a request handler can answer at once with the previous
+ *  read (stale-while-revalidate, 2026-11-24) instead of waiting up to 12 s
+ *  after the 10-min cache runs out. null when nothing was ever assessed. */
+export function assessWarningStale(problemId: string): WarningAssessmentPlus | null {
+  const hit = cache.get(problemId);
+  if (!hit) return null;
+  if (Date.now() - hit.at >= TTL) assessWarning(problemId).catch(() => {});
+  return hit.data;
+}
+
 async function assessWarningOnce(problemId: string): Promise<WarningAssessmentPlus | null> {
   const resolved = await resolveWarningProblem(problemId);
   if (!resolved) return null;

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { sharedGet } from "@/lib/sharedGet";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import TabBar, { Tab } from "./TabBar";
 import MobileNavDrawer from "./MobileNavDrawer";
 import SessionExpiredBanner from "@/components/SessionExpiredBanner";
@@ -252,11 +253,13 @@ export default function TabShell() {
     document.body.dataset.tab = activeTab;
   }, [activeTab]);
 
+  const watchlistLoaded = useRef(false);
   const loadWatchlist = useCallback(() => {
-    fetch("/api/user-prefs")
-      .then((r) => r.json())
-      .then(({ prefs }) => {
-        setWatchlist(prefs?.watchlist ?? []);
+    // Shared with the other mount-time readers; a "changed" event asks fresh.
+    sharedGet<{ prefs?: { watchlist?: string[] } }>("/api/user-prefs", { fresh: watchlistLoaded.current })
+      .then(({ body }) => {
+        watchlistLoaded.current = true;
+        setWatchlist(body?.prefs?.watchlist ?? []);
       })
       .catch(() => {});
   }, []);
@@ -278,7 +281,10 @@ export default function TabShell() {
   // a failed first attempt (transient network blip) OR a cache clear from
   // a prefs save would leave the modal cold-fetching on first open.
   useEffect(() => {
-    prefetchDigest();
+    // Not at mount (2026-11-24, the load-time review): on a fresh server the
+    // digest is a Sonnet call, and it ran alongside the ~50 requests of page
+    // load. Primed 45 s in instead — the modal still opens warm.
+    const first = setTimeout(() => prefetchDigest(), 45_000);
     const reprime = () => prefetchDigest();
     // visibilitychange catches Chrome tab switches more reliably than focus.
     const onVisible = () => { if (!document.hidden) prefetchDigest(); };
@@ -286,6 +292,7 @@ export default function TabShell() {
     window.addEventListener("dashboard-cache-cleared", reprime);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      clearTimeout(first);
       window.removeEventListener("focus", reprime);
       window.removeEventListener("dashboard-cache-cleared", reprime);
       document.removeEventListener("visibilitychange", onVisible);

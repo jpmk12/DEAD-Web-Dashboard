@@ -9,7 +9,7 @@
 // value, never folded into green.
 
 import { openTrackPicker } from "@/lib/trackClient";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/feedback";
 import { LED_CLASS, type LedKey } from "@/lib/levelTokens";
 import {
@@ -42,12 +42,18 @@ export default function LinesStrip({ active = true }: { active?: boolean }) {
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const pendingTries = useRef(0);
 
   const load = useCallback(async (refresh = false) => {
     try {
       const r = await fetch(`/api/mission-lines?read=1${refresh ? "&refresh=1" : ""}`, { cache: "no-store" });
       const j = (await r.json().catch(() => null)) as Body | null;
       if (!j) { setStatus("error"); return; }
+      // Still assembling (202): keep what is on screen and ask again shortly.
+      if ((j as { pending?: boolean }).pending) {
+        if (pendingTries.current < 8) { pendingTries.current += 1; setTimeout(() => load(), 5_000); }
+        if ((j.reads ?? []).length === 0) return;
+      } else pendingTries.current = 0;
       setBody(j);
       setStatus(j.lines === null ? "unavailable" : "ok");
     } catch { setStatus("error"); }

@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openAppend } from "@/lib/appendClient";
 import { relTime } from "@/lib/relTime";
@@ -12,8 +13,15 @@ import { lazyClient } from "@/lib/lazyClient";
 const CommandBoard = lazyClient(() => import("@/components/osint/CommandBoard"), function BoardLoading() {
   return <div className="px-4 py-6 text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading the command board…</div>;
 });
-import SourcesPane from "@/components/osint/SourcesPane";
-import ThemesCard from "@/components/osint/ThemesCard";
+// The Sources pane and the Themes card render only on their own pane (the
+// tab opens on Commands), so their code arrives on first use, not with the
+// page (2026-11-24, the load-time review).
+const SourcesPane = lazyClient(() => import("@/components/osint/SourcesPane"), function SourcesLoading() {
+  return <div className="px-4 py-6 text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading sources…</div>;
+});
+const ThemesCard = lazyClient(() => import("@/components/osint/ThemesCard"), function ThemesLoading() {
+  return <div className="px-4 py-3 text-[11px] font-mono uppercase tracking-wider text-slate-500 animate-pulse">Loading your themes…</div>;
+});
 
 interface OsintItem {
   id: string;
@@ -116,16 +124,16 @@ export default function OSINTTab({ active = true, previousSeen = 0, onSignalCoun
   const [timeWindow, setTimeWindow] = useState<"all" | "4h" | "24h" | "7d">("all");
 
   useEffect(() => {
-    fetch("/api/user-prefs")
-      .then((r) => r.json())
-      .then(({ prefs }) => {
+    sharedGet<{ prefs?: Record<string, unknown> }>("/api/user-prefs")
+      .then(({ body }) => {
+        const prefs = body?.prefs;
         // Coerce to numbers defensively before they're used to query the
         // aircraft/ship feeds for AOR-contact awareness.
         const lat = Number(prefs?.localLat);
         const lon = Number(prefs?.localLon);
         if (Number.isFinite(lat)) setHomeLat(lat);
         if (Number.isFinite(lon)) setHomeLon(lon);
-        if (Array.isArray(prefs?.watchlist)) setWatchlist(prefs.watchlist);
+        if (Array.isArray(prefs?.watchlist)) setWatchlist(prefs.watchlist as string[]);
       })
       .catch(() => {});
   }, []);

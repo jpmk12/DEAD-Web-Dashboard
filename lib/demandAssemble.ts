@@ -52,12 +52,16 @@ export async function getDemandHorizon(): Promise<DemandHorizonBody> {
 export async function getDemandHorizonBounded(maxWaitMs = 8_000): Promise<DemandHorizonBody & { pending?: boolean }> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
   const p = getDemandHorizon();
+  // Stale-while-revalidate (2026-11-24, the load-time review): an expired
+  // answer in memory is served AT ONCE, flagged `pending`, while the refresh
+  // runs — waiting out the bound first held every page load for 8 s after the
+  // cache's 10 minutes were up.
+  if (cache) { p.catch(() => {}); return { ...cache.body, pending: true }; }
   const settled = await new Promise<DemandHorizonBody | null>((resolve) => {
     const t = setTimeout(() => resolve(null), maxWaitMs);
     p.then((b) => { clearTimeout(t); resolve(b); }, () => { clearTimeout(t); resolve(null); });
   });
   if (settled) return settled;
-  if (cache) return { ...cache.body, pending: true };
   return { horizonDays: HORIZON_DAYS, generatedAt: new Date().toISOString(), outlooks: [], sources: { iw: false, disaster: false, neo: false, posture: false, chokepoint: false, move: false }, pending: true };
 }
 

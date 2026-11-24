@@ -122,8 +122,22 @@ export async function getStateAdvisories(): Promise<TravelAdvisory[]> {
 
 // Every current advisory with a level (1-4) or departure signal — used by the
 // Force Protection scorer to colour the civil/diplomatic axis even at Level 2/3.
+// One fetch at a time (2026-11-24, the load-time review): the route, force
+// posture, the commands board and alerts all asked for the feed at once on a
+// cold process, each with its own 10-s fetch. Concurrent callers share one;
+// a failure is held FAIL_HOLD_MS (the last good read, or [], answers).
+let advisoryInflight: Promise<TravelAdvisory[]> | null = null;
+let failedAt = 0;
+const FAIL_HOLD_MS = 60_000;
+
 export async function getAllStateAdvisories(): Promise<TravelAdvisory[]> {
   if (cache && cache.expires > Date.now()) return cache.data;
+  if (Date.now() - failedAt < FAIL_HOLD_MS) return cache?.data ?? [];
+  if (!advisoryInflight) advisoryInflight = readStateAdvisories().finally(() => { advisoryInflight = null; });
+  return advisoryInflight;
+}
+
+async function readStateAdvisories(): Promise<TravelAdvisory[]> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
@@ -146,6 +160,7 @@ export async function getAllStateAdvisories(): Promise<TravelAdvisory[]> {
     if (data.length > 0) cache = { data, expires: Date.now() + TTL_MS };
     return data;
   } catch {
+    failedAt = Date.now();
     return cache?.data ?? []; // unreachable/parse failure → last good or empty
   }
 }

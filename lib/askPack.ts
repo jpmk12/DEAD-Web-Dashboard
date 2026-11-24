@@ -182,7 +182,7 @@ export async function buildAskPack(question: string, email: string, opts: { maxW
       const lr = await within(getLineReads({ maxWaitMs: Math.min(wait, 8_000) }), wait + 500);
       const surface = "Glance › Lines (next 4 days)";
       const door = { event: "app:navigate", detail: "glance" };
-      if (!lr || lr.lines === null) out.push({ surface, text: "", unavailable: true, door });
+      if (!lr || lr.lines === null || (lr.pending && !lr.reads.length)) out.push({ surface, text: "", unavailable: true, door });
       else if (lr.reads.length) out.push({ surface, text: ["Declared lines (a day · an airframe · the fields · planned|execution — the crew's own declaration, NOT a sensor; the read is the fields' existing readings joined to the day, planning-grade):", ...lineReadLines(lr.reads)].join("\n"), door, asOf: lr.atISO });
       else out.push({ surface, text: "No lines declared for the next 4 days.", door });
     }

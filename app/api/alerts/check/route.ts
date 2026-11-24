@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { verifyXUploadToken } from "@/lib/xUploadToken";
-import { computeAlerts } from "@/lib/alerts";
+import { computeAlertsBounded } from "@/lib/alerts";
 import { dispatchPush } from "@/lib/pushDispatch";
 import { touchDailySeries } from "@/lib/dailyHeartbeat";
 
@@ -26,11 +26,12 @@ export async function GET(req: Request) {
   }
   if (!authed) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await computeAlerts();
-  // Fire-and-forget: the poller should not wait on N push sends.
-  dispatchPush(body.alerts).catch(() => {});
+  const body = await computeAlertsBounded(10_000);
+  // Fire-and-forget: the poller should not wait on N push sends. Only a
+  // current list dispatches — a pending one is a placeholder.
+  if (!body.pending) dispatchPush(body.alerts).catch(() => {});
   // The same poll keeps the daily series observed on days nobody opens the
   // dashboard (lib/dailyHeartbeat — rate-limited, background, no model call).
   touchDailySeries();
-  return NextResponse.json(body);
+  return NextResponse.json(body, { status: body.pending && body.alerts.length === 0 ? 202 : 200 });
 }

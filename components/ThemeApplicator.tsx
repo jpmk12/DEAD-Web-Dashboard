@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect } from "react";
 import type { AppTheme } from "@/lib/types";
 
@@ -14,10 +15,11 @@ export function applyTheme(theme: AppTheme) {
 // Reads saved theme from prefs API and applies it; also syncs localStorage.
 export default function ThemeApplicator() {
   useEffect(() => {
-    fetch("/api/user-prefs")
-      .then((r) => r.json())
-      .then(({ prefs }) => {
-        const theme: AppTheme = VALID.includes(prefs?.theme) ? prefs.theme : "nightwatch";
+    sharedGet<{ prefs?: { theme?: string } }>("/api/user-prefs")
+      .then(({ body }) => {
+        const prefs = body?.prefs ?? {};
+        const t = prefs.theme as AppTheme;
+        const theme: AppTheme = VALID.includes(t) ? t : "nightwatch";
         applyTheme(theme);
       })
       .catch(() => {});

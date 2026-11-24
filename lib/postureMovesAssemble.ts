@@ -78,9 +78,11 @@ export async function getPostureMovesFull(): Promise<PostureMovesBody> {
  *  body flagged pending, else a pending stub. */
 export async function getPostureMoves(maxWaitMs = 8_000): Promise<PostureMovesBody> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
+  // Stale-while-revalidate (2026-11-24): an expired sweep is served at once,
+  // flagged `pending`, while the next one runs.
+  if (cache) { getPostureMovesFull().catch(() => {}); return { ...cache.body, pending: true }; }
   const settled = await withTimeout(getPostureMovesFull(), maxWaitMs);
   if (settled) return settled;
-  if (cache) return { ...cache.body, pending: true };
   return { generatedAt: new Date().toISOString(), moves: [], chatter: [], foreignChatter: [], fieldChatter: {}, sources: { rss: 0, rssTotal: 0, gdelt: false, own: 0, ownFields: 0 }, pending: true, note: "sweeping the defense feeds — ask again shortly" };
 }
 

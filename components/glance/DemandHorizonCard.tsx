@@ -1,11 +1,15 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
-import CrewStateEditor from "@/components/preferences/CrewStateEditor";
+import { lazyClient } from "@/lib/lazyClient";
 import { AOR_LABELS, type Aor } from "@/lib/aor";
 import type { DemandOutlook, DemandDriver } from "@/lib/demandHorizon";
 import type { LineCommandSummary } from "@/lib/lineRead";
 import { LED_CLASS } from "@/lib/levelTokens";
+
+// Opened from "edit counts ▾" — its code arrives then (2026-11-24).
+const CrewStateEditor = lazyClient(() => import("@/components/preferences/CrewStateEditor"));
 
 // 7-day demand horizon — the forecast the north star names.
 //
@@ -54,11 +58,11 @@ export default function DemandHorizonCard() {
 
   useEffect(() => {
     try { setFolded(localStorage.getItem("glance.demandFolded") === "1"); } catch { /* ignore */ }
-    const loadHorizon = () => fetch("/api/demand-horizon")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j && Array.isArray(j.outlooks)) setBody(j); })
-      .catch(() => {});
-    loadHorizon();
+    // The first read shares the status row's request; later ones (a line
+    // saved, a poll) ask fresh.
+    const loadHorizon = (fresh = true) => sharedGet<Body>("/api/demand-horizon", { fresh })
+      .then(({ ok, body: j }) => { if (ok && j && Array.isArray(j.outlooks)) setBody(j); });
+    loadHorizon(false);
     const loadCrew = () => fetch("/api/team/crew")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {

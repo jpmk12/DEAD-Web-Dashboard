@@ -6330,6 +6330,83 @@ SITREP — could not open without the board. Now:
   production (every upstream is blocked from the sandbox).
 No new npm dep (esbuild `0`).
 
+### Load-time review (2026-11-24, "review the entire app and look for potential enhancements to load times")
+Measured, not guessed: the build's first-load JS (`.next/app-build-manifest.json`,
+gzipped), a throwaway source-map build for per-module sizes (the config was
+reverted), every request the built app fires in headless Chromium in its first
+14 s, and two read-only audits of the ~40 routes that answer at page load. Keep
+the RULES:
+- **First load 238 → 199 KB gzip; the page chunk 126 → 84 KB.** Glance
+  statically imported the OE-brief exporter, which dragged in the SITREP
+  exporter, SITREP signals, METAR/TAF decoders, the GPS-NOTAM parser and the
+  field outlook — now `import()`ed inside the ⇩ OE brief click, in parallel
+  with the snapshot fetch (the viewer tab is still opened inside the click).
+  `chatterLine` moved to `lib/chatterLine.ts` (re-exported from
+  `mobilityChatter`) so Glance no longer carries the 50 KB chatter grammar.
+  The OSINT Sources pane and Themes card, the Glance push-setup fold
+  (mounted only once opened) and the crew-count editor are `lazyClient`.
+  **A component that renders only behind a fold, a pane or a click belongs
+  behind `lazyClient`; a lib used only on a click is `import()`ed there.**
+- **One request per resource at mount** — `lib/sharedGet.ts` (`sharedGet(url,
+  {fresh, reuseMs 5 s})`, never rejects; `{ok, status, body}`): the theme,
+  the shell, the news feed and the OSINT tab read `/api/user-prefs` (was 4
+  requests), `fetchUiState` (5 readers, was 4 requests at load — values this
+  page wrote since are laid over the shared read) and the status row + demand
+  card share `/api/demand-horizon`. A reader that re-reads on a "changed"
+  event passes `fresh: true`. API requests in the first 14 s: 52–55 → 43.
+- **The Google token refresh is shared** (`lib/sharedRefresh.ts`, tested):
+  route handlers cannot rewrite the session cookie, so after the hour every
+  request of the first page load refreshed with Google on its own. One
+  in-flight refresh per refresh token, the result reused until 5 min before
+  it expires, a failure never cached, 8-s timeout on the token call.
+- **Stale-while-revalidate is the default for a bounded getter**: an expired
+  answer in memory is returned AT ONCE flagged `pending` while the refresh
+  runs — `getDemandHorizonBounded`, `getSpectrumSummary`, `getPostureMoves`,
+  `getThemeReads` (a write still clears it), `assessWarningStale` (the
+  `/api/warning` route), `computeAlertsBounded`, `getForceProtectionCached`
+  (same watch list, < 30 min), `getDisasters` (< 30 min). Before, each
+  expiry made the next page load wait out the whole bound (8–12 s) with a
+  usable answer sitting in memory.
+- **Fixed unbounded request paths**: `/api/team/crew` awaited the whole cold
+  demand assembly (now `getDemandHorizonBounded(3 s)`, `demandPending` in
+  the body; its crew-day snapshot is written once per process day, not per
+  GET); `getLineReads({maxWaitMs})` accepted the bound and never applied it
+  (~19 s cold) — now stale-serve, else the bound, else the declared lines
+  with no reads flagged `pending` (202; the Glance strip re-asks every 5 s,
+  ≤8; the brief, Ask, the OE brief and the line-count readers treat a
+  pending read as UNAVAILABLE, never "no lines"); `/api/alerts/check`
+  awaited every stage unbounded (now 10 s, `pending` placeholder answers
+  202 and **never drives push dispatch** — an empty list would make devices
+  forget their seen ids; the Alerts tile keeps "…" on a pending empty list).
+- **Caches where there were none**: `getDisasters` (5 upstream fetches per
+  call, called by every SITREP base) — 10 min, one fetch in flight, empty
+  read 60 s; `getMissionProfile` — one shared query for 30 s, dropped by its
+  only writer `saveMissionProfile`, callers get a `structuredClone`;
+  `/api/trends` — 5 min; State advisories — one fetch in flight, a failure
+  held 60 s.
+- **Off the page-load path**: the weekly-digest prefetch (a Sonnet call on a
+  fresh process) fires 45 s after mount, not at it; the daily heartbeat's
+  FIRST pass on a fresh process starts 60 s after the call that triggered it
+  (it ran the demand horizon, a SITREP per base and the counterspace sweep
+  alongside the first page load); `/api/news` no longer awaits the calendar
+  trip sync (fire-and-forget; the stored trip answers), reads the trip in
+  parallel with the feeds and bounds the trip strip's GDELT read at 3 s;
+  `/api/osint/feed`'s four store reads run in parallel.
+- **Found and NOT built (offered)** — the larger Gmail work, each a change of
+  contract: `/api/newsletters` awaits Sonnet summaries on a GET and fetches
+  every full body before checking the summary cache (list ids first, fetch
+  full bodies only for cache misses, summarise in the background → 202);
+  `/api/gmail` awaits the Haiku triage inline (classify in the background,
+  rows marked untriaged meanwhile) and its triage cache key includes the
+  Mission Profile summary line, so a ★ or hub change re-triages the whole
+  inbox; the page-load Gmail burst (~400 `messages.get`) can hit the per-user
+  rate limit (metadata format for the inbox, stale-serve VIP suggestions);
+  `/api/calendar` has no cache or timeout and is read again by the trip
+  sync; `/api/digest` lives in process memory only (a DB row would survive
+  a deploy); the counterspace range sweep is a CPU loop that never yields;
+  the DB pool is 10 connections for ~40 parallel routes.
+No new npm dep (esbuild `0`).
+
 ### Review 2026-10-28 (loose ends · bugs · performance · coherence) — what changed and the rules it left behind
 Four parallel reviews after the October feature run (≈45 commits, 206
 files), each finding confirmed by reading the code path before it was

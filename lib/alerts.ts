@@ -42,6 +42,8 @@ export interface AlertItem {
 export interface AlertCheck {
   now: number;
   alerts: AlertItem[];
+  /** Still computing: the previous list (or none) — never a basis for push. */
+  pending?: boolean;
 }
 
 const TTL = 5 * 60 * 1000;
@@ -53,6 +55,21 @@ export async function computeAlerts(): Promise<AlertCheck> {
   if (inFlight) return inFlight;
   inFlight = build().finally(() => { inFlight = null; });
   return inFlight;
+}
+
+/** For request handlers (2026-11-24, the load-time review): the route awaited
+ *  the whole computation — force posture, weather, advisories, every board,
+ *  the outage group — with no bound, and an expired cache held the page load
+ *  for all of it. Now a previous list is answered at once (flagged `pending`
+ *  while past its TTL), a cold one gets `maxWaitMs`, else an empty `pending`
+ *  stub. A pending body must never drive push dispatch: an empty list would
+ *  make every device forget its seen ids and re-notify. */
+export async function computeAlertsBounded(maxWaitMs = 10_000): Promise<AlertCheck> {
+  if (cache && Date.now() - cache.at < TTL) return cache.body;
+  const p = computeAlerts();
+  if (cache) { p.catch(() => {}); return { ...cache.body, pending: true }; }
+  const settled = await within(p, maxWaitMs);
+  return settled ?? { now: Date.now(), alerts: [], pending: true };
 }
 
 function within<T>(p: Promise<T>, ms: number): Promise<T | null> {

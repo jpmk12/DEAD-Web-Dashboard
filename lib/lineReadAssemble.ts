@@ -32,6 +32,8 @@ export interface LineReadsBody {
   /** Source families that did not answer this pass. */
   unavailable: string[];
   atISO: string;
+  /** The read is still assembling: `reads` are not in yet (the lines are). */
+  pending?: boolean;
 }
 
 function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -64,7 +66,19 @@ export async function getLineReads(opts: { maxWaitMs?: number; force?: boolean }
       .finally(() => { if (inflight === p) inflight = null; });
     inflight = p;
   }
-  return inflight;
+  // `maxWaitMs` was accepted and never applied, so the Glance strip's GET
+  // waited out the whole serial assembly (~19 s cold) — 2026-11-24, the
+  // load-time review. Now: an expired read is served at once (refreshing
+  // behind); a cold one gets the wait, then answers the declared lines with
+  // no reads yet, flagged `pending`.
+  if (opts.maxWaitMs == null) return inflight;
+  if (cache) { inflight.catch(() => {}); return { ...cache.body, pending: true }; }
+  const settled = await within(inflight, opts.maxWaitMs);
+  if (settled) return settled;
+  const today = todayZulu();
+  const lastDay = addDaysYmd(today, LINE_HORIZON_DAYS - 1);
+  const lines = await within(listLines(today, lastDay), 2_000);
+  return { today, horizonDays: LINE_HORIZON_DAYS, lastDay, lines: lines ?? null, reads: [], byCommand: {}, unavailable: lines ? [] : ["lines store"], atISO: new Date().toISOString(), pending: true };
 }
 
 async function assemble(wait: number): Promise<LineReadsBody> {
@@ -160,7 +174,8 @@ async function assemble(wait: number): Promise<LineReadsBody> {
  *  declared — either way the callers show nothing extra. */
 export async function getLinesByCommandBounded(maxWaitMs = 3_000): Promise<{ byCommand: Record<string, LineCommandSummary>; total: number } | null> {
   const body = await within(getLineReads({ maxWaitMs }), maxWaitMs + 500);
-  if (!body || body.lines === null) return null;
+  // A pending body has the lines but no reads yet — that is not "no lines".
+  if (!body || body.lines === null || (body.pending && !body.reads.length)) return null;
   return { byCommand: body.byCommand, total: body.reads.length };
 }
 

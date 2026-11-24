@@ -23,7 +23,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   if (url.searchParams.get("read") === "1") {
     const body = await getLineReads({ maxWaitMs: 8_000, force: url.searchParams.get("refresh") === "1" });
-    return NextResponse.json(body, { status: body.lines === null ? 503 : 200 });
+    return NextResponse.json(body, { status: body.lines === null && !body.pending ? 503 : body.pending ? 202 : 200 });
   }
   const today = todayZulu();
   const lines = await listLines(today, addDaysYmd(today, LINE_HORIZON_DAYS - 1));

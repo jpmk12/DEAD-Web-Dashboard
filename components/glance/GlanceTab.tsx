@@ -6,16 +6,16 @@ import { openTrackPicker } from "@/lib/trackClient";
 import { toast } from "@/lib/feedback";
 import { relTimeFuture } from "@/lib/relTime";
 import { julianDayLabel } from "@/lib/date";
-import { renderOeBriefHtml, oeBriefFilename } from "@/lib/oeBriefExport";
-import { renderOeBriefViewerHtml } from "@/lib/oeBriefViewer";
 import { detectPostureMoves, mergePostureMoves, newsletterBulletsAsItems, MOVE_LABEL, SIDE_LABEL, type PostureMove } from "@/lib/postureMoves";
-import { chatterLine, type ChatterCluster } from "@/lib/mobilityChatter";
+import { chatterLine } from "@/lib/chatterLine";
+import type { ChatterCluster } from "@/lib/mobilityChatter";
 import type { ThemeRead } from "@/lib/themes";
 import type { MissionProfile } from "@/lib/missionProfile";
 import OeDeltaCard from "@/components/glance/OeDeltaCard";
 import DemandHorizonCard from "@/components/glance/DemandHorizonCard";
 import StatusRow from "@/components/glance/StatusRow";
 import LinesStrip from "@/components/glance/LinesStrip";
+import { lazyClient } from "@/lib/lazyClient";
 import WorldClocks from "@/components/glance/WorldClocks";
 import WhereYouAre from "@/components/glance/WhereYouAre";
 import { useEffectiveZone, type EffectiveZone } from "@/lib/zoneClient";
@@ -24,7 +24,6 @@ import { useSession } from "next-auth/react";
 import { Tab } from "@/components/layout/TabBar";
 import { BriefIcon, ReachIcon } from "@/lib/icons";
 import ZonePin from "@/components/ZonePin";
-import PushSetupCard from "@/components/preferences/PushSetupCard";
 import { useEventActions, EventActionCluster, EventActionPanels } from "@/components/calendar/eventActions";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { ForceAssessment } from "@/lib/forceProtection";
@@ -47,6 +46,10 @@ import {
 } from "@/lib/types";
 import { clientCache } from "@/lib/clientCache";
 import ArticleThesis from "@/components/news/ArticleThesis";
+
+// Mounted only when its fold opens — its code arrives then, not with the
+// page (2026-11-24, the load-time review).
+const PushSetupCard = lazyClient(() => import("@/components/preferences/PushSetupCard"));
 
 // ── Cache keys owned by the source tabs. Glance is read-only here: it peeks
 //    the same in-memory entries the other tabs populate, so it never triggers
@@ -957,6 +960,7 @@ export default function GlanceTab({
   // One-page OE brief: fetch the snapshot, render the standalone HTML in the
   // browser (lib/oeBriefExport, pure), download. Also reachable from the
   // command palette via the `oebrief:export` event.
+  const [pushOpen, setPushOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportOeBrief = useCallback(async () => {
     if (exporting) return;
@@ -972,7 +976,14 @@ export default function GlanceTab({
       }
     } catch { win = null; }
     try {
-      const r = await fetch("/api/oe-brief", { cache: "no-store" });
+      // The renderers are loaded on the click, not with the page: they pull in
+      // the SITREP exporter and its signals (~100 KB of source) that nothing
+      // else on Glance needs (2026-11-24, the load-time review).
+      const [r, { renderOeBriefHtml, oeBriefFilename }, { renderOeBriefViewerHtml }] = await Promise.all([
+        fetch("/api/oe-brief", { cache: "no-store" }),
+        import("@/lib/oeBriefExport"),
+        import("@/lib/oeBriefViewer"),
+      ]);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(j.error || "Could not build the OE brief."); win?.close(); return; }
       const html = renderOeBriefHtml(j);
@@ -1214,9 +1225,9 @@ export default function GlanceTab({
 
       {/* Alerts on this device — push setup lives beside the Alerts tile it
           serves (REVIEW-2026-10 §12), folded; the drawer links here. */}
-      <details className="rounded-lg border border-slate-800 bg-slate-900/40">
+      <details className="rounded-lg border border-slate-800 bg-slate-900/40" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) setPushOpen(true); }}>
         <summary className="cursor-pointer select-none px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300">📲 Alerts on this device</summary>
-        <div className="px-3 pb-3 pt-1"><PushSetupCard /></div>
+        <div className="px-3 pb-3 pt-1">{pushOpen && <PushSetupCard />}</div>
       </details>
 
       {/* ── What moved since you last looked ── */}

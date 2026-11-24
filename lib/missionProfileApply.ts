@@ -25,7 +25,24 @@ const CAPS = { countries: 40, bases: 30, metar: 12 };
 
 interface Row extends RowDataPacket { mission_profile: unknown }
 
+// Read by every warning board's resolver, the OE delta, spectrum, weather,
+// alerts, commands and the SITREP — a page load asked the database for it a
+// dozen times (2026-11-24, the load-time review). One query is shared by
+// concurrent callers and kept PROFILE_MEMO_MS; saveMissionProfile (its only
+// writer) drops it, so a save is read back at once. Callers get a copy.
+const PROFILE_MEMO_MS = 30_000;
+let profileMemo: { at: number; p: Promise<MissionProfile> } | null = null;
+
 export async function getMissionProfile(): Promise<MissionProfile> {
+  if (!profileMemo || Date.now() - profileMemo.at > PROFILE_MEMO_MS) {
+    const p = readMissionProfile();
+    profileMemo = { at: Date.now(), p };
+    p.catch(() => { if (profileMemo?.p === p) profileMemo = null; });
+  }
+  return structuredClone(await profileMemo.p);
+}
+
+async function readMissionProfile(): Promise<MissionProfile> {
   const pool = await getDb();
   const [rows] = await pool.query<Row[]>("SELECT mission_profile FROM user_prefs WHERE id = 1");
   const raw = rows[0]?.mission_profile;
@@ -34,11 +51,13 @@ export async function getMissionProfile(): Promise<MissionProfile> {
 }
 
 export async function saveMissionProfile(profile: MissionProfile): Promise<void> {
+  profileMemo = null;
   const pool = await getDb();
   await pool.execute(
     "UPDATE user_prefs SET mission_profile = CAST(? AS JSON), last_updated = NOW() WHERE id = 1",
     [JSON.stringify({ ...profile, updatedAt: new Date().toISOString() })],
   );
+  profileMemo = null;
 }
 
 /**

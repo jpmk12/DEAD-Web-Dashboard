@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withTimeout } from "@/lib/withTimeout";
 import { normEmail } from "@/lib/allowlist";
 import { auth } from "@/lib/auth";
 import { fetchFeed } from "@/lib/rss";
@@ -27,8 +28,12 @@ export async function GET() {
   const today = todayInTz(userPrefs.timezone || "America/Chicago");
   // Auto-activate TDY from trip-like calendar events (throttled, best-effort) so
   // the strip follows you even without a hand-entered trip.
-  await syncCalendarTripsThrottled(normEmail(session.user?.email), session.accessToken as string, today).catch(() => {});
-  const activeTrip = await getActiveTrip(normEmail(session.user?.email), today).catch(() => null);
+  // NOT awaited (2026-11-24, the load-time review): the sync re-reads the
+  // calendar and geocodes trip events one by one, and every feed waited on it
+  // — the brief waits on these articles. The stored trip answers this load;
+  // a newly synced one is read on the next.
+  syncCalendarTripsThrottled(normEmail(session.user?.email), session.accessToken as string, today).catch(() => {});
+  const activeTripP = getActiveTrip(normEmail(session.user?.email), today).catch(() => null);
   const localFeedKey = userPrefs.localFeedKey ?? "colorado";
   const localFeeds = LOCAL_NEWS_SETS[localFeedKey] ?? LOCAL_NEWS_SETS.colorado;
   // Apply the user's disabled-source filter BEFORE fetching — disabling
@@ -37,9 +42,10 @@ export async function GET() {
   const disabled = userPrefs.disabledNewsSources ?? [];
   const allFeeds = [...BASE_NEWS_SOURCES, ...localFeeds].filter((f) => isSourceEnabled(f.name, disabled));
 
-  const [feedResults, prefs] = await Promise.all([
+  const [feedResults, prefs, activeTrip] = await Promise.all([
     Promise.all(allFeeds.map(({ url, name, category }) => fetchFeed(url, name, category))),
     readPrefs(normEmail(session.user?.email)),
+    activeTripP,
   ]);
 
   const feedItems = feedResults.flatMap((r) => r.items);
@@ -57,7 +63,9 @@ export async function GET() {
       .filter((f) => isSourceEnabled(f.name, disabled));
     const [tripFeedResults, gdelt] = await Promise.all([
       Promise.all(tripFeeds.map(({ url, name, category }) => fetchFeed(url, name, category))),
-      gdeltLocalNews(activeTrip.label).catch(() => [] as NewsItem[]),
+      // Bounded: the GDELT gate can queue 20 s — the strip takes what is
+      // cached or answers quickly; the read keeps running into its cache.
+      withTimeout(gdeltLocalNews(activeTrip.label), 3_000).then((x) => x ?? ([] as NewsItem[])),
     ]);
     const seen = new Set<string>();
     const tripItems = [...tripFeedResults.flatMap((r) => r.items), ...gdelt]

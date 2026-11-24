@@ -54,9 +54,12 @@ export async function getThemeReadsFull(): Promise<ThemesBody> {
 export async function getThemeReads(opts: { maxWaitMs?: number; force?: boolean } = {}): Promise<ThemesBody> {
   if (opts.force) { cache = null; inflight = null; gen++; }
   if (cache && Date.now() - cache.at < TTL) return cache.body;
+  // Stale-while-revalidate (2026-11-24): an expired read is served at once,
+  // flagged `pending`, while the next runs (a write clears the cache, so a
+  // save is never answered with the read from before it).
+  if (cache) { getThemeReadsFull().catch(() => {}); return { ...cache.body, pending: true }; }
   const settled = await withTimeout(getThemeReadsFull(), opts.maxWaitMs ?? 8_000);
   if (settled) return settled;
-  if (cache) return { ...cache.body, pending: true };
   return { generatedAt: new Date().toISOString(), themes: null, reads: [], pool: { own: 0, ownAnswered: false, wires: 0, wireFeeds: 0, wireFeedsTotal: 0 }, pending: true, note: "reading your sources — ask again shortly" };
 }
 

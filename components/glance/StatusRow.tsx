@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import type { ForceAssessment } from "@/lib/forceProtection";
 import { AOR_LABELS } from "@/lib/aor";
@@ -59,7 +60,9 @@ const emit = (name: string, detail?: unknown) => window.dispatchEvent(new Custom
 
 interface TaskCounts { due: number; overdue: number; asks: number; items?: string[]; askItems?: string[] }
 
-const j = async (url: string) => { try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch { return null; } };
+// Through sharedGet: the demand card below asks for /api/demand-horizon at the
+// same moment, and one request answers both (2026-11-24).
+const j = async (url: string) => { const r = await sharedGet(url); return r.ok ? r.body : null; };
 
 /** One feed, on its own clock: a failed or slow route leaves only ITS tile on
  *  "…", a `pending` answer is re-asked after `retryMs`, and the whole thing
@@ -104,7 +107,11 @@ export default function StatusRow({ forceWatch, sitreps, tasks, onNavigate, acti
     // A pending stub carries no outlooks: keep "…" rather than show "hold".
     return Array.isArray(b.outlooks) && !(b.pending && b.outlooks.length === 0) ? (b.outlooks as DemandLite[]) : null;
   }, { active, pendingRetryMs: 10_000 });
-  const alerts = useFeed<AlertLite[]>("/api/alerts/check", (x) => Array.isArray((x as { alerts?: unknown }).alerts) ? (x as { alerts: AlertLite[] }).alerts : null, { active, pendingRetryMs: 10_000 });
+  // A pending empty list is "still computing", not "no alerts" — keep "…".
+  const alerts = useFeed<AlertLite[]>("/api/alerts/check", (x) => {
+    const b = x as { alerts?: unknown; pending?: boolean };
+    return Array.isArray(b.alerts) && !(b.pending && b.alerts.length === 0) ? (b.alerts as AlertLite[]) : null;
+  }, { active, pendingRetryMs: 10_000 });
   const family = useFeed<FamilyWeek>("/api/family/week", (x) => (x && typeof x === "object" ? (x as FamilyWeek) : null), { active });
   const spectrum = useFeed<SpectrumLite>("/api/spectrum", (x) => (x && typeof (x as { led?: unknown }).led === "string" ? (x as SpectrumLite) : null), { active, pendingRetryMs: 10_000 });
 

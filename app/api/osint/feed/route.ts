@@ -291,11 +291,15 @@ export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const prefs = await getUserPrefs(normEmail(session.user?.email)).catch(() => null);
+  // The four reads are independent — together, not one after another
+  // (2026-11-24, the load-time review).
+  const [prefs, xItems, articles, events] = await Promise.all([
+    getUserPrefs(normEmail(session.user?.email)).catch(() => null),
+    getXItems().catch(() => [] as StoredXItem[]),
+    getCapturedArticles(200).catch(() => [] as StoredArticle[]),
+    getCapturedEvents(300).catch(() => [] as StoredEvent[]),
+  ]);
   const feeds = prefs?.osintFeeds ?? [];
-  const xItems = await getXItems().catch(() => [] as StoredXItem[]);
-  const articles = await getCapturedArticles(200).catch(() => [] as StoredArticle[]);
-  const events = await getCapturedEvents(300).catch(() => [] as StoredEvent[]);
   if (feeds.length === 0 && xItems.length === 0 && articles.length === 0 && events.length === 0) return NextResponse.json({ feeds: [], items: [] });
 
   // Per-feed cache so a single broken feed doesn't burn the whole batch.

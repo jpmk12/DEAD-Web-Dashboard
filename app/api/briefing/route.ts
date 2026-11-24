@@ -313,7 +313,7 @@ export async function POST(request: Request) {
   try {
     const lr = await Promise.race([getLineReads({ maxWaitMs: 6_000 }), new Promise<null>((r) => setTimeout(() => r(null), 7_000))]);
     if (lr && lr.reads.length) lineBlock = lineReadLines(lr.reads, 8).join("\n");
-    else if (lr && lr.lines === null) lineBlock = "(lines UNAVAILABLE this pass — the store did not answer; do not assume no flying)";
+    else if (lr && (lr.lines === null || (lr.pending && (lr.lines?.length ?? 0) > 0))) lineBlock = "(lines UNAVAILABLE this pass — the store did not answer; do not assume no flying)";
   } catch { /* lines are best-effort in the brief */ }
   const assemblyStart = Date.now();
   // Week-over-week movers from the deterministic trend layer (P1) — cheap SQL,

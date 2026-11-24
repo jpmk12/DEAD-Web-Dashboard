@@ -33,6 +33,6 @@ export async function GET() {
     preparedBy: email,
     missionSummary: prefs?.missionSummary ?? null,
     // null = the store did not answer (UNAVAILABLE on the page, never "no lines").
-    lines: lineReads && lineReads.lines !== null ? lineReads.reads : null,
+    lines: lineReads && lineReads.lines !== null && !(lineReads.pending && !lineReads.reads.length) ? lineReads.reads : null,
   });
 }

@@ -82,9 +82,11 @@ export function resetSpectrumCache(): void { cache = null; }
 export async function getSpectrumSummary(opts: { maxWaitMs?: number } = {}): Promise<SpectrumSummary> {
   if (cache && Date.now() - cache.at < TTL) return cache.body;
   if (!inflight) inflight = compute().then((b) => { cache = { at: Date.now(), body: b }; return b; }).finally(() => { inflight = null; });
+  // Stale-while-revalidate (2026-11-24): an expired summary is served at
+  // once, flagged `pending`, while the refresh runs.
+  if (cache) { inflight.catch(() => {}); return { ...cache.body, pending: true }; }
   const settled = await withTimeout(inflight, opts.maxWaitMs ?? 8_000);
   if (settled) return settled;
-  if (cache) return { ...cache.body, pending: true };
   return {
     generatedAt: new Date().toISOString(), pending: true, boards: [], pnt: null, cyber: null, space: null,
     spaceWx: { live: false, led: "u", now: null, impacts: [], severe: [], polar: null },

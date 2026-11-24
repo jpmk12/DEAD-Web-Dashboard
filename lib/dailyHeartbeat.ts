@@ -43,11 +43,19 @@ function bounded<T>(p: Promise<T>, ms = STEP_TIMEOUT_MS): Promise<T | null> {
 /** Fire-and-forget. Returns true when a pass was started this call. */
 export function touchDailySeries(nowMs = Date.now()): boolean {
   if (running || nowMs - lastRunAt < HEARTBEAT_INTERVAL_MS) return false;
+  // The FIRST pass of a fresh process starts a minute after the call that
+  // triggered it (2026-11-24, the load-time review): that call is usually a
+  // page load's alert check, and the pass — the demand horizon, a SITREP per
+  // base, the counterspace sweep, three prunes — competed with the page for
+  // the database pool, the GDELT queue and the AWC weather service.
+  const delay = lastRunAt === 0 ? FIRST_PASS_DELAY_MS : 0;
   lastRunAt = nowMs;
-  running = runPass().finally(() => { running = null; });
+  running = new Promise<void>((res) => setTimeout(res, delay)).then(runPass).finally(() => { running = null; });
   running.catch(() => {});
   return true;
 }
+
+const FIRST_PASS_DELAY_MS = 60_000;
 
 /** For tests and the diag route: forget the last run. */
 export function resetHeartbeat(): void { lastRunAt = 0; }

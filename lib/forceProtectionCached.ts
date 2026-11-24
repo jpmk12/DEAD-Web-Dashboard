@@ -11,6 +11,7 @@ import { getForceProtection, type ForceProtectionResult } from "./forceProtectio
 import type { CountryWatch, ForceLocation } from "./types";
 
 const TTL = 10 * 60 * 1000;
+const STALE_MAX = 30 * 60 * 1000;
 let cache: { key: string; at: number; body: ForceProtectionResult } | null = null;
 let inflight: { key: string; p: Promise<ForceProtectionResult> } | null = null;
 
@@ -24,6 +25,16 @@ export function forceWatchKey(countries: CountryWatch[], bases: ForceLocation[])
 export async function getForceProtectionCached(countries: CountryWatch[], bases: ForceLocation[] = []): Promise<ForceProtectionResult> {
   const key = forceWatchKey(countries, bases);
   if (cache && cache.key === key && Date.now() - cache.at < TTL) return cache.body;
+  // Stale-while-revalidate (2026-11-24, the load-time review): the same watch
+  // list read under STALE_MAX ago is answered at once while the next gather
+  // runs — an expired memo used to hold the page's posture (and the brief,
+  // alerts, commands, the demand horizon) for a full cold fan-out, GDELT queue
+  // included. A changed watch list never gets the old read.
+  if (cache && cache.key === key && Date.now() - cache.at < STALE_MAX) { start(key, countries, bases).catch(() => {}); return cache.body; }
+  return start(key, countries, bases);
+}
+
+function start(key: string, countries: CountryWatch[], bases: ForceLocation[]): Promise<ForceProtectionResult> {
   if (inflight && inflight.key === key) return inflight.p;
   const p = getForceProtection(countries, bases).then((body) => {
     cache = { key, at: Date.now(), body };

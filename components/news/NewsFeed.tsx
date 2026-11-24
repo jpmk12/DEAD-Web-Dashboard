@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { formatDistanceToNow, parseISO } from "date-fns";
@@ -143,10 +144,11 @@ export default function NewsFeed({
   // forced ?refresh=1 isn't lost to a race. Updated only on completion.
   const lastCuratedKey = useRef(0);
 
+  const disabledLoaded = useRef(false);
   const loadDisabledSources = useCallback(() => {
-    fetch("/api/user-prefs")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
+    sharedGet<{ prefs?: { disabledNewsSources?: unknown[] } }>("/api/user-prefs", { fresh: disabledLoaded.current })
+      .then(({ body: d }) => {
+        disabledLoaded.current = true;
         const list = d?.prefs?.disabledNewsSources;
         if (Array.isArray(list)) setDisabledSources(list.filter((x: unknown): x is string => typeof x === "string"));
       })

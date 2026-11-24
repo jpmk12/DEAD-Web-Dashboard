@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { isAllowedEmail } from "./allowlist";
+import { createSharedRefresher } from "./sharedRefresh";
 
 // Refresh the Google access token directly against the OAuth token endpoint.
 // Done as a plain fetch (rather than google-auth-library's deprecated
@@ -17,6 +18,9 @@ async function refreshAccessToken(refreshToken: string) {
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     }),
+    // Every request of a page load waits on this; a hung token endpoint must
+    // not hold them all (2026-11-24, the load-time review).
+    signal: AbortSignal.timeout(8_000),
   });
   const data = (await res.json().catch(() => ({}))) as {
     access_token?: string; expires_in?: number; refresh_token?: string;
@@ -32,6 +36,10 @@ async function refreshAccessToken(refreshToken: string) {
     refreshToken: data.refresh_token ?? refreshToken,
   };
 }
+
+// Concurrent requests carrying the same expired token share one refresh, and
+// the result is reused until 5 min before it expires (lib/sharedRefresh.ts).
+const sharedRefresh = createSharedRefresher(refreshAccessToken);
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   // Required in production behind a managed proxy (GoDaddy): Auth.js otherwise
@@ -99,7 +107,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         return { ...token, accessToken: undefined, error: "RefreshAccessTokenError" };
       }
       try {
-        const refreshed = await refreshAccessToken(token.refreshToken);
+        const refreshed = await sharedRefresh(token.refreshToken);
         return { ...token, ...refreshed, error: undefined };
       } catch (err) {
         console.error("Google token refresh failed:", err instanceof Error ? err.message : err);

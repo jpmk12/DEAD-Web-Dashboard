@@ -5,7 +5,7 @@ import { listCrewRows, upsertCrewRow, deleteCrewRow, validQual, snapshotCrewDay,
 import { getDemandOutlookHistory } from "@/lib/demandStore";
 import { crewTrend } from "@/lib/crewTrend";
 import { deriveAvailability, postureAgainstDemand, DEFAULT_QUALS } from "@/lib/crewState";
-import { getDemandHorizon } from "@/lib/demandAssemble";
+import { getDemandHorizonBounded } from "@/lib/demandAssemble";
 import { getDeclaredLinesBounded } from "@/lib/lineReadAssemble";
 import { AOR_LABELS } from "@/lib/aor";
 
@@ -20,17 +20,25 @@ export const dynamic = "force-dynamic";
 //   POST { op:"seed" }→ create the default qualification rows (empty counts)
 //   DELETE ?qual=     → remove a row
 
+let lastSnapshotDay: string | null = null;
+
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const [rows, demand, history, demandHistory, declared] = await Promise.all([
-    listCrewRows().catch(() => []), getDemandHorizon().catch(() => null),
+    listCrewRows().catch(() => []),
+    // Bounded (2026-11-24): this GET awaited the whole cold demand assembly —
+    // every board, posture, chokepoints — at page load. A pending answer
+    // reads as no demand yet; the card's own horizon read fills in.
+    getDemandHorizonBounded(3_000).catch(() => null),
     getCrewHistory(60).catch(() => []), getDemandOutlookHistory(60).catch(() => []),
     // Declared lines beside the forecast — bounded; null / empty changes nothing.
     getDeclaredLinesBounded(3_000).catch(() => null),
   ]);
-  // Today's snapshot rides the read so the series exists on days nobody edits.
-  snapshotCrewDay(rows).catch(() => {});
+  // Today's snapshot rides the read so the series exists on days nobody edits
+  // — once per process day, not on every GET (the edits write their own).
+  const day = new Date().toISOString().slice(0, 10);
+  if (lastSnapshotDay !== day) { lastSnapshotDay = day; snapshotCrewDay(rows).catch(() => { lastSnapshotDay = null; }); }
   const summary = deriveAvailability(rows);
   const posture = postureAgainstDemand(
     summary,
@@ -41,7 +49,7 @@ export async function GET() {
   const today = new Date().toISOString().slice(0, 10);
   const todayRows = rows.map((r) => ({ day: today, qual: r.qual, total: r.total, crewRest: r.crewRest, onMission: r.onMission, dnif: r.dnif, other: r.other }));
   const trend = crewTrend([...history.filter((h) => h.day !== today), ...todayRows], demandHistory.map((d) => ({ day: d.day, aor: d.aor, direction: d.direction })), today);
-  return NextResponse.json({ summary, posture, trend, defaults: DEFAULT_QUALS });
+  return NextResponse.json({ summary, posture, trend, defaults: DEFAULT_QUALS, ...(demand?.pending ? { demandPending: true } : {}) });
 }
 
 export async function POST(req: Request) {
