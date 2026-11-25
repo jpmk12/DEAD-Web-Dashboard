@@ -26,8 +26,8 @@ import { assembleSitrep, sitrepSummary } from "./sitrep";
 import { activeWarningProblems } from "./warningProblems";
 import { assessWarning } from "./warningAssess";
 import { computeAlerts } from "./alerts";
-import { getAllLastSeen } from "./surfaceState";
-import { computeDelta, type Transition } from "./oeDelta";
+import type { Transition } from "./oeDelta";
+import { lookDelta } from "./levelLooks";
 import { buildOeSeries } from "./oeDeltaAssemble";
 import { listDueDecisions } from "./decisionStore";
 import { getLineReads } from "./lineReadAssemble";
@@ -139,14 +139,13 @@ export async function getOeSnapshot(maxWaitMs = 2500): Promise<OeSnapshot | null
 }
 
 export async function getOeSnapshotFor(email: string, maxWaitMs = 2500): Promise<OeSnapshot | null> {
-  const [snap, lastSeen, series] = await Promise.all([
+  const [snap, series] = await Promise.all([
     getOeSnapshot(maxWaitMs),
-    within(settle(getAllLastSeen(email)), maxWaitMs),
     within(settle(buildOeSeries()), maxWaitMs),
   ]);
   if (!snap) return null;
   if (!series) return snap;
-  const d = computeDelta(series, (lastSeen as Record<string, number> | null)?.oe);
+  const d = await lookDelta(email, "oe", series, { write: false });
   const name = (t: Transition) => `${t.label}${t.axis ? ` ${t.axis}` : ""}${t.from ? ` ${t.from}→${t.to}` : ` →${t.to}`}`;
   return {
     ...snap,

@@ -198,3 +198,108 @@ export function computeDelta(
 
   return { sinceDay, firstLook, worse, better, fresh, line };
 }
+
+// ── Look snapshots (2026-11-25, "the posture / SITREP / I&W change line
+// doesn't seem to be doing much") ─────────────────────────────────────────
+// computeDelta compares DAYS: a series moves only when a row exists for a day
+// AFTER the day of the last look. Every Glance visit moved the look to now, so
+// a second visit the same day compared today with today (nothing, ever), and
+// the first visit of the day usually ran before today's rows were written. The
+// card said "nothing changed" almost every time.
+//
+// The fix stores the LEVELS the user saw. A look saves every series' current
+// level; the next look compares the current levels with that snapshot. A look
+// less than SESSION_GAP_MS after the previous one belongs to the same visit and
+// keeps the visit's baseline, so a reload (or a board polling all morning)
+// does not wipe what moved. No stored look yet → computeDelta's "yesterday".
+
+/** Gap that starts a new visit. */
+export const SESSION_GAP_MS = 60 * 60_000;
+
+export type LevelSnapshot = Record<string, { level: string; day: string }>;
+
+export function seriesKey(s: Pick<LevelSeries, "kind" | "id" | "axis">): string {
+  return `${s.kind}|${s.id}|${s.axis ?? ""}`;
+}
+
+/** The latest recorded level of every series — what the user is looking at. */
+export function levelSnapshot(series: LevelSeries[]): LevelSnapshot {
+  const out: LevelSnapshot = {};
+  for (const s of series) {
+    let latest: LevelPoint | null = null;
+    for (const p of s.points) {
+      if (!p || !ISO.test(p.day) || typeof p.level !== "string") continue;
+      if (!latest || p.day >= latest.day) latest = p;
+    }
+    if (latest && rankFor(s.kind, latest.level) !== null) out[seriesKey(s)] = { level: latest.level, day: latest.day };
+  }
+  return out;
+}
+
+export interface LookState {
+  lastLookAt: number;
+  lastLevels: LevelSnapshot;
+  baselineAt: number | null;
+  baseline: LevelSnapshot | null;
+}
+
+/** Given the stored look and the levels now, the baseline to compare with and
+ *  the state to store. PURE. */
+export function rollLook(state: LookState | null, current: LevelSnapshot, nowMs: number): { compareWith: { at: number; levels: LevelSnapshot } | null; next: LookState } {
+  if (!state) return { compareWith: null, next: { lastLookAt: nowMs, lastLevels: current, baselineAt: null, baseline: null } };
+  if (nowMs - state.lastLookAt >= SESSION_GAP_MS) {
+    return {
+      compareWith: { at: state.lastLookAt, levels: state.lastLevels },
+      next: { lastLookAt: nowMs, lastLevels: current, baselineAt: state.lastLookAt, baseline: state.lastLevels },
+    };
+  }
+  return {
+    compareWith: state.baseline && state.baselineAt ? { at: state.baselineAt, levels: state.baseline } : null,
+    next: { ...state, lastLookAt: nowMs, lastLevels: current },
+  };
+}
+
+/** The delta against a stored look; falls back to computeDelta (yesterday)
+ *  when there is none. `sinceMs` is the look compared with. */
+export function deltaAgainstLook(
+  series: LevelSeries[],
+  compareWith: { at: number; levels: LevelSnapshot } | null,
+  nowMs = Date.now(),
+  opts: { max?: number } = {},
+): OeDelta & { sinceMs: number | null } {
+  if (!compareWith) return { ...computeDelta(series, undefined, nowMs, opts), sinceMs: null };
+  const max = opts.max ?? 6;
+  const now = levelSnapshot(series);
+  const all: Transition[] = [];
+  for (const s of series) {
+    const key = seriesKey(s);
+    const cur = now[key];
+    if (!cur) continue;
+    const toRank = rankFor(s.kind, cur.level)!;
+    const what = s.axis ? `${s.label} ${s.axis}` : s.label;
+    const base = compareWith.levels[key];
+    if (!base) {
+      if (!isElevated(s.kind, cur.level)) continue;
+      all.push({ kind: s.kind, id: s.id, label: s.label, axis: s.axis, from: null, to: cur.level, direction: "new", day: cur.day, toRank,
+        reason: `${what} first seen at ${levelName(s.kind, cur.level)} — not on the board at your last look` });
+      continue;
+    }
+    const fromRank = rankFor(s.kind, base.level);
+    if (fromRank === null || fromRank === toRank) continue;
+    all.push({ kind: s.kind, id: s.id, label: s.label, axis: s.axis, from: base.level, to: cur.level,
+      direction: toRank > fromRank ? "worse" : "better", day: cur.day, toRank,
+      reason: `${what}: ${levelName(s.kind, base.level)} → ${levelName(s.kind, cur.level)}` });
+  }
+  const worse = all.filter((t) => t.direction === "worse").sort((a, b) => b.toRank - a.toRank || a.label.localeCompare(b.label)).slice(0, max);
+  const better = all.filter((t) => t.direction === "better").sort((a, b) => a.toRank - b.toRank || a.label.localeCompare(b.label)).slice(0, max);
+  const fresh = all.filter((t) => t.direction === "new").sort((a, b) => b.toRank - a.toRank || a.label.localeCompare(b.label)).slice(0, max);
+  const parts: string[] = [];
+  if (worse.length) parts.push(`${worse.length} worse`);
+  if (better.length) parts.push(`${better.length} improved`);
+  if (fresh.length) parts.push(`${fresh.length} new`);
+  return {
+    sinceDay: dayOf(compareWith.at), firstLook: false, worse, better, fresh,
+    line: parts.length ? `${parts.join(" · ")} since your last look` : null,
+    sinceMs: compareWith.at,
+  };
+}

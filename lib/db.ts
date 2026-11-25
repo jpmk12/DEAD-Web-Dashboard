@@ -503,6 +503,19 @@ const SCHEMA_STATEMENTS = [
 
   // The weekly reading digest, one row per user (2026-11-25): it lived in
   // process memory only, so every deploy paid a fresh Sonnet call per user.
+  // The levels a user SAW at their last look, per surface ("oe" = Glance,
+  // "osint" = the command board) — the OE delta compares against this, not
+  // against whole days (lib/oeDelta.ts rollLook, 2026-11-25).
+  `CREATE TABLE IF NOT EXISTS level_looks (
+    user_email   VARCHAR(255) NOT NULL,
+    surface      VARCHAR(16)  NOT NULL,
+    last_look_at BIGINT       NOT NULL,
+    last_levels  JSON         NOT NULL,
+    baseline_at  BIGINT       NULL,
+    baseline     JSON         NULL,
+    PRIMARY KEY (user_email, surface)
+  ) ENGINE=InnoDB`,
+
   `CREATE TABLE IF NOT EXISTS digest_cache (
     user_email   VARCHAR(255) NOT NULL PRIMARY KEY,
     day          VARCHAR(10)  NOT NULL,              -- UTC day it was generated

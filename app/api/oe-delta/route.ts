@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail } from "@/lib/allowlist";
-import { getAllLastSeen, bumpLastSeen } from "@/lib/surfaceState";
-import { computeDelta } from "@/lib/oeDelta";
+import { bumpLastSeen } from "@/lib/surfaceState";
+import { lookDelta } from "@/lib/levelLooks";
 import { buildOeSeries, OE_WINDOW_DAYS } from "@/lib/oeDeltaAssemble";
 import { listOpens } from "@/lib/surfaceOpens";
 import { attentionGaps } from "@/lib/attentionGaps";
@@ -18,8 +18,8 @@ export const dynamic = "force-dynamic";
 // front door. Series assembly lives in lib/oeDeltaAssemble.ts, shared with the
 // assistant's OE context (which reads without bumping).
 //
-// The "oe" surface is bumped AFTER the delta is computed, so this visit becomes
-// the baseline for the next one. Bumping first would compare now with now.
+// The look is stored AFTER the delta is computed (lookDelta rolls it), so this
+// visit's levels become the baseline for the next visit.
 //
 // `attention` (PLAN §8 F) joins the same series to THIS user's surface_opens:
 // subjects that worsened since they last opened them. Per user by
@@ -32,13 +32,16 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [lastSeen, series, opens] = await Promise.all([
-    getAllLastSeen(email).catch(() => ({} as Record<string, number>)),
+  const [series, opens] = await Promise.all([
     buildOeSeries(),
     listOpens(email).catch(() => []),
   ]);
 
-  const delta = computeDelta(series, (lastSeen as Record<string, number>).oe);
+  // Compared with the LEVELS seen at the last look (lib/levelLooks) — the
+  // old whole-day comparison could not see a change made the same day, and
+  // every visit moved the look to today. `oe` last-seen is still bumped for
+  // anything else that reads it.
+  const delta = await lookDelta(email, "oe", series, { write: true });
   const attention = attentionGaps(opens, series);
 
   // This look becomes the next baseline. Fire-and-forget — a failed bump must

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { OeDelta, Transition } from "@/lib/oeDelta";
 import type { AttentionGap } from "@/lib/attentionGaps";
+import { relTime } from "@/lib/relTime";
 
 // What changed since you last looked — the front door's first card.
 //
@@ -68,14 +69,33 @@ function AttentionLine({ gaps }: { gaps: AttentionGap[] }) {
   );
 }
 
+/** "your last look 3 h ago" — the anchor said out loud, so a quiet card
+ *  states what it compared with. */
+function sinceText(d: { firstLook: boolean; sinceMs?: number | null }): string {
+  if (d.firstLook || !d.sinceMs) return "yesterday";
+  return `your last look ${relTime(new Date(d.sinceMs).toISOString())}`;
+}
+
+/** Re-read when the page comes back after this long — a dashboard left open
+ *  all day used to show the delta from the moment it was loaded. */
+const REFRESH_ON_RETURN_MS = 30 * 60_000;
+
 export default function OeDeltaCard() {
-  const [d, setD] = useState<(OeDelta & { attention?: AttentionGap[] }) | null>(null);
+  const [d, setD] = useState<(OeDelta & { attention?: AttentionGap[]; sinceMs?: number | null }) | null>(null);
 
   useEffect(() => {
-    fetch("/api/oe-delta")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j && typeof j.sinceDay === "string") setD(j); })
-      .catch(() => {});
+    let lastFetch = 0;
+    const load = () => {
+      lastFetch = Date.now();
+      fetch("/api/oe-delta")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (j && typeof j.sinceDay === "string") setD(j); })
+        .catch(() => {});
+    };
+    load();
+    const onVis = () => { if (document.visibilityState === "visible" && Date.now() - lastFetch > REFRESH_ON_RETURN_MS) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
   if (!d) return null;
@@ -86,7 +106,7 @@ export default function OeDeltaCard() {
     return (
       <div>
         <p className="text-[10.5px] text-slate-600 px-1">
-          ◇ No posture, SITREP or I&amp;W level changed since {d.firstLook ? "yesterday" : "your last look"}.
+          ◇ No posture, SITREP or I&amp;W level changed since {sinceText(d)}.
         </p>
         {gaps.length > 0 && <div className="mt-1 rounded-lg border border-slate-800 bg-slate-900/40"><AttentionLine gaps={gaps} /></div>}
       </div>
@@ -97,7 +117,7 @@ export default function OeDeltaCard() {
     <section className="rounded-lg border border-slate-700 bg-slate-900/60 overflow-hidden">
       <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-800 bg-slate-800/30">
         <span className="text-[11px] font-bold uppercase tracking-widest text-sky-300">◇ What moved</span>
-        <span className="ml-auto text-[10px] text-slate-500">{d.line}</span>
+        <span className="ml-auto text-[10px] text-slate-500">{d.line?.replace(/since (your last look|yesterday)$/, `since ${sinceText(d)}`)}</span>
       </div>
       {d.worse.map((t) => <Row key={`w-${t.id}-${t.axis ?? ""}`} t={t} />)}
       {d.better.map((t) => <Row key={`b-${t.id}-${t.axis ?? ""}`} t={t} />)}

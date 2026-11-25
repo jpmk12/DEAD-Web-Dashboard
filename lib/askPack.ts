@@ -20,8 +20,7 @@ import { getDemandHorizonBounded } from "./demandAssemble";
 import { getDemandSkill } from "./demandVerifyAssemble";
 import { computeAlerts } from "./alerts";
 import { buildOeSeries } from "./oeDeltaAssemble";
-import { computeDelta } from "./oeDelta";
-import { getAllLastSeen } from "./surfaceState";
+import { lookDelta } from "./levelLooks";
 import { listDecisions } from "./decisionStore";
 import { hitRate, isDue } from "./decisionLog";
 import { listAnnotations } from "./annotationStore";
@@ -302,11 +301,11 @@ export async function buildAskPack(question: string, email: string, opts: { maxW
     const out: AskSection[] = [];
     // 9. Active alerts + what changed since the user's last look.
     {
-      const [al, series, seen] = await Promise.all([within(computeAlerts(), 4_000), within(buildOeSeries(), 4_000), within(getAllLastSeen(email), 2_000)]);
+      const [al, series] = await Promise.all([within(computeAlerts(), 4_000), within(buildOeSeries(), 4_000)]);
       const alertRows = al ? al.alerts.filter((a) => broad || res.countries.some((c) => `${a.title} ${a.sub}`.toLowerCase().includes(c.toLowerCase())) || res.aors.some((x) => `${a.title} ${a.sub}`.includes(x))).slice(0, 8) : null;
       out.push({ surface: "Alerts (active now)", text: alertRows ? (alertRows.length ? alertRows.map((a) => `- [${a.severity}] ${a.title} — ${clip(a.sub, 140)}`).join("\n") : "No active alert matches the question.") : "", unavailable: !alertRows });
       if (series) {
-        const d = computeDelta(series, (seen as Record<string, number> | null)?.oe);
+        const d = await lookDelta(email, "oe", series, { write: false });
         const name = (t: { label: string; axis?: string | null; from?: string | null; to: string }) => `${t.label}${t.axis ? ` ${t.axis}` : ""} ${t.from ? `${t.from}→${t.to}` : `→${t.to}`}`;
         out.push({ surface: "Glance › What changed since your last look", text: `${d.line ?? "no net change"}${d.worse.length ? `\nworse: ${d.worse.map(name).join("; ")}` : ""}${d.better.length ? `\nbetter: ${d.better.map(name).join("; ")}` : ""}${d.fresh.length ? `\nnew: ${d.fresh.map(name).join("; ")}` : ""}` });
       }

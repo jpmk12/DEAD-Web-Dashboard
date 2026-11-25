@@ -513,6 +513,32 @@ brief on purpose (the brief is day-cached prose; this is the live delta).
 - Per-kind ordinals (`rankFor`): posture reuses `SEVERITY_RANK`; LEDs `g<u<a<r`;
   I&W `calm<watch<warning<alert`. An unplaceable level is skipped, not guessed.
 
+### The OE delta compares LEVELS SEEN, not days (2026-11-25, "the posture / SITREP / I&W change section doesn't seem to be doing much")
+It almost never showed anything, and that was a bug, not a quiet world.
+`computeDelta` compared whole DAYS — a series moved only when a row existed
+for a day AFTER the day of the last look — and every Glance visit moved the
+look to now. So a second visit the same day compared today with today (never
+a change), and the first visit of a day usually ran before today's rows were
+written (they are written as the page's own assemblies run). Fixed by storing
+what the user SAW: **`level_looks`** (user, surface `oe` | `osint`,
+last_look_at, last_levels JSON, baseline_at, baseline JSON) via
+`lib/levelLooks.ts` `lookDelta(email, surface, series, {write})`. PURE in
+`lib/oeDelta.ts` (tested in `tests/oeLook.test.ts`, which reproduces the old
+miss): `levelSnapshot` (each series' latest placeable level),
+`rollLook(state, current, now)` — a look ≥ `SESSION_GAP_MS` (1 h) after the
+previous one starts a new VISIT whose baseline is what was last seen; a look
+inside the gap keeps the visit's baseline, so a reload or a board polling all
+morning never wipes what moved — and `deltaAgainstLook` (worse / better / new
+against the snapshot; no stored look → `computeDelta`'s "since yesterday").
+Writers: the Glance card (`/api/oe-delta`) and the command board's Δ column
+(`commandsAssemble.userDelta`, surface `osint`; its `sinceMs` is now the
+baseline's time, which the Crisis map's "new since look" lens reads). Readers
+that must not move the look pass `write:false` (assistant OE context, Ask).
+The card names its anchor ("since your last look 3h ago") and re-reads when
+the page returns after 30 min. SITREP rows keep the day's WORST LED, so an
+improvement inside a day shows the next day; posture and I&W keep the latest.
+`computeDelta` stays for the first look and the tests. No new npm dep.
+
 ### Severity vocabulary (`lib/severity.ts`) — one home, one direction
 Force-protection severity (`green | unknown | amber | red`) lives in
 `lib/severity.ts` (PURE, client-safe, tested) — the same rule as `lib/icons.tsx`:

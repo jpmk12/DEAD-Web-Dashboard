@@ -31,7 +31,7 @@ import { deriveAvailability, postureAgainstDemand } from "./crewState";
 import { getDeclaredLinesBounded } from "./lineReadAssemble";
 import { getAllLastSeen } from "./surfaceState";
 import { buildOeSeries } from "./oeDeltaAssemble";
-import { computeDelta } from "./oeDelta";
+import { lookDelta } from "./levelLooks";
 import { aorFromCoords, aorFromCountry, classifyAor, AOR_LABELS, type Aor } from "./aor";
 import { ALL_AIRFIELDS } from "./airfields";
 import { normalizeCountryName } from "./countryNames";
@@ -307,17 +307,21 @@ function getShared(): Promise<Shared> {
   return inflight;
 }
 
-/** The per-user delta since the OSINT tab was last looked at. `sinceMs`
- *  overrides the stored last look so a poll mid-session keeps the same anchor. */
+/** The per-user delta since the OSINT tab was last looked at, against the
+ *  LEVELS the user saw at that look (lib/levelLooks — the whole-day
+ *  comparison missed every change made the same day). A look within an hour
+ *  of the previous one is the same visit and keeps its baseline, so a poll
+ *  mid-session keeps the same anchor; `sinceOverride` is no longer needed
+ *  for that and is used only when no look is stored yet. */
 async function userDelta(email: string, sinceOverride?: number): Promise<{ sinceMs: number; delta: CbDelta[] | null; shared: Shared | null }> {
   const [lastSeen, series] = await Promise.all([
-    sinceOverride != null ? Promise.resolve(null) : settle(getAllLastSeen(email)),
+    settle(getAllLastSeen(email)),
     settle(buildOeSeries()),
   ]);
-  const sinceMs = sinceOverride ?? ((lastSeen as Record<string, number> | null)?.osint ?? 0);
-  if (!series) return { sinceMs, delta: null, shared: null };
-  const d = computeDelta(series, sinceMs, Date.now(), { max: 40 });
-  return { sinceMs, delta: [...d.worse, ...d.better, ...d.fresh].map((t) => ({
+  const legacySince = sinceOverride ?? ((lastSeen as Record<string, number> | null)?.osint ?? 0);
+  if (!series) return { sinceMs: legacySince, delta: null, shared: null };
+  const d = await lookDelta(email, "osint", series, { write: true, max: 40 });
+  return { sinceMs: d.sinceMs ?? legacySince, delta: [...d.worse, ...d.better, ...d.fresh].map((t) => ({
     kind: t.kind, id: t.id, label: t.label, axis: t.axis, from: t.from, to: t.to, direction: t.direction, aor: null,
   })), shared: null };
 }
