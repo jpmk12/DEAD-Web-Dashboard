@@ -173,7 +173,7 @@ export function correctionExamples(corrections: Correction[], limit = EXAMPLE_LI
   return `The user re-prioritised these recent emails. Treat them as examples of this user's taste when the new emails resemble them (same sender, same kind of message); they are not rules:\n${lines.join("\n")}`;
 }
 
-export type WhySource = "you" | "vip" | "mute" | "model" | "none";
+export type WhySource = "you" | "vip" | "mute" | "model" | "none" | "pending";
 
 /** The one-line "why" under a subject, naming which rule decided. */
 export function whyLine(input: { source: WhySource; modelWhy?: string | null; prioritySet?: EmailPriority | null; priorityModel?: EmailPriority | null }): string {
@@ -187,6 +187,8 @@ export function whyLine(input: { source: WhySource; modelWhy?: string | null; pr
       return "Always Low — muted sender" + (model ? ` · ${model}` : "");
     case "model":
       return model || "model's call";
+    case "pending":
+      return "triaging… — the model's call lands in a moment";
     default:
       return "not triaged — AI off or the call failed";
   }

@@ -60,7 +60,7 @@ export interface EmailMessage {
   /** One-line reason for the priority (lib/emailLearning whyLine). */
   why?: string;
   /** Which rule decided the priority. */
-  whySource?: "you" | "vip" | "mute" | "model" | "none";
+  whySource?: "you" | "vip" | "mute" | "model" | "none" | "pending";
   /** The model's own call (after VIP/mute), before any per-email override. */
   priorityModel?: EmailPriority;
   /** The user's per-email override, when one is set. */

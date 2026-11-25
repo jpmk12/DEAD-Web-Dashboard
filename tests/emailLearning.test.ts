@@ -74,6 +74,9 @@ describe("whyLine / actionKey", () => {
     expect(whyLine({ source: "mute" })).toBe("Always Low — muted sender");
     expect(whyLine({ source: "model", modelWhy: "addressed to you · decision requested" })).toBe("addressed to you · decision requested");
     expect(whyLine({ source: "none" })).toContain("not triaged");
+    // Background triage still running — never read as a failed call.
+    expect(whyLine({ source: "pending" })).toContain("triaging");
+    expect(whyLine({ source: "pending" })).not.toContain("not triaged");
   });
   it("action keys are stable across whitespace and case", () => {
     expect(actionKey("m1", "Reply to  the  ATO cut")).toBe(actionKey("m1", "reply to the ato cut"));

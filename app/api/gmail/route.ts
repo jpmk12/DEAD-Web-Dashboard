@@ -122,9 +122,14 @@ export async function GET() {
   // Build personalised system prompt + a stable hash. The hash covers anything
   // that changes Claude's output for the same email; VIP/mute lists are NOT
   // in it because they're applied deterministically after classification.
-  const userContext = prefs ? buildUserContext(prefs) : "";
+  // Nor is the declared AO (missionSummary): it changes with every ★, hub or
+  // spoke edit, and keying on it re-triaged the WHOLE inbox after each one
+  // (2026-11-25). It rides as a second system block, like the corrections —
+  // it shapes emails not yet classified and never re-classifies the cache.
+  const userContext = prefs ? buildUserContext({ ...prefs, missionSummary: undefined }) : "";
   const systemText = SYSTEM_PROMPT + userContext;
   const promptHash = createHash("sha256").update(systemText).digest("hex").slice(0, 16);
+  const aoBlock = prefs?.missionSummary ? `Declared area of operations (context for "important institution" and priority topics):\n${prefs.missionSummary}` : "";
 
   // Cache lookup
   let cached = new Map<string, CachedHit>();
@@ -137,81 +142,48 @@ export async function GET() {
     console.error("Email cache read failed:", err);
   }
 
-  // Only classify cache misses
-  const uncached = allEmails.filter((e) => !cached.has(e.id));
-  const fresh = new Map<string, CachedHit>();
-
-  if (uncached.length > 0 && isFeatureEnabled("email_triage", prefs)) {
-    // Batches of CLASSIFY_BATCH, four calls in flight: one call over a hundred
-    // emails would overrun max_tokens, and a cut-off reply used to fail the
-    // WHOLE parse — every email "not triaged" and re-sent on the next load.
-    const examplesBlock = correctionExamples(corrections);
-    const batches: EmailMessage[][] = [];
-    for (let i = 0; i < uncached.length; i += CLASSIFY_BATCH) batches.push(uncached.slice(i, i + CLASSIFY_BATCH));
-    await runLimited(batches, 4, async (batch) => {
-      try {
-        const modelStart = Date.now();
-        const response = await anthropic.messages.create({
-          model: "claude-haiku-4-5",
-          max_tokens: 4096,
-          // The corrections block is a SECOND system block, deliberately outside
-          // promptHash: a correction shapes emails not yet classified and never
-          // re-classifies the cached inbox (decision 2, REVIEW-2026-10 §4).
-          system: [
-            { type: "text" as const, text: systemText, cache_control: { type: "ephemeral" as const } },
-            ...(examplesBlock ? [{ type: "text" as const, text: examplesBlock }] : []),
-          ],
-          messages: [
-            {
-              role: "user",
-              content: JSON.stringify(
-                batch.map(({ id, subject, from, date, bodyPreview }) => ({
-                  id,
-                  subject: String(subject ?? "").replace(/[\n\r]/g, " ").slice(0, 200),
-                  from: String(from ?? "").replace(/[\n\r]/g, " ").slice(0, 100),
-                  date,
-                  // 800 → 400 with signature / quoted-reply stripping.
-                  bodyPreview: trimBodyForClassifier(String(bodyPreview ?? "")),
-                }))
-              ),
-            },
-          ],
-        }, { timeout: 60_000, maxRetries: 1 });
-
-        logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
-
-        const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
-        // A cut-off reply keeps the entries it finished (parseModelArray).
-        const parsedRaw = parseModelArray(raw).value;
-        const ids = new Set(batch.map((e) => e.id));
-        const parsed = parsedRaw.filter(isValidClassification).filter((c) => ids.has(c.id));
-        for (const c of parsed) {
-          const dates = Array.isArray(c.dates)
-            ? (c.dates as unknown[]).filter((d): d is Record<string, unknown> => !!d && typeof d === "object").slice(0, 3)
-                .map((d) => ({ when: typeof d.when === "string" ? d.when.slice(0, 16) : null, whenText: String(d.whenText ?? "").slice(0, 60), what: String(d.what ?? "").slice(0, 120) }))
-            : undefined;
-          const why = typeof c.why === "string" ? c.why.replace(/[\n\r]/g, " ").trim().slice(0, 160) : undefined;
-          fresh.set(c.id, { priority: c.priority, summary: c.summary, dates: dates && dates.length ? dates : undefined, why: why || undefined });
-        }
-
-        const toCache = batch
-          .filter((e) => fresh.has(e.id))
-          .map((e) => ({
-            id: e.id,
-            accountEmail: e.accountEmail,
-            priority: fresh.get(e.id)!.priority,
-            summary: fresh.get(e.id)!.summary,
-            promptHash,
-            dates: fresh.get(e.id)!.dates,
-            why: fresh.get(e.id)!.why,
-          }));
-        cacheClassifications(toCache).catch((err) => console.error("Email cache write failed:", err));
-      } catch (err) {
-        console.error("Email classification batch failed:", err instanceof Error ? err.message : err);
-        // Fall through; this batch's misses default to Low + snippet below.
-      }
+  // Only cache misses are classified — in the BACKGROUND (2026-11-25, the
+  // load-time review): the route used to await every Haiku batch, so an inbox
+  // with new mail held the Email tab (and Glance's triage) for the whole
+  // model pass. Now it waits WAIT_MS, then answers with the misses marked
+  // `pending` (202); the client polls and the poll joins the running job.
+  const jobKey = `${userEmail}|${promptHash}`;
+  const now = Date.now();
+  pruneJobs(now);
+  let job = jobs.get(jobKey);
+  if (job && job.doneAt === null && now - job.startedAt > JOB_MAX_MS) { jobs.delete(jobKey); job = undefined; }
+  // Misses a just-finished job could not classify are not retried for
+  // FAILED_HOLD_MS (the model is down or refusing — re-sending them on every
+  // poll would spend for nothing); they read "not triaged".
+  const heldFailed = job && job.doneAt !== null && now - job.doneAt < FAILED_HOLD_MS ? job.missing : new Set<string>();
+  // A finished job's own answers count as cached too (they are also in the
+  // table, unless the cache write or read failed — then a poll must not
+  // re-send them).
+  const jobHits = job?.doneAt != null ? job.result : null;
+  const uncached = allEmails.filter((e) => !cached.has(e.id) && !heldFailed.has(e.id) && !jobHits?.has(e.id));
+  const enabled = isFeatureEnabled("email_triage", prefs);
+  if (enabled && uncached.length > 0 && !(job && job.doneAt === null)) {
+    job = startJob(uncached, {
+      systemText, promptHash, aoBlock, examplesBlock: correctionExamples(corrections), user: userEmail,
     });
+    jobs.set(jobKey, job);
   }
+  const fresh = new Map<string, CachedHit>(jobHits ?? []);
+  let pendingIds = new Set<string>();
+  if (job && job.doneAt === null) {
+    const result = await Promise.race([
+      job.done,
+      new Promise<null>((r) => setTimeout(() => r(null), WAIT_MS)),
+    ]);
+    if (result) for (const [id, hit] of result) fresh.set(id, hit);
+    else pendingIds = new Set(uncached.map((e) => e.id).filter((id) => !fresh.has(id)));
+  } else if (job?.result) {
+    for (const [id, hit] of job.result) fresh.set(id, hit);
+  }
+  // A running job that does not hold an id (mail that arrived after it
+  // started) still reads pending: the next poll, once the job is done, starts
+  // one for it.
+  if (job && job.doneAt === null) for (const e of uncached) if (!fresh.has(e.id)) pendingIds.add(e.id);
 
   // Merge cache ∪ fresh, then apply deterministic VIP/mute overrides on top.
   const vipList = prefs?.vipSenders ?? [];
@@ -221,7 +193,7 @@ export async function GET() {
     const hit = cached.get(email.id) ?? fresh.get(email.id);
     let priority: EmailPriority = hit?.priority ?? "Low";
     const summary = hit?.summary ?? email.snippet;
-    let source: WhySource = hit ? "model" : "none";
+    let source: WhySource = hit ? "model" : pendingIds.has(email.id) ? "pending" : "none";
 
     // VIP wins over mute if a sender somehow matches both (user error).
     if (senderMatches(email.from, vipList)) { priority = "High"; source = "vip"; }
@@ -244,9 +216,128 @@ export async function GET() {
 
   classified.sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
 
+  const pending = pendingIds.size > 0;
   return NextResponse.json({
     emails: classified,
     secondaryConnected: !!secondaryAccessToken,
     unread,
+    ...(pending ? { pending: true, pendingCount: pendingIds.size } : {}),
+  }, { status: pending ? 202 : 200 });
+}
+
+// ── Background triage jobs ────────────────────────────────────────────────
+const WAIT_MS = 6_000;
+const JOB_MAX_MS = 3 * 60_000;
+const FAILED_HOLD_MS = 60_000;
+
+interface TriageJob {
+  startedAt: number;
+  doneAt: number | null;
+  done: Promise<Map<string, CachedHit>>;
+  result: Map<string, CachedHit> | null;
+  /** Ids the job was given but could not classify (failed batch, bad reply). */
+  missing: Set<string>;
+}
+const jobs = new Map<string, TriageJob>();
+
+function pruneJobs(now: number) {
+  for (const [k, j] of jobs) if (now - j.startedAt > 10 * 60_000) jobs.delete(k);
+}
+
+interface TriageCtx { systemText: string; promptHash: string; aoBlock: string; examplesBlock: string; user: string }
+
+function startJob(emails: EmailMessage[], ctx: TriageCtx): TriageJob {
+  const job: TriageJob = { startedAt: Date.now(), doneAt: null, done: null as unknown as Promise<Map<string, CachedHit>>, result: null, missing: new Set() };
+  job.done = classify(emails, ctx).then((fresh) => {
+    job.result = fresh;
+    job.missing = new Set(emails.map((e) => e.id).filter((id) => !fresh.has(id)));
+    job.doneAt = Date.now();
+    return fresh;
+  }, (err) => {
+    console.error("Email triage job failed:", err instanceof Error ? err.message : err);
+    job.result = new Map();
+    job.missing = new Set(emails.map((e) => e.id));
+    job.doneAt = Date.now();
+    return job.result;
   });
+  return job;
+}
+
+async function classify(uncached: EmailMessage[], ctx: TriageCtx): Promise<Map<string, CachedHit>> {
+  const fresh = new Map<string, CachedHit>();
+  const { systemText, promptHash, aoBlock, examplesBlock } = ctx;
+  // Batches of CLASSIFY_BATCH, four calls in flight: one call over a hundred
+  // emails would overrun max_tokens, and a cut-off reply used to fail the
+  // WHOLE parse — every email "not triaged" and re-sent on the next load.
+  const batches: EmailMessage[][] = [];
+  for (let i = 0; i < uncached.length; i += CLASSIFY_BATCH) batches.push(uncached.slice(i, i + CLASSIFY_BATCH));
+  const writes: Promise<unknown>[] = [];
+  await runLimited(batches, 4, async (batch) => {
+    try {
+      const modelStart = Date.now();
+      const response = await anthropic.messages.create({
+        model: "claude-haiku-4-5",
+        max_tokens: 4096,
+        // The corrections block and the declared AO are system blocks
+        // deliberately OUTSIDE promptHash: they shape emails not yet
+        // classified and never re-classify the cached inbox (decision 2,
+        // REVIEW-2026-10 §4; the AO since 2026-11-25).
+        system: [
+          { type: "text" as const, text: systemText, cache_control: { type: "ephemeral" as const } },
+          ...(aoBlock ? [{ type: "text" as const, text: aoBlock }] : []),
+          ...(examplesBlock ? [{ type: "text" as const, text: examplesBlock }] : []),
+        ],
+        messages: [
+          {
+            role: "user",
+            content: JSON.stringify(
+              batch.map(({ id, subject, from, date, bodyPreview }) => ({
+                id,
+                subject: String(subject ?? "").replace(/[\n\r]/g, " ").slice(0, 200),
+                from: String(from ?? "").replace(/[\n\r]/g, " ").slice(0, 100),
+                date,
+                // 800 → 400 with signature / quoted-reply stripping.
+                bodyPreview: trimBodyForClassifier(String(bodyPreview ?? "")),
+              }))
+            ),
+          },
+        ],
+      }, { timeout: 60_000, maxRetries: 1 });
+
+      logCall({ route: "email_triage", model: "claude-haiku-4-5", usage: response.usage, durationMs: Date.now() - modelStart, user: ctx.user }).catch(() => {});
+
+      const raw = response.content[0].type === "text" ? response.content[0].text : "[]";
+      // A cut-off reply keeps the entries it finished (parseModelArray).
+      const parsedRaw = parseModelArray(raw).value;
+      const ids = new Set(batch.map((e) => e.id));
+      const parsed = parsedRaw.filter(isValidClassification).filter((c) => ids.has(c.id));
+      for (const c of parsed) {
+        const dates = Array.isArray(c.dates)
+          ? (c.dates as unknown[]).filter((d): d is Record<string, unknown> => !!d && typeof d === "object").slice(0, 3)
+              .map((d) => ({ when: typeof d.when === "string" ? d.when.slice(0, 16) : null, whenText: String(d.whenText ?? "").slice(0, 60), what: String(d.what ?? "").slice(0, 120) }))
+          : undefined;
+        const why = typeof c.why === "string" ? c.why.replace(/[\n\r]/g, " ").trim().slice(0, 160) : undefined;
+        fresh.set(c.id, { priority: c.priority, summary: c.summary, dates: dates && dates.length ? dates : undefined, why: why || undefined });
+      }
+
+      const toCache = batch
+        .filter((e) => fresh.has(e.id))
+        .map((e) => ({
+          id: e.id,
+          accountEmail: e.accountEmail,
+          priority: fresh.get(e.id)!.priority,
+          summary: fresh.get(e.id)!.summary,
+          promptHash,
+          dates: fresh.get(e.id)!.dates,
+          why: fresh.get(e.id)!.why,
+        }));
+      writes.push(cacheClassifications(toCache).catch((err) => console.error("Email cache write failed:", err)));
+    } catch (err) {
+      console.error("Email classification batch failed:", err instanceof Error ? err.message : err);
+      // This batch's misses read "not triaged" (Low + snippet).
+    }
+  });
+  // Written before the job reads done, so the next GET's cache read holds them.
+  await Promise.all(writes);
+  return fresh;
 }

@@ -6392,14 +6392,39 @@ the RULES:
   trip sync (fire-and-forget; the stored trip answers), reads the trip in
   parallel with the feeds and bounds the trip strip's GDELT read at 3 s;
   `/api/osint/feed`'s four store reads run in parallel.
-- **Found and NOT built (offered)** — the larger Gmail work, each a change of
-  contract: `/api/newsletters` awaits Sonnet summaries on a GET and fetches
-  every full body before checking the summary cache (list ids first, fetch
-  full bodies only for cache misses, summarise in the background → 202);
-  `/api/gmail` awaits the Haiku triage inline (classify in the background,
-  rows marked untriaged meanwhile) and its triage cache key includes the
-  Mission Profile summary line, so a ★ or hub change re-triages the whole
-  inbox; the page-load Gmail burst (~400 `messages.get`) can hit the per-user
+- **Built 2026-11-25 (the two that held the morning brief):**
+  - **`/api/newsletters` lists ids first, then reads the summary cache, and
+    fetches full bodies ONLY for misses** (`listMessageIds` per rule ×
+    account, then `fetchNewsletterBodies(token, ids)` in `lib/gmail.ts` — 6
+    at a time, one retry on a rate limit, refused ids returned and named in
+    `failed` as "N messages not fetched — left unread"). Summaries run in a
+    BACKGROUND job per (user × second account × app-header): the GET waits
+    `WAIT_MS` 6 s, else answers **202** with what is already summarised,
+    `pending: true`, `pendingCount`; a poll JOINS the running job (no second
+    listing, no second model call); a finished job's answer is reused 30 s;
+    `?refresh=1` (sent only on the FIRST request of a manual refresh) starts
+    a new one. Mark-read: cache hits at once, misses only once their body
+    was fetched, and **never when summaries are switched off** (unread mail
+    must not vanish unseen — the old route marked it). `NewsletterSection`
+    polls every 6 s (≤20), shows "summarising N new…", and reports to the
+    brief / pins the client cache only the FINISHED set (the brief's
+    newsletter gate has its own 25-s grace and the bounded upgrade).
+    `fetchNewsletterEmails` (list + full) stays for Family / Household / the
+    diag.
+  - **`/api/gmail` classifies in the background** (job per user × prompt
+    hash): waits 6 s, else **202** with the misses as `whySource: "pending"`
+    ("triaging… — the model's call lands in a moment", never "not
+    triaged"); polls join; the job awaits its cache writes before reading
+    done; a finished job's answers count as cached (so a dead cache table
+    does not re-send them each poll) and the ids it could NOT classify are
+    held 60 s ("not triaged", no re-spend while the model is down).
+    `EmailTab` polls every 5 s (≤24) and publishes to the shared cache
+    (Glance, Calendar) only the settled list. **The declared AO is OUT of the
+    triage hash**: `buildUserContext({...prefs, missionSummary: undefined})`
+    keys the cache; the AO rides as a second system block beside the
+    corrections — a ★ / hub / spoke edit no longer re-triages the whole
+    inbox (the deploy re-triages it once, the hash changed).
+- **Found and NOT built (offered)** — the page-load Gmail burst (~400 `messages.get`) can hit the per-user
   rate limit (metadata format for the inbox, stale-serve VIP suggestions);
   `/api/calendar` has no cache or timeout and is read again by the trip
   sync; `/api/digest` lives in process memory only (a DB row would survive

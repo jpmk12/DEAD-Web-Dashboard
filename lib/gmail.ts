@@ -222,25 +222,51 @@ export async function fetchNewsletterEmails(
       )
     ));
   }
+  return full.flatMap((res) => toNewsletterMessage(res.data));
+}
 
-  return full.flatMap((res) => {
-    const msg = res.data;
-    if (!msg.id) return [];
-    const payload = msg.payload ?? {};
-    const body = extractLongBody(payload) || msg.snippet || "";
-    return [{
-      id: msg.id,
-      subject: header(msg, "Subject") || "(no subject)",
-      // Needed by the Family digest to attribute a message to a roster person.
-      from: header(msg, "From") || "",
-      unread: (msg.labelIds ?? []).includes("UNREAD"),
-      date: (() => {
-        try { return new Date(header(msg, "Date")).toISOString(); }
-        catch { return ""; }
-      })(),
-      body,
-    }];
+export type NewsletterMessage = { id: string; subject: string; date: string; body: string; from: string; unread: boolean };
+
+/** Full bodies for the given ids only — the newsletter route lists ids first
+ *  and fetches bodies just for messages it has no summary for (2026-11-25:
+ *  every load fetched every newsletter's full body, then threw most of them
+ *  away against the summary cache). A few at a time, each retried once on a
+ *  rate limit; a message still refused is returned in `failed`, never
+ *  dropped silently. */
+export async function fetchNewsletterBodies(accessToken: string, ids: string[]): Promise<{ messages: NewsletterMessage[]; failed: string[] }> {
+  const gmail = buildClient(accessToken);
+  const failed: string[] = [];
+  const got = await runLimited(ids, GET_CONCURRENCY, async (id) => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return (await gmail.users.messages.get({ userId: "me", id, format: "full" })).data;
+      } catch (err) {
+        if (attempt === 0 && isGmailRateLimit(err)) { await new Promise((r) => setTimeout(r, 1200)); continue; }
+        break;
+      }
+    }
+    failed.push(id);
+    return null;
   });
+  return { messages: got.flatMap((m) => (m ? toNewsletterMessage(m) : [])), failed };
+}
+
+function toNewsletterMessage(msg: gmail_v1.Schema$Message): NewsletterMessage[] {
+  if (!msg.id) return [];
+  const payload = msg.payload ?? {};
+  const body = extractLongBody(payload) || msg.snippet || "";
+  return [{
+    id: msg.id,
+    subject: header(msg, "Subject") || "(no subject)",
+    // Needed by the Family digest to attribute a message to a roster person.
+    from: header(msg, "From") || "",
+    unread: (msg.labelIds ?? []).includes("UNREAD"),
+    date: (() => {
+      try { return new Date(header(msg, "Date")).toISOString(); }
+      catch { return ""; }
+    })(),
+    body,
+  }];
 }
 
 // Longer body extraction for newsletters (up to 6000 chars for better summarisation)

@@ -57,6 +57,10 @@ interface NewsletterSectionProps {
   threads?: Pick<NewsThread, "label">[];
 }
 
+/** Background summaries: re-ask every POLL_MS, at most MAX_POLLS times (~2 min). */
+const POLL_MS = 6_000;
+const MAX_POLLS = 20;
+
 const LS_DISMISSED = "nl-dismissed";
 const LS_KEPT      = "nl-kept";
 const LS_QUIET_DISMISSED = "nl-quiet-dismissed"; // normalised subjects the user already chose to ignore
@@ -144,6 +148,12 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
   // confirms it; a failed write puts them back.
   const [mutedRules, setMutedRules] = useState<Set<string>>(new Set());
   const mutingRef = useRef<Set<string>>(new Set());
+  // Summaries still being written in the background (2026-11-25): the route
+  // answers 202 with what is already summarised and this re-asks until the
+  // job lands — the poll joins the running job, it never starts another.
+  const [pendingCount, setPendingCount] = useState(0);
+  const [pollTick, setPollTick] = useState(0);
+  const pollsRef = useRef(0);
 
   const onSummariesLoadedRef = useRef(onSummariesLoaded);
   useEffect(() => { onSummariesLoadedRef.current = onSummariesLoaded; });
@@ -171,22 +181,40 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
 
     const staleMeta = clientCache.peek<Record<string, SourceMeta>>(SOURCE_META_KEY);
     if (staleMeta) setSourceMeta(staleMeta);
-    if (stale) { setNewsletters(stale); onSummariesLoadedRef.current(stale); }
-    if (isFresh && !isManualRefresh) return;
+    const polling = pollTick > 0 && pollsRef.current > 0;
+    if (stale && !polling) { setNewsletters(stale); onSummariesLoadedRef.current(stale); }
+    if (isFresh && !isManualRefresh && !polling) return;
 
-    const showSpinner = !stale || isManualRefresh;
+    if (!polling) pollsRef.current = 0;
+    const showSpinner = (!stale || isManualRefresh) && !polling;
     if (showSpinner) { setLoading(true); onLoadingChange?.(true); }
 
     const controller = new AbortController();
-    fetch("/api/newsletters", { signal: controller.signal, headers: { "x-dead-client": "1" } })
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // `refresh=1` only on the first request of a manual refresh — a poll that
+    // carried it would start a new job every time instead of joining one.
+    const q = isManualRefresh && !polling ? "?refresh=1" : "";
+    fetch(`/api/newsletters${q}`, { signal: controller.signal, headers: { "x-dead-client": "1" } })
       .then((r) => r.json())
       .then((data) => {
         const items: NewsletterSummary[] = data.newsletters ?? [];
+        const pending = data.pending === true && pollsRef.current < MAX_POLLS;
         setNewsletters(items);
         // The server's list already reflects any rule switched off from a row.
         setMutedRules(new Set());
-        onSummariesLoadedRef.current(items);
-        clientCache.set(CACHE_KEY, items, CACHE_TTL.NEWSLETTERS);
+        setPendingCount(pending ? Number(data.pendingCount) || 0 : 0);
+        if (pending) {
+          // Not reported up and not cached: the brief waits for the finished
+          // set (its newsletter gate has its own grace), and a partial list
+          // must not be pinned as fresh.
+          pollsRef.current += 1;
+          if (items.length > 0 && showSpinner) { setLoading(false); onLoadingChange?.(false); }
+          timer = setTimeout(() => setPollTick((t) => t + 1), POLL_MS);
+        } else {
+          pollsRef.current = 0;
+          onSummariesLoadedRef.current(items);
+          clientCache.set(CACHE_KEY, items, CACHE_TTL.NEWSLETTERS);
+        }
         if (Array.isArray(data.sources)) {
           const map: Record<string, SourceMeta> = {};
           for (const s of data.sources) {
@@ -211,14 +239,17 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
         // local change from this device).
         if (Array.isArray(data.dismissed)) setDismissed((prev) => new Set([...prev, ...data.dismissed as string[]]));
         if (Array.isArray(data.kept)) setKept((prev) => new Set([...prev, ...data.kept as string[]]));
+        if (!pending || items.length > 0) {
+          if (showSpinner || polling) { setLoading(false); onLoadingChange?.(false); }
+        }
       })
-      .catch(() => {})
-      .finally(() => {
-        if (showSpinner) { setLoading(false); onLoadingChange?.(false); }
+      .catch(() => {
+        if (showSpinner || polling) { setLoading(false); onLoadingChange?.(false); }
+        setPendingCount(0);
       });
-    return () => controller.abort();
+    return () => { controller.abort(); if (timer) clearTimeout(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, refreshKey, reloadTick]);
+  }, [status, refreshKey, reloadTick, pollTick]);
 
   // A prefs save (e.g. editing newsletter sources) clears the client caches and
   // dispatches this event — re-pull so the new source list applies right away.
@@ -442,6 +473,11 @@ export default function NewsletterSection({ onSummariesLoaded, refreshKey = 0, o
             <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Newsletters</span>
             {sources.map((s) => { const b = badgeFor(s.source); return <span key={s.source} className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded-md ${b.className}`}>{b.label} <span className="opacity-90">{s.count}</span></span>; })}
             <span className="text-[10px] text-slate-600 font-mono">{visibleNewsletters.length} unread{oldest !== null && oldest > 0 ? ` · oldest ${oldest} d` : ""}</span>
+            {pendingCount > 0 && (
+              <span className="text-[10px] text-sky-400/90 font-mono animate-pulse" title="New newsletters are being read and summarised in the background — they join the queue when done">
+                summarising {pendingCount} new…
+              </span>
+            )}
             <div className="ml-auto flex items-center gap-1.5">
               <button
                 onClick={() => window.dispatchEvent(new Event("digest:open"))}

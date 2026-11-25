@@ -24,6 +24,9 @@ interface UnreadInfo { loaded: number; total: number; failed: number; error: str
 // have taught; action items remember their state across devices.
 
 const CACHE_KEY = "gmail:emails";
+/** Background triage: re-ask every TRIAGE_POLL_MS, at most MAX_TRIAGE_POLLS times (~2 min). */
+const TRIAGE_POLL_MS = 5_000;
+const MAX_TRIAGE_POLLS = 24;
 
 type Filter = "All" | EmailPriority | "Kept";
 const GROUPS: EmailPriority[] = ["High", "Medium", "Low"];
@@ -94,12 +97,22 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
 
   const publish = (list: EmailMessage[]) => clientCache.set(CACHE_KEY, list, CACHE_TTL.EMAIL);
 
-  const fetchEmails = async (forceRefresh = false) => {
+  // Triage runs in the background (2026-11-25): a 202 carries the misses as
+  // `pending` and this re-asks until the model's calls land — each poll joins
+  // the server's running job, never starts another.
+  const pollRef = useRef<{ n: number; timer: ReturnType<typeof setTimeout> | null }>({ n: 0, timer: null });
+  useEffect(() => () => { if (pollRef.current.timer) clearTimeout(pollRef.current.timer); }, []);
+
+  const fetchEmails = async (forceRefresh = false, poll = false) => {
+    if (!poll) {
+      pollRef.current.n = 0;
+      if (pollRef.current.timer) { clearTimeout(pollRef.current.timer); pollRef.current.timer = null; }
+    }
     const stale = clientCache.peek<EmailMessage[]>(CACHE_KEY);
     const isFresh = clientCache.isFresh(CACHE_KEY);
-    if (stale) setEmails(stale);
-    if (isFresh && !forceRefresh) return;
-    const showSpinner = !stale || forceRefresh;
+    if (stale && !poll) setEmails(stale);
+    if (isFresh && !forceRefresh && !poll) return;
+    const showSpinner = (!stale || forceRefresh) && !poll;
     if (showSpinner) { setLoading(true); setError(null); }
     try {
       const res = await fetch("/api/gmail");
@@ -114,9 +127,17 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
       setSecondaryConnected(data.secondaryConnected ?? false);
       if (data.unread && typeof data.unread === "object") { setUnread(data.unread); unreadRef.current = data.unread; }
       setLastUpdated(new Date());
-      publish(emailList);
+      if (data.pending === true && pollRef.current.n < MAX_TRIAGE_POLLS) {
+        // Not published: Glance and the Calendar peek this cache, and a list
+        // whose new mail reads "Low, triaging" must not stand as the triage.
+        pollRef.current.n += 1;
+        pollRef.current.timer = setTimeout(() => { pollRef.current.timer = null; void fetchEmails(false, true); }, TRIAGE_POLL_MS);
+      } else {
+        pollRef.current.n = 0;
+        publish(emailList);
+      }
     } catch {
-      setError("Failed to load emails. Please try again.");
+      if (!poll) setError("Failed to load emails. Please try again.");
     } finally {
       if (showSpinner) setLoading(false);
     }
@@ -294,7 +315,7 @@ export default function EmailTab({ previousSeen = 0, onPriorityCount, active = t
     const priorityModel = email.priorityModel ?? email.priority;
     const next = emails.map((e) => {
       if (e.id !== email.id) return e;
-      const baseSource: WhySource = e.whySource === "vip" || e.whySource === "mute" ? e.whySource : e.whySource === "none" ? "none" : "model";
+      const baseSource: WhySource = e.whySource === "vip" || e.whySource === "mute" ? e.whySource : e.whySource === "none" || e.whySource === "pending" ? e.whySource : "model";
       return p
         ? { ...e, priority: p, prioritySet: p, priorityModel, whySource: "you" as const, why: whyLine({ source: "you", prioritySet: p, priorityModel, modelWhy: modelWhyOf(e) }) }
         : { ...e, priority: priorityModel, prioritySet: null, priorityModel, whySource: baseSource, why: whyLine({ source: baseSource, modelWhy: modelWhyOf(e) }) };
