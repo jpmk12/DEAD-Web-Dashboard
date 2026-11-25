@@ -3237,6 +3237,16 @@ diag and their contracts are pinned from the published feed / API reference.
   **`rawFirst`** (the first raw row, whole, ≤1,200 chars) so one paste of
   `/api/spectrum?diag=radar` corrects a renamed field — the outages lesson
   made a rule. `&cc=IR` picks the NetFlows probe country (default UA).
+  - **Second ETAD diag (2026-11-25)**: profile 96 h × 9 levels with every
+    outlook column filled; PIREP 204 again (none abroad, as the read says);
+    three icing groups decoded and placed (621006 base 13–01Z, 620202 BECMG
+    06–10Z, 620102 BECMG 10–19Z), no 5-group, no WS group. **The period rule
+    stands**: an icing / turbulence group belongs to the prevailing period it
+    is written in and ends at the next FM / BECMG that does not repeat it —
+    AFMAN 15-124: "omit when no icing is forecast", and a BECMG repeats a
+    changed element whole; this TAF agrees (the BKN100 deck carrying 621006 is
+    gone in BECMG 2601/2602). The Navy's explicit "none" groups (600000 /
+    500000) decode as trace / none, which no read ever lists.
   - **`lib/radarBgp.ts` (PURE, tested in `tests/radarBgp.test.ts`)**:
     `parseBgpHijacks` (`result.events[]` of `/radar/bgp/hijacks/events` —
     `confidence_score` banded by Cloudflare's own ranges `bandOf`: 8–10
