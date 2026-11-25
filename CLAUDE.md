@@ -971,6 +971,24 @@ Phase 4 of the synthesis workflow, built on phases 1–3:
   `data-task-line` offsets, and task toggling wins over the fancy view.
 No new npm dep (esbuild stays `0`).
 
+### A trip's label never moves it (2026-11-25, "Spangdahlem (TDY)" at 31.17, 36.94)
+The TDY card read "Spangdahlem (TDY)" with Jordan's weather: the trip had been
+created as "Jordan" (Nominatim's Jordan point is 31.17 N, 36.94 E) and then
+RELABELLED — `PATCH /api/trips` could change dates and the label but never the
+location, so the coordinates, the zone and the brief stayed in Jordan under the
+new name. Now: PATCH accepts `location`; a changed location is RE-GEOCODED
+(422 if it cannot be placed) and `updateTrip({place})` writes location / lat /
+lon / feed_key and clears `tz` so `ensureTripTz` looks the zone up again (the
+calendar upsert clears `tz` too when the event's coordinates move — compared
+FIRST in the SET, because MySQL assigns left to right). `lib/tripLabel.ts`
+(PURE, tested): `labelAfterMove` (a label that was only the location follows
+it; a typed label stays), `locatedAs` / `tripCardLabel` — the Weather TDY card,
+Glance "Where you are" and the Preferences trip list say "located: X" whenever
+the label does not name the geocoded place. The trip editor edits Location
+(what weather and zone read) and Label (display only) side by side, says when a
+save moves the trip, and fires `trips:changed` + `invalidateEffectiveZone()`
+(the Weather tab never heard an edit made there). No new npm dep (esbuild `0`).
+
 ### Morning brief timezone (Auto-by-device, with optional pin)
 The brief computes "today", schedule day-labels, and travel weather server-side
 against one IANA zone. The client (`lib/briefingPrefetch.ts` +

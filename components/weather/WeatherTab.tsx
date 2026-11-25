@@ -14,6 +14,7 @@ import { CloudSun } from "@/lib/icons";
 import { openTrackPicker, postTrack } from "@/lib/trackClient";
 import { toast } from "@/lib/feedback";
 import { invalidateEffectiveZone } from "@/lib/zoneClient";
+import { tripCardLabel } from "@/lib/tripLabel";
 
 // The Weather tab (rebuilt 2026-10-06, REVIEW-2026-10 §8): header + the
 // sources strip → Places (where you are · home · civil points, with ＋/✕)
@@ -106,8 +107,10 @@ export default function WeatherTab() {
   useEffect(() => {
     const load = () => fetch("/api/trips")
       .then((r) => r.json())
-      .then((d: { active?: { id?: string; label: string; lat: number; lon: number } | null }) => {
-        if (d?.active) { tripId.current = d.active.id ?? null; setTrip({ id: "trip", label: `${d.active.label} (TDY)`, lat: d.active.lat, lon: d.active.lon }); }
+      .then((d: { active?: { id?: string; label: string; location?: string; lat: number; lon: number } | null }) => {
+        // The card names where the trip was LOCATED when the label does not —
+        // a relabelled trip must not show another place's weather unannounced.
+        if (d?.active) { tripId.current = d.active.id ?? null; setTrip({ id: "trip", label: tripCardLabel(d.active.label, d.active.location ?? ""), lat: d.active.lat, lon: d.active.lon }); }
         else { tripId.current = null; setTrip(null); }
       })
       .catch(() => {});

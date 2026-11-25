@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { getUserPrefs } from "@/lib/userPrefs";
 import { todayInTz } from "@/lib/date";
 import { geocodePlace } from "@/lib/geocode";
+import { labelAfterMove } from "@/lib/tripLabel";
 import { listTrips, getActiveTrip, createTrip, updateTrip, deleteTrip, getTripById } from "@/lib/trips";
 import { syncCalendarTripsThrottled } from "@/lib/calendarTrips";
 import { clearBriefingCache } from "@/lib/briefingCache";
@@ -78,7 +79,7 @@ export async function PATCH(request: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let body: { id?: unknown; startDate?: unknown; endDate?: unknown; label?: unknown } = {};
+  let body: { id?: unknown; startDate?: unknown; endDate?: unknown; label?: unknown; location?: unknown } = {};
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
   const id = String(body.id ?? "").trim();
@@ -103,7 +104,24 @@ export async function PATCH(request: Request) {
   if (endDate < startDate) return NextResponse.json({ error: "End date can't be before the start date" }, { status: 400 });
   if (label !== undefined && !label) return NextResponse.json({ error: "Label can't be empty" }, { status: 400 });
 
-  const trip = await updateTrip(normEmail(session.user?.email), id, { startDate, endDate, ...(label !== undefined ? { label } : {}) });
+  // A changed location is RE-GEOCODED (2026-11-25: relabelling a "Jordan" trip
+  // "Spangdahlem" kept Jordan's coordinates — the label never moves the trip).
+  const location = body.location !== undefined ? String(body.location).trim().slice(0, 200) : existing.location;
+  if (!location) return NextResponse.json({ error: "A location is required" }, { status: 400 });
+  let place: { location: string; lat: number; lon: number } | undefined;
+  let nextLabel = label;
+  if (location.toLowerCase() !== existing.location.trim().toLowerCase()) {
+    const geo = await geocodePlace(location);
+    if (!geo) return NextResponse.json({ error: `Couldn't locate "${location}" — try a city + state/country.` }, { status: 422 });
+    place = { location, lat: geo.lat, lon: geo.lon };
+    nextLabel = labelAfterMove(existing.label, existing.location, location, label);
+  }
+
+  const trip = await updateTrip(normEmail(session.user?.email), id, {
+    startDate, endDate,
+    ...(nextLabel !== undefined ? { label: nextLabel } : {}),
+    ...(place ? { place } : {}),
+  });
   invalidateBrief();
   return NextResponse.json({ ok: true, trip });
 }

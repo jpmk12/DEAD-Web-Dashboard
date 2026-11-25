@@ -13,6 +13,7 @@ import { fetchLocationHazards } from "@/lib/severeWeather";
 import { getTrackingRegistry } from "@/lib/trackingOps";
 import type { FlightCategory } from "@/lib/types";
 import { lunarNight, lunarTonightLine } from "@/lib/moon";
+import { locatedAs } from "@/lib/tripLabel";
 import { ymdInZone } from "@/lib/effectiveZone";
 
 export const dynamic = "force-dynamic";
@@ -74,7 +75,10 @@ export async function GET(request: Request) {
   const home: Point | null = prefs?.localLat != null && prefs?.localLon != null
     ? { label: prefs.localCity?.trim() || "Home", lat: prefs.localLat, lon: prefs.localLon }
     : null;
-  const herePt: Point | null = trip ? { label: trip.label, lat: trip.lat, lon: trip.lon } : home;
+  // Name where the trip was LOCATED when its label does not (a relabelled trip
+  // reads the old place's sky — say so rather than show it under the new name).
+  const tripAt = trip ? locatedAs(trip.label, trip.location) : null;
+  const herePt: Point | null = trip ? { label: tripAt ? `${trip.label} (located: ${tripAt})` : trip.label, lat: trip.lat, lon: trip.lon } : home;
   const tripIsHome = !!trip && !!home && Math.abs(trip.lat - home.lat) < 0.1 && Math.abs(trip.lon - home.lon) < 0.1;
 
   let fields: HereField[] = [];

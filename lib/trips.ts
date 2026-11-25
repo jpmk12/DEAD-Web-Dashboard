@@ -161,13 +161,19 @@ export async function setTripTz(email: string, id: string, tz: string): Promise<
 export async function updateTrip(
   email: string,
   id: string,
-  fields: { startDate?: string; endDate?: string; label?: string },
+  fields: { startDate?: string; endDate?: string; label?: string; place?: { location: string; lat: number; lon: number } },
 ): Promise<Trip | null> {
   const sets: string[] = [];
-  const vals: string[] = [];
+  const vals: (string | number | null)[] = [];
   if (fields.startDate !== undefined) { sets.push("start_date = ?"); vals.push(fields.startDate); }
   if (fields.endDate !== undefined) { sets.push("end_date = ?"); vals.push(fields.endDate); }
   if (fields.label !== undefined) { sets.push("label = ?"); vals.push(fields.label); }
+  // A moved trip is re-geocoded: new coordinates, a new local-news feed, and
+  // the cached zone dropped so ensureTripTz looks it up for the new place.
+  if (fields.place) {
+    sets.push("location = ?", "lat = ?", "lon = ?", "feed_key = ?", "tz = NULL");
+    vals.push(fields.place.location, fields.place.lat, fields.place.lon, nearestFeedKey(fields.place.lat, fields.place.lon));
+  }
   if (sets.length > 0) {
     const pool = await getDb();
     const sc = scopeClause(email);
@@ -211,9 +217,11 @@ export async function upsertCalendarTrip(email: string, t: {
   );
   if (rows[0]) {
     await pool.execute(
-      `UPDATE trips SET label = ?, location = ?, lat = ?, lon = ?, start_date = ?, end_date = ?, feed_key = ?
+      // tz first: MySQL evaluates SET left to right, so it must compare the OLD
+      // coordinates — an event whose place moved drops its cached zone.
+      `UPDATE trips SET tz = IF(lat = ? AND lon = ?, tz, NULL), label = ?, location = ?, lat = ?, lon = ?, start_date = ?, end_date = ?, feed_key = ?
        WHERE id = ? AND ${sc.clause}`,
-      [t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, feedKey, rows[0].id, ...sc.params],
+      [t.lat, t.lon, t.label, t.location, t.lat, t.lon, t.startDate, t.endDate, feedKey, rows[0].id, ...sc.params],
     );
     return;
   }
