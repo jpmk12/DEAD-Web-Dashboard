@@ -1,6 +1,7 @@
 import { calendar as calendarApi, type calendar_v3 } from "@googleapis/calendar";
 import { OAuth2Client } from "google-auth-library";
 import { CalendarEvent } from "./types";
+import { createKeyedMemo } from "./keyedMemo";
 
 type TaggedEvent = { item: calendar_v3.Schema$Event; calendarId: string };
 
@@ -13,7 +14,25 @@ export interface CreateEventParams {
   timeZone?: string;  // IANA timezone e.g. "America/New_York"; defaults to "UTC"
 }
 
-export async function getUpcomingEvents(
+// One read per account per minute (2026-11-25, the load-time review): the
+// Calendar tab, the brief's readiness gate and the calendar-trip sync all
+// read the same calendars on one page load, each a list call plus one
+// events.list per calendar. Keyed by the account (else the token's tail);
+// every write below drops the memo so the next read is fresh.
+const UPCOMING_TTL_MS = 60_000;
+/** Per Google call — a hung calendar must not hold the page. */
+const CALENDAR_CALL_TIMEOUT_MS = 10_000;
+const upcoming = createKeyedMemo<CalendarEvent[]>(UPCOMING_TTL_MS);
+
+/** Drop the upcoming-events memo (after a create / update / delete). */
+export function forgetUpcomingEvents(): void { upcoming.forget(); }
+
+export function getUpcomingEvents(accessToken: string, accountEmail?: string): Promise<CalendarEvent[]> {
+  const key = accountEmail ? `e:${accountEmail.toLowerCase()}` : `t:${accessToken.slice(-24)}`;
+  return upcoming.get(key, () => fetchUpcomingEvents(accessToken, accountEmail));
+}
+
+async function fetchUpcomingEvents(
   accessToken: string,
   accountEmail?: string
 ): Promise<CalendarEvent[]> {
@@ -26,7 +45,7 @@ export async function getUpcomingEvents(
   // List all calendars for this account
   let calendarIds: string[];
   try {
-    const listRes = await calendar.calendarList.list({ maxResults: 50 });
+    const listRes = await calendar.calendarList.list({ maxResults: 50 }, { timeout: CALENDAR_CALL_TIMEOUT_MS });
     calendarIds = (listRes.data.items ?? [])
       .map((c) => c.id)
       .filter((id): id is string => Boolean(id));
@@ -48,7 +67,7 @@ export async function getUpcomingEvents(
           maxResults: 30,
           singleEvents: true,
           orderBy: "startTime",
-        })
+        }, { timeout: CALENDAR_CALL_TIMEOUT_MS })
         .then((res) => (res.data.items ?? []).map((item) => ({ item, calendarId })))
         .catch(() => [] as TaggedEvent[])
     )
@@ -130,6 +149,7 @@ export async function updateEvent(accessToken: string, params: UpdateEventParams
   }
 
   const res = await calendar.events.patch({ calendarId, eventId: params.eventId, requestBody });
+  forgetUpcomingEvents();
   const e = res.data;
   return {
     id: e.id ?? "",
@@ -149,6 +169,7 @@ export async function deleteEvent(accessToken: string, eventId: string, calendar
   oauth2Client.setCredentials({ access_token: accessToken });
   const calendar = calendarApi({ version: "v3", auth: oauth2Client });
   await calendar.events.delete({ calendarId: calendarId || "primary", eventId });
+  forgetUpcomingEvents();
 }
 
 export async function createEvent(accessToken: string, params: CreateEventParams): Promise<CalendarEvent> {
@@ -176,6 +197,7 @@ export async function createEvent(accessToken: string, params: CreateEventParams
         : { dateTime: params.end, ...(hasOffset(params.end) ? {} : { timeZone: tz }) },
     },
   });
+  forgetUpcomingEvents();
 
   const e = res.data;
   return {

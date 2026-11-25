@@ -125,7 +125,9 @@ export async function GET(req: Request) {
   // deliberately-emptied list; `?? DEFAULT` only covers a DB read failure.
   const [userPrefs, prefs] = await Promise.all([
     getUserPrefs(userEmail).catch(() => null),
-    readPrefs(userEmail),
+    // A dead prefs table must not 500 the whole route: no hide / keep /
+    // open counts this pass, and the job's own cache read says the rest.
+    readPrefs(userEmail).catch(() => ({ openCounts: {}, feedback: {}, dismissed: [], kept: [], lastUpdated: "" })),
   ]);
   const allRules = userPrefs?.newsletterSources ?? DEFAULT_NEWSLETTER_SOURCES;
 

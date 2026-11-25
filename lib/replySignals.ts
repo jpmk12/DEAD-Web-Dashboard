@@ -65,7 +65,9 @@ async function writeCache(accountEmail: string, suggestions: VipSuggestion[]): P
 // Cap parallel Gmail metadata calls so a cold-cache scan doesn't burst past
 // the 250 quota-units/sec/user limit (messages.get = 5 units → 200 in parallel
 // = 1000 units/sec = guaranteed 429s + empty fallback).
-const FETCH_CONCURRENCY = 10;
+// 6, not 10: the scan shares the user's quota with the inbox read and the
+// newsletter listing on the same page load.
+const FETCH_CONCURRENCY = 6;
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -146,17 +148,32 @@ export async function getVipSuggestions(
   if (cached && Date.now() - cached.computedAt < CACHE_TTL_MS) {
     return cached.suggestions.filter((s) => !exclude(s));
   }
-
-  let fresh: VipSuggestion[];
-  try {
-    fresh = await scanSentMetadata(accessToken);
-  } catch (err) {
-    console.error("VIP suggestion scan failed:", err);
-    // Fall back to last cached even if stale
-    return cached?.suggestions.filter((s) => !exclude(s)) ?? [];
+  // Stale-while-revalidate (2026-11-25): an expired list is answered at once
+  // and the scan (up to SCAN_MAX metadata gets) runs in the background, one
+  // per account — it no longer holds the Email tab's request or joins the
+  // page-load Gmail burst. Only a mailbox with NO stored list waits.
+  if (cached) {
+    void rescan(accessToken, accountEmail);
+    return cached.suggestions.filter((s) => !exclude(s));
   }
-  writeCache(accountEmail, fresh).catch((err) =>
-    console.error("VIP suggestion cache write failed:", err)
-  );
-  return fresh.filter((s) => !exclude(s));
+  return (await rescan(accessToken, accountEmail)).filter((s) => !exclude(s));
+}
+
+const scanning = new Map<string, Promise<VipSuggestion[]>>();
+
+function rescan(accessToken: string, accountEmail: string): Promise<VipSuggestion[]> {
+  const running = scanning.get(accountEmail);
+  if (running) return running;
+  const p = scanSentMetadata(accessToken)
+    .then((fresh) => {
+      writeCache(accountEmail, fresh).catch((err) => console.error("VIP suggestion cache write failed:", err));
+      return fresh;
+    })
+    .catch((err) => {
+      console.error("VIP suggestion scan failed:", err);
+      return [] as VipSuggestion[];
+    })
+    .finally(() => { scanning.delete(accountEmail); });
+  scanning.set(accountEmail, p);
+  return p;
 }

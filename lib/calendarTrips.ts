@@ -28,7 +28,8 @@ export async function syncCalendarTripsThrottled(email: string, accessToken: str
   if (Date.now() - st.lastSyncAt < SYNC_INTERVAL_MS) return;
   st.inFlight = (async () => {
     try {
-      const events = await getUpcomingEvents(accessToken);
+      // Same account key as /api/calendar, so a page load reads the calendars once.
+      const events = await getUpcomingEvents(accessToken, email);
       await syncCalendarTrips(email, events, today);
       st.lastSyncAt = Date.now();
     } catch {

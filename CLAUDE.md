@@ -6424,12 +6424,36 @@ the RULES:
     keys the cache; the AO rides as a second system block beside the
     corrections — a ★ / hub / spoke edit no longer re-triages the whole
     inbox (the deploy re-triages it once, the hash changed).
-- **Found and NOT built (offered)** — the page-load Gmail burst (~400 `messages.get`) can hit the per-user
-  rate limit (metadata format for the inbox, stale-serve VIP suggestions);
-  `/api/calendar` has no cache or timeout and is read again by the trip
-  sync; `/api/digest` lives in process memory only (a DB row would survive
-  a deploy); the counterspace range sweep is a CPU loop that never yields;
-  the DB pool is 10 connections for ~40 parallel routes.
+- **Built 2026-11-25 (the rest of the list):**
+  - **Gmail burst**: a parsed inbox message is cached **6 h**, not 10 min
+    (`MESSAGE_TTL_MS` in `lib/gmail.ts`; a message's content never changes
+    and the unread LIST, fetched every load, decides what is still unread),
+    keyed by account + mailbox + id, capped at 2,000 entries. VIP
+    suggestions (`lib/replySignals.ts`) are **stale-while-revalidate**: an
+    expired list answers at once and the sent-mail scan reruns in the
+    background, one per account; only a mailbox with no stored list waits.
+    The scan's concurrency 10 → 6 (it shares the quota with the inbox and
+    the newsletter listing). Not done: the inbox read in `metadata` format —
+    the classifier and the expanded card need the body.
+  - **Calendar**: `getUpcomingEvents` goes through **`lib/keyedMemo.ts`**
+    (`createKeyedMemo`, PURE, tested in `tests/keyedMemo.test.ts`: TTL,
+    one in-flight call per key, failures never kept, `forget()` bumps a
+    generation so a read in flight during a write is not kept) — 60 s per
+    account; `createEvent` / `updateEvent` / `deleteEvent` call
+    `forgetUpcomingEvents()`; each Google call carries a 10-s timeout; the
+    calendar-trip sync passes the account email so a page load reads the
+    calendars once.
+  - **Digest**: `digest_cache` (one row per user, the UTC day, the JSON) —
+    the in-memory map is the fast path, the row the one a fresh process
+    reads before paying; both best-effort; the Sonnet call is bounded
+    (90 s, one retry).
+  - **DB pool** 10 → **16** (`DB_POOL_SIZE` overrides, clamped 4–40; not
+    higher because preview and production share one MySQL instance),
+    `maxIdle` 4, 60-s idle timeout, keep-alive, 10-s connect timeout.
+  - **Counterspace sweep yields** (`setImmediate`) between inspector–asset
+    pairs — one 48-h sweep is ~5,800 SGP4 propagations of synchronous maths.
+  - `/api/newsletters` survives a dead prefs table (no hide / keep this
+    pass) instead of a bare 500.
 No new npm dep (esbuild `0`).
 
 ### Review 2026-10-28 (loose ends · bugs · performance · coherence) — what changed and the rules it left behind

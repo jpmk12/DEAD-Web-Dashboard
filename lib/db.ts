@@ -11,8 +11,23 @@ const DB_CONFIG = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
+  // 10 → 16 (2026-11-25, the load-time review): a page load answers ~40
+  // routes at once and most read the database, so 10 connections queued
+  // fast routes behind slow ones. Not higher: preview and production share
+  // this MySQL instance (two pools against one max_connections).
+  // `DB_POOL_SIZE` overrides (clamped 4–40). Idle connections are released
+  // after a minute so a quiet process does not hold sixteen open.
+  connectionLimit: poolSize(process.env.DB_POOL_SIZE),
+  maxIdle: 4,
+  idleTimeout: 60_000,
+  enableKeepAlive: true,
+  connectTimeout: 10_000,
 };
+
+function poolSize(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.max(4, Math.min(40, Math.round(n))) : 16;
+}
 
 const SCHEMA_STATEMENTS = [
   // Daily Force Protection posture per watched entry, for day-over-day deltas
@@ -484,6 +499,15 @@ const SCHEMA_STATEMENTS = [
     account_email  VARCHAR(255) NOT NULL PRIMARY KEY,
     suggestions    JSON         NOT NULL,
     computed_at    BIGINT       NOT NULL
+  ) ENGINE=InnoDB`,
+
+  // The weekly reading digest, one row per user (2026-11-25): it lived in
+  // process memory only, so every deploy paid a fresh Sonnet call per user.
+  `CREATE TABLE IF NOT EXISTS digest_cache (
+    user_email   VARCHAR(255) NOT NULL PRIMARY KEY,
+    day          VARCHAR(10)  NOT NULL,              -- UTC day it was generated
+    digest       JSON         NOT NULL,
+    generated_at BIGINT       NOT NULL
   ) ENGINE=InnoDB`,
 
   `CREATE TABLE IF NOT EXISTS briefing_cache (

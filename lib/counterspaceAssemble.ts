@@ -162,6 +162,10 @@ async function compute(actor: SpaceActor): Promise<CounterspaceCatalogue> {
       }
       if (!worthSweeping(insp, target)) continue;
       const r = rangeSweep(insp, target, sgp4, nowMs - 24 * 3600_000, 48, 60);
+      // One sweep is ~5,800 SGP4 propagations of synchronous maths; yield
+      // between pairs so requests waiting on this process are answered
+      // (2026-11-25, the load-time review — the pass never yielded).
+      await new Promise<void>((res) => setImmediate(res));
       if (!r) continue;
       if (r.minRangeKm <= 50) {
         proximity.push({ inspector: f.name, asset: target.name, assetClass: asset?.cls ?? "other", declared: declaredAsset, minRangeKm: r.minRangeKm, hoursWithin50: r.hoursWithin50, hoursWithin5: r.hoursWithin5, atISO: r.atISO });

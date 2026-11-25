@@ -17,22 +17,33 @@ function buildClient(accessToken: string) {
 // re-fetching 25-50 full message bodies. This caches the parsed result so
 // subsequent fetches inside the TTL window pay only the messages.list cost
 // for ids we already have.
-const MESSAGE_TTL_MS = 10 * 60 * 1000;
+// A message's content never changes once sent — only its labels do, and
+// the unread LIST (fetched on every load) is what says which ids are still
+// unread. So a parsed message is kept 6 h, not 10 min (2026-11-25, the
+// load-time review: every load after ten minutes re-fetched up to 100 full
+// bodies per account, the burst that met Gmail's per-user rate limit). Keyed
+// by the mailbox too, so two users' ids can never meet.
+const MESSAGE_TTL_MS = 6 * 60 * 60 * 1000;
+const MESSAGE_CACHE_MAX = 2000;
 const messageCache = new Map<string, { msg: EmailMessage; expires: number }>();
 
-function msgCacheGet(account: EmailMessage["account"], id: string): EmailMessage | null {
-  const key = `${account}:${id}`;
+function msgKey(account: EmailMessage["account"], accountEmail: string, id: string): string {
+  return `${account}:${accountEmail.toLowerCase()}:${id}`;
+}
+function msgCacheGet(account: EmailMessage["account"], accountEmail: string, id: string): EmailMessage | null {
+  const key = msgKey(account, accountEmail, id);
   const hit = messageCache.get(key);
   if (!hit) return null;
   if (Date.now() > hit.expires) { messageCache.delete(key); return null; }
   return hit.msg;
 }
-function msgCachePut(account: EmailMessage["account"], id: string, msg: EmailMessage): void {
-  messageCache.set(`${account}:${id}`, { msg, expires: Date.now() + MESSAGE_TTL_MS });
-  // Light prune so a long-running process doesn't accumulate dead entries.
-  if (messageCache.size > 500) {
+function msgCachePut(account: EmailMessage["account"], accountEmail: string, id: string, msg: EmailMessage): void {
+  messageCache.set(msgKey(account, accountEmail, id), { msg, expires: Date.now() + MESSAGE_TTL_MS });
+  if (messageCache.size > MESSAGE_CACHE_MAX) {
     const now = Date.now();
     for (const [k, v] of messageCache) if (v.expires < now) messageCache.delete(k);
+    // Still over: drop the oldest insertions.
+    while (messageCache.size > MESSAGE_CACHE_MAX) messageCache.delete(messageCache.keys().next().value as string);
   }
 }
 
@@ -132,7 +143,7 @@ export async function getUnreadEmails(
   const hits: EmailMessage[] = [];
   const need: string[] = [];
   for (const id of messageRefs) {
-    const cached = msgCacheGet(account, id);
+    const cached = msgCacheGet(account, accountEmail, id);
     if (cached) hits.push(cached); else need.push(id);
   }
 
@@ -174,7 +185,7 @@ export async function getUnreadEmails(
       priority: "Low" as const,
       summary: "",
     };
-    msgCachePut(account, m.id, m);
+    msgCachePut(account, accountEmail, m.id, m);
     return [m];
   });
 

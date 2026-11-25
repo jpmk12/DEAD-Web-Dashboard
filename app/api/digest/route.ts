@@ -8,6 +8,8 @@ import { isFeatureEnabled } from "@/lib/aiFeatures";
 import { logCall } from "@/lib/anthropicLog";
 import { normEmail } from "@/lib/allowlist";
 import { parseModelJson } from "@/lib/aiJson";
+import { getDb } from "@/lib/db";
+import type { RowDataPacket } from "mysql2";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,35 @@ const inflight = new Map<string, Promise<unknown>>();
 const failedAt = new Map<string, number>();
 const FAIL_HOLD_MS = 5 * 60_000;
 
+// The day's digest survives a deploy in `digest_cache` (2026-11-25): the
+// in-memory map is the fast path, the row the one a fresh process reads
+// before paying for a generation. Both directions are best-effort — a dead
+// table costs one Sonnet call, never the digest.
+async function readStoredDigest(email: string, day: string): Promise<unknown | null> {
+  try {
+    const pool = await getDb();
+    const [rows] = await pool.query<RowDataPacket[]>("SELECT digest FROM digest_cache WHERE user_email = ? AND day = ?", [email, day]);
+    const raw = rows[0]?.digest;
+    if (raw == null) return null;
+    return typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    return null;
+  }
+}
+
+async function storeDigest(email: string, day: string, digest: unknown): Promise<void> {
+  try {
+    const pool = await getDb();
+    await pool.query(
+      `INSERT INTO digest_cache (user_email, day, digest, generated_at) VALUES (?, ?, CAST(? AS JSON), ?)
+       ON DUPLICATE KEY UPDATE day = VALUES(day), digest = VALUES(digest), generated_at = VALUES(generated_at)`,
+      [email, day, JSON.stringify(digest), Date.now()],
+    );
+  } catch (err) {
+    console.error("Digest store failed:", err instanceof Error ? err.message : err);
+  }
+}
+
 export async function GET() {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -45,6 +76,11 @@ export async function GET() {
   const hit = digestCache.get(email);
   if (hit && hit.day === day && hit.expires > Date.now()) {
     return NextResponse.json({ digest: hit.digest, cached: true });
+  }
+  const stored = await readStoredDigest(email, day);
+  if (stored) {
+    digestCache.set(email, { digest: stored, day, expires: Date.now() + DIGEST_TTL_MS });
+    return NextResponse.json({ digest: stored, cached: true });
   }
 
   const [prefs, articlePrefs, newsletterPrefs] = await Promise.all([
@@ -123,7 +159,7 @@ export async function GET() {
         ...(userContext ? [{ type: "text" as const, text: userContext }] : []),
       ],
       messages: [{ role: "user", content: context }],
-    });
+    }, { timeout: 90_000, maxRetries: 1 });
 
     logCall({ route: "digest", model: "claude-sonnet-4-6", usage: response.usage, durationMs: Date.now() - modelStart, user: normEmail(session.user?.email) }).catch(() => {});
 
@@ -141,6 +177,7 @@ export async function GET() {
       nextWeekRecommendations: Array.isArray(p.nextWeekRecommendations) ? (p.nextWeekRecommendations as unknown[]).map((s) => String(s).slice(0, 400)) : [],
     };
     digestCache.set(email, { digest, day, expires: Date.now() + DIGEST_TTL_MS });
+    await storeDigest(email, day, digest);
     return digest;
   })();
   inflight.set(email, job);
