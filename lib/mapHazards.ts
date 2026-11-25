@@ -171,9 +171,9 @@ export async function diagnoseNavWarnings(): Promise<unknown> {
     page: r.body == null && r.text ? htmlPageSummary(r.text) : null,
     variants,
     read: r.body != null ? "the feed answered JSON"
-      : isMaintenancePage(r.text) ? "NGA says the MSI portal is under maintenance — an outage on their side, not a block and not our query; the layer reads UNKNOWN until it returns"
-      : variants.length && variants.every((v) => v.status >= 500 || v.status === 0) ? "every request refused, the site's home page included — an outage or a block of this server's address, not the query"
-      : variants.some((v) => v.json) ? "a variant answered JSON — the main request's headers or query are what the host refuses"
-      : "the API refused while the host answered — read `page` and `variants`",
+      : isMaintenancePage(r.text) ? "NGA says the MSI portal is under maintenance - an outage on their side, not a block and not our query; the layer reads UNKNOWN until it returns"
+      : variants.length && variants.every((v) => v.status >= 500 || v.status === 0) ? "every request refused, the site's home page included - an outage or a block of this server's address, not the query"
+      : variants.some((v) => v.json) ? "a variant answered JSON - the main request's headers or query are what the host refuses"
+      : "the API refused while the host answered - read `page` and `variants`",
   };
 }
