@@ -60,11 +60,23 @@ const UA = "DEAD-Dashboard/1.0 (+economic-warfare; contact via app)";
 
 export function resetForeignSanctionsCache(): void { cache = null; }
 
-export async function getForeignSanctions(): Promise<ForeignSanctionsResult> {
-  if (cache && Date.now() - cache.at < TTL) return cache.data;
+/** An expired copy younger than this is served at once while the refresh runs
+ *  (2026-11-25: the EU file takes ~9 s and the board waits 8 s, so the pass
+ *  after each daily expiry read both lists UNKNOWN). Designations are a
+ *  standing record — a day-old list is a fair answer for one more pass. */
+const STALE_MAX_MS = 72 * 60 * 60 * 1000;
+
+function refresh(): Promise<ForeignSanctionsResult> {
   if (inflight) return inflight;
   inflight = fetchAll().then((d) => { if (d.live.EU || d.live.UK) cache = { at: Date.now(), data: d }; return d; }).finally(() => { inflight = null; });
   return inflight;
+}
+
+export async function getForeignSanctions(): Promise<ForeignSanctionsResult> {
+  const age = cache ? Date.now() - cache.at : Infinity;
+  if (cache && age < TTL) return cache.data;
+  if (cache && age < STALE_MAX_MS) { refresh().catch(() => {}); return cache.data; }
+  return refresh();
 }
 
 const keepSinceDay = (): string => new Date(Date.now() - KEEP_DAYS * 86_400_000).toISOString().slice(0, 10);

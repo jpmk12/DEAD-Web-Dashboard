@@ -2496,7 +2496,12 @@ built on the existing engine rather than a new one:
   reports status/bytes/parsed/snippet per source; `parsed: 0` with a 200
   means a renamed column. A dead list is named in `failed` and reads
   UNKNOWN on every surface. PRC MOFCOM has no feed and is deliberately not
-  here (browser capture if ever).
+  here (browser capture if ever). **VERIFIED from production 2026-11-25**:
+  EU 200, 25.5 MB / 44,287 lines in ~9 s, 62 rows inside `KEEP_DAYS`; UK
+  (FCDO) 200, 50.5 MB / 58,920 lines in ~2 s, 149 rows; both headers found,
+  both streams complete. Because the EU file outruns the board's 8-s wait,
+  an expired copy (< 72 h) is now served at once while the refresh runs —
+  before, the pass after each daily expiry read both lists UNKNOWN.
 - **Read reframe (G)** `/api/markets/brief` (same `markets_brief` gate,
   3-h day cache): the prompt now hands the model the DETERMINISTIC actor
   board (level, anomaly, learning flag, drivers, top moves by/against,
