@@ -5294,6 +5294,13 @@ minmax(140px,1fr))]` so seven or eight tiles share the row on desktop and
 pair up on a phone. Order on Glance is now: header → clocks → brief →
 StatusRow → OeDeltaCard → Needs You Now → DemandHorizonCard → Global Reach
 → two-column body (Breaking, Today, Tomorrow, …). `hero.html` mirrors it.
+**Current order (2026-11-25, by request):** header → clocks → where you
+are → brief → Today / Tomorrow → RIGHT NOW (StatusRow) → **On your radar**
+(moved out of the body's right rail to sit directly under the status row,
+full width, its counts in a 1/2/3-column grid) → OeDeltaCard → Needs You
+Now → DemandHorizonCard → Global Reach → body (one column now the rail is
+gone: posture moves, breaking, …) → **Lines** → **Alerts on this device**
+(both moved to the end — used least). `hero.html` was not re-rendered.
 
 ### Glance walkthrough fixes (2026-10-05, `docs/REVIEW-2026-10.md` G1–G15)
 Built from the operator's first-startup user story. The load-bearing pieces:

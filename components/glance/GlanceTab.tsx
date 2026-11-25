@@ -1218,18 +1218,79 @@ export default function GlanceTab({
         onNavigate={onNavigate}
       />
 
-      {/* ── Lines — the next four days of declared flying, read against the
-          fields' own LEDs / posture / closures / TAF / runway class. The lens
-          that turns the world picture into a need (docs/PLAN-MISSION-OBJECT). */}
-      <LinesStrip active={active} />
+      {/* ── On your radar — directly under RIGHT NOW (by request 2026-11-25):
+          the counts beside the status tiles, read together. Was the body's
+          right rail. */}
+      <Panel
+        title="On your radar"
+        badge={
+          radarNewCount > 0 ? (
+            <span
+              title={`${radarNewCount} signal${radarNewCount === 1 ? "" : "s"} changed since you last looked`}
+              className="text-[9px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-0.5 animate-pulse"
+            >
+              {radarNewCount} new
+            </span>
+          ) : undefined
+        }
+      >
+        <div className="px-3 py-3 space-y-3">
+          {recentNewsletters.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
+                Latest newsletters
+              </p>
+              <ul className="space-y-1.5">
+                {recentNewsletters.map((nl) => (
+                  <li key={nl.id}>
+                    <button
+                      onClick={() => onNavigate("news")}
+                      className="text-left text-xs text-slate-300 hover:text-emerald-400 transition-colors line-clamp-1 w-full"
+                    >
+                      {nl.subject}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-      {/* Alerts on this device — push setup lives beside the Alerts tile it
-          serves (REVIEW-2026-10 §12), folded; the drawer links here. */}
-      <details className="rounded-lg border border-slate-800 bg-slate-900/40" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) setPushOpen(true); }}>
-        <summary className="cursor-pointer select-none px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300">📲 Alerts on this device</summary>
-        <div className="px-3 pb-3 pt-1">{pushOpen && <PushSetupCard />}</div>
-      </details>
+          {/* Live signals, sorted most-urgent first with change highlights. */}
+          <div className="grid gap-x-8 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-3">
+            {radarMetrics.map((m) => (
+              <RadarLine
+                key={m.key}
+                label={m.label}
+                value={m.display}
+                tier={m.tier}
+                changed={m.changed}
+                delta={m.delta}
+                onClick={m.onClick}
+              />
+            ))}
+          </div>
 
+          {watchlist.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
+                Watch terms
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {watchlist.slice(0, 8).map((w) => (
+                  <button
+                    key={w}
+                    onClick={() => onNavigate("news")}
+                    title={`Flagged when "${w}" appears in news`}
+                    className="text-[11px] font-medium text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
+                  >
+                    {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Panel>
       {/* ── What moved since you last looked ── */}
       <OeDeltaCard />
 
@@ -1433,10 +1494,9 @@ export default function GlanceTab({
         </section>
       )}
 
-      {/* ── Two-column body ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main column */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* ── Body ── */}
+      <div className="space-y-6">
+        <div className="space-y-6">
           {/* Posture moves — forces moving in the reporting. Nearly missed in
               the 2026-10-05 walkthrough as one headline among forty; for a
               mobility squadron a posture move IS the demand signal. Pure
@@ -1579,81 +1639,20 @@ export default function GlanceTab({
           </Panel>
         </div>
 
-        {/* Rail */}
-        <div className="space-y-6">
-          {/* Context */}
-          <Panel
-            title="On your radar"
-            badge={
-              radarNewCount > 0 ? (
-                <span
-                  title={`${radarNewCount} signal${radarNewCount === 1 ? "" : "s"} changed since you last looked`}
-                  className="text-[9px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-0.5 animate-pulse"
-                >
-                  {radarNewCount} new
-                </span>
-              ) : undefined
-            }
-          >
-            <div className="px-3 py-3 space-y-3">
-              {recentNewsletters.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-                    Latest newsletters
-                  </p>
-                  <ul className="space-y-1.5">
-                    {recentNewsletters.map((nl) => (
-                      <li key={nl.id}>
-                        <button
-                          onClick={() => onNavigate("news")}
-                          className="text-left text-xs text-slate-300 hover:text-emerald-400 transition-colors line-clamp-1 w-full"
-                        >
-                          {nl.subject}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Live signals, sorted most-urgent first with change highlights. */}
-              <div className="space-y-1.5">
-                {radarMetrics.map((m) => (
-                  <RadarLine
-                    key={m.key}
-                    label={m.label}
-                    value={m.display}
-                    tier={m.tier}
-                    changed={m.changed}
-                    delta={m.delta}
-                    onClick={m.onClick}
-                  />
-                ))}
-              </div>
-
-              {watchlist.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-                    Watch terms
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {watchlist.slice(0, 8).map((w) => (
-                      <button
-                        key={w}
-                        onClick={() => onNavigate("news")}
-                        title={`Flagged when "${w}" appears in news`}
-                        className="text-[11px] font-medium text-slate-300 bg-slate-800/60 hover:bg-slate-700 hover:text-emerald-400 border border-slate-700 rounded px-1.5 py-0.5 transition-colors"
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </Panel>
-        </div>
       </div>
+
+      {/* ── Used less, kept at the end (by request 2026-11-25). ── */}
+      {/* ── Lines — the next four days of declared flying, read against the
+          fields' own LEDs / posture / closures / TAF / runway class. The lens
+          that turns the world picture into a need (docs/PLAN-MISSION-OBJECT). */}
+      <LinesStrip active={active} />
+
+      {/* Alerts on this device — push setup lives beside the Alerts tile it
+          serves (REVIEW-2026-10 §12), folded; the drawer links here. */}
+      <details className="rounded-lg border border-slate-800 bg-slate-900/40" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) setPushOpen(true); }}>
+        <summary className="cursor-pointer select-none px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300">📲 Alerts on this device</summary>
+        <div className="px-3 pb-3 pt-1">{pushOpen && <PushSetupCard />}</div>
+      </details>
     </div>
   );
 }
