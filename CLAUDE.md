@@ -5315,11 +5315,48 @@ horizon is 4 days, today included.
     demand likely to RISE (7-day outlook, context not a driver)" and on the
     Ask / brief line as "· entering CENTCOM (demand likely to RISE)". It is
     never a `LineDriver` and never moves `worst` (tested).
-- Not built (plan §6): alerts on a line read, a `line_read_daily` series
-  scoring whether a driver predicted a slip (lines as a second
-  VERIFICATION target for the horizon — not an input — once a month of
-  lines exists), a per-line map, the command board mark. No new npm dep
-  (esbuild `0`).
+- **The one-tap outcome and the `line_read_daily` series (2026-11-26, "proceed
+  as recommended" — option 1 of three: one-tap outcome › status proxy ›
+  skip).** A line can now say how it went: `flew | slipped | cancelled`
+  (`LINE_OUTCOMES`). It is the line's VERIFICATION, never part of the draft —
+  `LINE_KEYS` still refuses an `outcome` key on POST (tested), and it travels
+  only through `PATCH /api/mission-lines {id, outcome}` (any other key 422),
+  which `validateOutcome` allows from the line's day (today counts) back
+  `OUTCOME_LOOKBACK_DAYS` 14; `null` clears it. Columns `mission_lines.
+  outcome / outcome_by / outcome_at` (additive; attributed like every line
+  write). **The forecast it scores**: `line_read_daily` (line_id ×
+  observed_day PK; line_day, lead_days, worst + worst_rank, the amber / red
+  driver KINDS, the lead driver text) written by `lineReadAssemble` from
+  `readDayFrom` on every pass **where every source family answered** — a
+  dead feed's UNKNOWN must not overwrite the day's real read, because the
+  store is day-PEAK (a same-or-worse read replaces, `worst_rank` assigned
+  last in the SET). The daily heartbeat now forces a line-read pass after
+  the SITREPs so the series accrues on days nobody opens Glance; retention
+  `pruneLineReads` (reads of unscored lines 120 d, everything 400 d).
+  **Scoring** `lib/lineVerify.ts` (PURE, tested in `tests/lineVerify.test.ts`):
+  `lineCall` = the read a line carried into its day from reads with lead 0–3
+  days — `flagged` (any amber / red; the earliest lead it was flagged and the
+  worst read's lead driver) · `quiet` · `unknown` (every read UNKNOWN — its
+  own bucket, never quiet) · `unread` (no record — never scored);
+  `verifyLines` → flagged / quiet × went-bad tallies, and past
+  `MIN_SCORED_FOR_RATE` 10 judged lines the base rate, **caught** (share of
+  bad lines the read flagged), **false alarm** (flagged lines that flew), the
+  median days ahead a bad line was first flagged, and per driver KIND the
+  bad rate and its lift over the base rate (`MIN_PER_KIND` 5, else
+  "forming"). The app scores its OWN reads against the crew's observation —
+  annotation only, nothing re-weights. **Surfaces**: `GET /api/mission-lines
+  ?outcomes=1` → `getLineOutcomes` (awaiting lines with their call +
+  `verify`); the Glance Lines strip's **"How did these go?"** block (one row
+  per past line without an outcome: day · line · what it read before the
+  day · Flew / Slipped / Cancelled; a tap removes the row) and a folded
+  **"How the line reads have done"** line; the Ask pack adds the scoring as
+  its own surface (tallies said as tallies). Verified in headless Chromium
+  with routed fixtures (the PATCH sent, the row left, the fold opened).
+- Not built (plan §6): alerts on a line read, lines as a second
+  VERIFICATION target for the demand horizon (the outcomes now exist to do
+  it — a flown line counts as lift into each command it enters — once a
+  month of them is on record), a per-line map, the command board mark. No
+  new npm dep (esbuild `0`).
 
 ### Indicator calibration (`lib/indicatorCalibration.ts` — the decision log feeding back)
 REVIEW §3.2. `warning_decisions` already records calls against a problem and,

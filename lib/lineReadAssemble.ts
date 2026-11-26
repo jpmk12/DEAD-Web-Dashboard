@@ -7,8 +7,9 @@
 // cold pass answers what settled within the wait.
 
 import { getUserPrefs } from "./userPrefs";
-import { listLines } from "./missionLineStore";
-import { linesInHorizon, todayZulu, addDaysYmd, LINE_HORIZON_DAYS, type MissionLine } from "./missionLines";
+import { listLines, recordLineReads, lineReadHistory, listScoredLines } from "./missionLineStore";
+import { readDayFrom, lineCall, callLine, verifyLines, type LineReadDay, type LineVerify } from "./lineVerify";
+import { linesInHorizon, todayZulu, addDaysYmd, LINE_HORIZON_DAYS, OUTCOME_LOOKBACK_DAYS, type MissionLine } from "./missionLines";
 import { readLine, linesByCommand, type LineRead, type LineFieldInput, type LineCommandSummary } from "./lineRead";
 import { classifyAor, type Aor } from "./aor";
 import { getDemandHorizonBounded } from "./demandAssemble";
@@ -166,6 +167,14 @@ async function assemble(wait: number): Promise<LineReadsBody> {
     }
   }
   const unavailable = (["sitrep", "posture", "taf", "cap"] as const).filter((k) => !sources[k]).map((k) => ({ sitrep: "SITREP", posture: "force posture", taf: "TAF", cap: "runway capability" })[k]);
+  // The day's read of each line, for scoring against the one-tap outcome
+  // (lib/lineVerify). Only from a pass where every family answered — a dead
+  // feed's UNKNOWN must not overwrite the day's real read (day-peak would
+  // rank it above green). Best-effort, never awaited by the caller's wait.
+  if (!unavailable.length) {
+    const rows = reads.map((r) => readDayFrom(r, today)).filter((r): r is NonNullable<typeof r> => r != null);
+    void recordLineReads(rows, Object.fromEntries(reads.map((r) => [r.id, r.day])));
+  }
   return { today, horizonDays: LINE_HORIZON_DAYS, lastDay, lines, reads, byCommand: linesByCommand(reads), unavailable, atISO };
 }
 
@@ -189,4 +198,31 @@ export async function getDeclaredLinesBounded(maxWaitMs = 3_000): Promise<{ tota
   const d = await getLinesByCommandBounded(maxWaitMs).catch(() => null);
   if (!d || d.total <= 0) return null;
   return { total: d.total, byAor: Object.fromEntries(Object.entries(d.byCommand).map(([k, v]) => [k, v.count])) };
+}
+
+/** The lines awaiting an outcome (their day has come, inside the lookback,
+ *  none said yet) with the read each carried into its day, and the scoring of
+ *  every line that has one. NULL pieces = the store did not answer. */
+export async function getLineOutcomes(): Promise<{
+  today: string;
+  awaiting: { line: MissionLine; call: string; worst: string | null }[] | null;
+  verify: LineVerify | null;
+}> {
+  const today = todayZulu();
+  const from = addDaysYmd(today, -OUTCOME_LOOKBACK_DAYS);
+  const [recent, scored] = await Promise.all([
+    within(listLines(from, today), 6_000),
+    within(listScoredLines(addDaysYmd(today, -365)), 6_000),
+  ]);
+  const awaitingLines = recent ? recent.filter((l) => !l.outcome && l.day < today).sort((a, b) => b.day.localeCompare(a.day)) : null;
+  const ids = Array.from(new Set([...(awaitingLines ?? []).map((l) => l.id), ...(scored ?? []).map((l) => l.id)]));
+  const history = await within(lineReadHistory(ids), 6_000);
+  const byLine = new Map<string, LineReadDay[]>();
+  for (const h of history ?? []) byLine.set(h.lineId, [...(byLine.get(h.lineId) ?? []), h]);
+  const awaiting = awaitingLines ? awaitingLines.slice(0, 20).map((line) => {
+    const c = lineCall(byLine.get(line.id) ?? []);
+    return { line, call: history ? callLine(c) : "read history UNAVAILABLE", worst: c.worst };
+  }) : null;
+  const verify = scored && history ? verifyLines(scored.map((l) => ({ id: l.id, day: l.day, outcome: l.outcome! })), history) : null;
+  return { today, awaiting, verify };
 }

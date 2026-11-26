@@ -13,12 +13,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/feedback";
 import { LED_CLASS, type LedKey } from "@/lib/levelTokens";
 import {
-  LINE_AIRFRAMES, LINE_STATUSES, LINE_STATUS_LABEL, LINE_HORIZON_DAYS, lineDayLabel, parseFieldsText, todayZulu,
-  validateLineDraft, type LineAirframe, type LineStatus, type MissionLine,
+  LINE_AIRFRAMES, LINE_STATUSES, LINE_STATUS_LABEL, LINE_HORIZON_DAYS, LINE_OUTCOMES, LINE_OUTCOME_LABEL, OUTCOME_LOOKBACK_DAYS,
+  lineDayLabel, lineLabel, parseFieldsText, todayZulu, validateLineDraft, type LineAirframe, type LineStatus, type MissionLine, type LineOutcome,
 } from "@/lib/missionLines";
 import type { LineRead, LineDriver } from "@/lib/lineRead";
+import type { LineVerify } from "@/lib/lineVerify";
 
 interface Body { today: string; lastDay: string; lines: MissionLine[] | null; reads: LineRead[]; unavailable: string[]; atISO: string }
+interface Outcomes { today: string; awaiting: { line: MissionLine; call: string; worst: string | null }[] | null; verify: LineVerify | null }
+
+const OUTCOME_TONE: Record<LineOutcome, string> = {
+  flew: "text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/10",
+  slipped: "text-amber-200 border-amber-500/40 hover:bg-amber-500/10",
+  cancelled: "text-red-200 border-red-500/40 hover:bg-red-500/10",
+};
 
 const TONE: Record<LedKey, string> = {
   r: "border-red-500/45 bg-red-500/[0.06]",
@@ -43,6 +51,16 @@ export default function LinesStrip({ active = true }: { active?: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pendingTries = useRef(0);
+  const [outcomes, setOutcomes] = useState<Outcomes | null>(null);
+  const [scoreOpen, setScoreOpen] = useState(false);
+
+  const loadOutcomes = useCallback(async () => {
+    try {
+      const r = await fetch("/api/mission-lines?outcomes=1", { cache: "no-store" });
+      const j = (await r.json().catch(() => null)) as Outcomes | null;
+      if (j) setOutcomes(j);
+    } catch { /* the outcome block simply does not render */ }
+  }, []);
 
   const load = useCallback(async (refresh = false) => {
     try {
@@ -59,10 +77,10 @@ export default function LinesStrip({ active = true }: { active?: boolean }) {
     } catch { setStatus("error"); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadOutcomes(); }, [load, loadOutcomes]);
   useEffect(() => {
     if (!active) return;
-    const onChanged = () => load(true);
+    const onChanged = () => { load(true); loadOutcomes(); };
     window.addEventListener("lines:changed", onChanged);
     const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 5 * 60_000);
     return () => { window.removeEventListener("lines:changed", onChanged); clearInterval(t); };
@@ -87,6 +105,19 @@ export default function LinesStrip({ active = true }: { active?: boolean }) {
       if (!r.ok) { const j = await r.json().catch(() => null); toast.error("Line not removed", j?.error || `HTTP ${r.status}`); return; }
       window.dispatchEvent(new CustomEvent("lines:changed"));
     } finally { setBusy(false); }
+  };
+
+  const setOutcome = async (id: string, outcome: LineOutcome) => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/mission-lines", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, outcome }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) { toast.error("Outcome not saved", j?.error || `HTTP ${r.status}`); return; }
+      // The row leaves the prompt at once; the scoring re-reads.
+      setOutcomes((o) => (o && o.awaiting ? { ...o, awaiting: o.awaiting.filter((a) => a.line.id !== id) } : o));
+      loadOutcomes();
+    } catch (e) { toast.error("Outcome not saved", e instanceof Error ? e.message : "Request failed"); }
+    finally { setBusy(false); }
   };
 
   const reads = body?.reads ?? [];
@@ -164,6 +195,41 @@ export default function LinesStrip({ active = true }: { active?: boolean }) {
             </div>
           );
         })}
+
+        {/* How did they go? — one tap after a line's day; the outcome scores the reads. */}
+        {outcomes?.awaiting && outcomes.awaiting.length > 0 && (
+          <div className="rounded-md border border-violet-500/25 bg-violet-500/[0.03] p-2.5 space-y-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200/90">How did these go? <span className="normal-case tracking-normal font-normal text-slate-500">— one tap; it scores whether the line reads warned you (last {OUTCOME_LOOKBACK_DAYS} days)</span></p>
+            {outcomes.awaiting.slice(0, 8).map(({ line, call, worst }) => (
+              <div key={line.id} className="flex items-center gap-2 flex-wrap">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${LED_CLASS[(worst ?? "u") as LedKey]}`} title={call} />
+                <span className="text-[10px] font-mono text-slate-400">{lineDayLabel(line.day)}</span>
+                <span className="text-[11px] font-mono text-slate-200">{lineLabel(line)}</span>
+                <span className="text-[10px] text-slate-500 truncate min-w-0 flex-1" title={call}>{call}</span>
+                <span className="flex gap-1">
+                  {LINE_OUTCOMES.map((o) => (
+                    <button key={o} disabled={busy} onClick={() => setOutcome(line.id, o)} className={`text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${OUTCOME_TONE[o]} disabled:opacity-40`}>{LINE_OUTCOME_LABEL[o]}</button>
+                  ))}
+                </span>
+              </div>
+            ))}
+            {outcomes.awaiting.length > 8 && <p className="text-[9.5px] text-slate-500">+{outcomes.awaiting.length - 8} more — older lines first fall off after {OUTCOME_LOOKBACK_DAYS} days unscored.</p>}
+          </div>
+        )}
+        {outcomes?.verify && outcomes.verify.scored > 0 && (
+          <div className="text-[10px] leading-snug">
+            <button onClick={() => setScoreOpen((v) => !v)} aria-expanded={scoreOpen} className="text-slate-400 hover:text-slate-200 text-left">
+              <span className="font-bold uppercase tracking-widest text-[9.5px] text-slate-500 mr-1.5">How the line reads have done</span>
+              {outcomes.verify.lines[1]} {outcomes.verify.forming ? <span className="text-sky-300/80">· forming</span> : null} <span className="text-slate-600">{scoreOpen ? "▴" : "▾"}</span>
+            </button>
+            {scoreOpen && (
+              <ul className="mt-1 ml-3 list-disc space-y-0.5 text-slate-400">
+                {outcomes.verify.lines.map((t, i) => <li key={i}>{t}</li>)}
+                <li className="text-slate-600 list-none -ml-3">The app scores its own reads against your outcomes — annotation only; nothing re-weights on its own.</li>
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

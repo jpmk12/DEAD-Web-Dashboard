@@ -148,8 +148,27 @@ const SCHEMA_STATEMENTS = [
     status      VARCHAR(12)  NOT NULL DEFAULT 'planned',
     updated_by  VARCHAR(255) NULL,
     updated_at  DATETIME(3)  NOT NULL,
+    outcome     VARCHAR(12)  NULL,
+    outcome_by  VARCHAR(255) NULL,
+    outcome_at  DATETIME(3)  NULL,
     PRIMARY KEY (id),
     INDEX idx_ml_day (day)
+  ) ENGINE=InnoDB`,
+
+  // How each line READ on each day it was inside the horizon (lib/lineVerify):
+  // the worst LED that day and the amber / red driver kinds behind it — the
+  // forecast the one-tap outcome scores. Day-peak per (line, observed day).
+  `CREATE TABLE IF NOT EXISTS line_read_daily (
+    line_id      VARCHAR(36)  NOT NULL,
+    observed_day VARCHAR(10)  NOT NULL,
+    line_day     VARCHAR(10)  NOT NULL,
+    lead_days    INT          NOT NULL,
+    worst        VARCHAR(1)   NOT NULL,
+    worst_rank   INT          NOT NULL,
+    kinds        JSON         NULL,
+    lead_text    VARCHAR(255) NULL,
+    PRIMARY KEY (line_id, observed_day),
+    INDEX idx_lrd_day (line_day)
   ) ENGINE=InnoDB`,
 
   // Declared themes (lib/themeStore): a name and a few phrases the operator
@@ -939,6 +958,10 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "newsletter_prefs", column: "user_email", ddl: "ALTER TABLE newsletter_prefs ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
   { table: "trips",            column: "user_email", ddl: "ALTER TABLE trips            ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
   { table: "contacts",         column: "user_email", ddl: "ALTER TABLE contacts         ADD COLUMN user_email VARCHAR(255) NOT NULL DEFAULT ''" },
+  // Mission-line outcome (the one-tap "how did it go", lib/lineVerify).
+  { table: "mission_lines", column: "outcome",    ddl: "ALTER TABLE mission_lines ADD COLUMN outcome    VARCHAR(12)  NULL" },
+  { table: "mission_lines", column: "outcome_by", ddl: "ALTER TABLE mission_lines ADD COLUMN outcome_by VARCHAR(255) NULL" },
+  { table: "mission_lines", column: "outcome_at", ddl: "ALTER TABLE mission_lines ADD COLUMN outcome_at DATETIME(3)  NULL" },
 ];
 
 // Primary-key rebuilds for the multi-user split: the personal tables move to

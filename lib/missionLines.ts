@@ -25,6 +25,29 @@ export const LINE_MAX_FIELDS = 8;
 /** The only keys a line may carry — anything else is refused, not dropped. */
 export const LINE_KEYS = ["id", "day", "airframe", "fields", "status"] as const;
 
+/** How a line turned out — one tap, after its day (2026-11-26, the operator
+ *  chose the one-tap outcome over a status proxy). Three words, nothing finer:
+ *  it is the line's VERIFICATION, never part of the draft (LINE_KEYS refuses
+ *  it there), set only through its own door once the day has come. */
+export const LINE_OUTCOMES = ["flew", "slipped", "cancelled"] as const;
+export type LineOutcome = (typeof LINE_OUTCOMES)[number];
+export const LINE_OUTCOME_LABEL: Record<LineOutcome, string> = { flew: "Flew", slipped: "Slipped", cancelled: "Cancelled" };
+/** How far back the strip asks "how did it go?" — a line older than this is left unscored. */
+export const OUTCOME_LOOKBACK_DAYS = 14;
+
+export const isLineOutcome = (v: unknown): v is LineOutcome => typeof v === "string" && (LINE_OUTCOMES as readonly string[]).includes(v);
+
+/** The outcome door's sentence, or null when the outcome may be set: the
+ *  line's day has come (today counts — a line flown this morning) and is not
+ *  older than the lookback. `outcome` null clears it. */
+export function validateOutcome(lineDay: string, outcome: unknown, nowMs = Date.now()): string | null {
+  if (outcome !== null && !isLineOutcome(outcome)) return `Outcome must be ${LINE_OUTCOMES.join(", ")} (or null to clear).`;
+  const today = todayZulu(nowMs);
+  if (lineDay > today) return "That line's day has not come yet — say how it went on or after the day.";
+  if (lineDay < addDaysYmd(today, -OUTCOME_LOOKBACK_DAYS)) return `Outcomes are taken for ${OUTCOME_LOOKBACK_DAYS} days after a line — this one is older.`;
+  return null;
+}
+
 export interface MissionLine {
   id: string;
   /** The Zulu calendar day, YYYY-MM-DD (the Julian day is derived for display). */
@@ -35,6 +58,10 @@ export interface MissionLine {
   status: LineStatus;
   updatedBy: string;
   updatedAt: string;
+  /** How it went — set after the day; absent / null = not yet said. */
+  outcome?: LineOutcome | null;
+  outcomeBy?: string | null;
+  outcomeAt?: string | null;
 }
 
 export interface LineDraft {

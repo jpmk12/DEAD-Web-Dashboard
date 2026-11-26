@@ -32,7 +32,7 @@ import { knownCountryNames, sameCountry } from "./countryNames";
 import { AOR_LABELS } from "./aor";
 import { getFunctionalRowsBounded } from "./commandsAssemble";
 import { functionalText } from "./functionalCommands";
-import { getLineReads } from "./lineReadAssemble";
+import { getLineReads, getLineOutcomes } from "./lineReadAssemble";
 import { lineReadLines } from "./lineRead";
 import { getThemeReads } from "./themesAssemble";
 import { themeLines } from "./themes";
@@ -184,6 +184,12 @@ export async function buildAskPack(question: string, email: string, opts: { maxW
       if (!lr || lr.lines === null || (lr.pending && !lr.reads.length)) out.push({ surface, text: "", unavailable: true, door });
       else if (lr.reads.length) out.push({ surface, text: ["Declared lines (a day · an airframe · the fields · planned|execution — the crew's own declaration, NOT a sensor; the read is the fields' existing readings joined to the day, planning-grade):", ...lineReadLines(lr.reads)].join("\n"), door, asOf: lr.atISO });
       else out.push({ surface, text: "No lines declared for the next 4 days.", door });
+      // How the line reads have done against the crew's one-tap outcomes —
+      // annotation for weighing a line read, never a level (lib/lineVerify).
+      const oc = await within(getLineOutcomes(), Math.min(wait, 6_000));
+      if (oc?.verify && oc.verify.scored > 0) {
+        out.push({ surface: "Glance › Lines › How the line reads have done", text: ["The app's own line reads scored against the crew's outcomes (flew / slipped / cancelled); below the floor these are tallies, not rates — say so if you use them:", ...oc.verify.lines].join("\n"), door });
+      }
     }
     return out;
   })();

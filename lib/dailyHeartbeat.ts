@@ -26,6 +26,8 @@ import { warmCounterspace } from "./counterspaceAssemble";
 import { pruneOldUsage } from "./anthropicLog";
 import { pruneOldTrips } from "./trips";
 import { pruneHouseholdBills } from "./householdStore";
+import { pruneLineReads } from "./missionLineStore";
+import { getLineReads } from "./lineReadAssemble";
 
 export const HEARTBEAT_INTERVAL_MS = 6 * 60 * 60_000;
 const STEP_TIMEOUT_MS = 60_000;
@@ -72,6 +74,10 @@ async function runPass(): Promise<void> {
     bounded(warmCounterspace(), 90_000),
     ...((prefs?.sitrepBases ?? []).map((b) => bounded(assembleSitrep(b).then(sitrepSummary)))),
   ]);
+  // The declared lines' daily read (line_read_daily) — AFTER the SITREPs, so
+  // the read finds them warm; without this a line read only on days someone
+  // opened Glance, and its outcome would be scored against a gap.
+  await bounded(getLineReads({ maxWaitMs: 60_000, force: true }));
   // Retention: each store states its window (usage 90 d, trips a year after
   // they end, bills 500 d — longer than the silence watch's longest cadence).
   // The prunes were written with the tables and never called, so every one
@@ -80,5 +86,6 @@ async function runPass(): Promise<void> {
     bounded(pruneOldUsage(), 20_000),
     bounded(pruneOldTrips(), 20_000),
     bounded(pruneHouseholdBills(), 20_000),
+    bounded(pruneLineReads(), 20_000),
   ]);
 }

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { normEmail } from "@/lib/allowlist";
-import { listLines, upsertLine, deleteLine } from "@/lib/missionLineStore";
-import { getLineReads, resetLineReadsCache } from "@/lib/lineReadAssemble";
-import { validateLineDraft, normalizeLineDraft, todayZulu, addDaysYmd, LINE_HORIZON_DAYS } from "@/lib/missionLines";
+import { listLines, upsertLine, deleteLine, getLine, setLineOutcome } from "@/lib/missionLineStore";
+import { getLineReads, resetLineReadsCache, getLineOutcomes } from "@/lib/lineReadAssemble";
+import { validateLineDraft, normalizeLineDraft, validateOutcome, todayZulu, addDaysYmd, LINE_HORIZON_DAYS } from "@/lib/missionLines";
 import { resolveAirfield } from "@/lib/resolveAirfield";
 
 export const dynamic = "force-dynamic";
@@ -14,13 +14,19 @@ export const dynamic = "force-dynamic";
 // callsigns, loads, times and any extra key at this boundary.
 //   GET ?read=1       → the horizon's lines joined to the app's readings
 //   GET               → the horizon's lines (raw)
+//   GET ?outcomes=1   → lines awaiting "how did it go?" + the scoring (lib/lineVerify)
 //   POST {day, airframe, fields, status, id?} → create / update one line
+//   PATCH {id, outcome: flew|slipped|cancelled|null} → how a line went (after its day)
 //   DELETE ?id=       → remove a line
 
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const url = new URL(req.url);
+  if (url.searchParams.get("outcomes") === "1") {
+    const o = await getLineOutcomes();
+    return NextResponse.json(o, { status: o.awaiting === null && o.verify === null ? 503 : 200 });
+  }
   if (url.searchParams.get("read") === "1") {
     const body = await getLineReads({ maxWaitMs: 8_000, force: url.searchParams.get("refresh") === "1" });
     return NextResponse.json(body, { status: body.lines === null && !body.pending ? 503 : body.pending ? 202 : 200 });
@@ -64,4 +70,24 @@ export async function DELETE(req: Request) {
   if (!ok) return NextResponse.json({ error: "Not found, or the store did not answer." }, { status: 409 });
   resetLineReadsCache();
   return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: Request) {
+  const session = await auth();
+  const email = normEmail(session?.user?.email);
+  if (!session?.accessToken || !email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = (await req.json().catch(() => null)) as { id?: unknown; outcome?: unknown } | null;
+  const id = typeof body?.id === "string" ? body.id.trim() : "";
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+  // Only the outcome travels through this door — a line's fields never do.
+  if (body && Object.keys(body).some((k) => k !== "id" && k !== "outcome")) return NextResponse.json({ error: "Only an outcome can be set here." }, { status: 422 });
+  const line = await getLine(id);
+  if (line === null) return NextResponse.json({ error: "The store did not answer." }, { status: 503 });
+  if (!line) return NextResponse.json({ error: "No such line." }, { status: 404 });
+  const outcome = body?.outcome ?? null;
+  const err = validateOutcome(line.day, outcome);
+  if (err) return NextResponse.json({ error: err }, { status: 422 });
+  const ok = await setLineOutcome(id, outcome as never, email);
+  if (!ok) return NextResponse.json({ error: "Could not save the outcome — the store did not answer." }, { status: 503 });
+  return NextResponse.json({ ok: true, id, outcome });
 }
