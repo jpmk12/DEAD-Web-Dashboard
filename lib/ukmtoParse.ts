@@ -578,9 +578,34 @@ export function apiRecordToIncident(r: Rec, url = UKMTO_URL): UkmtoIncident | nu
   };
 }
 
+/** The packed `location*DDDMMSS` spelling checked against the decimals on the
+ *  SAME row — the one way to pin its layout without guessing. `agree` = the
+ *  packed parse lands within 0.01° of the decimals; `disagree` / `unparsed`
+ *  carry up to three verbatim samples each. Rows lacking either side are not
+ *  counted. */
+export interface DmsCheck { pairs: number; agree: number; disagree: string[]; unparsed: string[]; disagreeCount: number; unparsedCount: number }
+export function dmsCheck(recs: Rec[]): DmsCheck {
+  const out: DmsCheck = { pairs: 0, agree: 0, disagree: [], unparsed: [], disagreeCount: 0, unparsedCount: 0 };
+  for (const r0 of recs) {
+    const r = isRec(r0.properties) ? { ...r0, ...(r0.properties as Rec) } : r0;
+    const lat = num(pick(r, ["locationLatitude", "latitude", "lat"]));
+    const lon = num(pick(r, ["locationLongitude", "longitude", "lng", "lon"]));
+    const dLat = str(pick(r, ["locationLatitudeDDDMMSS", "latitudeDMS", "latDms"]));
+    const dLon = str(pick(r, ["locationLongitudeDDDMMSS", "longitudeDMS", "lonDms"]));
+    if (lat == null || lon == null || (lat === 0 && lon === 0) || !dLat || !dLon) continue;
+    out.pairs++;
+    const p = parseUkmtoPosition(`${dLat} ${dLon}`) ?? parseDddmmss(dLat, dLon);
+    const line = `${dLat} ${dLon} | decimals ${lat.toFixed(4)},${lon.toFixed(4)}${p ? ` | read ${p.lat.toFixed(4)},${p.lon.toFixed(4)}` : ""}`;
+    if (!p) { out.unparsedCount++; if (out.unparsed.length < 3) out.unparsed.push(line); continue; }
+    if (Math.abs(p.lat - lat) <= 0.01 && Math.abs(p.lon - lon) <= 0.01) { out.agree++; continue; }
+    out.disagreeCount++; if (out.disagree.length < 3) out.disagree.push(line);
+  }
+  return out;
+}
+
 /** The whole API body → incidents (deduped by reference, newest first) and
  *  the shape seen, for the diag: how many records, the first record's keys. */
-export function parseUkmtoApi(json: unknown, url = UKMTO_URL): { incidents: UkmtoIncident[]; records: number; keys: string[] } {
+export function parseUkmtoApi(json: unknown, url = UKMTO_URL): { incidents: UkmtoIncident[]; records: number; keys: string[]; dms: DmsCheck } {
   const recs = apiRecords(json);
   const out: UkmtoIncident[] = [];
   const seen = new Set<string>();
@@ -593,7 +618,7 @@ export function parseUkmtoApi(json: unknown, url = UKMTO_URL): { incidents: Ukmt
   }
   const first = recs[0];
   const keys = first ? Object.keys(isRec(first.properties) ? { ...first, ...(first.properties as Rec) } : first).slice(0, 40) : [];
-  return { incidents: sortUkmto(out), records: recs.length, keys };
+  return { incidents: sortUkmto(out), records: recs.length, keys, dms: dmsCheck(recs) };
 }
 
 // ───────────────────────────── browser capture ─────────────────────────────
@@ -602,7 +627,7 @@ export const UKMTO_HOST_ALLOW = [/(^|\.)ukmto\.org$/i];
 const MAX_CAPTURE_TEXT = 400_000;
 
 export type ParseUkmtoCaptureResult =
-  | { ok: true; incidents: UkmtoIncident[]; host: string; pageUrl: string; /** Rows read from the SCCD API body the capture carried. */ fromApi: number; /** The first API record's field names — the run log prints them so a renamed field is pinned from one run. */ apiKeys: string[]; /** Rows with a REPORTED position (not area-placed). */ placed: number }
+  | { ok: true; incidents: UkmtoIncident[]; host: string; pageUrl: string; /** Rows read from the SCCD API body the capture carried. */ fromApi: number; /** The first API record's field names — the run log prints them so a renamed field is pinned from one run. */ apiKeys: string[]; /** Rows with a REPORTED position (not area-placed). */ placed: number; /** The packed DMS spelling vs the decimals, row by row. */ dms: DmsCheck | null }
   | { ok: false; error: string };
 
 /** Validate a `dead-ukmto` capture (the extension's page text) and parse it.
@@ -630,6 +655,7 @@ export function parseUkmtoCapture(raw: string): ParseUkmtoCaptureResult {
   // carry positions — and the text parse fills in anything they lack.
   let fromApi: UkmtoIncident[] = [];
   let apiKeys: string[] = [];
+  let dms: DmsCheck | null = null;
   if (Array.isArray(j.api)) {
     for (const a of j.api) {
       const o = (a && typeof a === "object" ? a : {}) as Record<string, unknown>;
@@ -640,13 +666,14 @@ export function parseUkmtoCapture(raw: string): ParseUkmtoCaptureResult {
         const p = parseUkmtoApi(JSON.parse(o.body), pageUrl);
         fromApi = mergeUkmto(fromApi, p.incidents);
         if (p.incidents.length && !apiKeys.length) apiKeys = p.keys;
+        if (p.dms.pairs && !dms) dms = p.dms;
       } catch { /* not JSON — the text stands */ }
     }
   }
   if (!text.trim() && !fromApi.length) return { ok: false, error: "No page text in the capture." };
   const incidents = mergeUkmto(text.trim() ? parseUkmtoText(text, pageUrl) : [], fromApi);
   if (!incidents.length) return { ok: false, error: "No UKMTO entries found in the capture (expected “<n>-<yy> - LABEL” headers)." };
-  return { ok: true, incidents, host, pageUrl, fromApi: fromApi.length, apiKeys, placed: incidents.filter((i) => i.placement === "reported").length };
+  return { ok: true, incidents, host, pageUrl, fromApi: fromApi.length, apiKeys, placed: incidents.filter((i) => i.placement === "reported").length, dms };
 }
 
 /** The `captured_ukmto` column widths (lib/db.ts) — the store clips every

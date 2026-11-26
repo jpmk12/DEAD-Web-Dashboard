@@ -412,7 +412,7 @@ async function captureOne(url, c) {
       return { ok: false, error: why + own, collected: capture.items.length, hints, url };
     }
     const served = d.fromApi != null
-      ? " [dashboard: " + d.fromApi + " rows from the SCCD API body" + (d.parsed != null ? " · " + d.parsed + " parsed" : "") + (d.placed != null ? " · " + d.placed + " with a reported position" : "") + (Array.isArray(d.apiKeys) && d.apiKeys.length ? " · keys: " + d.apiKeys.join(", ") : "") + "]"
+      ? " [dashboard: " + d.fromApi + " rows from the SCCD API body" + (d.parsed != null ? " · " + d.parsed + " parsed" : "") + (d.placed != null ? " · " + d.placed + " with a reported position" : "") + (Array.isArray(d.apiKeys) && d.apiKeys.length ? " · keys: " + d.apiKeys.join(", ") : "") + (d.dms ? " · DMS vs decimals: " + d.dms.agree + " of " + d.dms.pairs + " agree" + (d.dms.disagree && d.dms.disagree.length ? " · differ: " + d.dms.disagree.join(" ; ") : "") + (d.dms.unparsed && d.dms.unparsed.length ? " · unread: " + d.dms.unparsed.join(" ; ") : "") : "") + "]"
       : d.sections ? " [dashboard: " + d.sections + " sections]" : "";
     return { ok: true, collected: capture.items.length, imported: d.imported, updated: d.updated, total: d.total, source: capture.source && capture.source.label, note: (own + served).trim() || undefined, hints, url };
   } catch (e) {

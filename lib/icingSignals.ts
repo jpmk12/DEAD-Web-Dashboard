@@ -370,6 +370,47 @@ export function parsePireps(body: unknown): { pireps: Pirep[]; rows: number } {
   return { pireps: out, rows: rows.length };
 }
 
+/** The diag's view of a PIREP body — what fields the rows ACTUALLY carry, so
+ *  the icing (and, later, turbulence) contract is pinned from one paste:
+ *  every key with how many rows carry a non-empty value, how many rows read
+ *  icing from the field vs only from the raw /IC group (and where the two
+ *  disagree), the same for /TB, and the first verbatim row with each. */
+export interface PirepFieldReport {
+  rows: number; keys: Record<string, number>;
+  icing: { field: number; rawOnly: number; disagree: string[]; firstRow: string | null };
+  turbulence: { keys: string[]; field: number; raw: number; firstRow: string | null };
+}
+export function pirepFieldReport(body: unknown): PirepFieldReport {
+  const rows: unknown[] = Array.isArray(body) ? body
+    : body && typeof body === "object" && Array.isArray((body as { features?: unknown[] }).features) ? (body as { features: unknown[] }).features : [];
+  const keys: Record<string, number> = {};
+  const rep: PirepFieldReport = { rows: rows.length, keys, icing: { field: 0, rawOnly: 0, disagree: [], firstRow: null }, turbulence: { keys: [], field: 0, raw: 0, firstRow: null } };
+  const tbKeys = new Set<string>();
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    const o = ((r as { properties?: Record<string, unknown> }).properties ?? r) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(o)) {
+      if (v == null || v === "") continue;
+      keys[k] = (keys[k] ?? 0) + 1;
+      if (/^(tb|turb)/i.test(k)) tbKeys.add(k);
+    }
+    const raw = String(o.rawOb ?? o.rawText ?? o.raw ?? "");
+    const fieldInt = pirepIntensity(typeof o.icgInt1 === "string" ? o.icgInt1 : null);
+    const rawInt = rawIcingGroup(raw)?.intensity ?? null;
+    if (fieldInt) rep.icing.field++;
+    else if (rawInt) rep.icing.rawOnly++;
+    if (fieldInt && rawInt && fieldInt !== rawInt && rep.icing.disagree.length < 3) rep.icing.disagree.push(`field ${String(o.icgInt1)} vs raw ${rawInt} | ${raw.slice(0, 160)}`);
+    if ((fieldInt || rawInt) && !rep.icing.firstRow) rep.icing.firstRow = JSON.stringify(o).slice(0, 1200);
+    const tbField = Object.keys(o).some((k) => /^(tb|turb)/i.test(k) && o[k] != null && o[k] !== "");
+    const tbRaw = /\/TB\s/i.test(raw);
+    if (tbField) rep.turbulence.field++;
+    if (tbRaw) rep.turbulence.raw++;
+    if ((tbField || tbRaw) && !rep.turbulence.firstRow) rep.turbulence.firstRow = JSON.stringify(o).slice(0, 1200);
+  }
+  rep.turbulence.keys = [...tbKeys].sort();
+  return rep;
+}
+
 export interface PirepNear { intensity: PirepIntensity; type: string | null; altFt: number | null; distNm: number; ageMin: number; acType: string | null; inBand: boolean }
 
 /** Icing PIREPs near the field in the last hours, worst first. A report with no altitude is kept and said. */

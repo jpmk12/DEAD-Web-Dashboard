@@ -5,6 +5,7 @@ import { diagnoseFieldWx } from "@/lib/fieldWx";
 import { fetchWithTimeout } from "@/lib/fetchTimeout";
 import { decodeTaf } from "@/lib/metar";
 import { parseTafHazards, icingGroupLabel, turbGroupLabel } from "@/lib/tafGroups";
+import { pirepFieldReport } from "@/lib/icingSignals";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +15,33 @@ export const dynamic = "force-dynamic";
 // PIREP row, so the contracts can be pinned from one paste.
 //   GET /api/sitrep/icing-diag            → the first SITREP base
 //   GET /api/sitrep/icing-diag?icao=OJAQ  → that base (must be a SITREP base)
+//   GET /api/sitrep/icing-diag?pirep=KDEN → PIREPs ONLY, around ANY field, over
+//       a wider net (default 200 NM / 6 h; &distance= &age=): which keys the
+//       rows carry, icing from the field vs the raw /IC group, the turbulence
+//       keys and the first verbatim row of each. Use a busy U.S. field — PIREPs
+//       are sparse abroad, so an overseas base pins nothing.
 
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const owner = process.env.OWNER_EMAIL?.trim().toLowerCase();
   if (!owner || session.user?.email?.toLowerCase() !== owner) return NextResponse.json({ error: "Owner only" }, { status: 403 });
-  const want = new URL(req.url).searchParams.get("icao")?.trim().toUpperCase();
+  const sp = new URL(req.url).searchParams;
+  const pirepAt = sp.get("pirep")?.trim().toUpperCase();
+  if (pirepAt) {
+    if (!/^[A-Z0-9]{3,4}$/.test(pirepAt)) return NextResponse.json({ error: "pirep= takes an ICAO" }, { status: 400 });
+    const distance = Math.min(400, Math.max(20, Number(sp.get("distance")) || 200));
+    const age = Math.min(12, Math.max(1, Number(sp.get("age")) || 6));
+    const url = `https://aviationweather.gov/api/data/pirep?id=${pirepAt}&distance=${distance}&age=${age}&format=json`;
+    try {
+      const res = await fetchWithTimeout(url, { headers: { Accept: "application/json", "User-Agent": "DEAD-Dashboard/1.0" }, cache: "no-store" }, 15_000);
+      const text = await res.text();
+      let json: unknown = null;
+      try { json = text.trim() ? JSON.parse(text) : []; } catch { /* not JSON */ }
+      return NextResponse.json({ icao: pirepAt, distance, age, status: res.status, bytes: text.length, report: json == null ? null : pirepFieldReport(json), snippet: json == null ? text.slice(0, 300) : undefined });
+    } catch (e) { return NextResponse.json({ icao: pirepAt, status: 0, error: e instanceof Error ? e.message : String(e) }); }
+  }
+  const want = sp.get("icao")?.trim().toUpperCase();
   const prefs = await getUserPrefs();
   const base = (want ? prefs.sitrepBases.find((b) => b.icao === want) : prefs.sitrepBases[0]) ?? null;
   if (!base) return NextResponse.json({ error: want ? `${want} is not a SITREP base` : "No SITREP base configured" }, { status: 404 });

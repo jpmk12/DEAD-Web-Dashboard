@@ -1540,8 +1540,8 @@ except the two new sources. Helpers are PURE in `lib/mapLayers.ts` (tested in
   control stored its choice, map-check all ok. A first run crashed Glance —
   the cause was the FIXTURE (a lines body without `unavailable`, which a real
   body always carries), not the app.
-- Not built (offered): FAA KICZ / EASA conflict-zone restrictions (no feed;
-  KICZ may come through DAIP), NASA FIRMS active fires (needs a free key).
+- Not built (offered): NASA FIRMS active fires (needs a free key). FAA KICZ
+  / EASA conflict zones were built 2026-11-26 — see "Conflict zones" below.
 - **First production diags (2026-11-05).** **SIGMETs VERIFIED**: isigmet
   200, 155 rows / 155 parsed / 4 with no geometry; airsigmet 200, 1 row
   (a convective SIGMET). The contract is as pinned — `validTimeFrom/To`
@@ -1579,6 +1579,71 @@ except the two new sources. Helpers are PURE in `lib/mapLayers.ts` (tested in
   The JSON contract is still UNVERIFIED — re-run the diag once the portal
   is back.
 No new npm dep (esbuild `0`).
+
+### Crisis map: conflict-zone airspace (2026-11-26, "do FAA/EASA conflict-zone layer")
+Layer **`czones`** ("Conflict zones", Threats group, off by default, in the
+Contested and Mobility presets). Two issuers, never merged into one level:
+**FAA** KICZ NOTAMs / SFARs — binding on U.S. operators — and **EASA**
+Conflict Zone Information Bulletins — a recommendation to EU operators.
+- **`lib/conflictZones.ts` (PURE, tested in `tests/conflictZones.test.ts`)**:
+  `parseKiczNotam` (number `A0014/22` — read next to an underscore too; level
+  in the FAA's words: PROHIBITED / PROHIBITS → `prohibited`, ADVISORY /
+  EXERCISE CAUTION / POTENTIALLY HAZARDOUS → `caution`, else `notice`; FIRs
+  from "(OIIX)" / "FIR OIIX" / "<city> FIR" when the words before say FIR or
+  the table knows the code — never KICZ / SFAR; altitude "all altitudes" /
+  "below FL320" / "FL260 and above" / ranges; a NOTAMC is no zone; **the
+  issuer line "UNITED STATES OF AMERICA" is stripped before reading
+  countries** — it is never the place), `parseFaaRestrictionsPage` (KICZ
+  document links → stubs; level from the label's own words only; a link off
+  faa.gov is never kept), `mergeFaaZones` (the NOTAM text wins, a stub fills
+  a NOTAM DAIP did not return), `parseCzibListing` (TEXT-based: split at each
+  CZIB number — `CZIB-2022-01R14`, `2026-03-R5`; a plain ISO date is never
+  one — highest revision per bulletin, title / dates / status from the
+  segment, links from `…/czibs/czib-…` anchors on easa.europa.eu),
+  `parseCzibPage` (FIRs, countries, "should not operate" → `avoid`, softer →
+  `caution`, validity, withdrawn), `czibZone` (withdrawn / superseded /
+  expired / past validity → dropped; a page not read reads `avoid`, the
+  CZIB's usual wording, and SAYS "recommendation not read"), `placeZone` (FIR
+  centroid from `lib/firData` › country centroid for countries no placed FIR
+  serves › nothing — **unplaced is counted, never drawn**), `sortZones`.
+- **Server** `lib/conflictZonesFetch.ts` → `GET /api/osint/conflict-zones`
+  (1-h cache, in-flight deduped, a pass with a dead door held 5 min, the last
+  good zones kept when everything fails): **FAA door 1** = DAIP `LOCATION`
+  query for `KICZ` (the DoD-CA door the SITREP NOTAMs already use; B)/C)
+  times read, an expired NOTAM dropped), **FAA door 2** = the "Prohibitions,
+  Restrictions and Notices" page, **EASA** = the CZIB listing (two URLs
+  tried) + each active bulletin's page (≤20, 4 at a time, 24-h cache per
+  page). `live` = either issuer answered; `faa` / `easa` blocks name each
+  door's reason. **ALL contracts UNVERIFIED** (every host is blocked from
+  the sandbox): `?diag=1` (owner-only) returns, per door, status / bytes /
+  parsed / sample lines and the raw text (`rawFirst` for DAIP, the KICZ
+  hrefs and page summary for FAA, the listing's entries + the text segment
+  after the first CZIB number, and the first bulletin's parse + excerpt for
+  EASA). `parsed: 0` with a 200 → the layout differs; paste the segment.
+- **Map**: a CircleMarker per placed point — FAA solid (red prohibited, sky
+  advisory, slate notice), EASA dashed amber, larger; AOR-filtered by point;
+  popup = id · level + altitude · binding vs recommendation · issued / valid
+  · "Pinned at X (FIR / country centroid) — not the airspace boundary" · the
+  text as published · source link. Source-down badge "FAA/EASA zones" only
+  when NEITHER answered; the Sources line names a single dead issuer and the
+  unplaced count. Legend line added. Verified in headless Chromium with a
+  routed fixture. Not built: FIR polygons (no keyless boundary source — a
+  centroid pin is said as such), I&W / SITREP / alert wiring.
+
+### Format checks added the same day (run from production, paste back)
+- `/api/sitrep/icing-diag?pirep=KDEN` (any ICAO; `&distance=` ≤400 NM,
+  `&age=` ≤12 h; defaults 200 / 6): `pirepFieldReport` — every key with how
+  many rows carry it, icing read from `icgInt1` vs only the raw /IC group and
+  where they disagree, the turbulence keys (`tb…`) and raw /TB count, the
+  first verbatim row of each. Use a busy U.S. field.
+- UKMTO's packed `location*DDDMMSS`: `dmsCheck` compares it with the decimals
+  on the same row — in `/api/osint/ukmto?diag=1` (`api.dms`) and in the
+  capture reply, which extension **1.2.14** prints ("DMS vs decimals: N of M
+  agree · differ: … · unread: …").
+- Fuel NOTAMs: `/api/osint/airspace?diag=fuel` (owner-only, run fresh, no
+  cache) → count, groups, rows, codes, five rows verbatim, `rawFirst`;
+  `?diag=type&type=<DAIP type>` probes any other query type the same way.
+- MOFCOM's main-site path is confirmable only from the extension's run log.
 
 ### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)
 The optional **Radar** layer (off by default) animates RainViewer precip/
@@ -4957,7 +5022,7 @@ INFORM Risk (`data360api.worldbank.org`), WHO (`who.int` Disease Outbreak News +
 `ghoapi.azureedge.net` Global Health Observatory), RainViewer (`api.rainviewer.com` index +
 `tilecache.rainviewer.com` tiles), military ADS-B (airplanes.live / adsb.lol),
 OpenSky (`opensky-network.org` — the OSINT contacts strip and, rationed, the
-I&W mobility sensor's fallback), NWS Aviation Weather (`aviationweather.gov`,
+I&W mobility sensor's fallback), FAA restrictions page (`www.faa.gov`) and EASA CZIBs (`www.easa.europa.eu`, the Crisis-map conflict-zone layer), NWS Aviation Weather (`aviationweather.gov`,
 METAR + TAF; also the node flight-category rings via `/api/airfield-weather`),
 Yahoo Finance (`query1.finance.yahoo.com`, energy/commodity quotes; Stooq
 `stooq.com` is a best-effort fallback only), Federal Register

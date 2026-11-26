@@ -21,7 +21,7 @@
 // its reason, never an empty list pretending to be a quiet sea.
 
 import { fetchWithTimeout } from "./fetchTimeout";
-import { parseUkmtoHtml, parseUkmtoApi, mergeUkmto, UKMTO_URL, UKMTO_API_URL, type UkmtoIncident } from "./ukmtoParse";
+import { parseUkmtoHtml, parseUkmtoApi, mergeUkmto, UKMTO_URL, UKMTO_API_URL, type UkmtoIncident, type DmsCheck } from "./ukmtoParse";
 import { getStoredUkmto, upsertUkmto, getUkmtoStoreStatus } from "./ukmtoStore";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -54,7 +54,7 @@ export interface UkmtoBody {
 let cache: { at: number; body: UkmtoBody } | null = null;
 let inflight: Promise<UkmtoBody> | null = null;
 
-interface DoorResult { status: number; parsed: number; reason: string | null; incidents: UkmtoIncident[]; snippet: string; bytes: number; records?: number; keys?: string[] }
+interface DoorResult { status: number; parsed: number; reason: string | null; incidents: UkmtoIncident[]; snippet: string; bytes: number; records?: number; keys?: string[]; dms?: DmsCheck }
 
 async function fetchApi(): Promise<DoorResult> {
   try {
@@ -68,7 +68,7 @@ async function fetchApi(): Promise<DoorResult> {
     try { json = JSON.parse(text); } catch { return { status: res.status, parsed: 0, reason: "API answered but not JSON", incidents: [], snippet: text.slice(0, 300), bytes: text.length }; }
     const p = parseUkmtoApi(json);
     const reason = p.records === 0 ? "API answered but no records found (shape changed — see keys)" : p.incidents.length === 0 ? "API records carry no reference the reader recognises (see keys)" : null;
-    return { status: res.status, parsed: p.incidents.length, reason, incidents: p.incidents, snippet: text.slice(0, 300), bytes: text.length, records: p.records, keys: p.keys };
+    return { status: res.status, parsed: p.incidents.length, reason, incidents: p.incidents, snippet: text.slice(0, 300), bytes: text.length, records: p.records, keys: p.keys, dms: p.dms };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { status: 0, parsed: 0, reason: /abort/i.test(msg) ? `API timed out after ${FETCH_TIMEOUT_MS / 1000} s` : `API ${msg.slice(0, 160)}`, incidents: [], snippet: "", bytes: 0 };
@@ -145,7 +145,7 @@ export function resetUkmtoCache(): void { cache = null; }
  *  page — plus the store. How "blocked" / "shape changed" gets proven. */
 export async function diagnoseUkmto(): Promise<{
   door: UkmtoFetchStatus["door"]; parsed: number; reason: string | null; ms: number;
-  api: { url: string; status: number; bytes: number; records: number; parsed: number; keys: string[]; reason: string | null; snippet: string; sample: string[] };
+  api: { url: string; status: number; bytes: number; records: number; parsed: number; keys: string[]; reason: string | null; snippet: string; sample: string[]; dms: DmsCheck | null };
   page: { url: string; status: number; bytes: number; parsed: number; reason: string | null; snippet: string } | null;
   store: UkmtoBody["store"];
 }> {
@@ -155,7 +155,7 @@ export async function diagnoseUkmto(): Promise<{
   return {
     door: live.status.door, parsed: live.status.parsed, reason: live.status.reason, ms: Date.now() - t0,
     api: {
-      url: UKMTO_API_URL, status: live.api.status, bytes: live.api.bytes, records: live.api.records ?? 0, parsed: live.api.parsed, keys: live.api.keys ?? [],
+      url: UKMTO_API_URL, status: live.api.status, bytes: live.api.bytes, records: live.api.records ?? 0, parsed: live.api.parsed, keys: live.api.keys ?? [], dms: live.api.dms ?? null,
       reason: live.api.reason, snippet: live.api.snippet,
       sample: live.api.incidents.slice(0, 5).map((i) => `${i.ref} | ${i.label} | ${i.date ?? "-"} ${i.time ?? ""} | ${i.placement ?? "unplaced"}${i.lat != null ? ` ${i.lat.toFixed(2)},${i.lon!.toFixed(2)}` : ""} | ${i.text.slice(0, 80)}`),
     },

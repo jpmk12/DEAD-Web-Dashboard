@@ -39,6 +39,7 @@ import {
 } from "@/lib/mapLayers";
 import { sigmetLine, type Sigmet } from "@/lib/sigmetParse";
 import type { NavWarning } from "@/lib/navWarnParse";
+import type { ConflictZone } from "@/lib/conflictZones";
 import type { LineRead } from "@/lib/lineRead";
 import type { RoomRef } from "@/lib/room";
 
@@ -195,7 +196,7 @@ const acledIcon = glyph(`<span style="color:#f87171;font-size:12px;font-weight:9
 const ukmtoIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900">⚓</span>`, 13);
 const ukmtoAreaIcon = glyph(`<span style="color:#fb7185;font-size:13px;font-weight:900;opacity:.55">⚓</span>`, 13);
 
-type LayerKey = "commands" | "iwareas" | "straits" | "routes" | "sigmets" | "navwarn" | "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "maritime" | "gps" | "gpstests" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
+type LayerKey = "commands" | "iwareas" | "straits" | "routes" | "sigmets" | "navwarn" | "czones" | "disasters" | "hazards" | "tropical" | "cone" | "radar" | "neo" | "conflict" | "acled" | "maritime" | "gps" | "gpstests" | "overflight" | "outages" | "launches" | "informRisk" | "forces" | "milair" | "ships" | "enroute" | "crf" | "airfields" | "tracked" | "lines" | "rings" | "ar" | "bridges" | "labels";
 
 interface MilAc { hex: string; flight: string; type: string; reg: string; lat: number; lon: number; altFt: number | null; onGround: boolean; gs: number | null; track: number | null; squawk: string; desc: string }
 interface Vessel { mmsi: number; name: string; shipType: number; lat: number; lon: number; cog: number; sog: number; heading: number | null }
@@ -206,6 +207,7 @@ const LAYER_DESC: Record<LayerKey, string> = {
   straits: "Chokepoints — the Economy tab's graded read on the map: red = a reported act, amber = a declared threat (MARAD advisories count here), grey = reporting without either, dark = no reporting (absence of signal, not calm). The ring is the radius incidents are read within; the popup carries the lead headline and the AIS transit state. Fetched only while on.",
   routes: "Your declared lines (Glance › Lines, next 4 days) drawn as routes — every leg coloured by the worse of its two fields' reads; a field the app cannot place is named in the popup and its legs left out. A line read never changes a level.",
   sigmets: "SIGMETs — NWS Aviation Weather Center: international SIGMETs for every FIR that issues them plus domestic U.S. SIGMETs (AIRMETs left out). Red = volcanic ash / tropical cyclone / radioactive cloud (they close airspace), amber = convection / severe turbulence / severe icing. A SIGMET with no readable area is counted, never drawn as a guessed box. Off by default; UNKNOWN when AWC does not answer.",
+  czones: "Conflict-zone airspace — FAA KICZ NOTAMs / SFARs (binding on U.S. operators: red = prohibited, sky = advisory) and EASA Conflict Zone Information Bulletins (recommendations to EU operators: amber dashed = should not operate). Pinned at the FIR the text names, else the country's centroid — a pin, not the airspace boundary. A restriction whose area cannot be placed is counted, never drawn. Off by default; UNKNOWN when neither the FAA nor EASA answers.",
   navwarn: "NGA navigational warnings at sea (NAVAREA IV / XII, HYDROLANT / HYDROPAC) — the operational classes only: missile & gunnery firings, rocket-launch debris zones, GNSS interference tests, mine danger areas, security warnings. Positions are read from the warning text; one with none is counted, never placed. Routine hazards (wrecks, unlit lights) are not drawn. Off by default; UNKNOWN when NGA does not answer.",
   commands: "Combatant commands — every country washed faintly in its command's colour (assigned BY COUNTRY, the Unified Command Plan rule), a watched country tinted by its worst force posture (red / amber / grey = UNKNOWN / green; an unwatched country has no tint — unwatched is not green), and one tag per command with its I&W level, worst posture and 7-day demand arrow from the command board. Click a country for its room; click a tag to focus the command. Oceans are not drawn — the UCP's maritime seams are not in a country file.",
   disasters: "Disaster & humanitarian events — GDACS (cyclone/quake/flood/drought/volcano), USGS quakes, and ReliefWeb complex-emergency / conflict / epidemic situations (plotted at country centroid). Dot colour = severity, size = HADR-airlift relevance. Click for details.",
@@ -250,6 +252,7 @@ const LAYER_GROUPS: { label: string; keys: { k: LayerKey; label: string; dot?: s
     { k: "gpstests", label: "GPS tests", dot: "#a78bfa" },
     { k: "sigmets", label: "SIGMETs", dot: "#fb7185" },
     { k: "navwarn", label: "Nav warnings", dot: "#fbbf24" },
+    { k: "czones", label: "Conflict zones", dot: "#ef4444" },
     { k: "overflight", label: "Overflight", dot: "#fb923c" },
     { k: "outages", label: "Outages", dot: "#f472b6" },
     { k: "launches", label: "Launches", dot: "#fde047" },
@@ -277,8 +280,8 @@ const preset = (onKeys: LayerKey[]): Record<LayerKey, boolean> =>
 const PRESETS: { name: string; desc: string; on: Record<LayerKey, boolean> }[] = [
   { name: "Standard", desc: "Balanced default — disasters, hub weather, tropical+cone, NEO, conflict/kinetic, ACLED strikes, UKMTO maritime incidents, the node network, and reach lines.", on: preset(["commands", "iwareas", "straits", "routes", "disasters", "hazards", "tropical", "cone", "neo", "conflict", "acled", "maritime", "enroute", "crf", "tracked", "lines", "labels"]) },
   { name: "HADR", desc: "Humanitarian focus — disasters, weather, tropical+cone, nodes, gateway airfields, reach lines + rings.", on: preset(["commands", "routes", "disasters", "hazards", "tropical", "cone", "enroute", "crf", "airfields", "tracked", "lines", "rings", "labels"]) },
-  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, UKMTO maritime incidents, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["commands", "iwareas", "straits", "navwarn", "disasters", "neo", "conflict", "acled", "maritime", "gps", "gpstests", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
-  { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["commands", "routes", "straits", "sigmets", "enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
+  { name: "Contested", desc: "Conflict/EW focus — disasters, NEO, conflict density, ACLED strikes, UKMTO maritime incidents, GPS interference, FIR overflight NOTAMs, nodes, reach lines.", on: preset(["commands", "iwareas", "straits", "navwarn", "czones", "disasters", "neo", "conflict", "acled", "maritime", "gps", "gpstests", "overflight", "enroute", "crf", "tracked", "lines", "labels"]) },
+  { name: "Mobility", desc: "Network/reach focus — hubs, CRF, gateway airfields, tracked, reach rings + AR + air bridges.", on: preset(["commands", "routes", "straits", "sigmets", "czones", "enroute", "crf", "airfields", "tracked", "rings", "ar", "bridges", "labels"]) },
   { name: "Force", desc: "Force-protection focus — your watched countries/bases foregrounded, with conflict, ACLED strikes, NEO advisories, disasters, and GPS interference; node/reach clutter dimmed.", on: preset(["commands", "iwareas", "straits", "forces", "conflict", "acled", "neo", "disasters", "gps", "tracked", "labels"]) },
 ];
 interface Tracked { label: string; lat: number; lon: number; home?: boolean }
@@ -382,6 +385,8 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   const [sigmets, setSigmets] = useState<Sigmet[]>([]);
   const [sigmetGaps, setSigmetGaps] = useState(0);
   const [navWarns, setNavWarns] = useState<NavWarning[]>([]);
+  const [czones, setCzones] = useState<ConflictZone[]>([]);
+  const [czMeta, setCzMeta] = useState<{ unplaced: number; faa: boolean; easa: boolean } | null>(null);
   const [lineReads, setLineReads] = useState<LineRead[] | null>(null);
   // The event time window — strikes, conflict and maritime incidents only;
   // standing conditions (NEO, storms, hazards, disasters) are never hidden.
@@ -511,7 +516,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   const reach = reachOf(AF, payload);
   const didFit = useRef(false);
   const [on, setOn] = useState<Record<LayerKey, boolean>>(() => {
-    const base = { commands: true, iwareas: true, straits: true, routes: true, sigmets: false, navwarn: false, disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, maritime: true, gps: false, gpstests: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
+    const base = { commands: true, iwareas: true, straits: true, routes: true, sigmets: false, navwarn: false, czones: false, disasters: true, hazards: true, tropical: true, cone: true, radar: false, neo: true, conflict: true, acled: true, maritime: true, gps: false, gpstests: false, overflight: false, outages: false, launches: false, informRisk: false, forces: true, milair: false, ships: false, enroute: true, crf: true, airfields: false, tracked: true, lines: true, rings: false, ar: false, bridges: false, labels: true };
     if (typeof window !== "undefined") { try { return { ...base, ...(JSON.parse(localStorage.getItem(TOGGLE_KEY) || "{}")) }; } catch { /* ignore */ } }
     return base;
   });
@@ -712,6 +717,10 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     (d) => { if (Array.isArray(d.sigmets)) setSigmets(d.sigmets); setSigmetGaps(d.noGeometry ?? 0); }, (d) => d.live === false), [on.sigmets, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => layerFetch<{ live?: boolean; warnings?: NavWarning[] }>("navwarn", "/api/osint/navwarnings", "NGA warnings",
     (d) => { if (Array.isArray(d.warnings)) setNavWarns(d.warnings); }, (d) => d.live === false), [on.navwarn, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Conflict zones: "down" only when NEITHER the FAA nor EASA answered; one
+  // door down is named in the layer's own note.
+  useEffect(() => layerFetch<{ live?: boolean; zones?: ConflictZone[]; unplaced?: number; faa?: { live: boolean }; easa?: { live: boolean } }>("czones", "/api/osint/conflict-zones", "FAA/EASA zones",
+    (d) => { if (Array.isArray(d.zones)) setCzones(d.zones); setCzMeta({ unplaced: d.unplaced ?? 0, faa: !!d.faa?.live, easa: !!d.easa?.live }); }, (d) => d.live === false), [on.czones, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!on.routes) return;
     const ctrl = new AbortController();
@@ -912,6 +921,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
   const areas = useMemo(() => boardAreas(iwBoards), [iwBoards]);
   const routes = useMemo(() => lineRoutes(lineReads ?? []), [lineReads]);
   const sigmetsShown = useMemo(() => sigmets.filter((x) => x.points.length && passAor(aorFromCoords(x.points[0][0], x.points[0][1]))), [sigmets, aorFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const czShown = useMemo(() => czones.map((z) => ({ ...z, points: z.points.filter((p) => passAor(aorFromCoords(p.lat, p.lon))) })).filter((z) => z.points.length), [czones, aorFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const navShown = useMemo(() => navWarns.filter((w) => { const p = w.shapes[0]?.points[0]; return p && passAor(aorFromCoords(p[0], p[1])); }), [navWarns, aorFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ranked list (the map's table of contents).
@@ -1110,7 +1120,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
     overflight: (on.overflight && overflight.length) || undefined,
     gpstests: (on.gpstests && gpsTestsShown.length) || undefined,
     iwareas: areas.length || undefined, straits: (on.straits && straitsShown.length) || undefined, routes: (on.routes && routes.length) || undefined,
-    sigmets: (on.sigmets && sigmetsShown.length) || undefined, navwarn: (on.navwarn && navShown.length) || undefined,
+    sigmets: (on.sigmets && sigmetsShown.length) || undefined, navwarn: (on.navwarn && navShown.length) || undefined, czones: (on.czones && czShown.length) || undefined,
     outages: outages.length || undefined, launches: launches.length || undefined,
     forces: forces.length || undefined, milair: (on.milair && milShown.length) || undefined, ships: (on.ships && shipShown.length) || undefined,
     enroute: ENROUTE.length, crf: CRF.length, tracked: tracked.length,
@@ -1532,6 +1542,27 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               return <CircleMarker key={`sg-${x.id}`} center={x.points[0]} radius={7} pathOptions={{ color: col, fillColor: col, fillOpacity: 0.4, weight: 1 }}>{popup}</CircleMarker>;
             })}
 
+            {/* Conflict-zone airspace — FAA KICZ / SFAR (solid) and EASA CZIBs
+                (dashed). A pin at the FIR / country centroid, never a boundary. */}
+            {on.czones && czShown.map((z) => {
+              const col = z.level === "prohibited" ? "#ef4444" : z.level === "avoid" ? "#f59e0b" : z.level === "caution" ? "#38bdf8" : "#94a3b8";
+              const word = z.level === "prohibited" ? "PROHIBITED" : z.level === "avoid" ? "SHOULD NOT OPERATE" : z.level === "caution" ? "CAUTION / ADVISORY" : "NOTICE — read the text";
+              return z.points.map((pt, j) => (
+                <CircleMarker key={`cz-${z.id}-${j}`} center={[pt.lat, pt.lon]} radius={z.source === "faa" ? 11 : 14}
+                  pathOptions={{ color: col, weight: z.source === "faa" ? 2 : 1.5, opacity: 0.9, fillColor: col, fillOpacity: z.source === "faa" ? 0.18 : 0.06, dashArray: z.source === "easa" ? "5 4" : undefined }}>
+                  <Popup><div className="text-[12px] font-mono leading-tight max-w-[340px]">
+                    <div className="font-bold text-sm">{z.id}</div>
+                    <div style={{ color: col }}>{word}{z.altitude ? ` · ${z.altitude}` : ""}</div>
+                    <div className="text-slate-700">{z.title}</div>
+                    <div className="text-slate-500">{z.source === "faa" ? "FAA — binding on U.S. operators" : "EASA CZIB — a recommendation to EU operators"}{z.issued ? ` · issued ${z.issued}` : ""}{z.validTo ? ` · valid to ${z.validTo}` : ""}</div>
+                    <div className="text-slate-500">Pinned at {pt.name} ({pt.by === "fir" ? "FIR centroid" : "country centroid"}) — not the airspace boundary</div>
+                    <details className="mt-1"><summary className="cursor-pointer text-slate-500">text as published</summary><div className="text-slate-700 whitespace-pre-wrap max-h-[160px] overflow-auto">{z.text}</div></details>
+                    {z.url && <a href={z.url} target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">source document <ExternalLinkIcon size={11} className="inline -mt-px" /></a>}
+                  </div></Popup>
+                </CircleMarker>
+              ));
+            })}
+
             {/* NGA navigational warnings — operational classes only. */}
             {on.navwarn && navShown.map((w) => {
               const col = w.tone === "red" ? "#ef4444" : w.tone === "amber" ? "#fbbf24" : "#94a3b8";
@@ -1857,7 +1888,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
               <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-500 uppercase tracking-wider font-bold">Legend</span><button onClick={() => setLegend(false)} className="text-slate-600 hover:text-slate-300">×</button></div>
               <div><span className="text-red-400">●</span>/<span className="text-orange-400">●</span> disaster (size=HADR) · <span className="text-amber-400">◯</span> hub wx</div>
               <div><span className="text-sky-400">🌀</span> tropical · <span className="text-sky-400">▱</span> ~48h cone (approx) / <span className="text-sky-400">– –</span> 24h motion · <span className="text-red-300">🛫</span>/<span className="text-red-300">⛔</span> NEO · <span style={{ color: "#f43f5e" }}>●</span> kinetic/conflict (✸ top events) · <span style={{ color: "#f87171" }}>◆</span> ACLED strike · <span style={{ color: "#c084fc" }}>⬡</span> GPS/EW · <span style={{ color: "#a78bfa" }}>◎</span> GPS test (bold = approach level · dashed = not in effect)</div>
-              <div><span style={{ color: "#38bdf8" }}>▭</span> I&amp;W board area (dashed = learning) · <span style={{ color: "#f59e0b" }}>⚓</span> strait: red act · amber threat · grey reporting · dark no reporting · <span style={{ color: "#10b981" }}>—</span> your line (dashed = planned) · <span style={{ color: "#fb7185" }}>▱</span> SIGMET · <span style={{ color: "#fbbf24" }}>▱</span> nav warning</div>
+              <div><span style={{ color: "#38bdf8" }}>▭</span> I&amp;W board area (dashed = learning) · <span style={{ color: "#f59e0b" }}>⚓</span> strait: red act · amber threat · grey reporting · dark no reporting · <span style={{ color: "#10b981" }}>—</span> your line (dashed = planned) · <span style={{ color: "#fb7185" }}>▱</span> SIGMET · <span style={{ color: "#fbbf24" }}>▱</span> nav warning · <span style={{ color: "#ef4444" }}>◯</span> conflict zone: red FAA prohibited · sky FAA advisory · amber dashed EASA should-not-operate (pin at FIR / country, not the boundary)</div>
               <div><span style={{ color: "#818cf8" }}>▦</span> command wash (faint, dashed = not watched) · tint = worst posture of a watched country · tag = I&W · posture · demand 7 d (from the command board)</div>
               <div><span className="text-emerald-400">✈</span> hub · <span style={{ color: "#5eead4" }}>★</span> CRF · <span style={{ color: "#34d399", fontWeight: 900 }}>⌂</span> home · <span className="text-slate-400">◇</span> tracked</div>
               <div>node ring = flight cat: <span style={{ color: CAT_COLOR.VFR }}>●</span> VFR · <span style={{ color: CAT_COLOR.MVFR }}>●</span> MVFR · <span style={{ color: CAT_COLOR.IFR }}>●</span> IFR · <span style={{ color: CAT_COLOR.LIFR }}>●</span> LIFR <span className="italic text-slate-500">(METAR; no ring = unknown)</span></div>
@@ -2020,7 +2051,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
         })()}
         <div className="px-3 py-1.5 border-t border-slate-800 text-[9px] text-slate-600 leading-relaxed">
           <span className="font-bold uppercase tracking-wider text-slate-500">Sources</span>
-          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}Maritime incidents: UKMTO (UK Maritime Trade Operations) — ukmto.org{" · "}GPS/EW: GPSJam{" · "}GPS tests: DoD DAIP (GPS_WAAS){" · "}SIGMETs: NWS Aviation Weather Center{" · "}Nav warnings: NGA Maritime Safety Information{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Command borders: Natural Earth (public domain){" · "}Basemap: Esri / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
+          {" · "}Disasters: GDACS / USGS / ReliefWeb{" · "}Hub wx: Open-Meteo (model){" · "}Tropical: NOAA NHC{" · "}NEO: U.S. State Dept{" · "}Conflict events: Uppsala Conflict Data Program (UCDP), ReliefWeb (UN OCHA) fallback{" · "}Structured strikes: Armed Conflict Location &amp; Event Data Project (ACLED) — acleddata.com{" · "}Maritime incidents: UKMTO (UK Maritime Trade Operations) — ukmto.org{" · "}GPS/EW: GPSJam{" · "}GPS tests: DoD DAIP (GPS_WAAS){" · "}SIGMETs: NWS Aviation Weather Center{" · "}Nav warnings: NGA Maritime Safety Information{" · "}Conflict zones: FAA (KICZ / SFAR) and EASA (CZIB){czMeta && on.czones ? ` (${[!czMeta.faa && "FAA UNKNOWN", !czMeta.easa && "EASA UNKNOWN", czMeta.unplaced ? `${czMeta.unplaced} not placed` : null].filter(Boolean).join(", ") || "both live"})` : ""}{" · "}Crisis risk: INFORM Risk (World Bank Data360 / JRC DRMKC){" · "}Radar: RainViewer{" · "}Airfields: AMC hubs + OurAirports{" · "}Command borders: Natural Earth (public domain){" · "}Basemap: Esri / OpenStreetMap{" · "}Nodes, reach rings &amp; airframe figures: internal (illustrative). All open-source, coarse SA — not tasking.
         </div>
       </section>
 
