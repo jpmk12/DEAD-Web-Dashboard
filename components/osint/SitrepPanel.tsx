@@ -15,6 +15,8 @@ import { relTime } from "@/lib/relTime";
 import { fieldGpsLine, prnLine } from "@/lib/gpsNotams";
 import IcingCrosswind from "@/components/osint/IcingCrosswind";
 import FieldOutlookStrip from "@/components/osint/FieldOutlookStrip";
+import OpsTimeline from "@/components/osint/OpsTimeline";
+import { windowsWithNotams } from "@/lib/opsTimeline";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
 // LEDs carry the glow on top.
@@ -336,6 +338,13 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
     for (const a of p.weather.alerts) md.push(`- [${a.severity}] ${a.event} — ${a.headline}`);
     if (p.weather.turbulence) md.push(`- Turbulence / wind shear: **${p.weather.turbulence.level === "r" ? "OBSERVED / WARNED" : p.weather.turbulence.level === "a" ? "FORECAST" : p.weather.turbulence.level === "u" ? "UNKNOWN" : "none indicated"}** — ${p.weather.turbulence.summary}`);
     if (p.weather.outlook72) md.push(`- ${p.weather.outlook72.summary}`);
+    if (p.weather.timeline72) {
+      const tl72 = p.weather.timeline72;
+      const withN = windowsWithNotams(tl72, closureWindows(p.ops.groups.flatMap((g) => g.items), Date.parse(p.generatedAt), 72));
+      md.push("", "### Limiting windows — next 72 h (Z)");
+      if (!tl72.live || !withN.windows.length) md.push(`- ${tl72.summary}`);
+      else for (const w of withN.windows.slice(0, 8)) md.push(`- ${w.text}`);
+    }
     if (!p.weather.outlook72) for (const d of p.weather.outlook) md.push(`- ${d.date}: ${d.hiF ?? "?"}/${d.loF ?? "?"}°F, precip ${d.precipPct ?? "?"}%, wind ${d.windMph ?? "?"} mph`);
     md.push(`\n## Ops`);
     md.push(`- Field: ${p.ops.fieldClosed ? "CLOSED" : p.ops.limiting ? "LIMITED" : p.ops.configured && p.ops.live ? "OPEN" : "UNKNOWN"} · ${p.ops.notamCount} active NOTAMs${p.ops.capability ? ` · ${p.ops.capability.lengthFt} ft ${p.ops.capability.surface} (${p.ops.capability.cls})` : ""}`);
@@ -394,6 +403,11 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
   const tlNowMs = payload ? Date.parse(payload.generatedAt) : 0;
   const tlWindows = useMemo(
     () => (payload ? closureWindows(payload.ops.groups.flatMap((g) => g.items), tlNowMs, 48) : []),
+    [payload, tlNowMs],
+  );
+  // The same NOTAM read over 72 h, for the ops timeline's NOTAM lane.
+  const tl72Closures = useMemo(
+    () => (payload ? closureWindows(payload.ops.groups.flatMap((g) => g.items), tlNowMs, 72) : []),
     [payload, tlNowMs],
   );
   const tlConflicts = useMemo(
@@ -581,6 +595,13 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mr-2">Tempo</span>
               {payload.tempo.lines.join(" · ")}
             </p>
+          )}
+
+          {/* The next 72 h on one axis — weather, ground and airframe ice, the
+              runway, crosswind, the ramp and the NOTAM closures, with the
+              limiting windows listed beneath (lib/opsTimeline). */}
+          {(show("sitrep") || show("weather")) && payload.weather.timeline72 && (
+            <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} />
           )}
 
           {/* Supporting detail — the raw signal cards the mission-impact

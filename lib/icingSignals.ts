@@ -78,6 +78,10 @@ export interface ProfileHour {
   cloudPct?: number | null;
   visM?: number | null;
   precipPct?: number | null;
+  /** The 72-h ops timeline's columns (lib/opsTimeline): dew point, feels-like (wind chill / heat), snowfall cm in the hour. */
+  dewC?: number | null;
+  feelsC?: number | null;
+  snowCm?: number | null;
   levels: ProfileLevel[];
 }
 export interface FieldProfile { live: boolean; elevationM: number | null; hours: ProfileHour[]; reason: string | null }
@@ -117,6 +121,9 @@ export function parseFieldProfile(json: unknown): FieldProfile {
       cloudPct: col("cloud_cover", i),
       visM: col("visibility", i),
       precipPct: col("precipitation_probability", i),
+      dewC: col("dew_point_2m", i),
+      feelsC: col("apparent_temperature", i),
+      snowCm: col("snowfall", i),
       levels: levels.sort((a, b) => a.heightM - b.heightM),
     });
   }

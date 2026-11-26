@@ -2125,6 +2125,72 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     `turbulence` and `shear` groups and `profile.outlookColumns` (hours
     carrying cloud / visibility / precip chance / weather code / gust — a 0
     means Open-Meteo renamed the column).
+- **72-h ops timeline (2026-11-26, "analyzing the next 2-3 days to see
+  potential limiting factors … impacts of cold, rain, ice … see if the
+  graphical timeline can be enhanced")**. The SITREP had the pieces in
+  separate cards and separate horizons (TAF bar 24 h, icing 30 h, crosswind
+  24 h, outlook tiles 72 h, closure bars 48 h). They are now one picture:
+  hour columns, lanes that say what each hour does to OPERATIONS, and the
+  merged **limiting windows** beneath. PURE `lib/opsTimeline.ts` (tested in
+  `tests/opsTimeline.test.ts`), no model call, no new host.
+  - **Inputs**: the profile the SITREP already reads (`getFieldProfile`,
+    now also `dew_point_2m`, `apparent_temperature`, `snowfall` →
+    `ProfileHour.dewC / feelsC / snowCm`; the icing diag's `outlookColumns`
+    counts them — a 0 means Open-Meteo renamed a column), the decoded TAF
+    periods, the military TAF icing groups (`parseTafHazards`, now computed
+    once and shared with the turbulence read), the runway ends, and the
+    sun's altitude per hour (`lib/moon.ts`) for the day / twilight / night
+    shading.
+  - **The TAF governs its window**: per hour the base period prevails until
+    the next base starts (a BECMG gap is filled by the prior period, never
+    left blank), TEMPO / PROB fold in and draw DASHED; beyond the TAF the
+    model reads, dashed and labelled "(model)". The sky lane beyond the TAF
+    is VISIBILITY only (`IFR vis`) — the model gives no ceiling.
+  - **Lanes**: Sky (flight category colours) · Precip (RA / FZRA / SN / PL
+    chip) · **Temp** (SVG: air temperature, dotted dew point, below-0 °C
+    shading, the 0 °C line and ↓0° / ↑0° crossing markers — the freeze /
+    thaw moments) · **Ground ice** (DE/ANTI-ICE for freezing precip, DE-ICE
+    for snow ≤ `SNOW_DEICE_C` 2 °C, FZFG, GLAZE for rain at ≤ 0 °C, "near
+    0°" for rain ≤ 2 °C, FROST as a note when temp ≤ 0 and the spread ≤
+    `FROST_SPREAD_C` 2) · **Runway** (ICE, PL, SNOW with the modelled cm,
+    WATER at ≥ `HEAVY_RAIN_MM` 4 mm/h, REFREEZE — below 0 °C within
+    `REFREEZE_LOOKBACK_H` 12 h of ≥ 0.2 mm precip) · **Icing aloft** (a
+    military TAF icing group wins; model likely = amber inside
+    `ICING_AMBER_H` 12 h, else a note) · **Crosswind** (`bestEnd`, the
+    advisory bands of `lib/crosswind`; raised to amber at ≥ 15 kt / G20 on a
+    contaminated runway) · **Ramp / crew** (lightning, gusts ≥
+    `RAMP_GUST_KT` 35 amber, wind chill ≤ −18 °C a note / ≤ −27 °C amber
+    "frostbite in ~30 min", feels-like ≥ 32 °C a note / ≥ 40 °C amber) · **NOTAMs** (the closure windows
+    folded in by the CLIENT — `notamLane` / `windowsWithNotams`: closure /
+    U/S amber, limited a note, an unreadable schedule UNKNOWN "SCHED").
+  - **Colour**: a forecast is AMBER at most — red stays observed — except
+    the crosswind lane, which keeps `lib/crosswind`'s own bands (tested:
+    nothing else on the timeline is ever red). A lane with no input reads
+    UNKNOWN with the reason (no runway headings, no profile); no TAF AND no
+    profile → `live:false`, UNKNOWN summary. **The timeline never moves the
+    wx LED.**
+  - **Limiting windows** (`limitingWindows`): every amber / red segment
+    across lanes merged where they overlap or touch; ONE factor per lane —
+    its worst segment by red › `labelSeverity` (ICE / DE/ANTI-ICE / LIFR ›
+    PL / GLAZE / LIGHTNING / MOD ICE › SNOW / DE-ICE / IFR › REFREEZE /
+    FZFG / HEAT / WC › WATER / gusts) › duration, with its own span when it
+    is not the whole window; factors ordered NOTAM › runway › ground ice ›
+    sky › crosswind › icing › ramp › precip (precip dropped when anything
+    else explains the window); text "Thu 26 09Z–Fri 27 15Z — Runway:
+    freezing rain (TAF) — ice on the runway, braking poor [Thu 15Z–Fri
+    11Z]; …". Tap a window to highlight it across every lane; tap a bar for
+    its sentence.
+  - **Wired**: `SitrepPayload.weather.timeline72` (optional — older cached
+    payloads simply have no strip); `components/osint/OpsTimeline.tsx`
+    above "Supporting detail" (sitrep / weather sections; scrolls sideways
+    inside its own box at phone width); the Commander's Read gets LIMITING
+    WINDOW 72H and 0 °C CROSSINGS lines with a rule to name the first one
+    or two and their driver (fingerprint carries the window count); the
+    HTML export renders it statically (`opsTimelineHtml`, zero JS, inline
+    SVG temperature line); Save-to-Docs adds "Limiting windows — next 72 h
+    (Z)". Planning-grade; braking / de-ice / wind-chill thresholds are
+    advisory, never the AFI or flight-manual numbers. Verified rendered with
+    a winter fixture (desktop + phone). No new npm dep (esbuild `0`).
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

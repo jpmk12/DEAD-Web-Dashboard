@@ -13,6 +13,7 @@
 import { wmoWordShort } from "./fieldOutlook";
 import type { SitrepPayload } from "./sitrep";
 import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led } from "./sitrepSignals";
+import { windowsWithNotams, rangeLabel, type OpsTimeline, type ClosureLike } from "./opsTimeline";
 import type { FlightCategory } from "./types";
 import { fieldGpsLine, prnLine } from "./gpsNotams";
 
@@ -43,6 +44,52 @@ const CAP_HTML: Record<string, { cls: string; label: string }> = {
   nmc: { cls: "nmc", label: "NMC" },
   unknown: { cls: "ukn", label: "UNK" },
 };
+
+// The 72-h ops timeline as static markup (lib/opsTimeline) — lanes of
+// percentage-positioned bars, night shading, the temperature as an inline SVG
+// line, and the limiting windows listed. Zero script, like the rest.
+const TL_TONE: Record<string, string> = { r: "red", a: "amb", i: "sky", g: "ok", u: "sched" };
+const TL_CAT: Record<string, string> = { VFR: "c-vfr", MVFR: "c-mvfr", IFR: "c-ifr", LIFR: "c-lifr" };
+export function opsTimelineHtml(tl: OpsTimeline | null | undefined, closures: ClosureLike[]): string {
+  if (!tl) return "";
+  if (!tl.live) return `<div class="otl"><div class="tlhead">Next 72 h — ops timeline (Z)</div><div class="otl-sum">${esc(tl.summary)}</div></div>`;
+  const span = tl.hours * 3_600_000;
+  const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - tl.startMs) / span) * 100));
+  const { lane: notam, windows } = windowsWithNotams(tl, closures);
+  const ticks: string[] = [];
+  for (let ms = Math.ceil(tl.startMs / 21_600_000) * 21_600_000; ms < tl.startMs + span; ms += 21_600_000) {
+    const d = new Date(ms);
+    const day = d.getUTCHours() === 0;
+    ticks.push(`<span class="otl-tick${day ? " day" : ""}" style="left:${pct(ms).toFixed(2)}%">${day ? `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, "0")}` : `${String(d.getUTCHours()).padStart(2, "0")}Z`}</span>`);
+  }
+  const shade = tl.light.filter((l) => l.state !== "day")
+    .map((l) => `<span class="otl-n ${l.state}" style="left:${pct(l.fromMs).toFixed(2)}%;width:${(pct(l.toMs) - pct(l.fromMs)).toFixed(2)}%"></span>`).join("");
+  const laneRow = (title: string, inner: string) => `<div class="tlrow"><div class="tllab">${esc(title)}</div><div class="tltrack otl-track">${shade}${inner}</div></div>`;
+  const bars = (l: OpsTimeline["lanes"][number]) => l.segs.map((sg) => {
+    const left = pct(sg.fromMs), width = Math.max(0.6, pct(sg.toMs) - left);
+    const cls = l.key === "sky" && sg.cat ? TL_CAT[sg.cat] : TL_TONE[sg.tone];
+    return `<span class="bar ${cls}${sg.dashed ? " dash" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(`${rangeLabel(sg.fromMs, sg.toMs)} — ${sg.detail}`)}">${width > sg.label.length * 1.2 ? esc(sg.label) : ""}</span>`;
+  }).join("") || (l.unknown ? `<span class="otl-unk">${esc(l.unknown)}</span>` : "");
+  const order = ["sky", "precip", "TEMP", "deice", "runway", "icing", "xwind", "ramp"];
+  const temps = tl.temps.filter((x) => x.c != null);
+  let tempRow = laneRow("Temp °C", `<span class="otl-unk">UNKNOWN — the model profile did not answer</span>`);
+  if (temps.length) {
+    const vals = tl.temps.flatMap((x) => [x.c, x.dew]).filter((v): v is number => v != null);
+    const lo = Math.min(...vals, -2), hi = Math.max(...vals, 2), Hh = 40;
+    const y = (c: number) => (Hh - ((c - lo) / (hi - lo)) * Hh).toFixed(1);
+    const line = (f: (q: OpsTimeline["temps"][number]) => number | null) => tl.temps.map((q, k) => { const v = f(q); return v == null ? null : `${k + 0.5},${y(v)}`; }).filter(Boolean).join(" ");
+    const freeze = tl.temps.map((q, k) => (q.c != null && q.c <= 0 ? `<rect x="${k}" y="0" width="1" height="${Hh}" fill="rgba(56,189,248,.12)"/>` : "")).join("");
+    const svg = `<svg viewBox="0 0 ${tl.hours} ${Hh}" preserveAspectRatio="none" class="otl-svg">${freeze}<line x1="0" x2="${tl.hours}" y1="${y(0)}" y2="${y(0)}" stroke="rgba(125,211,252,.7)" stroke-width=".6" stroke-dasharray="2 1.5" vector-effect="non-scaling-stroke"/><polyline points="${line((q) => q.dew)}" fill="none" stroke="rgba(148,163,184,.7)" stroke-width="1" stroke-dasharray="1.5 1.5" vector-effect="non-scaling-stroke"/><polyline points="${line((q) => q.c)}" fill="none" stroke="#f1f5f9" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>`;
+    tempRow = `<div class="tlrow"><div class="tllab">Temp °C<br>${tl.temp.minC ?? "—"} / ${tl.temp.maxC ?? "—"}</div><div class="tltrack otl-track otl-temp">${shade}${svg}</div></div>`;
+  }
+  const rows = order.map((k) => (k === "TEMP" ? tempRow : (() => { const l = tl.lanes.find((x) => x.key === k); return l ? laneRow(l.title, bars(l)) : ""; })())).join("") + laneRow(notam.title, bars(notam));
+  const list = windows.length
+    ? `<ul class="otl-win">${windows.slice(0, 10).map((w) => `<li class="${w.tone === "r" ? "r" : "a"}">${esc(w.text)}</li>`).join("")}</ul>`
+    : `<div class="otl-sum">${esc(tl.summary)}</div>`;
+  return `<div class="otl"><div class="tlhead">Next 72 h — ops timeline (Z) · model planning-grade · the TAF governs its window · dashed = model or TEMPO / PROB</div>` +
+    `<div class="otl-axis">${ticks.join("")}</div>${rows}` +
+    `<div class="tlhead" style="margin-top:10px">Limiting windows</div>${list}</div>`;
+}
 
 export function renderSitrepHtml(p: SitrepPayload, read: { bluf: string[]; watch: string[]; asks?: string[] } | null): string {
   const nowMs = Date.parse(p.generatedAt);
@@ -360,6 +407,25 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 .bar.amb{background:rgba(251,191,36,.2);border:1px solid rgba(251,191,36,.5);color:#fcd34d}
 .bar.sky{background:rgba(56,189,248,.18);border:1px solid rgba(56,189,248,.45);color:#7dd3fc}
 .bar.sched{background:transparent;border:1px dashed rgba(148,163,184,.7);color:#94a3b8}
+.otl{border:1px solid #1e293b;background:rgba(15,23,42,.5);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+.otl-axis{position:relative;height:13px;margin-left:96px;margin-bottom:3px}
+.otl-tick{position:absolute;transform:translateX(-50%);font:8px ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
+.otl-tick.day{color:#cbd5e1;font-weight:800}
+.otl-track{overflow:hidden}
+.otl-temp{height:40px}
+.otl-svg{position:absolute;inset:0;width:100%;height:100%}
+.otl-n{position:absolute;top:0;bottom:0}
+.otl-n.civil{background:rgba(30,27,75,.25)}.otl-n.nautical{background:rgba(30,27,75,.45)}.otl-n.night{background:rgba(30,27,75,.7)}
+.otl-unk{position:absolute;left:6px;top:2px;font-size:8.5px;color:#64748b;font-style:italic;white-space:nowrap}
+.bar.dash{border-style:dashed}
+.bar.ok{background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.3);color:#6ee7b7}
+.bar.c-vfr{background:rgba(52,211,153,.18);border:1px solid rgba(52,211,153,.45);color:#a7f3d0}
+.bar.c-mvfr{background:rgba(56,189,248,.28);border:1px solid rgba(56,189,248,.6);color:#e0f2fe}
+.bar.c-ifr{background:rgba(239,68,68,.28);border:1px solid rgba(239,68,68,.6);color:#fee2e2}
+.bar.c-lifr{background:rgba(217,70,239,.32);border:1px solid rgba(217,70,239,.65);color:#fae8ff}
+.otl-sum{font-size:11.5px;color:#94a3b8}
+.otl-win{margin:4px 0 0 16px;font-size:11.5px;color:#e2e8f0;line-height:1.55}
+.otl-win li.a::marker{color:#fbbf24}.otl-win li.r::marker{color:#ef4444}
 .conflict{margin-top:8px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.06);border-radius:8px;padding:7px 10px;font-size:11px;color:#fca5a5}
 .foot{font:10px ui-monospace,Menlo,monospace;color:#475569;line-height:1.7;border-top:1px solid #1e293b;padding-top:12px;margin-top:18px}
 .foot b{color:#94a3b8}
@@ -405,6 +471,7 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 </div>
 ${blufHtml}
 ${missionHtml}
+${opsTimelineHtml(p.weather.timeline72, closureWindows(p.ops.groups.flatMap((g) => g.items), nowMs, 72))}
 <div class="supp">Supporting detail</div>
 ${card(p.status.wx, "Weather", "AWC METAR/TAF · NWS · Open-Meteo", `${p.weather.metarRaw ? `<div class="metar">${esc(p.weather.metarRaw)}</div>` : ""}${tafBar}${weatherRows.join("")}`)}
 ${card(p.status.ops, "Ops / Airfield", "DAIP NOTAMs · OurAirports", `${opsRows.join("")}${windChips}${timelineHtml}`)}

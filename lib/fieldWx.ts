@@ -20,7 +20,7 @@ const FAIL_TTL = 2 * 60_000;
 export function fieldProfileUrl(lat: number, lon: number): string {
   const lv = PROFILE_LEVELS.flatMap((p) => [`temperature_${p}hPa`, `relative_humidity_${p}hPa`, `geopotential_height_${p}hPa`]);
   return `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
-    `&hourly=${["temperature_2m", "freezing_level_height", "weather_code", "precipitation", "wind_direction_10m", "wind_speed_10m", "wind_gusts_10m", "cloud_cover", "visibility", "precipitation_probability", ...lv].join(",")}` +
+    `&hourly=${["temperature_2m", "freezing_level_height", "weather_code", "precipitation", "wind_direction_10m", "wind_speed_10m", "wind_gusts_10m", "cloud_cover", "visibility", "precipitation_probability", "dew_point_2m", "apparent_temperature", "snowfall", ...lv].join(",")}` +
     `&wind_speed_unit=kn&timezone=GMT&forecast_days=4`;
 }
 
@@ -90,6 +90,10 @@ export async function diagnoseFieldWx(icao: string, lat: number, lon: number): P
         precipChance: parsed.hours.filter((h) => h.precipPct != null).length,
         weatherCode: parsed.hours.filter((h) => h.weatherCode != null).length,
         gust: parsed.hours.filter((h) => h.gustKt != null).length,
+        // The 72-h ops timeline's columns (frost, wind chill, snow accumulation).
+        dewPoint: parsed.hours.filter((h) => h.dewC != null).length,
+        feelsLike: parsed.hours.filter((h) => h.feelsC != null).length,
+        snowfall: parsed.hours.filter((h) => h.snowCm != null).length,
       } : undefined,
       snippet: parsed?.live ? undefined : text.slice(0, 300),
     };

@@ -15,6 +15,7 @@ import { readIcing, type IcingRead } from "./icingSignals";
 import { crosswindOutlook, type XwindOutlook } from "./crosswind";
 import { readTurbulence, type TurbulenceRead } from "./turbulence";
 import { fieldOutlook, type FieldOutlook } from "./fieldOutlook";
+import { opsTimeline, type OpsTimeline } from "./opsTimeline";
 import { parseTafHazards } from "./tafGroups";
 import { withTimeout } from "./withTimeout";
 import { getNotams, notamTimeState, type Notam } from "./notams";
@@ -130,6 +131,8 @@ export interface SitrepPayload {
     turbulence?: TurbulenceRead | null;
     /** 72-h outlook in 6-h Zulu blocks (lib/fieldOutlook) — absent on older payloads. */
     outlook72?: FieldOutlook | null;
+    /** 72-h ops timeline: hourly lanes + limiting windows (lib/opsTimeline) — absent on older payloads. Never moves the LED. */
+    timeline72?: OpsTimeline | null;
   };
   astro: AstroData;
   ops: {
@@ -548,6 +551,7 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
     sigmets: sigmetRes ? { live: sigmetRes.live, items: sigmetRes.sigmets } : null,
     pireps: pirepRes ? { live: pirepRes.live, items: pirepRes.items } : null,
   });
+  const tafHazards = rawWx.taf ? parseTafHazards(rawWx.taf.raw, rawWx.taf.issuedAt || null, now) : null;
   const turbulence = readTurbulence({
     nowMs: now,
     field: { lat: base.lat, lon: base.lon },
@@ -555,10 +559,18 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
     elevFt: icing.elevFt,
     metar: obs ? { windSpeedKt: obs.windSpeedKt ?? null, windGustKt: obs.windGustKt ?? null, raw: obs.raw ?? "" } : null,
     taf: rawWx.taf?.periods ?? null,
-    hazards: rawWx.taf ? parseTafHazards(rawWx.taf.raw, rawWx.taf.issuedAt || null, now) : null,
+    hazards: tafHazards,
     sigmets: sigmetRes ? { live: sigmetRes.live, items: sigmetRes.sigmets } : null,
   });
   const outlook72 = fieldOutlook({ nowMs: now, lon: base.lon, hours: fieldProfile?.live ? fieldProfile.hours : null, taf: rawWx.taf?.periods ?? null });
+  const timeline72 = opsTimeline({
+    nowMs: now, lat: base.lat, lon: base.lon,
+    elevationM: fieldProfile?.elevationM ?? null,
+    hours: fieldProfile?.live ? fieldProfile.hours : null,
+    taf: rawWx.taf?.periods ?? null,
+    tafGroups: tafHazards?.groups ?? null,
+    runways,
+  });
   const crosswind = crosswindOutlook({
     nowMs: now,
     runways,
@@ -632,6 +644,7 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
       crosswind,
       turbulence,
       outlook72,
+      timeline72,
     },
     astro: astroData(base.lat, base.lon, now),
     ops: {
