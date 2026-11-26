@@ -312,7 +312,9 @@ export function sigmetsNear(sigmets: Sigmet[], hazard: Sigmet["hazard"], field: 
 }
 
 export type PirepIntensity = "NEG" | "TRC" | "LGT" | "MOD" | "SEV";
-export interface Pirep { t: number; lat: number; lon: number; altFt: number | null; intensity: PirepIntensity | null; type: string | null; acType: string | null; raw: string }
+/** A PIREP turbulence report: the worse of the report's two layers. */
+export interface PirepTurb { intensity: PirepIntensity; type: string | null; freq: string | null; altFt: number | null }
+export interface Pirep { t: number; lat: number; lon: number; altFt: number | null; intensity: PirepIntensity | null; type: string | null; acType: string | null; raw: string; turb?: PirepTurb | null }
 
 const INT_RANK: Record<PirepIntensity, number> = { NEG: 0, TRC: 1, LGT: 2, MOD: 3, SEV: 4 };
 
@@ -320,7 +322,7 @@ const INT_RANK: Record<PirepIntensity, number> = { NEG: 0, TRC: 1, LGT: 2, MOD: 
 export function pirepIntensity(s: string | null | undefined): PirepIntensity | null {
   const t = (s ?? "").toUpperCase();
   let best: PirepIntensity | null = null;
-  for (const w of ["NEG", "NEGCLR", "TRC", "TRACE", "LGT", "LIGHT", "MOD", "MODERATE", "SEV", "SEVERE", "HVY", "EXTRM"]) {
+  for (const w of ["NEG", "NEGCLR", "TRC", "TRACE", "LGT", "LIGHT", "MOD", "MODERATE", "SEV", "SEVERE", "HVY", "EXTRM", "EXTREME"]) {
     if (!new RegExp(`(^|[^A-Z])${w}([^A-Z]|$)`).test(t)) continue;
     const k: PirepIntensity = w.startsWith("NEG") ? "NEG" : w.startsWith("TR") ? "TRC" : w.startsWith("L") ? "LGT" : w.startsWith("MOD") ? "MOD" : "SEV";
     if (!best || INT_RANK[k] > INT_RANK[best]) best = k;
@@ -334,6 +336,38 @@ export function rawIcingGroup(raw: string): { intensity: PirepIntensity | null; 
   if (!m) return null;
   const g = m[1].trim();
   return { intensity: pirepIntensity(g), type: (g.match(/\b(RIME|CLR|CLEAR|MX|MXD|MIXED)\b/) ?? [null, null])[1] };
+}
+
+/** The /TB group of a raw PIREP ("… /TB OCNL LGT-OCNL MOD CHOP /RM …"). */
+export function rawTurbGroup(raw: string): { intensity: PirepIntensity | null; type: string | null } | null {
+  const m = raw.toUpperCase().match(/\/TB\s+([^/]+)/);
+  if (!m) return null;
+  const g = m[1].trim();
+  return { intensity: pirepIntensity(g), type: (g.match(/\b(CHOP|CAT|LLWS|MWAVE)\b/) ?? [null, null])[1] };
+}
+
+/** A layer base / top field in hundreds of feet (AWC: icgBas2 350 = 35,000 ft) → feet. */
+function hundreds(v: unknown): number | null {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d{1,3}$/.test(v.trim()) ? Number(v) : null;
+  return n != null && Number.isFinite(n) ? n * 100 : null;
+}
+
+/** The worse of a report's two layers (AWC: <p>Int1 / <p>Int2 with <p>Bas / <p>Top /
+ *  <p>Type), the raw group as the fallback. The layer's base is its altitude;
+ *  without one the flight level stands in. VERIFIED from production (KDEN,
+ *  2026-11-26): icgInt1/2, icgBas/Top, tbInt1/2, tbType, tbFreq, tbBas/Top. */
+function worseLayer(o: Record<string, unknown>, p: "icg" | "tb", rawFallback: { intensity: PirepIntensity | null; type: string | null } | null, fltFt: number | null): { intensity: PirepIntensity; type: string | null; freq: string | null; altFt: number | null } | null {
+  let best: { intensity: PirepIntensity; type: string | null; freq: string | null; altFt: number | null } | null = null;
+  for (const n of [1, 2]) {
+    const int = pirepIntensity(typeof o[`${p}Int${n}`] === "string" ? (o[`${p}Int${n}`] as string) : null);
+    if (!int) continue;
+    const type = typeof o[`${p}Type${n}`] === "string" && (o[`${p}Type${n}`] as string).trim() ? (o[`${p}Type${n}`] as string).trim() : null;
+    const freq = typeof o[`${p}Freq${n}`] === "string" && (o[`${p}Freq${n}`] as string).trim() ? (o[`${p}Freq${n}`] as string).trim() : null;
+    const altFt = hundreds(o[`${p}Bas${n}`]) ?? fltFt;
+    if (!best || INT_RANK[int] > INT_RANK[best.intensity]) best = { intensity: int, type, freq, altFt };
+  }
+  if (!best && rawFallback?.intensity) best = { intensity: rawFallback.intensity, type: rawFallback.type, freq: null, altFt: fltFt };
+  return best;
 }
 
 /** "/FL080" or a fltLvl field → feet. */
@@ -362,10 +396,14 @@ export function parsePireps(body: unknown): { pireps: Pirep[]; rows: number } {
     const tRaw = o.obsTime ?? o.receiptTime;
     const t = typeof tRaw === "number" ? (tRaw < 1e12 ? tRaw * 1000 : tRaw) : typeof tRaw === "string" ? Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(tRaw) ? tRaw : `${tRaw.replace(" ", "T")}Z`) : NaN;
     if (!Number.isFinite(t)) continue;
-    const g = rawIcingGroup(raw);
-    const intensity = pirepIntensity(typeof o.icgInt1 === "string" ? o.icgInt1 : null) ?? g?.intensity ?? null;
-    const type = (typeof o.icgType1 === "string" && o.icgType1.trim()) || g?.type || null;
-    out.push({ t, lat, lon, altFt: flightLevelFt(o.fltLvl ?? o.fltlvl, raw), intensity, type, acType: typeof o.acType === "string" ? o.acType : null, raw: raw.slice(0, 300) });
+    const fltFt = flightLevelFt(o.fltLvl ?? o.fltlvl, raw);
+    const icg = worseLayer(o, "icg", rawIcingGroup(raw), fltFt);
+    const tb = worseLayer(o, "tb", rawTurbGroup(raw), fltFt);
+    out.push({
+      t, lat, lon, altFt: icg?.altFt ?? fltFt, intensity: icg?.intensity ?? null, type: icg?.type ?? null,
+      acType: typeof o.acType === "string" ? o.acType : null, raw: raw.slice(0, 300),
+      turb: tb ? { intensity: tb.intensity, type: tb.type, freq: tb.freq, altFt: tb.altFt } : null,
+    });
   }
   return { pireps: out, rows: rows.length };
 }
@@ -409,6 +447,26 @@ export function pirepFieldReport(body: unknown): PirepFieldReport {
   }
   rep.turbulence.keys = [...tbKeys].sort();
   return rep;
+}
+
+export interface PirepTurbNear { intensity: PirepIntensity; type: string | null; freq: string | null; altFt: number | null; distNm: number; ageMin: number; acType: string | null }
+
+/** Turbulence PIREPs near the field, in the approach band, in the last hours —
+ *  worst first. A NEG report is a report of smooth air and never a driver; one
+ *  above the band is cruise chop, not the approach. */
+export function pirepTurbNear(pireps: Pirep[], field: LatLonPt, elevFt: number, nowMs: number): PirepTurbNear[] {
+  const out: PirepTurbNear[] = [];
+  for (const p of pireps) {
+    const tb = p.turb;
+    if (!tb || tb.intensity === "NEG") continue;
+    const ageMin = Math.round((nowMs - p.t) / 60_000);
+    if (ageMin < -10 || ageMin > PIREP_MAX_AGE_H * 60) continue;
+    const distNm = Math.round(haversineKm(field.lat, field.lon, p.lat, p.lon) / KM_PER_NM);
+    if (distNm > PIREP_RADIUS_NM) continue;
+    if (tb.altFt != null && tb.altFt > elevFt + APPROACH_TOP_AGL_FT) continue;
+    out.push({ intensity: tb.intensity, type: tb.type, freq: tb.freq, altFt: tb.altFt, distNm, ageMin: Math.max(0, ageMin), acType: p.acType });
+  }
+  return out.sort((a, b) => INT_RANK[b.intensity] - INT_RANK[a.intensity] || a.ageMin - b.ageMin);
 }
 
 export interface PirepNear { intensity: PirepIntensity; type: string | null; altFt: number | null; distNm: number; ageMin: number; acType: string | null; inBand: boolean }

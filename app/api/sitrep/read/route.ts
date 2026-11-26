@@ -118,7 +118,7 @@ export async function POST(req: Request) {
   }
   const tb = w.turbulence;
   if (tb) {
-    lines.push(`TURBULENCE / WIND SHEAR (field + approach): ${tb.level === "u" ? "UNKNOWN" : tb.level === "r" ? "OBSERVED / WARNED" : tb.level === "a" ? "FORECAST" : "none indicated"} — ${tb.summary}`);
+    lines.push(`TURBULENCE / WIND SHEAR (field + approach): ${tb.level === "u" ? "UNKNOWN" : tb.level === "r" ? "OBSERVED / WARNED" : tb.level === "a" ? (tb.drivers.some((d) => d.tone === "a" && d.source === "PIREP") ? "REPORTED BY A PILOT" : "FORECAST") : "none indicated"} — ${tb.summary}`);
     for (const d of tb.drivers.slice(1, 4)) lines.push(`TURBULENCE [${d.source}${d.tone === "r" ? "/RED" : d.tone === "a" ? "/AMBER" : "/NOTE"}]: ${d.text.slice(0, 220)}`);
   }
   const o72 = w.outlook72;

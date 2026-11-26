@@ -566,6 +566,7 @@ async function assembleSitrepOnce(base: SitrepBase, cacheKey: string): Promise<S
     taf: rawWx.taf?.periods ?? null,
     hazards: tafHazards,
     sigmets: sigmetRes ? { live: sigmetRes.live, items: sigmetRes.sigmets } : null,
+    pireps: pirepRes ? { live: pirepRes.live, items: pirepRes.items } : null,
   });
   const outlook72 = fieldOutlook({ nowMs: now, lon: base.lon, hours: fieldProfile?.live ? fieldProfile.hours : null, taf: rawWx.taf?.periods ?? null });
   const timeline72 = opsTimeline({

@@ -143,6 +143,8 @@ export function resetUkmtoCache(): void { cache = null; }
 /** Owner-only diagnostic: the real fetches from production — the SCCD API
  *  (status, bytes, records, the first record's keys, a snippet) and the
  *  page — plus the store. How "blocked" / "shape changed" gets proven. */
+const asciiLine = (t: string | null): string | null => (t == null ? null : t.replace(/[\u2013\u2014]/g, "-").replace(/[^\x20-\x7e]/g, ""));
+
 export async function diagnoseUkmto(): Promise<{
   door: UkmtoFetchStatus["door"]; parsed: number; reason: string | null; ms: number;
   api: { url: string; status: number; bytes: number; records: number; parsed: number; keys: string[]; reason: string | null; snippet: string; sample: string[]; dms: DmsCheck | null };
@@ -153,13 +155,14 @@ export async function diagnoseUkmto(): Promise<{
   const live = await fetchLive();
   const store = await getUkmtoStoreStatus().catch(() => ({ count: 0, newest: null, captured: 0, fetched: 0 }));
   return {
-    door: live.status.door, parsed: live.status.parsed, reason: live.status.reason, ms: Date.now() - t0,
+    // ASCII only — a diag is pasted through pipes that turn an em dash into "â€”".
+    door: live.status.door, parsed: live.status.parsed, reason: asciiLine(live.status.reason), ms: Date.now() - t0,
     api: {
       url: UKMTO_API_URL, status: live.api.status, bytes: live.api.bytes, records: live.api.records ?? 0, parsed: live.api.parsed, keys: live.api.keys ?? [], dms: live.api.dms ?? null,
-      reason: live.api.reason, snippet: live.api.snippet,
+      reason: asciiLine(live.api.reason), snippet: live.api.snippet,
       sample: live.api.incidents.slice(0, 5).map((i) => `${i.ref} | ${i.label} | ${i.date ?? "-"} ${i.time ?? ""} | ${i.placement ?? "unplaced"}${i.lat != null ? ` ${i.lat.toFixed(2)},${i.lon!.toFixed(2)}` : ""} | ${i.text.slice(0, 80)}`),
     },
-    page: live.page ? { url: UKMTO_URL, status: live.page.status, bytes: live.page.bytes, parsed: live.page.parsed, reason: live.page.reason, snippet: live.page.snippet } : null,
+    page: live.page ? { url: UKMTO_URL, status: live.page.status, bytes: live.page.bytes, parsed: live.page.parsed, reason: asciiLine(live.page.reason), snippet: live.page.snippet } : null,
     store,
   };
 }

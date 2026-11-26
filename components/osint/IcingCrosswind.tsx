@@ -71,7 +71,7 @@ export default function IcingCrosswind({ icing, crosswind, turbulence = null }: 
           <p className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
             <span className={`w-2 h-2 rounded-full ${DOT[turbulence.level]}`} />
             Turbulence &amp; wind shear — field &amp; approach
-            <span className={`font-mono normal-case tracking-normal ${TXT[turbulence.level]}`}>{turbulence.level === "r" ? "OBSERVED / WARNED" : turbulence.level === "a" ? "FORECAST" : turbulence.level === "g" ? "NONE INDICATED" : "UNKNOWN"}</span>
+            <span className={`font-mono normal-case tracking-normal ${TXT[turbulence.level]}`}>{turbulence.level === "r" ? "OBSERVED / WARNED" : turbulence.level === "a" ? (turbulence.drivers.some((d) => d.tone === "a" && d.source === "PIREP") ? "REPORTED" : "FORECAST") : turbulence.level === "g" ? "NONE INDICATED" : "UNKNOWN"}</span>
           </p>
           <p className={`text-[11px] mt-1 ${TXT[turbulence.level]}`}>{turbulence.summary}</p>
           {turbulence.drivers.length > 1 && (
@@ -86,7 +86,7 @@ export default function IcingCrosswind({ icing, crosswind, turbulence = null }: 
             </ul>
           )}
           <p className="text-[9px] text-slate-600 mt-1">
-            sources: METAR{turbulence.sources.metar ? "" : " n/a"} · {turbulence.militaryTaf ? "TAF (military turbulence groups)" : turbulence.sources.taf ? "TAF (wind shear, gusts — a civil TAF has no turbulence groups)" : "TAF n/a"} · SIGMET{turbulence.sources.sigmet === false ? " down" : turbulence.sources.sigmet == null ? " n/a" : ""} · gust spread ≥15 kt = mechanical turbulence near the ground (rule of thumb) · a TAF group is a forecast, never red
+            sources: METAR{turbulence.sources.metar ? "" : " n/a"} · {turbulence.militaryTaf ? "TAF (military turbulence groups)" : turbulence.sources.taf ? "TAF (wind shear, gusts — a civil TAF has no turbulence groups)" : "TAF n/a"} · SIGMET{turbulence.sources.sigmet === false ? " down" : turbulence.sources.sigmet == null ? " n/a" : ""} · PIREP{turbulence.sources.pirep === false ? " down" : turbulence.sources.pirep == null ? " n/a" : ""} · gust spread ≥15 kt = mechanical turbulence near the ground (rule of thumb) · a TAF group is a forecast, never red
           </p>
         </div>
       )}

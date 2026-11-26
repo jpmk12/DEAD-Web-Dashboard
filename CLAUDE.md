@@ -1644,6 +1644,31 @@ Conflict Zone Information Bulletins — a recommendation to EU operators.
   cache) → count, groups, rows, codes, five rows verbatim, `rawFirst`;
   `?diag=type&type=<DAIP type>` probes any other query type the same way.
 - MOFCOM's main-site path is confirmable only from the extension's run log.
+- **Results (same day, first runs on the new build):**
+  - **PIREPs VERIFIED** (KDEN, 200 NM / 6 h: 19 rows). Fields as pinned —
+    `obsTime` epoch seconds, `lat` / `lon`, `fltLvl` in hundreds of feet,
+    `acType`, `rawOb` — plus TWO layers per hazard: `icgInt1/2`,
+    `icgType1/2`, `icgBas1/2` / `icgTop1/2` (hundreds of feet) and the same
+    `tb…` set with `tbFreq1/2`. Intensities as written ("NEG", "NEGclr",
+    "LGT-MOD"). Two changes from it: (1) **icing reads the WORSE of the two
+    layers** (a report can carry icing only in layer 2) and that layer's
+    base is its altitude for the approach-band test, the flight level only
+    when no base is given; (2) **PIREP turbulence is wired** into
+    `readTurbulence` (`pireps` input, optional — an older caller says
+    nothing): `Pirep.turb` (worse layer, raw `/TB` fallback via
+    `rawTurbGroup`), `pirepTurbNear` (60 NM / 3 h, the approach band only —
+    cruise chop and NEG never drive): SEV / EXTREME in the band RED
+    (observed by an aircraft), MOD AMBER (the card header reads REPORTED,
+    the Commander's Read "REPORTED BY A PILOT"), LGT a note; a quiet read
+    says "none is not smooth air". Pinned against the verbatim rows in
+    `tests/diagFormats.test.ts`.
+  - **Fuel NOTAMs**: the envelope is the shared DAIP one (`group: []`,
+    count 0 — "active Fuel NOTAMs for Accountability DESC"). The list is
+    genuinely empty; the ROW shape stays unverified until DESC issues one.
+  - **UKMTO**: production is refused by both hosts (SCCD API 403, page 403),
+    as expected — the DMS check can only come from the extension 1.2.14
+    capture reply. The store's newest capture was 2026-11-13: the sweep had
+    not uploaded UKMTO for 13 days. The diag's reasons are ASCII now.
 
 ### Crisis map radar (`lib/` n/a — `/api/osint/radar` + RainViewer tiles)
 The optional **Radar** layer (off by default) animates RainViewer precip/
@@ -2137,8 +2162,9 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     joins the tile driver ("turbulence risk" / "TURB / SHEAR"), the brief
     line, the Commander's Read (TURBULENCE lines + the rule), the export and
     the markdown, and renders as a third block in `IcingCrosswind`. NOT wired
-    into `deriveMissionImpact` and no PIREP turbulence (the PIREP turbulence
-    fields are as unverified as the icing ones).
+    into `deriveMissionImpact`. PIREP turbulence was added 2026-11-26 once
+    the fields were verified (see "Format checks" under the conflict-zone
+    note).
     **`lib/fieldOutlook.ts` `fieldOutlook`** (tested in
     `tests/fieldOutlook.test.ts`): the model profile the SITREP already reads
     (`getFieldProfile`, now `forecast_days=4` with `cloud_cover`,

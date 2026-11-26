@@ -10,6 +10,9 @@
 //   - Gust spread (gust minus mean wind) in the METAR and the TAF — the
 //     planning rule of thumb for mechanical turbulence on short final.
 //   - A wind-shear report in the METAR ("WS R24", "WS ALL RWY").
+//   - Turbulence PIREPs within 60 NM / 3 h in the approach band (tbInt1/2 —
+//     verified from production 2026-11-26): severe / extreme RED (observed),
+//     moderate AMBER, light a note; NEG and cruise-level reports never drive.
 //
 // Colour discipline, the icing read's: RED only for turbulence observed or
 // warned (a SIGMET in effect over the approach, wind shear reported in the
@@ -20,7 +23,7 @@
 
 import type { Sigmet } from "./sigmetParse";
 import type { TafPeriod } from "./types";
-import { sigmetsNear, APPROACH_TOP_AGL_FT, type LatLonPt, type SigmetIcing } from "./icingSignals";
+import { sigmetsNear, pirepTurbNear, APPROACH_TOP_AGL_FT, type LatLonPt, type SigmetIcing, type Pirep, type PirepTurbNear } from "./icingSignals";
 import { turbGroupLabel, type TafHazards, type TafShearGroup, type TafTurbGroup } from "./tafGroups";
 
 /** Gust spread at or above which mechanical turbulence near the ground is likely (kt). */
@@ -28,7 +31,7 @@ export const GUST_SPREAD_KT = 15;
 export const TURB_HORIZON_H = 24;
 
 export type TurbTone = "r" | "a" | "i";
-export interface TurbDriver { tone: TurbTone; text: string; source: "METAR" | "TAF" | "SIGMET" }
+export interface TurbDriver { tone: TurbTone; text: string; source: "METAR" | "TAF" | "SIGMET" | "PIREP" }
 
 export interface TurbulenceInputs {
   nowMs: number;
@@ -39,6 +42,8 @@ export interface TurbulenceInputs {
   taf: TafPeriod[] | null;
   hazards: TafHazards | null;
   sigmets: { live: boolean; items: Sigmet[] } | null;
+  /** Absent on older callers — the read then says nothing about PIREPs. */
+  pireps?: { live: boolean; items: Pirep[] } | null;
 }
 
 export interface TurbulenceRead {
@@ -49,7 +54,8 @@ export interface TurbulenceRead {
   shear: TafShearGroup[];
   sigmets: SigmetIcing[];
   militaryTaf: boolean;
-  sources: { metar: boolean; taf: boolean; sigmet: boolean | null };
+  pireps?: PirepTurbNear[];
+  sources: { metar: boolean; taf: boolean; sigmet: boolean | null; pirep?: boolean | null };
 }
 
 const hhmm = (ms: number) => { const d = new Date(ms); return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`; };
@@ -125,16 +131,29 @@ export function readTurbulence(i: TurbulenceInputs): TurbulenceRead {
     drivers.push({ tone: s.inEffect ? "r" : "a", source: "SIGMET", text: s.inEffect ? `${s.line} — in effect${s.toMs ? ` until ${hhmm(s.toMs)}` : ""} (a SIGMET turbulence is severe)` : `${s.line} — from ${s.fromMs ? hhmm(s.fromMs) : "?"}` });
   }
 
+  // 4. PIREPs — observed by an aircraft, in the approach band.
+  const pirepLive = i.pireps ? i.pireps.live : null;
+  const near = i.pireps?.live ? pirepTurbNear(i.pireps.items, i.field, i.elevFt ?? 0, now) : [];
+  for (const p of near.slice(0, 3)) {
+    const word = p.intensity === "SEV" ? "SEVERE" : p.intensity === "MOD" ? "moderate" : p.intensity === "LGT" ? "light" : "trace";
+    const alt = p.altFt == null ? "level not stated" : p.altFt >= 18000 ? `FL${Math.round(p.altFt / 100)}` : `${p.altFt.toLocaleString("en-US")} ft`;
+    drivers.push({
+      tone: p.intensity === "SEV" ? "r" : p.intensity === "MOD" ? "a" : "i", source: "PIREP",
+      text: `PIREP ${word} turbulence${p.type ? ` (${p.type.toLowerCase()})` : ""}${p.freq ? `, ${p.freq.toLowerCase()}` : ""} at ${alt}, ${p.distNm} NM, ${p.ageMin} min ago${p.acType ? ` · ${p.acType}` : ""}`,
+    });
+  }
+
   const order: Record<TurbTone, number> = { r: 0, a: 1, i: 2 };
   drivers.sort((a, b) => order[a.tone] - order[b.tone]);
   const sigLive = i.sigmets ? i.sigmets.live : null;
   const militaryTaf = Boolean(hz?.military);
   const level: TurbulenceRead["level"] = drivers.some((d) => d.tone === "r") ? "r"
     : drivers.some((d) => d.tone === "a") ? "a"
-    : metarLive || tafLive || sigLive ? "g" : "u";
+    : metarLive || tafLive || sigLive || pirepLive ? "g" : "u";
   const quiet = [
     militaryTaf ? "the military TAF forecasts no turbulence group" : tafLive ? "a civil TAF carries no turbulence forecast — its silence is not smooth air" : "no TAF",
     sigLive ? "no SIGMET turbulence near the field" : sigLive === false ? "SIGMETs unreachable" : null,
+    pirepLive ? "no turbulence PIREP in the approach band (PIREPs are sparse — none is not smooth air)" : pirepLive === false ? "PIREPs unreachable" : null,
   ].filter(Boolean).join(" · ");
   const summary = level === "u" ? "Turbulence UNKNOWN — neither the METAR, the TAF nor the SIGMET list answered"
     : drivers[0] && drivers[0].tone !== "i" ? drivers[0].text
@@ -142,7 +161,7 @@ export function readTurbulence(i: TurbulenceInputs): TurbulenceRead {
     : `No turbulence or wind shear indicated · ${quiet}`;
 
   return {
-    level, summary, drivers, groups, shear, sigmets: sig, militaryTaf,
-    sources: { metar: metarLive, taf: tafLive, sigmet: sigLive },
+    level, summary, drivers, groups, shear, sigmets: sig, militaryTaf, pireps: near,
+    sources: { metar: metarLive, taf: tafLive, sigmet: sigLive, pirep: pirepLive },
   };
 }
