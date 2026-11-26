@@ -208,3 +208,92 @@ describe("which segment names a window", () => {
     expect(labelSeverity("WC -30°")).toBe(6);
   });
 });
+
+import { sliceAt, changePoints, zuluStamp, spanText, windowBand } from "../lib/opsTimeline";
+
+describe("scrubbing: the hour readout", () => {
+  const fz = () => opsTimeline({ ...base, taf: [taf(0, 6), taf(6, 12, { wxRaw: "-FZRA", flightCategory: "IFR" }), taf(12, 30)], hours: hours(72, (k) => ({ tempC2m: k < 20 ? -1 : 4, dewC: -1.5 })) });
+  const closures = [{ fromMs: T0 + 40 * H, toMs: T0 + 44 * H, kind: "closure" as const, label: "RWY 09/27", text: "RWY 09/27 CLSD WIP" }];
+
+  it("the Zulu stamp and span text", () => {
+    expect(zuluStamp(T0 + 5 * H + 15 * 60_000)).toBe("Thu 26 Nov · 0515Z");
+    expect(zuluStamp(T0 + 5 * H, false)).toBe("Thu 26 · 0500Z");
+    expect(spanText(40 * 60_000)).toBe("40 min");
+    expect(spanText(16 * H)).toBe("16 h");
+    expect(spanText(28 * H)).toBe("1 d 4 h");
+  });
+
+  it("reads every lane at the hour, says which window it is in and when it clears", () => {
+    const t = fz();
+    const { lane, windows } = windowsWithNotams(t, closures);
+    const s = sliceAt(t, [lane], windows, T0 + 8 * H + 30 * 60_000)!;
+    expect(s.stamp).toBe("Thu 26 Nov · 0830Z");
+    expect(s.src).toBe("taf");
+    expect(s.rows.map((r) => r.key)).toEqual(["sky", "precip", "temp", "deice", "runway", "icing", "xwind", "ramp", "notam"]);
+    expect(s.rows.find((r) => r.key === "runway")).toMatchObject({ tone: "a", label: "ICE" });
+    expect(s.rows.find((r) => r.key === "temp")!.text).toMatch(/^-1 °C · dew -1 · feels 4 · 0 °C at [0-9,]+ ft AGL \(model\)$/);
+    expect(s.rows.find((r) => r.key === "notam")).toMatchObject({ tone: "n", text: "no closure in effect" });
+    expect(s.window).toMatchObject({ index: 0, toMs: T0 + 12 * H, leftMs: 3.5 * H });
+    expect(s.next).toBeNull();
+  });
+
+  it("outside a window it names the next one; beyond the TAF it says model", () => {
+    const t = fz();
+    const { lane, windows } = windowsWithNotams(t, closures);
+    const s = sliceAt(t, [lane], windows, T0 + 33 * H)!;
+    expect(s.src).toBe("model");
+    expect(s.window).toBeNull();
+    expect(s.next).toMatchObject({ fromMs: T0 + 40 * H, inMs: 7 * H });
+    expect(sliceAt(t, [lane], windows, T0 + 41 * H)!.rows.find((r) => r.key === "notam")).toMatchObject({ tone: "a", label: "RWY 09/27 CLSD" });
+  });
+
+  it("an UNKNOWN lane is said as UNKNOWN, never as nothing limiting", () => {
+    const t = opsTimeline({ ...base, runways: [], taf: null, hours: hours(72) });
+    const s = sliceAt(t, [], t.windows, T0 + H)!;
+    expect(s.rows.find((r) => r.key === "xwind")).toMatchObject({ tone: "u", label: "UNKNOWN" });
+    expect(s.rows.find((r) => r.key === "deice")).toMatchObject({ tone: "n", text: "nothing limiting" });
+    // A dead timeline has no slice; the cursor clamps into the 72 h.
+    expect(sliceAt(opsTimeline({ ...base, taf: null, hours: null }), [], [], T0)).toBeNull();
+    expect(sliceAt(t, [], [], T0 + 500 * H)!.ms).toBe(T0 + 72 * H - 1);
+  });
+
+  it("a lane unknown only past the TAF still reads inside it", () => {
+    const t = opsTimeline({ ...base, taf: [taf(0, 24, { wxRaw: "-SN", flightCategory: "IFR" })], hours: null });
+    expect(sliceAt(t, [], t.windows, T0 + 2 * H)!.rows.find((r) => r.key === "sky")).toMatchObject({ label: "IFR" });
+    expect(sliceAt(t, [], t.windows, T0 + 30 * H)!.rows.find((r) => r.key === "sky")!.tone).toBe("u");
+  });
+
+  it("change points are every bar edge and every 0 °C crossing, inside the 72 h", () => {
+    const t = fz();
+    const c = changePoints(t);
+    expect(c).toContain(T0 + 6 * H);
+    expect(c).toContain(T0 + 12 * H);
+    expect(c).toContain(t.temp.crossings[0].t);
+    expect(c.every((x) => x > t.startMs && x < t.startMs + 72 * H)).toBe(true);
+    expect([...c].sort((a, b) => a - b)).toEqual(c);
+  });
+
+  it("the airfield band carries the windows with NOTAMs folded in", () => {
+    const t = fz();
+    const { windows } = windowsWithNotams(t, closures);
+    const b = windowBand(t, windows)!;
+    expect(b.live).toBe(true);
+    expect(b.windows).toHaveLength(2);
+    expect(b.windows[1].label).toMatch(/RWY 09\/27 CLSD/);
+    expect(windowBand(null, [])).toBeNull();
+  });
+});
+
+describe("the two fixes from the mockup fixture", () => {
+  it("a TAF freezing rain over warm model air says the sources disagree", () => {
+    const t = opsTimeline({ ...base, taf: [taf(0, 12, { wxRaw: "-FZRA", flightCategory: "IFR" })], hours: hours(72, () => ({ tempC2m: 6 })) });
+    const d = t.lanes.find((l) => l.key === "deice")!.segs[0];
+    expect(d.label).toBe("DE/ANTI-ICE");
+    expect(d.detail).toMatch(/model has the air at 6 °C; the TAF and the model disagree/);
+    expect(d.detail).not.toMatch(/freezing rain \(TAF\) at 6/);
+  });
+  it("a NOTAM bar carries a short label for a narrow bar", () => {
+    const lane = notamLane([{ fromMs: T0, toMs: T0 + 4 * H, kind: "closure", label: "RWY 05/23", text: "x" }], T0);
+    expect(lane.segs[0]).toMatchObject({ label: "RWY 05/23 CLSD", short: "CLSD" });
+  });
+});

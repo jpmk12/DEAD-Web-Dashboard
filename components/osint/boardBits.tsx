@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { StopTrackIcon } from "@/lib/icons";
 
 import type { CbSitrep } from "@/lib/commandBoard";
+import type { WindowBand } from "@/lib/opsTimeline";
 import { SEVERITY_DOT, type Severity } from "@/lib/severity";
 import { LED_CLASS, LEVEL_PILL } from "@/lib/levelTokens";
 
@@ -30,6 +31,29 @@ export function Leds({ status, size = "w-1.5 h-1.5" }: { status: CbSitrep["statu
   return (
     <span className="flex gap-0.5" title={`wx ${status.wx} · ops ${status.ops} · threat ${status.threat} · infra ${status.infra} · spectrum ${status.spectrum} (g green · a amber · r red · u unknown)`}>
       {(["wx", "ops", "threat", "infra", "spectrum"] as const).map((k) => <span key={k} className={`${size} rounded-full ${LED_CLASS[status[k]]}`} />)}
+    </span>
+  );
+}
+
+/** The 72-h limiting windows of a field as one thin band (lib/opsTimeline windowBand):
+ *  amber / red stretches on a 72-h track starting now. Nothing drawn for an older
+ *  summary without a band; a timeline that could not be read says UNKNOWN. */
+export function Band72({ band, className = "" }: { band: WindowBand | null | undefined; className?: string }) {
+  if (!band) return null;
+  const span = band.hours * 3_600_000;
+  const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - band.startMs) / span) * 100));
+  const title = !band.live ? "72-h ops timeline UNKNOWN — no TAF and no model profile"
+    : band.windows.length ? `Next 72 h:\n${band.windows.map((w) => w.label).join("\n")}`
+    : "Next 72 h: no limiting window";
+  return (
+    <span className={`flex items-center gap-1.5 ${className}`} title={title}>
+      <span className="text-[8px] font-mono text-slate-600 flex-shrink-0">72h</span>
+      <span className={`relative flex-1 h-[5px] rounded-full overflow-hidden ${band.live ? "bg-slate-800/80" : "border border-dashed border-slate-600"}`}>
+        {band.windows.map((w, i) => (
+          <span key={i} className={`absolute top-0 bottom-0 ${w.tone === "r" ? "bg-red-500/80" : "bg-amber-400/75"}`} style={{ left: `${pct(w.fromMs)}%`, width: `${Math.max(1.2, pct(w.toMs) - pct(w.fromMs))}%` }} />
+        ))}
+        {[24, 48].map((h) => <span key={h} className="absolute top-0 bottom-0 w-px bg-slate-950/70" style={{ left: `${(h / band.hours) * 100}%` }} />)}
+      </span>
     </span>
   );
 }

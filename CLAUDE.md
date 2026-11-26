@@ -2191,6 +2191,41 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     (Z)". Planning-grade; braking / de-ice / wind-chill thresholds are
     advisory, never the AFI or flight-manual numbers. Verified rendered with
     a winter fixture (desktop + phone). No new npm dep (esbuild `0`).
+  - **Scrubbing, placement and airfield bands (same day, from
+    `docs/mockups/ops-timeline-options.html` — option B + placement 2 + the
+    band, as recommended).** Moving the mouse along the lanes (or dragging a
+    finger — `touch-action: pan-y`, so a vertical swipe still scrolls) draws a
+    hairline across every lane with the **Zulu time on a flag over the axis**
+    and the field's local time beside it (`zone` prop =
+    `payload.weather.current.timezone`, Open-Meteo's; none → Zulu only). The
+    **hour readout** under the lanes (`sliceAt`, PURE, tested) reads EVERY
+    lane at that instant: the stamp ("Fri 27 Nov · 0515Z", `zuluStamp`),
+    local, in/ago, whether the TAF governs the hour or it is model, inside
+    which limiting window and when it clears (else when the next opens), then
+    one row per lane (temperature row: air · dew · feels · 0 °C level). A lane
+    with nothing there reads "nothing limiting"; a lane UNKNOWN there reads
+    UNKNOWN (a lane unknown only past the TAF still reads inside it). Click /
+    tap pins; ← → step an hour, Shift + ← → jump to the next change
+    (`changePoints`: every bar edge and 0 °C crossing), Esc clears; a window
+    in the list puts the cursor on its start. A green line marks now. Bars
+    are spans now (the readout replaced tap-a-bar); labels are fitted to real
+    pixels (ResizeObserver; full label › `TlSeg.short` › none), so the phone
+    shows all 72 h without sideways scrolling (`sm:min-w-[660px]`; the axis
+    keeps day names + 12Z on a narrow track). **Placement**: on the SITREP
+    tab it renders INSIDE `SitrepMissionImpact` via `afterRead`, between the
+    Commander's Read and the capability matrix (the Read says what, the
+    timeline shows when); the Weather tab (no mission panel) leads with it.
+    **Airfield band** (`windowBand` → `SitrepSummary.band72` → `CbSitrep.
+    band72` → `Band72` in `boardBits`): one 5-px 72-h track of the limiting
+    windows (weather + NOTAM closures, folded server-side in `sitrepSummary`)
+    on every My-airfields card and airfield-register row, windows listed in
+    the tooltip; dashed = UNKNOWN; absent on older summaries. **Two fixes from
+    the fixture**: TAF freezing precipitation over model air > 2 °C now reads
+    "the model has the air at N °C; the TAF and the model disagree, plan on
+    the TAF" (was "freezing rain at 6 °C"); NOTAM bars carry `short` "CLSD" /
+    "U/S" / "LTD". Verified in headless Chromium against the build (desktop
+    mouse scrub + keyboard step, phone tap, no overflow). The portable spec
+    for re-implementing this elsewhere is `docs/claude/ops-timeline.CLAUDE.md`.
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

@@ -537,7 +537,12 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
 
       {payload && currentBase && (
         <>
-          {show("sitrep") && <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} readError={readError} onRetryRead={() => icao && loadRead(icao)} onChanged={() => icao && loadSitrep(icao)} />}
+          {show("sitrep") && <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} readError={readError} onRetryRead={() => icao && loadRead(icao)} onChanged={() => icao && loadSitrep(icao)}
+            afterRead={payload.weather.timeline72 ? <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} zone={payload.weather.current?.timezone ?? null} /> : null} />}
+          {/* The Weather tab (no mission panel) leads with it. */}
+          {!show("sitrep") && show("weather") && payload.weather.timeline72 && (
+            <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} zone={payload.weather.current?.timezone ?? null} />
+          )}
 
           {/* Status strip */}
           {show("sitrep") && <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
@@ -600,9 +605,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
           {/* The next 72 h on one axis — weather, ground and airframe ice, the
               runway, crosswind, the ramp and the NOTAM closures, with the
               limiting windows listed beneath (lib/opsTimeline). */}
-          {(show("sitrep") || show("weather")) && payload.weather.timeline72 && (
-            <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} />
-          )}
+
 
           {/* Supporting detail — the raw signal cards the mission-impact
               layer is derived from. Kept in full below the leadership picture. */}

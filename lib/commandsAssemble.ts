@@ -128,7 +128,7 @@ function aorOf(lat: number | null | undefined, lon: number | null | undefined, n
 }
 
 function toCbSitrep(s: SitrepSummary): CbSitrep {
-  return { icao: s.icao, label: s.label, country: country(s.country), aor: isAor(s.aor) ? s.aor : aorOf(null, null, country(s.country)), status: s.status, driver: s.driver, worse: s.worse };
+  return { icao: s.icao, label: s.label, country: country(s.country), aor: isAor(s.aor) ? s.aor : aorOf(null, null, country(s.country)), status: s.status, driver: s.driver, worse: s.worse, band72: s.band72 ?? null };
 }
 
 function ownFieldsOf(profile: MissionProfile): CbOwnField[] {

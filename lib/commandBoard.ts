@@ -67,6 +67,8 @@ export interface CbSitrep {
   status: { wx: Led; ops: Led; threat: Led; infra: Led; spectrum: Led };
   driver: string;
   worse: string[];
+  /** 72-h limiting windows band (lib/opsTimeline windowBand) — absent on older summaries. */
+  band72?: import("./opsTimeline").WindowBand | null;
 }
 
 export interface CbDemand { aor: Aor; direction: "rise" | "hold" | "fall"; score: number; confidence: "low" | "medium" | "high"; line: string }

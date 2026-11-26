@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Leds, Dot, Star, RoleSwitch, Untrack, type EditOps } from "@/components/osint/boardBits";
+import { Leds, Dot, Star, RoleSwitch, Untrack, Band72, type EditOps } from "@/components/osint/boardBits";
 import { LED_CLASS } from "@/lib/levelTokens";
 import { openTrackPicker } from "@/lib/trackClient";
 import type { CommandBoard, FieldRow } from "@/lib/commandBoard";
@@ -91,6 +91,7 @@ function Row({ f, sel, onOpen, star, mtBusy, edit, partial }: { f: FieldRow; sel
         {f.role && <span className={`text-[8px] font-bold uppercase tracking-widest border rounded px-1 py-px ${f.role === "hub" ? "border-sky-500/50 text-sky-300" : "border-slate-700 text-slate-400"}`}>{f.role}</span>}
         <span className="text-[10px] font-mono text-slate-500 truncate">{f.country || "—"}</span>
         <span className="lg:hidden text-[10.5px] text-slate-500 truncate w-full">{driver}</span>
+        {f.sitrep?.band72 && <Band72 band={f.sitrep.band72} className="w-full max-w-[260px]" />}
       </span>
       <span className={`hidden lg:block text-[11px] truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{driver}{f.sitrep && f.sitrep.worse.length > 0 && <span className="ml-1 text-amber-400 font-bold" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>▲</span>}</span>
       <span className="hidden lg:block">{f.sitrep ? <Leds status={f.sitrep.status} size="w-2 h-2" /> : <span className="text-[9px] text-slate-600">no SITREP</span>}</span>

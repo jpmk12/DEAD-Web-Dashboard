@@ -8,7 +8,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import ReactivationCard from "@/components/osint/ReactivationCard";
 import RoomDrawer from "@/components/osint/RoomDrawer";
 import CommandAirfields from "@/components/osint/CommandAirfields";
-import { Leds, Dot, Star, RoleSwitch, Untrack, LVL_CHIP, TRAJ, type EditOps } from "@/components/osint/boardBits";
+import { Leds, Dot, Star, RoleSwitch, Untrack, Band72, LVL_CHIP, TRAJ, type EditOps } from "@/components/osint/boardBits";
 import { getForceProtectionData } from "@/lib/forceProtectionClient";
 import type { ForceAssessment } from "@/lib/forceProtection";
 import type { CommandsBody } from "@/lib/commandsAssemble";
@@ -455,6 +455,7 @@ export default function CommandBoard({ active }: { active: boolean }) {
                         {f.sitrep && f.sitrep.worse.length > 0 && <span className="text-[9px] font-bold text-amber-400" title={`worse than yesterday: ${f.sitrep.worse.join(", ")}`}>▲</span>}
                       </div>
                       <p className={`text-[10.5px] mt-1 truncate ${worst === "r" ? "text-red-300" : worst === "a" ? "text-amber-300" : "text-slate-400"}`}>{f.sitrep ? f.sitrep.driver : f.posture ? f.posture.topDriver : partial ? "posture assembling…" : "not watched — posture UNKNOWN"}</p>
+                      {f.sitrep?.band72 && <Band72 band={f.sitrep.band72} className="mt-1" />}
                       <p className="text-[9px] font-mono text-slate-600 mt-0.5 truncate">{f.aor !== "UNKNOWN" ? short(f.aor) : "—"} · {f.country || "—"} · {f.hasSitrep ? "SITREP →" : "★ to get a SITREP"}</p>
                     </button>
                     {canEdit && (

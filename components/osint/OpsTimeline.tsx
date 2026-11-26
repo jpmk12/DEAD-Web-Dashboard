@@ -1,14 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { windowsWithNotams, rangeLabel, type OpsTimeline as Timeline, type TlLane, type TlSeg, type Tone, type ClosureLike, type LimitWindow } from "@/lib/opsTimeline";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { windowsWithNotams, rangeLabel, sliceAt, changePoints, zuluStamp, spanText, type OpsTimeline as Timeline, type TlLane, type Tone, type ClosureLike, type LimitWindow, type SliceTone } from "@/lib/opsTimeline";
 
 // The 72-hour ops timeline (lib/opsTimeline): one hourly axis, a lane per
 // operational question (sky · precip · temperature · ground ice · runway ·
 // icing aloft · crosswind · ramp · NOTAMs), night shaded underneath, and the
 // LIMITING WINDOWS listed beneath — the merged amber stretches with every
-// factor that drives them. Tap a bar for its sentence; tap a window to light
-// it across the lanes. Model reads are dashed; TEMPO / PROB risk is dashed.
+// factor that drives them. Move the mouse (or drag a finger) along it: a
+// cursor carries the Zulu time and the readout beneath reads EVERY lane at
+// that hour — the words live there, so a phone shows all 72 h at once. Click /
+// tap pins it; ← → step an hour, Shift + ← → jump to the next change. Tap a
+// window to light it and put the cursor on its start. Model reads and TEMPO /
+// PROB risk are dashed.
 
 const H = 3_600_000;
 
@@ -32,7 +36,17 @@ const LIGHT_BG: Record<string, string> = {
   night: "bg-indigo-950/70",
 };
 
-function Lane({ lane, pct, sel, onSel, hours }: { lane: TlLane; pct: (ms: number) => number; sel: TlSeg | null; onSel: (s: TlSeg | null, lane: TlLane) => void; hours: number }) {
+const LABEL_COL = 94; // 86-px label column + 8-px gap
+
+/** A bar label that fits: the full label, else the short one, else nothing. */
+function fitLabel(label: string, short: string | undefined, px: number): string {
+  const need = (t: string) => t.length * 5.4 + 6;
+  if (px >= need(label)) return label;
+  if (short && px >= need(short)) return short;
+  return "";
+}
+
+function Lane({ lane, pct, trackPx }: { lane: TlLane; pct: (ms: number) => number; trackPx: number }) {
   return (
     <div className="flex items-center gap-2 h-[22px]">
       <span className="w-[86px] flex-shrink-0 text-right text-[9px] font-semibold text-slate-400 truncate" title={lane.unknown ?? lane.title}>
@@ -41,20 +55,15 @@ function Lane({ lane, pct, sel, onSel, hours }: { lane: TlLane; pct: (ms: number
       <div className="relative flex-1 h-[18px] rounded bg-slate-800/20">
         {lane.segs.map((s, i) => {
           const left = pct(s.fromMs), width = Math.max(0.6, pct(s.toMs) - left);
-          const showText = width > (s.label.length * 1.15 * 72) / hours;
           const cls = lane.key === "sky" && s.cat ? CAT_BAR[s.cat] : TONE_BAR[s.tone];
-          const isSel = sel === s;
           return (
-            <button
+            <span
               key={i}
-              type="button"
-              onClick={() => onSel(isSel ? null : s, lane)}
-              title={`${lane.title} · ${rangeLabel(s.fromMs, s.toMs)} — ${s.detail}`}
-              className={`absolute top-[1px] bottom-[1px] rounded-[3px] border px-0.5 text-[8px] font-bold leading-none flex items-center justify-center overflow-hidden whitespace-nowrap ${cls} ${s.dashed ? "border-dashed" : ""} ${isSel ? "ring-2 ring-sky-300 z-10" : ""}`}
+              className={`absolute top-[1px] bottom-[1px] rounded-[3px] border px-0.5 text-[8px] font-bold leading-none flex items-center justify-center overflow-hidden whitespace-nowrap ${cls} ${s.dashed ? "border-dashed" : ""}`}
               style={{ left: `${left}%`, width: `${width}%` }}
             >
-              {showText ? s.label : ""}
-            </button>
+              {fitLabel(s.label, s.short, (width / 100) * trackPx)}
+            </span>
           );
         })}
         {lane.segs.length === 0 && lane.unknown && (
@@ -94,15 +103,9 @@ function TempLane({ tl, pct }: { tl: Timeline; pct: (ms: number) => number }) {
           <line x1={0} x2={W} y1={y0} y2={y0} stroke="rgb(125 211 252 / 0.7)" strokeWidth={0.6} strokeDasharray="2 1.5" vectorEffect="non-scaling-stroke" />
           <polyline points={line((p) => p.dew)} fill="none" stroke="rgb(148 163 184 / 0.7)" strokeWidth={1} strokeDasharray="1.5 1.5" vectorEffect="non-scaling-stroke" />
           <polyline points={line((p) => p.c)} fill="none" stroke="rgb(241 245 249)" strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
-          {/* Hover targets, one per hour. */}
-          {pts.map((p, k) => (
-            <rect key={`h${k}`} x={k} y={0} width={1} height={HGT} fill="transparent">
-              <title>{`${rangeLabel(p.t, p.t + H)} · ${p.c ?? "—"} °C · dew ${p.dew ?? "—"} °C · feels ${p.feels ?? "—"} °C${p.fzlFtAgl != null ? ` · 0 °C level ${p.fzlFtAgl.toLocaleString("en-US")} ft AGL` : ""}`}</title>
-            </rect>
-          ))}
         </svg>
         {tl.temp.crossings.map((c, i) => (
-          <span key={i} className="absolute top-0 text-[8px] font-bold text-sky-300 -translate-x-1/2" style={{ left: `${pct(c.t)}%` }} title={`${c.dir === "down" ? "Falls to" : "Rises above"} 0 °C ${rangeLabel(c.t, c.t + H)}`}>
+          <span key={i} className="absolute top-0 text-[8px] font-bold text-sky-300 -translate-x-1/2" style={{ left: `${pct(c.t)}%` }} >
             {c.dir === "down" ? "↓0°" : "↑0°"}
           </span>
         ))}
@@ -112,13 +115,43 @@ function TempLane({ tl, pct }: { tl: Timeline; pct: (ms: number) => number }) {
   );
 }
 
-export default function OpsTimeline({ tl, closures }: { tl: Timeline; closures: ClosureLike[] }) {
-  const [sel, setSel] = useState<{ seg: TlSeg; lane: string } | null>(null);
+const RO_TONE: Record<SliceTone, string> = {
+  r: "text-red-300 font-semibold", a: "text-amber-200 font-semibold", i: "text-sky-300", g: "text-emerald-300/90", u: "text-slate-400 italic", n: "text-slate-500",
+};
+
+/** "0615 CET" in the field's own zone — null when the zone is unknown. */
+function localStamp(ms: number, zone: string | null | undefined): string | null {
+  if (!zone) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" }).formatToParts(ms);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    return `${get("hour")}${get("minute")} ${get("timeZoneName")}`.trim();
+  } catch { return null; }
+}
+
+export default function OpsTimeline({ tl, closures, zone }: { tl: Timeline; closures: ClosureLike[]; zone?: string | null }) {
+  const [cur, setCur] = useState<number | null>(null);
+  const [pinned, setPinned] = useState(false);
   const [hi, setHi] = useState<number | null>(null);
   const [keyOpen, setKeyOpen] = useState(false);
+  const [trackPx, setTrackPx] = useState(600);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const { lane: notam, windows } = useMemo(() => windowsWithNotams(tl, closures), [tl, closures]);
+  const changes = useMemo(() => changePoints(tl, [notam]), [tl, notam]);
   const span = tl.hours * H;
-  const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - tl.startMs) / span) * 100));
+  const endMs = tl.startMs + span;
+  const pct = useCallback((ms: number) => Math.max(0, Math.min(100, ((ms - tl.startMs) / span) * 100)), [tl.startMs, span]);
+
+  // Bar labels are fitted to real pixels, so a phone can show all 72 h at once.
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((es) => { for (const e of es) setTrackPx(e.contentRect.width); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tl.live]);
+
+  const slice = useMemo(() => (cur != null ? sliceAt(tl, [notam], windows, cur) : null), [cur, tl, notam, windows]);
 
   if (!tl.live) {
     return (
@@ -129,20 +162,50 @@ export default function OpsTimeline({ tl, closures }: { tl: Timeline; closures: 
     );
   }
 
+  const nowMs = Date.now();
+  const nowIn = nowMs >= tl.startMs && nowMs < endMs;
+  const msAt = (clientX: number) => {
+    const el = trackRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    return Math.min(endMs - 60_000, Math.round((tl.startMs + f * span) / 60_000) * 60_000);
+  };
+  const step = (dir: 1 | -1, toChange: boolean) => {
+    const from = cur ?? (nowIn ? nowMs : tl.startMs);
+    let to = from + dir * H;
+    if (toChange) {
+      const c = dir > 0 ? changes.find((x) => x > from + 1) : [...changes].reverse().find((x) => x < from - 1);
+      if (c != null) to = c;
+    }
+    setCur(Math.min(endMs - 60_000, Math.max(tl.startMs, to)));
+    setPinned(true);
+  };
+
   // Axis: Zulu day starts and 6-hour ticks.
   const ticks: { ms: number; label: string; day: boolean }[] = [];
-  for (let ms = Math.ceil(tl.startMs / (6 * H)) * 6 * H; ms < tl.startMs + span; ms += 6 * H) {
+  for (let ms = Math.ceil(tl.startMs / (6 * H)) * 6 * H; ms < endMs; ms += 6 * H) {
     const d = new Date(ms);
     const day = d.getUTCHours() === 0;
     ticks.push({ ms, day, label: day ? `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, "0")}` : `${String(d.getUTCHours()).padStart(2, "0")}Z` });
   }
   const top = tl.lanes.filter((l) => l.key === "sky" || l.key === "precip");
   const rest = [...tl.lanes.filter((l) => l.key !== "sky" && l.key !== "precip"), notam];
-  const hiWin: LimitWindow | null = hi != null ? windows[hi] ?? null : null;
+  const shownWin: LimitWindow | null = slice?.window ? windows[slice.window.index] : hi != null ? windows[hi] ?? null : null;
   const amber = windows.length > 0;
+  const curPct = cur != null ? pct(cur) : null;
+  const local = cur != null ? localStamp(cur, zone) : null;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2.5">
+    <section
+      className="rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2.5 outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50"
+      tabIndex={0}
+      aria-label="72-hour ops timeline — use the left and right arrow keys to move through the hours"
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); step(e.key === "ArrowRight" ? 1 : -1, e.shiftKey); }
+        if (e.key === "Escape") { setCur(null); setPinned(false); }
+      }}
+    >
       <div className="flex items-baseline gap-2 flex-wrap mb-1">
         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Next 72 h — ops timeline</p>
         <span className="text-[9px] text-slate-500">all times Z · model planning-grade · the TAF governs its window</span>
@@ -152,48 +215,99 @@ export default function OpsTimeline({ tl, closures }: { tl: Timeline; closures: 
       {keyOpen && (
         <div className="mb-2 rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-1.5 text-[9.5px] text-slate-400 space-y-0.5">
           <p><span className="inline-block w-3 h-2 rounded-sm bg-amber-500/40 border border-amber-500/70 align-middle mr-1" />limiting (a forecast is amber at most; crosswind keeps its own bands) · <span className="inline-block w-3 h-2 rounded-sm bg-sky-500/25 border border-sky-500/50 align-middle mr-1" />note · dashed = model read or TEMPO / PROB risk</p>
-          <p>Sky = flight category: the TAF in its window, model VISIBILITY only beyond it (ceiling is not modelled). Shading under the lanes = civil / nautical twilight and night. Temp: white = air, dotted = dew point, blue shading = at or below 0 °C, ↓0° / ↑0° = crossings.</p>
+          <p>Sky = flight category: the TAF in its window, model VISIBILITY only beyond it (ceiling is not modelled). Shading under the lanes = civil / nautical twilight and night. Temp: white = air, dotted = dew point, blue shading = at or below 0 °C, ↓0° / ↑0° = crossings. Green line = now.</p>
           <p>Ground ice = frost, freezing fog, glaze, de-ice / anti-ice. Runway = ice, snow, standing water, refreeze. Ramp = lightning holds, gusts at door / stand limits, wind chill, heat. Thresholds are planning guidance, not your de-ice policy or a flight manual.</p>
+          <p>Move along the timeline (or drag a finger) to read any hour; click or tap to pin; ← → step an hour, Shift + ← → jump to the next change, Esc clears.</p>
         </div>
       )}
 
       <div className="overflow-x-auto -mx-1 px-1">
-        <div className="min-w-[660px]">
+        <div className="sm:min-w-[660px]">
           {/* axis */}
           <div className="flex items-end gap-2 h-4">
             <span className="w-[86px] flex-shrink-0" />
             <div className="relative flex-1 h-4">
-              {ticks.map((t, i) => (
+              {/* A narrow (phone) track keeps the day names and 12Z — 6-hour labels would collide. */}
+              {ticks.filter((t) => t.day || trackPx >= 480 || t.label === "12Z").map((t, i) => (
                 <span key={i} className={`absolute bottom-0 -translate-x-1/2 text-[8px] font-mono whitespace-nowrap ${t.day ? "text-slate-300 font-bold" : "text-slate-600"}`} style={{ left: `${pct(t.ms)}%` }}>{t.label}</span>
               ))}
-              {tl.tafEndMs != null && tl.tafEndMs > tl.startMs && tl.tafEndMs < tl.startMs + span && (
+              {tl.tafEndMs != null && tl.tafEndMs > tl.startMs && tl.tafEndMs < endMs && (
                 <span className="absolute bottom-0 text-[7.5px] text-sky-300/80 pl-0.5 whitespace-nowrap" style={{ left: `${pct(tl.tafEndMs)}%` }}>TAF ends</span>
               )}
             </div>
           </div>
 
           <div className="relative">
-            {/* light, ticks, TAF end and the highlighted window under every lane */}
-            <div className="absolute top-0 bottom-0 right-0 pointer-events-none" style={{ left: "94px" }}>
+            {/* light, ticks, TAF end, now and the highlighted window under every lane */}
+            <div className="absolute top-0 bottom-0 right-0 pointer-events-none" style={{ left: `${LABEL_COL}px` }}>
               {tl.light.map((l, i) => (l.state === "day" ? null : <span key={i} className={`absolute top-0 bottom-0 ${LIGHT_BG[l.state]}`} style={{ left: `${pct(l.fromMs)}%`, width: `${pct(l.toMs) - pct(l.fromMs)}%` }} />))}
               {ticks.map((t, i) => <span key={i} className={`absolute top-0 bottom-0 border-l ${t.day ? "border-slate-500/50" : "border-slate-700/40"}`} style={{ left: `${pct(t.ms)}%` }} />)}
-              {tl.tafEndMs != null && tl.tafEndMs < tl.startMs + span && <span className="absolute top-0 bottom-0 border-l border-dashed border-sky-400/60" style={{ left: `${pct(tl.tafEndMs)}%` }} />}
-              {hiWin && <span className="absolute top-0 bottom-0 bg-amber-300/10 border-x border-amber-300/60" style={{ left: `${pct(hiWin.fromMs)}%`, width: `${pct(hiWin.toMs) - pct(hiWin.fromMs)}%` }} />}
+              {tl.tafEndMs != null && tl.tafEndMs < endMs && <span className="absolute top-0 bottom-0 border-l border-dashed border-sky-400/60" style={{ left: `${pct(tl.tafEndMs)}%` }} />}
+              {shownWin && <span className="absolute top-0 bottom-0 bg-amber-300/10 border-x border-amber-300/60" style={{ left: `${pct(shownWin.fromMs)}%`, width: `${pct(shownWin.toMs) - pct(shownWin.fromMs)}%` }} />}
+              {nowIn && <span className="absolute top-0 bottom-0 border-l-2 border-emerald-400/80" style={{ left: `${pct(nowMs)}%` }} title="now" />}
             </div>
             <div className="relative space-y-[2px] py-0.5">
-              {top.map((l) => <Lane key={l.key} lane={l} pct={pct} hours={tl.hours} sel={sel?.seg ?? null} onSel={(s, ln) => setSel(s ? { seg: s, lane: ln.title } : null)} />)}
+              {top.map((l) => <Lane key={l.key} lane={l} pct={pct} trackPx={trackPx} />)}
               <TempLane tl={tl} pct={pct} />
-              {rest.map((l) => <Lane key={l.key} lane={l} pct={pct} hours={tl.hours} sel={sel?.seg ?? null} onSel={(s, ln) => setSel(s ? { seg: s, lane: ln.title } : null)} />)}
+              {rest.map((l) => <Lane key={l.key} lane={l} pct={pct} trackPx={trackPx} />)}
+            </div>
+            {/* The scrub layer: one hairline across every lane with the Zulu time on the axis. */}
+            <div
+              ref={trackRef}
+              className="absolute top-0 bottom-0 right-0 cursor-crosshair touch-pan-y select-none"
+              style={{ left: `${LABEL_COL}px` }}
+              onPointerMove={(e) => { if (pinned && e.pointerType === "mouse") return; const m = msAt(e.clientX); if (m != null) setCur(m); }}
+              onPointerDown={(e) => { if (e.pointerType !== "mouse") { const m = msAt(e.clientX); if (m != null) setCur(m); } }}
+              onPointerLeave={(e) => { if (!pinned && e.pointerType === "mouse") setCur(null); }}
+              onClick={(e) => { const m = msAt(e.clientX); if (m != null) setCur(m); setPinned((p) => !p); }}
+            >
+              {curPct != null && (
+                <span className={`absolute top-0 bottom-0 pointer-events-none ${pinned ? "border-l-2 border-sky-300" : "border-l border-slate-100"}`} style={{ left: `${curPct}%` }}>
+                  <span
+                    className={`absolute -top-[18px] whitespace-nowrap rounded px-1.5 py-[1px] text-[10px] font-mono font-bold shadow-lg ${pinned ? "bg-sky-300 text-slate-950" : "bg-slate-100 text-slate-950"}`}
+                    style={{ transform: curPct < 10 ? "translateX(0)" : curPct > 90 ? "translateX(-100%)" : "translateX(-50%)" }}
+                  >
+                    {zuluStamp(cur!, false)}{local && <span className="ml-1 font-sans font-medium text-[9px] text-slate-600">{local}</span>}
+                  </span>
+                </span>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {sel && (
-        <p className="mt-1.5 rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-[10.5px] text-slate-200">
-          <b className="text-slate-100">{sel.lane}</b> <span className="font-mono text-slate-400">{rangeLabel(sel.seg.fromMs, sel.seg.toMs)}</span> — {sel.seg.detail}
-        </p>
-      )}
+      {/* The hour readout — every lane at the cursor; the finger never covers it. */}
+      <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-2 min-h-[64px]">
+        {!slice ? (
+          <p className="text-[10.5px] text-slate-500">Move along the timeline — or drag a finger across it — to read any hour in Zulu. Click or tap to pin; ← → step an hour, Shift + ← → jump to the next change.</p>
+        ) : (
+          <>
+            <div className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+              <span className="font-mono text-[15px] font-semibold text-slate-100">{slice.stamp}</span>
+              <span className="text-[10px] text-slate-400">
+                {local ? `${local} local · ` : ""}{slice.ms >= nowMs ? `in ${spanText(slice.ms - nowMs)}` : `${spanText(nowMs - slice.ms)} ago`} · {slice.src === "taf" ? "the TAF governs this hour" : "beyond the TAF — model, planning-grade"}{pinned ? " · pinned" : ""}
+              </span>
+              {slice.window ? (
+                <span className={`text-[10px] rounded px-1.5 py-[1px] ${slice.window.tone === "r" ? "bg-red-500/15 text-red-200" : "bg-amber-500/15 text-amber-200"}`}>
+                  Inside limiting window {slice.window.index + 1} · clears {zuluStamp(slice.window.toMs, false)} ({spanText(slice.window.leftMs)} left)
+                </span>
+              ) : (
+                <span className="text-[10px] rounded px-1.5 py-[1px] bg-emerald-500/10 text-emerald-200/90">
+                  Outside any window{slice.next ? ` · next opens ${zuluStamp(slice.next.fromMs, false)} (in ${spanText(slice.next.inMs)})` : " for the rest of the 72 h"}
+                </span>
+              )}
+            </div>
+            <dl className="mt-1.5 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+              {slice.rows.map((r) => (
+                <div key={r.key} className="grid grid-cols-[78px_1fr] gap-2 items-baseline min-w-0">
+                  <dt className="text-[9px] uppercase tracking-wider text-slate-500">{r.title}</dt>
+                  <dd className={`text-[10.5px] min-w-0 break-words ${RO_TONE[r.tone]}`}>{r.text}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
+      </div>
 
       {/* Limiting windows */}
       <div className="mt-2 pt-2 border-t border-slate-800/60">
@@ -202,7 +316,7 @@ export default function OpsTimeline({ tl, closures }: { tl: Timeline; closures: 
         <ul className="space-y-1">
           {windows.map((w, i) => (
             <li key={i}>
-              <button type="button" onClick={() => setHi(hi === i ? null : i)} aria-pressed={hi === i}
+              <button type="button" onClick={() => { const open = hi !== i; setHi(open ? i : null); if (open) { setCur(w.fromMs); setPinned(true); } }} aria-pressed={hi === i}
                 className={`w-full text-left rounded-lg border px-2.5 py-1.5 transition-colors ${hi === i ? "border-amber-400/60 bg-amber-500/10" : "border-slate-800 hover:border-slate-600 bg-slate-950/30"}`}>
                 <span className="flex items-center gap-2 flex-wrap">
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${w.tone === "r" ? "bg-red-500" : "bg-amber-400"}`} />

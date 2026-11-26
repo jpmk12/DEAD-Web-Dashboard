@@ -94,6 +94,8 @@ export interface TlSeg {
   dashed?: boolean;
   src: "taf" | "model" | "mixed";
   cat?: Cat;
+  /** A shorter bar label for a narrow bar ("CLSD" for "RWY 05/23 CLSD"); the full label stays on window chips. */
+  short?: string;
 }
 
 export interface TlLane {
@@ -304,8 +306,12 @@ function deiceCell(r: HourRead): Cell {
   const t = r.tempC;
   const tTxt = t != null ? ` at ${Math.round(t)} °C` : "";
   if (r.wx === "fzra" || r.wx === "fzdz") {
+    // The TAF can name freezing precipitation where the model's 2-m air is
+    // well above 0 °C — say the two disagree instead of "freezing rain at 6 °C".
+    const disagree = s === "taf" && t != null && t > RAIN_NEAR_C;
+    const tNote = disagree ? ` — the model has the air at ${Math.round(t)} °C; the TAF and the model disagree, plan on the TAF` : tTxt;
     return { tone: "a", label: "DE/ANTI-ICE", src: s, dashed: r.wxOverlay,
-      detail: `${WX_WORD[r.wx]} (${tag(s)})${tTxt} — de-ice and anti-ice; holdover times are short in freezing precipitation` };
+      detail: `${WX_WORD[r.wx]} (${tag(s)})${tNote} — de-ice and anti-ice; holdover times are short in freezing precipitation` };
   }
   if ((r.wx === "snow" || r.wx === "pellets") && (t == null || t <= SNOW_DEICE_C)) {
     return { tone: "a", label: "DE-ICE", src: s, dashed: r.wxOverlay,
@@ -640,6 +646,7 @@ export function notamLane(closures: ClosureLike[], startMs: number, hours = TIME
       fromMs: Math.max(w.fromMs, startMs), toMs: Math.min(w.toMs, end),
       tone: w.indeterminate ? "u" as const : w.kind === "limited" ? "i" as const : "a" as const,
       label: w.indeterminate ? "SCHED" : `${w.label} ${w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD"}`,
+      short: w.indeterminate ? "SCHED" : w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD",
       detail: w.indeterminate ? `${w.label}: schedule published, times not readable — read the NOTAM` : `${w.label} ${w.kind === "closure" ? "closed" : w.kind === "unserviceable" ? "unserviceable" : "limited"} (NOTAM): ${w.text.slice(0, 140)}`,
       dashed: Boolean(w.indeterminate),
       src: "taf" as const,
@@ -652,4 +659,94 @@ export function notamLane(closures: ClosureLike[], startMs: number, hours = TIME
 export function windowsWithNotams(t: OpsTimeline, closures: ClosureLike[]): { lane: TlLane; windows: LimitWindow[] } {
   const lane = notamLane(closures, t.startMs, t.hours);
   return { lane, windows: t.live ? limitingWindows([...t.lanes, lane]) : [] };
+}
+
+// ── Scrubbing: one hour, every lane (the readout under the cursor) ───────
+
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "Fri 27 Nov · 0515Z" — the scrub cursor's date-time, always Zulu. */
+export function zuluStamp(ms: number, withMonth = true): string {
+  const d = new Date(ms);
+  const day = `${dow(ms)} ${String(d.getUTCDate()).padStart(2, "0")}${withMonth ? ` ${MON[d.getUTCMonth()]}` : ""}`;
+  return `${day} · ${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`;
+}
+
+/** "16 h", "1 d 4 h", "40 min". */
+export function spanText(ms: number): string {
+  const min = Math.max(0, Math.round(ms / 60_000));
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  return h >= 24 ? `${Math.floor(h / 24)} d ${h % 24} h` : `${h} h`;
+}
+
+export type SliceTone = Tone | "n";
+export interface SliceRow { key: LaneKey | "temp"; title: string; tone: SliceTone; label: string; text: string }
+export interface TimelineSlice {
+  ms: number;
+  stamp: string;
+  /** Does the TAF govern this hour, or is it model only? */
+  src: "taf" | "model";
+  rows: SliceRow[];
+  /** The limiting window the hour is in, and how long until it clears. */
+  window: { index: number; tone: "a" | "r"; toMs: number; leftMs: number } | null;
+  /** The next window when outside one. */
+  next: { index: number; fromMs: number; inMs: number } | null;
+}
+
+/** Every lane's value at one instant — the scrub readout. A lane with nothing
+ *  in the hour reads "nothing limiting" (tone n) unless it is UNKNOWN there,
+ *  which is said as UNKNOWN, never as clear. */
+export function sliceAt(t: OpsTimeline, extra: TlLane[], windows: LimitWindow[], ms: number): TimelineSlice | null {
+  if (!t.live) return null;
+  const end = t.startMs + t.hours * H;
+  const at = Math.min(end - 1, Math.max(t.startMs, ms));
+  const inTaf = t.tafEndMs != null && at < t.tafEndMs;
+  const rows: SliceRow[] = [];
+  const laneRow = (l: TlLane): SliceRow => {
+    const s = l.segs.find((x) => at >= x.fromMs && at < x.toMs);
+    if (s) return { key: l.key, title: l.title, tone: s.tone, label: s.label, text: s.detail };
+    // A lane UNKNOWN only past the TAF is readable inside it.
+    const unknownHere = l.unknown != null && !(inTaf && /^beyond the TAF/.test(l.unknown));
+    if (unknownHere) return { key: l.key, title: l.title, tone: "u", label: "UNKNOWN", text: l.unknown! };
+    return { key: l.key, title: l.title, tone: "n", label: "—", text: l.key === "notam" ? "no closure in effect" : "nothing limiting" };
+  };
+  const lanes = [...t.lanes, ...extra];
+  for (const l of lanes.filter((x) => x.key === "sky" || x.key === "precip")) rows.push(laneRow(l));
+  const p = t.temps[Math.min(t.temps.length - 1, Math.floor((at - t.startMs) / H))];
+  if (p && p.c != null) {
+    const parts = [`${Math.round(p.c)} °C`];
+    if (p.dew != null) parts.push(`dew ${Math.round(p.dew)}`);
+    if (p.feels != null && Math.round(p.feels) !== Math.round(p.c)) parts.push(`feels ${Math.round(p.feels)}`);
+    if (p.fzlFtAgl != null) parts.push(p.fzlFtAgl === 0 ? "0 °C at the surface" : `0 °C at ${p.fzlFtAgl.toLocaleString("en-US")} ft AGL`);
+    rows.push({ key: "temp", title: "Temp", tone: p.c <= 0 ? "i" : "n", label: `${Math.round(p.c)}°`, text: `${parts.join(" · ")} (model)` });
+  } else {
+    rows.push({ key: "temp", title: "Temp", tone: "u", label: "UNKNOWN", text: "UNKNOWN — the model profile did not answer" });
+  }
+  for (const l of lanes.filter((x) => x.key !== "sky" && x.key !== "precip")) rows.push(laneRow(l));
+  const wi = windows.findIndex((w) => at >= w.fromMs && at < w.toMs);
+  const nx = wi < 0 ? windows.findIndex((w) => w.fromMs > at) : -1;
+  return {
+    ms: at, stamp: zuluStamp(at), src: inTaf ? "taf" : "model", rows,
+    window: wi >= 0 ? { index: wi, tone: windows[wi].tone, toMs: windows[wi].toMs, leftMs: windows[wi].toMs - at } : null,
+    next: nx >= 0 ? { index: nx, fromMs: windows[nx].fromMs, inMs: windows[nx].fromMs - at } : null,
+  };
+}
+
+/** Every instant something changes — a bar starts or ends, or the air crosses 0 °C — for stepping the cursor. */
+export function changePoints(t: OpsTimeline, extra: TlLane[] = []): number[] {
+  const end = t.startMs + t.hours * H;
+  const set = new Set<number>();
+  for (const l of [...t.lanes, ...extra]) for (const s of l.segs) { set.add(s.fromMs); set.add(s.toMs); }
+  for (const c of t.temp.crossings) set.add(c.t);
+  return [...set].filter((x) => x > t.startMs && x < end).sort((a, b) => a - b);
+}
+
+/** The windows as a compact band for an airfield card: fractions of the 72 h. */
+export interface WindowBand { startMs: number; hours: number; live: boolean; windows: { fromMs: number; toMs: number; tone: "a" | "r"; label: string }[] }
+export function windowBand(t: OpsTimeline | null | undefined, windows: LimitWindow[]): WindowBand | null {
+  if (!t) return null;
+  return {
+    startMs: t.startMs, hours: t.hours, live: t.live,
+    windows: windows.map((w) => ({ fromMs: w.fromMs, toMs: w.toMs, tone: w.tone, label: `${rangeLabel(w.fromMs, w.toMs)} — ${w.factors.slice(0, 3).map((f) => f.label).join(" · ")}` })),
+  };
 }

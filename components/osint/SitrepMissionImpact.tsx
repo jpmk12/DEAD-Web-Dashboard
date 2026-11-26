@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { SitrepPayload } from "@/lib/sitrep";
 import { MISSION_FUNCTIONS, type Capability, type LimfacStatus } from "@/lib/limfac";
 
@@ -17,7 +17,7 @@ const CAP_BAR: Record<Capability, string> = { fmc: "border-emerald-500/40", pmc:
 interface ReadState { bluf: string[]; watch: string[]; asks?: string[]; disabled?: boolean; ai?: boolean; reason?: string; detail?: string }
 
 export default function SitrepMissionImpact({
-  payload, read, readLoading, readError, onRetryRead, onChanged,
+  payload, read, readLoading, readError, onRetryRead, onChanged, afterRead,
 }: {
   payload: SitrepPayload;
   read: ReadState | null;
@@ -25,6 +25,8 @@ export default function SitrepMissionImpact({
   readError?: boolean;
   onRetryRead?: () => void;
   onChanged: () => void;
+  /** Rendered between the Commander's Read and the capability matrix — the 72-h ops timeline (the Read says what, the timeline shows when). */
+  afterRead?: ReactNode;
 }) {
   const mi = payload.mission;
   const icao = payload.base.icao;
@@ -120,6 +122,8 @@ export default function SitrepMissionImpact({
         </div>
         );
       })()}
+
+      {afterRead}
 
       {/* Mission capability by function */}
       <div>

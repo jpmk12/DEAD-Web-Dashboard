@@ -15,7 +15,7 @@ import { readIcing, type IcingRead } from "./icingSignals";
 import { crosswindOutlook, type XwindOutlook } from "./crosswind";
 import { readTurbulence, type TurbulenceRead } from "./turbulence";
 import { fieldOutlook, type FieldOutlook } from "./fieldOutlook";
-import { opsTimeline, type OpsTimeline } from "./opsTimeline";
+import { opsTimeline, windowsWithNotams, windowBand, type OpsTimeline, type WindowBand } from "./opsTimeline";
 import { parseTafHazards } from "./tafGroups";
 import { withTimeout } from "./withTimeout";
 import { getNotams, notamTimeState, type Notam } from "./notams";
@@ -206,6 +206,8 @@ export interface SitrepSummary {
   driver: string;    // short tile line — the worst axis explains itself
   line: string;      // 1-2 sentence Morning Brief read
   worse: string[];   // axes worse than yesterday (history compare, u ignored)
+  /** The 72-h limiting windows (weather + NOTAM closures) as a band for the airfield cards; absent on older payloads. */
+  band72?: WindowBand | null;
 }
 
 const LED_RANK: Record<Led, number> = { u: 0, g: 1, a: 2, r: 3 };
@@ -285,6 +287,9 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
     country: normalizeCountryName(p.base.country) || "",
     aor: classifyAor({ lat: p.base.lat, lon: p.base.lon, name: normalizeCountryName(p.base.country) }),
     status: p.status, driver, line, worse: [...worse],
+    band72: p.weather.timeline72
+      ? windowBand(p.weather.timeline72, windowsWithNotams(p.weather.timeline72, closureWindows(p.ops.groups.flatMap((g) => g.items), Date.parse(p.generatedAt), 72)).windows)
+      : null,
   };
 }
 
