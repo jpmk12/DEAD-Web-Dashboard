@@ -1629,6 +1629,31 @@ Conflict Zone Information Bulletins — a recommendation to EU operators.
   unplaced count. Legend line added. Verified in headless Chromium with a
   routed fixture. Not built: FIR polygons (no keyless boundary source — a
   centroid pin is said as such), I&W / SITREP / alert wiring.
+- **First production diag (same day) — three doors VERIFIED**: DAIP
+  `LOCATION` + `KICZ` 200, 23 NOTAMs parsed (the shared `group→notams→list`
+  envelope, `rawtext`); the FAA page 23 KICZ links; the EASA listing is
+  server-rendered, 27 entries with titles and dates (row text: id · status ·
+  view · issued · revised · valid-until · title). Fixes from it, all tested:
+  (1) an altitude stated only in the coded **Q) line** (`.../000/259/` →
+  "SFC–FL259", `qLineAltitude`) is read when the text says none; (2) the
+  issuer "United States" / "U.S." is stripped before countries are read on
+  the FAA page too (`stripIssuer`); (3) **Caribbean / Latin-American FIRs**
+  joined `lib/firData.ts` (MMFO, MMFR, MHCC, MPZL, SKED, SEFG, SVZM, MTEG,
+  MKJK, MUFH) — they also serve the Overflight layer and GPS-NOTAM FIR
+  matching; (4) a CZIB id written with a SPACE ("2025-01 R3", Sudan) is read
+  (never a plain date); a one-line row keeps its title after status / view /
+  dates; titles also place by "<city> FIR"; (5) a bulletin naming only a
+  body of water ("Persian Gulf and Gulf of Oman") is placed at the region
+  (`CZ_REGIONS`, `CzPoint.by: "region"`, popup "middle of the named
+  region") — only when no FIR or country placed it, and "Gulf of Oman" is
+  never read as Oman; (6) **the bulletin page was read whole** — the site
+  menu put Canada / Brazil / Russia / OEJD on a CZIB about Iraq and set a
+  wrong issue date. `czibMainContent` reads `<main>` (else `<article>`)
+  with nav / header / footer / aside / form and menu-class lists cut out;
+  the diag's `easaBulletin` now carries `hasMain`, `mainChars` and the first
+  1,500 chars of that content — the bulletin page layout is pinned from the
+  next paste (if `hasMain` is false or the excerpt is still menu, refine
+  `czibMainContent`).
 
 ### Format checks added the same day (run from production, paste back)
 - `/api/sitrep/icing-diag?pirep=KDEN` (any ICAO; `&distance=` ≤400 NM,

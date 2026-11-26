@@ -80,6 +80,18 @@ export const FIRS: FirInfo[] = [
   { code: "RKRR", name: "Incheon FIR", lat: 36.5, lon: 127.5, countries: ["south korea"] },
   { code: "VYMD", name: "Yangon FIR", lat: 21.0, lon: 96.0, countries: ["myanmar", "burma"] },
   { code: "RCAA", name: "Taipei FIR", lat: 24.0, lon: 121.0, countries: ["taiwan"] },
+
+  // ── Caribbean / Latin America (FAA KICZ advisories name these) ──────────
+  { code: "MMFO", name: "Mazatlan Oceanic FIR", lat: 20.0, lon: -112.0, countries: [] },
+  { code: "MMFR", name: "Mexico FIR", lat: 23.0, lon: -102.0, countries: ["mexico"] },
+  { code: "MHCC", name: "Central American FIR", lat: 14.0, lon: -86.0, countries: ["honduras", "guatemala", "el salvador", "nicaragua", "belize", "costa rica"] },
+  { code: "MPZL", name: "Panama FIR", lat: 8.5, lon: -80.0, countries: ["panama"] },
+  { code: "SKED", name: "Bogota FIR", lat: 4.5, lon: -73.5, countries: ["colombia"] },
+  { code: "SEFG", name: "Guayaquil FIR", lat: -1.5, lon: -80.0, countries: ["ecuador"] },
+  { code: "SVZM", name: "Maiquetia FIR", lat: 7.0, lon: -66.0, countries: ["venezuela"] },
+  { code: "MTEG", name: "Port-au-Prince FIR", lat: 19.0, lon: -72.5, countries: ["haiti"] },
+  { code: "MKJK", name: "Kingston FIR", lat: 17.5, lon: -77.0, countries: ["jamaica"] },
+  { code: "MUFH", name: "Havana FIR", lat: 22.0, lon: -79.5, countries: ["cuba"] },
 ];
 
 const BY_CODE = new Map(FIRS.map((f) => [f.code, f]));

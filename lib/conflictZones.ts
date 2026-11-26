@@ -29,7 +29,7 @@ export type CzSource = "faa" | "easa";
  *  notice whose wording names neither (read the text). */
 export type CzLevel = "prohibited" | "avoid" | "caution" | "notice";
 
-export interface CzPoint { lat: number; lon: number; by: "fir" | "country"; name: string }
+export interface CzPoint { lat: number; lon: number; by: "fir" | "country" | "region"; name: string }
 
 export interface ConflictZone {
   id: string;              // "KICZ A0014/22" · "CZIB-2022-01R14"
@@ -90,11 +90,31 @@ export function firsByName(text: string, loose = false): string[] {
   return out;
 }
 
+/** Bodies of water / regions a bulletin names instead of a country ("Persian
+ *  Gulf and Gulf of Oman"). A pin at the region's middle, said as such. */
+export const CZ_REGIONS: { name: string; rx: RegExp; lat: number; lon: number }[] = [
+  { name: "Persian Gulf", rx: /\b(persian|arabian) gulf\b/i, lat: 26.5, lon: 52.5 },
+  { name: "Gulf of Oman", rx: /\bgulf of oman\b/i, lat: 24.5, lon: 58.5 },
+  { name: "Red Sea", rx: /\bred sea\b/i, lat: 20.0, lon: 38.5 },
+  { name: "Gulf of Aden", rx: /\bgulf of aden\b/i, lat: 12.5, lon: 47.5 },
+  { name: "Black Sea", rx: /\bblack sea\b/i, lat: 43.5, lon: 34.0 },
+  { name: "Sea of Azov", rx: /\bsea of azov\b/i, lat: 46.0, lon: 36.5 },
+  { name: "Eastern Mediterranean", rx: /\beastern mediterranean\b/i, lat: 34.0, lon: 33.5 },
+  { name: "Caspian Sea", rx: /\bcaspian sea\b/i, lat: 41.5, lon: 51.0 },
+];
+
+/** Regions a text names (display names). */
+export function regionsIn(text: string): string[] {
+  return CZ_REGIONS.filter((r) => r.rx.test(text)).map((r) => r.name);
+}
+
 const COUNTRY_KEYS = centroidCountryNames().filter((k) => k.length >= 4).sort((a, b) => b.length - a.length);
 
 /** Countries a text names, word-bounded, longest first ("Niger" is not in
  *  "Nigeria"), display-cased. */
 export function countriesIn(text: string): string[] {
+  // A sea named after a country ("Gulf of Oman") is not that country.
+  for (const r of CZ_REGIONS) text = text.replace(new RegExp(r.rx.source, "gi"), " ");
   let t = ` ${text.toLowerCase().replace(/[^a-zÀ-ɏ'\s-]/g, " ").replace(/\s+/g, " ")} `;
   const out: string[] = [];
   for (const k of COUNTRY_KEYS) {
@@ -137,8 +157,9 @@ export function readDate(s: string): string | null {
 }
 
 /** Place a zone: FIR centroids first, then country centroids for the
- *  countries no placed FIR serves. */
-export function placeZone(firs: string[], countries: string[]): CzPoint[] {
+ *  countries no placed FIR serves, then — only when nothing else placed it —
+ *  the named sea regions. */
+export function placeZone(firs: string[], countries: string[], regions: string[] = []): CzPoint[] {
   const pts: CzPoint[] = [];
   const served = new Set<string>();
   for (const c of firs) {
@@ -151,6 +172,12 @@ export function placeZone(firs: string[], countries: string[]): CzPoint[] {
     if (served.has(c.toLowerCase())) continue;
     const p = countryCentroid(c);
     if (p) pts.push({ lat: p[0], lon: p[1], by: "country", name: c });
+  }
+  if (!pts.length) {
+    for (const r of regions) {
+      const reg = CZ_REGIONS.find((x) => x.name === r);
+      if (reg) pts.push({ lat: reg.lat, lon: reg.lon, by: "region", name: reg.name });
+    }
   }
   return pts;
 }
@@ -172,6 +199,22 @@ export function kiczLevel(text: string): CzLevel {
   return "notice";
 }
 
+/** The coded lower / upper limits of a NOTAM's Q) line ("Q) KICZ/QRDLP/IV/
+ *  NBO/AE/000/259/") — read only when the plain text states no altitude. */
+export function qLineAltitude(text: string): string | null {
+  const m = text.match(/Q\)\s*(?:[^/\s]*\/){5}(\d{3})\/(\d{3})/i);
+  if (!m) return null;
+  const lo = Number(m[1]), hi = Number(m[2]);
+  if (lo === 0 && hi >= 999) return "all altitudes";
+  if (lo === 0) return `SFC–FL${m[2]}`;
+  if (hi >= 999) return `FL${m[1]} and above`;
+  return `FL${m[1]}–FL${m[2]}`;
+}
+
+/** The issuer ("UNITED STATES OF AMERICA PROHIBITION FOR …", "U.S. civil
+ *  aviation") is never the place a KICZ document is about. */
+const stripIssuer = (s: string) => s.replace(/\bUNITED STATES(?: OF AMERICA)?\b|\bU\.\s?S\.(?=\s|$)|\bUSA\b/gi, " ");
+
 /** One KICZ NOTAM text → a zone, or null for a cancellation (NOTAMC) or a
  *  text with no NOTAM number. */
 export function parseKiczNotam(text: string, opts: { url?: string | null; start?: string; end?: string } = {}): ConflictZone | null {
@@ -183,9 +226,10 @@ export function parseKiczNotam(text: string, opts: { url?: string | null; start?
   const firs = [...new Set([...firCodesIn(t), ...firsByName(t)])];
   // The issuer is always the United States ("UNITED STATES OF AMERICA
   // PROHIBITION FOR …") — never the place the NOTAM is about.
-  const countries = countriesIn(t.replace(/\bUNITED STATES(?: OF AMERICA)?\b|\bU\.S\.(?=\s)/gi, " "));
+  const countries = countriesIn(stripIssuer(t));
+  const regions = regionsIn(t);
   const level = kiczLevel(t);
-  const altitude = altitudeIn(t);
+  const altitude = altitudeIn(t) ?? qLineAltitude(t);
   const where = firs.length ? firs.map((c) => firByCode(c)?.name ?? c).join(", ") : countries.join(", ") || "area not named";
   return {
     id: `KICZ ${num}`, source: "faa", level,
@@ -195,7 +239,7 @@ export function parseKiczNotam(text: string, opts: { url?: string | null; start?
     validTo: opts.end ? opts.end.slice(0, 10) : null,
     url: opts.url ?? null,
     text: clip(t, 700),
-    points: placeZone(firs, countries),
+    points: placeZone(firs, countries, regions),
   };
 }
 
@@ -215,13 +259,13 @@ export function parseFaaRestrictionsPage(html: string, base = "https://www.faa.g
     try { const u = new URL(href, base); if (u.protocol === "https:" && /(^|\.)faa\.gov$/i.test(u.hostname)) url = u.href; } catch { /* keep null */ }
     const path = decodeURIComponent(href).replace(/[_/-]+/g, " ");
     const firs = [...new Set([...firCodesIn(hay), ...firsByName(label, true)])];
-    const countries = countriesIn(`${label} ${path}`);
+    const countries = countriesIn(stripIssuer(`${label} ${path}`));
     const level: CzLevel = /\bADVISORY\b/i.test(hay) ? "caution" : /\bSFAR\b|PROHIBIT/i.test(hay) ? "prohibited" : "notice";
     const id = `KICZ ${num}`;
     if (out.has(id)) continue;
     out.set(id, {
       id, source: "faa", level, title: label || id, firs, countries, altitude: altitudeIn(label),
-      issued: null, validTo: null, url, text: label, points: placeZone(firs, countries),
+      issued: null, validTo: null, url, text: label, points: placeZone(firs, countries, regionsIn(`${label} ${path}`)),
     });
   }
   return [...out.values()];
@@ -231,7 +275,7 @@ export function parseFaaRestrictionsPage(html: string, base = "https://www.faa.g
 
 /** "CZIB-2022-01R14" · "CZIB-2026-03-R5" · "2026-03-R5" → { key "2026-03", rev }. */
 export function czibIdIn(s: string): { key: string; rev: number; label: string } | null {
-  const m = s.match(/\bCZIB[\s-]*(20\d{2})[\s-](\d{2})(?:[\s-]?R(\d{1,2}))?\b/i) ?? s.match(/\b(20\d{2})-(\d{2})-?R(\d{1,2})\b/);
+  const m = s.match(/\bCZIB[\s-]*(20\d{2})[\s-](\d{2})(?:[\s-]?R(\d{1,2}))?\b/i) ?? s.match(/\b(20\d{2})-(\d{2})(?:-|\s)?R(\d{1,2})\b/i);
   if (!m) return null;
   const rev = m[3] ? Number(m[3]) : 0;
   return { key: `${m[1]}-${m[2]}`, rev, label: `CZIB-${m[1]}-${m[2]}${rev ? `R${rev}` : ""}` };
@@ -239,7 +283,7 @@ export function czibIdIn(s: string): { key: string; rev: number; label: string }
 
 export type CzibStatus = "active" | "withdrawn" | "expired" | "superseded" | null;
 
-export interface CzibEntry { key: string; rev: number; label: string; title: string; status: CzibStatus; issued: string | null; validTo: string | null; url: string | null; countries: string[]; firs: string[] }
+export interface CzibEntry { key: string; rev: number; label: string; title: string; status: CzibStatus; issued: string | null; validTo: string | null; url: string | null; countries: string[]; firs: string[]; regions?: string[] }
 
 const EASA_HOST = /(^|\.)easa\.europa\.eu$/i;
 
@@ -255,7 +299,7 @@ export function parseCzibListing(html: string, base = "https://www.easa.europa.e
     try { const u = new URL(m[1], base); if (u.protocol === "https:" && EASA_HOST.test(u.hostname) && !/\.pdf($|\?)/i.test(u.pathname)) links.set(`${id.key}R${id.rev}`, u.href); } catch { /* skip */ }
   }
   const text = htmlToText(html);
-  const rx = /\bCZIB[\s-]*20\d{2}[\s-]\d{2}(?:[\s-]?R\d{1,2})?\b|\b20\d{2}-\d{2}-?R\d{1,2}\b/gi;
+  const rx = /\bCZIB[\s-]*20\d{2}[\s-]\d{2}(?:[\s-]?R\d{1,2})?\b|\b20\d{2}-\d{2}(?:-|\s)?R\d{1,2}\b/gi;
   const hits = [...text.matchAll(rx)];
   const best = new Map<string, CzibEntry>();
   for (let i = 0; i < hits.length; i++) {
@@ -264,7 +308,10 @@ export function parseCzibListing(html: string, base = "https://www.easa.europa.e
     const seg = text.slice(hits[i].index!, hits[i + 1]?.index ?? Math.min(text.length, hits[i].index! + 900)).slice(0, 900);
     const after = seg.slice(hits[i][0].length).replace(/^[\s:–—-]+/, "");
     const lines = after.split("\n").map((l) => l.trim()).filter(Boolean);
-    const title = (lines.find((l) => /airspace|\bFIR\b|region|territor/i.test(l) && l.length <= 160) ?? lines.find((l) => /[a-z]/i.test(l) && !readDate(l) && l.length <= 160) ?? "").replace(/\s+/g, " ");
+    // A row rendered on one line ("Active view 01/02/2025 … Airspace of
+    // Sudan") keeps its title after the status word, "view" and the dates.
+    const tail = (l: string) => l.replace(/^(?:(?:active|withdrawn|revoked|expired|superseded|cancell?ed|view|details)\b|\d{1,2}[/.]\d{1,2}[/.]20\d{2}|20\d{2}-\d{2}-\d{2}|[\s|:–—-])+/i, "").trim();
+    const title = (lines.find((l) => /airspace|\bFIR\b|region|territor/i.test(l) && l.length <= 160) ?? lines.find((l) => /[a-z]/i.test(l) && !readDate(l) && l.length <= 160) ?? lines.map(tail).find((l) => /[a-z]{3}/i.test(l) && l.length <= 160) ?? "").replace(/\s+/g, " ");
     const status: CzibStatus = /\bwithdrawn\b|\brevoked\b|\bcancell?ed\b/i.test(seg) ? "withdrawn"
       : /\bsuperseded\b/i.test(seg) ? "superseded"
       : /\bexpired\b/i.test(seg) ? "expired"
@@ -277,7 +324,7 @@ export function parseCzibListing(html: string, base = "https://www.easa.europa.e
     const entry: CzibEntry = {
       key: id.key, rev: id.rev, label: id.label, title, status, issued, validTo,
       url: links.get(`${id.key}R${id.rev}`) ?? [...links.entries()].find(([k]) => k.startsWith(`${id.key}R`))?.[1] ?? null,
-      countries: countriesIn(`${title}`), firs: firCodesIn(title),
+      countries: countriesIn(`${title}`), firs: [...new Set([...firCodesIn(title), ...firsByName(title)])], regions: regionsIn(title),
     };
     const prev = best.get(id.key);
     if (!prev || entry.rev > prev.rev || (entry.rev === prev.rev && (entry.title.length > prev.title.length || (!prev.status && entry.status)))) best.set(id.key, entry);
@@ -287,9 +334,25 @@ export function parseCzibListing(html: string, base = "https://www.easa.europa.e
 
 /** One CZIB's own page → what the listing lacks: the FIRs and countries it
  *  names, its altitude, validity, and the recommendation's wording. */
-export interface CzibPage { firs: string[]; countries: string[]; altitude: string | null; validTo: string | null; issued: string | null; withdrawn: boolean; recommendation: string | null; level: CzLevel | null }
+export interface CzibPage { firs: string[]; countries: string[]; regions?: string[]; altitude: string | null; validTo: string | null; issued: string | null; withdrawn: boolean; recommendation: string | null; level: CzLevel | null }
+/** The page's own content: <main> (else <article>, else the body) with the
+ *  site's menus, header, footer, sidebars and breadcrumbs cut out — read on
+ *  the whole page, the navigation names countries (Canada, Brazil…) and FIRs
+ *  the bulletin never mentions. */
+export function czibMainContent(html: string): string {
+  let h = html.replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, " ");
+  const main = h.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? h.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1];
+  if (main) h = main;
+  for (const tag of ["nav", "header", "footer", "aside", "form"]) {
+    h = h.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, "gi"), " ");
+  }
+  // Menus and breadcrumbs that are not in a <nav>: a list whose class says so.
+  h = h.replace(/<(ul|ol)\b[^>]*class\s*=\s*["'][^"']*\b(menu|breadcrumb|sidebar|navbar|share|social|language)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi, " ");
+  return htmlToText(h).replace(/\s+/g, " ").trim();
+}
+
 export function parseCzibPage(html: string): CzibPage {
-  const text = htmlToText(html).replace(/\s+/g, " ");
+  const text = czibMainContent(html);
   const valid = text.match(/(?:valid until|validity|valid to|effective until|expiry date)\D{0,25}(\d{1,2}[/.]\d{1,2}[/.]20\d{2}|20\d{2}-\d{2}-\d{2}|\d{1,2}\s+[A-Za-z]{3,9}\s+20\d{2})/i);
   const issued = text.match(/(?:issued date|issue date|date of issue|issued)\D{0,25}(\d{1,2}[/.]\d{1,2}[/.]20\d{2}|20\d{2}-\d{2}-\d{2}|\d{1,2}\s+[A-Za-z]{3,9}\s+20\d{2})/i);
   const rec = text.match(/[^.]{0,200}\b(?:should not (?:operate|plan)|not to operate|should exercise caution|operate with caution|recommend(?:s|ed)? (?:that )?operators)[^.]{0,220}\./i)?.[0]?.trim() ?? null;
@@ -297,6 +360,7 @@ export function parseCzibPage(html: string): CzibPage {
   return {
     firs: [...new Set([...firCodesIn(text), ...firsByName(text)])],
     countries: countriesIn(text.slice(0, 6000)),
+    regions: regionsIn(text.slice(0, 6000)),
     altitude: altitudeIn(rec ?? text.slice(0, 4000)),
     validTo: valid ? readDate(valid[1]) : null,
     issued: issued ? readDate(issued[1]) : null,
@@ -316,6 +380,7 @@ export function czibZone(e: CzibEntry, page: CzibPage | null, todayYmd: string):
   if (validTo && validTo < todayYmd) return null;
   const firs = [...new Set([...(page?.firs ?? []), ...e.firs])];
   const countries = [...new Set([...e.countries, ...(page?.countries ?? [])])];
+  const regions = [...new Set([...(e.regions ?? []), ...(page?.regions ?? [])])];
   // EASA's CZIB is a recommendation to EU operators: "should not operate" is
   // AVOID, anything softer is CAUTION. A page not read → the listing alone
   // cannot say which, and a CZIB is issued only for a risk worth naming — avoid
@@ -329,7 +394,7 @@ export function czibZone(e: CzibEntry, page: CzibPage | null, todayYmd: string):
     issued: page?.issued ?? e.issued, validTo,
     url: e.url,
     text: clip(page?.recommendation ?? `${e.title}${e.status ? ` · ${e.status}` : " · status not stated on the listing"}${page ? "" : " · recommendation not read (bulletin page not fetched)"}`, 700),
-    points: placeZone(firs, countries),
+    points: placeZone(firs, countries, regions),
   };
 }
 

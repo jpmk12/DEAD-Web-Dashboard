@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   firCodesIn, firsByName, countriesIn, altitudeIn, readDate, kiczId, kiczLevel, parseKiczNotam,
   parseFaaRestrictionsPage, czibIdIn, parseCzibListing, parseCzibPage, czibZone, mergeFaaZones, sortZones,
+  qLineAltitude, regionsIn, czibMainContent, czibIdIn,
 } from "../lib/conflictZones";
 
 const TEHRAN = "A0014/22 NOTAMN Q) KICZ/QARLC/IV/NBO/E/000/999/ A) KICZ B) 2209200000 C) PERM E) SECURITY..UNITED STATES OF AMERICA PROHIBITION FOR THE TEHRAN FLIGHT INFORMATION REGION (FIR) (OIIX). ALL FLIGHT OPERATIONS IN THE TEHRAN FIR (OIIX) AT ALL ALTITUDES BY U.S. AIR CARRIERS AND COMMERCIAL OPERATORS ARE PROHIBITED. SEE 14 CFR 91.1617 (SFAR NO. 117).";
@@ -135,5 +136,51 @@ describe("EASA CZIBs", () => {
     const a = parseKiczNotam(ADVISORY)!, b = parseKiczNotam(TEHRAN)!;
     const c = czibZone(parseCzibListing(LISTING).find((e) => e.key === "2017-08")!, null, "2026-11-26")!;
     expect(sortZones([a, c, b]).map((z) => z.id)).toEqual(["KICZ A0014/22", "CZIB-2017-08R19", "KICZ A0008/26"]);
+  });
+});
+
+describe("conflict zones — fixes from the first production diag (2026-11-26)", () => {
+  it("reads the altitude from the Q) line when the text states none (Somalia SFC–FL259)", () => {
+    const t = "A0019/25 NOTAMN Q) KICZ/QRDLP/IV/NBO/AE/000/259/ A) KICZ B) 2511010000 C) PERM E) SECURITY..UNITED STATES OF AMERICA PROHIBITION FOR U.S. CIVIL FLIGHT OPERATIONS IN THE MOGADISHU FLIGHT INFORMATION REGION (FIR) (HCSM).";
+    expect(qLineAltitude(t)).toBe("SFC–FL259");
+    expect(qLineAltitude("Q) KICZ/QRDLP/IV/NBO/AE/000/999/")).toBe("all altitudes");
+    expect(qLineAltitude("Q) KICZ/QRDLP/IV/NBO/AE/260/999/")).toBe("FL260 and above");
+    const z = parseKiczNotam(t)!;
+    expect(z.altitude).toBe("SFC–FL259");
+    expect(z.firs).toEqual(["HCSM"]);
+    expect(z.countries).not.toContain("United States");
+  });
+  it("the FAA page never places the issuer", () => {
+    const zs = parseFaaRestrictionsPage(`<a href="/air_traffic/publications/us_restrictions/media/KICZ_NOTAM_A0004_25_United_States_Venezuela.pdf">KICZ NOTAM A0004/25 - U.S. civil aviation - Venezuela</a>`);
+    expect(zs[0].countries).toEqual(["Venezuela"]);
+  });
+  it("knows the Latin-American FIRs the KICZ advisories name", () => {
+    const z = parseKiczNotam("A0031/25 NOTAMN Q) KICZ/QRDLP/IV/NBO/AE/000/999/ E) SECURITY..ADVISORY FOR U.S. OPERATORS IN THE BOGOTA FIR (SKED) AND GUAYAQUIL FIR (SEFG). EXERCISE CAUTION.")!;
+    expect(z.points.map((p) => p.by)).toEqual(["fir", "fir"]);
+    expect(z.level).toBe("caution");
+  });
+  it("accepts a CZIB id written with a space ('2025-01 R3'), never a plain date", () => {
+    expect(czibIdIn("2025-01 R3")).toMatchObject({ key: "2025-01", rev: 3 });
+    expect(czibIdIn("2025-01-15")).toBeNull();
+    const es = parseCzibListing(`<div>2025-01 R3 Active view 01/02/2025 15/08/2026 31/01/2027 Airspace of Sudan</div>`);
+    expect(es[0]).toMatchObject({ key: "2025-01", rev: 3, title: expect.stringMatching(/Sudan/) });
+    expect(es[0].countries).toEqual(["Sudan"]);
+  });
+  it("places a bulletin that names only a body of water at the region", () => {
+    expect(regionsIn("Persian Gulf and Gulf of Oman")).toEqual(["Persian Gulf", "Gulf of Oman"]);
+    const es = parseCzibListing(`<div>CZIB-2026-04R1 Active view 01/03/2026 01/03/2026 31/12/2026 Persian Gulf and Gulf of Oman</div>`);
+    const z = czibZone(es[0], null, "2026-11-26")!;
+    expect(z.points.map((p) => `${p.by}:${p.name}`)).toEqual(["region:Persian Gulf", "region:Gulf of Oman"]);
+  });
+  it("reads a bulletin's own content, not the site menu", () => {
+    const html = `<header><ul class="menu"><li>Canada</li></ul></header><nav><a>Brazil</a> <a>Jeddah FIR (OEJD)</a></nav>
+      <main><ul class="breadcrumb"><li>Russia</li></ul><h1>CZIB-2026-09R2</h1><p>Airspace of Iraq — Baghdad FIR (ORBB).</p>
+      <p>Operators should not operate at any altitude.</p></main><footer>Saudi Arabia</footer>`;
+    const main = czibMainContent(html);
+    expect(main).not.toMatch(/Canada|Brazil|Russia|Saudi|OEJD/);
+    const p = parseCzibPage(html);
+    expect(p.firs).toEqual(["ORBB"]);
+    expect(p.countries).toEqual(["Iraq"]);
+    expect(p.level).toBe("avoid");
   });
 });

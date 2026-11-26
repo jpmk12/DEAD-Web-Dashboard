@@ -1555,7 +1555,7 @@ export default function CrisisMap({ boardAor = null, domain = null, starAors = [
                     <div style={{ color: col }}>{word}{z.altitude ? ` · ${z.altitude}` : ""}</div>
                     <div className="text-slate-700">{z.title}</div>
                     <div className="text-slate-500">{z.source === "faa" ? "FAA — binding on U.S. operators" : "EASA CZIB — a recommendation to EU operators"}{z.issued ? ` · issued ${z.issued}` : ""}{z.validTo ? ` · valid to ${z.validTo}` : ""}</div>
-                    <div className="text-slate-500">Pinned at {pt.name} ({pt.by === "fir" ? "FIR centroid" : "country centroid"}) — not the airspace boundary</div>
+                    <div className="text-slate-500">Pinned at {pt.name} ({pt.by === "fir" ? "FIR centroid" : pt.by === "region" ? "middle of the named region" : "country centroid"}) — not the airspace boundary</div>
                     <details className="mt-1"><summary className="cursor-pointer text-slate-500">text as published</summary><div className="text-slate-700 whitespace-pre-wrap max-h-[160px] overflow-auto">{z.text}</div></details>
                     {z.url && <a href={z.url} target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">source document <ExternalLinkIcon size={11} className="inline -mt-px" /></a>}
                   </div></Popup>

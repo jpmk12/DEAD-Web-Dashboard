@@ -20,7 +20,7 @@ import { runLimited } from "./concurrency";
 import { htmlToText } from "./ukmtoParse";
 import { htmlPageSummary } from "./mapHazards";
 import {
-  parseKiczNotam, parseFaaRestrictionsPage, mergeFaaZones, parseCzibListing, parseCzibPage, czibZone, sortZones,
+  parseKiczNotam, parseFaaRestrictionsPage, mergeFaaZones, parseCzibListing, parseCzibPage, czibMainContent, czibZone, sortZones,
   type ConflictZone, type CzibEntry, type CzibPage,
 } from "./conflictZones";
 
@@ -205,9 +205,9 @@ export async function diagnoseConflictZones(): Promise<unknown> {
   let bulletin: unknown = null;
   if (firstUrl) {
     const r = await getText(firstUrl, 10_000, 1_500_000);
-    const text = r.text ? htmlToText(r.text).replace(/\s+/g, " ") : "";
-    const at = text.search(/should not|valid until|FIR|recommend/i);
-    bulletin = { url: firstUrl, status: r.status, error: r.error, parsed: r.error ? null : parseCzibPage(r.text), excerpt: ascii(text.slice(Math.max(0, at - 200), Math.max(0, at - 200) + 1200)) };
+    const main = r.text ? czibMainContent(r.text) : "";
+    const hasMain = r.text ? /<main\b/i.test(r.text) : false;
+    bulletin = { url: firstUrl, status: r.status, error: r.error, hasMain, mainChars: main.length, parsed: r.error ? null : parseCzibPage(r.text), excerpt: ascii(main.slice(0, 1500)) };
   }
   return {
     ms: Date.now() - t0,
