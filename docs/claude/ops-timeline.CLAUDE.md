@@ -393,3 +393,16 @@ more; these fit the same pure core:
 
 Verify in a real browser too: mouse scrub, a finger tap/drag at 390 px width,
 keyboard stepping, and no horizontal page overflow.
+
+## Overlap rules (learned in production, 2026-11-26)
+- A lane can hold overlapping bars (NOTAMs). Pack them into rows (≤3) with a
+  greedy interval packer; never draw two bars on one row. The readout lists
+  every bar in effect at the cursor, one line each, worst first.
+- Parking / apron / hardstand / shelter closures are a capacity note, never a
+  limiting factor — otherwise a multi-day shelter NOTAM becomes a multi-day
+  limiting window and the band stops being read.
+- Never repeat a NOTAM's text in its own label; strip the NOTAM number from
+  any label built from the text.
+- Markers that sit closer than a label's width merge into one (±0°).
+- Labels on the axis hide under the scrub cursor's flag.
+- A band bounded by one level reads "near N ft", never "N–N ft".

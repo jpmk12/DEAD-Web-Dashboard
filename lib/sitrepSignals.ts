@@ -400,7 +400,10 @@ export function windowLabel(text: string, category: string): string {
   const navaid = up.match(/\b(ILS|LOC|VOR|TACAN|NDB|RNAV|PAPI|VASI|ALS|GLIDESLOPE|GS|DME)\b/);
   const twy = up.match(/TWY\s*([A-Z]{1,2}\d{0,2}\b)/);
   if (subject === "taxiway") return twy ? `TWY ${twy[1]}` : "Taxiway";
-  if (subject === "apron") return "Ramp / apron";
+  if (subject === "apron") {
+    return /\bHARDSTANDS?\b|\bHAS'?S\b|\bHAS\s+(?:NR\s*)?\d|HARDENED\s+AIRCRAFT\s+SHELTER/.test(up) ? "Parking / HAS"
+      : /\b(?:PARKING|PRKG|DISPERSALS?)\b/.test(up) ? "Parking" : "Ramp / apron";
+  }
   if (navaid) return rwy ? `${navaid[1]} RWY ${rwy[1]}` : navaid[1];
   if (rwy) return `RWY ${rwy[1]}`;
   // "RWY CLSD" with no designator — THE runway (a single-runway field).
@@ -420,7 +423,8 @@ export function windowLabel(text: string, category: string): string {
   if (/\b(TWR|CTL|CONTROL|ATC|CLNC)\b/.test(up)) return "ATC / tower";
   // Last resort — a short snippet of the NOTAM subject beats the bucket word
   // "Other", which tells the reader nothing about what actually closed.
-  const clean = text.trim().replace(/\s+/g, " ");
+  // The NOTAM number and series marker are not what closed ("L0076/26 NOTAMN …").
+  const clean = text.trim().replace(/\s+/g, " ").replace(/^(?:[A-Z]\d{4}\/\d{2}\s+)?(?:NOTAM[NRC]\s+)?/, "").replace(/^(?:E\)\s*)/, "");
   const snippet = clean.slice(0, 22).trimEnd();
   if (!snippet) return category.charAt(0).toUpperCase() + category.slice(1);
   return snippet.length < clean.length ? `${snippet}…` : snippet;

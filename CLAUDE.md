@@ -2342,6 +2342,29 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     "U/S" / "LTD". Verified in headless Chromium against the build (desktop
     mouse scrub + keyboard step, phone tap, no overflow). The portable spec
     for re-implementing this elsewhere is `docs/claude/ops-timeline.CLAUDE.md`.
+  - **Overlap fixes from a production screenshot (ETAD, 2026-11-26, "there
+    is some overlap here we need to fix").** (1) **Overlapping bars stack**:
+    `packRows` (PURE, `lib/opsTimeline.ts`, tested) gives each overlapping bar
+    its own row up to `MAX_LANE_ROWS` 3 (a fourth shares the row that frees
+    first, unlabelled); the lane grows and its title says "N overlap" — two
+    NOTAMs had been drawn on one row with their labels on top of each other.
+    The HTML export stacks the same way. (2) **Parking is not a limit**:
+    `notamSubject` reads hardstands, hardened aircraft shelters ("HAS'S",
+    "HAS 3003" — never the verb "has"), parking and dispersals as `apron`,
+    `windowLabel` names them "Parking / HAS" / "Parking", and `notamLane`
+    draws a parking closure as a NOTE (`PARKING_LABELS`) — the shelter
+    NOTAMs had made a three-day "limiting window" (MOG is the commander's
+    LIMFAC to enter). A last-resort label no longer starts with the NOTAM
+    number. (3) **The readout reads each NOTAM once**: detail = label +
+    verb + "(NOTAM L0076/26)" + the body without its number or a repeat of
+    the label; several in effect → `SliceRow.items`, one clamped line each,
+    worst first; a long line clamps with "full text ▾". (4) **0 °C markers**
+    closer than 30 px merge into "±0°" (times in the tooltip), clamp at the
+    edges, and the "0°" level label moves to the side no marker uses. (5)
+    **Axis labels step aside** under the cursor's flag. (6) One model level
+    reads "icing possible near 900 ft AGL", never "900–900". Verified in
+    headless Chromium against the build with an ETAD-shaped fixture (desktop
+    + phone, no overflow).
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

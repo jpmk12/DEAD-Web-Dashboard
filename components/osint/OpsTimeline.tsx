@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { windowsWithNotams, rangeLabel, sliceAt, changePoints, zuluStamp, spanText, type OpsTimeline as Timeline, type TlLane, type Tone, type ClosureLike, type LimitWindow, type SliceTone } from "@/lib/opsTimeline";
+import { windowsWithNotams, packRows, rangeLabel, sliceAt, changePoints, zuluStamp, spanText, type OpsTimeline as Timeline, type TlLane, type Tone, type ClosureLike, type LimitWindow, type SliceTone } from "@/lib/opsTimeline";
 
 // The 72-hour ops timeline (lib/opsTimeline): one hourly axis, a lane per
 // operational question (sky · precip · temperature · ground ice · runway ·
@@ -47,22 +47,28 @@ function fitLabel(label: string, short: string | undefined, px: number): string 
 }
 
 function Lane({ lane, pct, trackPx }: { lane: TlLane; pct: (ms: number) => number; trackPx: number }) {
+  const placed = packRows(lane.segs);
+  const rows = Math.max(1, ...placed.map((p) => p.row + 1));
+  const rowH = rows === 1 ? 18 : 15;
+  const overflow = placed.filter((p) => p.over).length;
   return (
-    <div className="flex items-center gap-2 h-[22px]">
+    <div className="flex items-center gap-2" style={{ height: rows * rowH + 4 }}>
       <span className="w-[86px] flex-shrink-0 text-right text-[9px] font-semibold text-slate-400 truncate" title={lane.unknown ?? lane.title}>
         {lane.title}{lane.unknown ? <span className="text-slate-600"> ?</span> : null}
+        {rows > 1 && <span className="block font-normal text-[8px] text-slate-500">{lane.segs.length} overlap{overflow ? ` (+${overflow})` : ""}</span>}
       </span>
-      <div className="relative flex-1 h-[18px] rounded bg-slate-800/20">
+      <div className="relative flex-1 rounded bg-slate-800/20" style={{ height: rows * rowH }}>
         {lane.segs.map((s, i) => {
           const left = pct(s.fromMs), width = Math.max(0.6, pct(s.toMs) - left);
           const cls = lane.key === "sky" && s.cat ? CAT_BAR[s.cat] : TONE_BAR[s.tone];
+          const { row, over } = placed[i];
           return (
             <span
               key={i}
-              className={`absolute top-[1px] bottom-[1px] rounded-[3px] border px-0.5 text-[8px] font-bold leading-none flex items-center justify-center overflow-hidden whitespace-nowrap ${cls} ${s.dashed ? "border-dashed" : ""}`}
-              style={{ left: `${left}%`, width: `${width}%` }}
+              className={`absolute rounded-[3px] border px-0.5 text-[8px] font-bold leading-none flex items-center justify-center overflow-hidden whitespace-nowrap ${cls} ${s.dashed ? "border-dashed" : ""}`}
+              style={{ left: `${left}%`, width: `${width}%`, top: row * rowH + 1, height: rowH - 2 }}
             >
-              {fitLabel(s.label, s.short, (width / 100) * trackPx)}
+              {over ? "" : fitLabel(s.label, s.short, (width / 100) * trackPx)}
             </span>
           );
         })}
@@ -74,7 +80,25 @@ function Lane({ lane, pct, trackPx }: { lane: TlLane; pct: (ms: number) => numbe
   );
 }
 
-function TempLane({ tl, pct }: { tl: Timeline; pct: (ms: number) => number }) {
+/** 0 °C crossings closer than a label's width are one marker: the air
+ *  hovering at freezing reads "±0°" (its times in the tooltip), never a pile
+ *  of arrows on top of each other. */
+function crossingMarks(cs: Timeline["temp"]["crossings"], pct: (ms: number) => number, trackPx: number) {
+  const groups: { px: number; items: typeof cs }[] = [];
+  for (const c of cs) {
+    const px = (pct(c.t) / 100) * trackPx;
+    const last = groups[groups.length - 1];
+    if (last && px - last.px < 30) last.items.push(c);
+    else groups.push({ px, items: [c] });
+  }
+  return groups.map((g) => ({
+    px: g.px,
+    label: g.items.length === 1 ? (g.items[0].dir === "down" ? "↓0°" : "↑0°") : "±0°",
+    title: g.items.map((c) => `${c.dir === "down" ? "falls below" : "rises above"} 0 °C ${zuluStamp(c.t, false)}`).join(" · "),
+  }));
+}
+
+function TempLane({ tl, pct, trackPx }: { tl: Timeline; pct: (ms: number) => number; trackPx: number }) {
   const pts = tl.temps;
   const vals = pts.flatMap((p) => [p.c, p.dew]).filter((v): v is number => v != null);
   if (!vals.length) {
@@ -91,6 +115,7 @@ function TempLane({ tl, pct }: { tl: Timeline; pct: (ms: number) => number }) {
   const line = (f: (p: (typeof pts)[number]) => number | null) =>
     pts.map((p, k) => { const v = f(p); return v == null ? null : `${k + 0.5},${y(v).toFixed(1)}`; }).filter(Boolean).join(" ");
   const y0 = y(0);
+  const marks = crossingMarks(tl.temp.crossings, pct, trackPx);
   return (
     <div className="flex items-center gap-2 h-[46px]">
       <span className="w-[86px] flex-shrink-0 text-right text-[9px] font-semibold text-slate-400 leading-tight">
@@ -104,12 +129,14 @@ function TempLane({ tl, pct }: { tl: Timeline; pct: (ms: number) => number }) {
           <polyline points={line((p) => p.dew)} fill="none" stroke="rgb(148 163 184 / 0.7)" strokeWidth={1} strokeDasharray="1.5 1.5" vectorEffect="non-scaling-stroke" />
           <polyline points={line((p) => p.c)} fill="none" stroke="rgb(241 245 249)" strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
         </svg>
-        {tl.temp.crossings.map((c, i) => (
-          <span key={i} className="absolute top-0 text-[8px] font-bold text-sky-300 -translate-x-1/2" style={{ left: `${pct(c.t)}%` }} >
-            {c.dir === "down" ? "↓0°" : "↑0°"}
+        {marks.map((m, i) => (
+          <span key={i} title={m.title} className="absolute top-0 text-[8px] font-bold text-sky-300 bg-slate-950/50 rounded-sm px-px"
+            style={{ left: m.px, transform: m.px < 14 ? "none" : m.px > trackPx - 14 ? "translateX(-100%)" : "translateX(-50%)" }}>
+            {m.label}
           </span>
         ))}
-        <span className="absolute right-1 text-[7.5px] text-sky-300/80 font-mono" style={{ top: `${Math.max(0, Math.min(88, (y0 / HGT) * 100 - 12))}%` }}>0°</span>
+        {/* The 0 °C level label sits on the side no crossing marker uses. */}
+        <span className={`absolute text-[7.5px] text-sky-300/80 font-mono ${marks.some((m) => m.px > trackPx - 44) ? "left-1" : "right-1"}`} style={{ top: `${Math.max(0, Math.min(88, (y0 / HGT) * 100 - 12))}%` }}>0°</span>
       </div>
     </div>
   );
@@ -135,6 +162,7 @@ export default function OpsTimeline({ tl, closures, zone }: { tl: Timeline; clos
   const [hi, setHi] = useState<number | null>(null);
   const [keyOpen, setKeyOpen] = useState(false);
   const [trackPx, setTrackPx] = useState(600);
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
   const trackRef = useRef<HTMLDivElement | null>(null);
   const { lane: notam, windows } = useMemo(() => windowsWithNotams(tl, closures), [tl, closures]);
   const changes = useMemo(() => changePoints(tl, [notam]), [tl, notam]);
@@ -195,6 +223,19 @@ export default function OpsTimeline({ tl, closures, zone }: { tl: Timeline; clos
   const amber = windows.length > 0;
   const curPct = cur != null ? pct(cur) : null;
   const local = cur != null ? localStamp(cur, zone) : null;
+  // The cursor's flag sits on the axis row: the labels it would cover step
+  // aside ("Sat 2" under "Sat 28 · 0648Z" was unreadable).
+  const flag: [number, number] | null = (() => {
+    if (curPct == null || cur == null) return null;
+    const w = zuluStamp(cur, false).length * 6.2 + (local ? local.length * 5.2 + 6 : 0) + 14;
+    const x = (curPct / 100) * trackPx;
+    return curPct < 10 ? [x, x + w] : curPct > 90 ? [x - w, x] : [x - w / 2, x + w / 2];
+  })();
+  const underFlag = (x0: number, x1: number) => flag != null && x1 > flag[0] - 4 && x0 < flag[1] + 4;
+  const labelSpan = (ms: number, text: string, centered: boolean): [number, number] => {
+    const x = (pct(ms) / 100) * trackPx, w = text.length * 5.4;
+    return centered ? [x - w / 2, x + w / 2] : [x, x + w];
+  };
 
   return (
     <section
@@ -228,10 +269,10 @@ export default function OpsTimeline({ tl, closures, zone }: { tl: Timeline; clos
             <span className="w-[86px] flex-shrink-0" />
             <div className="relative flex-1 h-4">
               {/* A narrow (phone) track keeps the day names and 12Z — 6-hour labels would collide. */}
-              {ticks.filter((t) => t.day || trackPx >= 480 || t.label === "12Z").map((t, i) => (
+              {ticks.filter((t) => (t.day || trackPx >= 480 || t.label === "12Z") && !underFlag(...labelSpan(t.ms, t.label, true))).map((t, i) => (
                 <span key={i} className={`absolute bottom-0 -translate-x-1/2 text-[8px] font-mono whitespace-nowrap ${t.day ? "text-slate-300 font-bold" : "text-slate-600"}`} style={{ left: `${pct(t.ms)}%` }}>{t.label}</span>
               ))}
-              {tl.tafEndMs != null && tl.tafEndMs > tl.startMs && tl.tafEndMs < endMs && (
+              {tl.tafEndMs != null && tl.tafEndMs > tl.startMs && tl.tafEndMs < endMs && !underFlag(...labelSpan(tl.tafEndMs, "TAF ends", false)) && (
                 <span className="absolute bottom-0 text-[7.5px] text-sky-300/80 pl-0.5 whitespace-nowrap" style={{ left: `${pct(tl.tafEndMs)}%` }}>TAF ends</span>
               )}
             </div>
@@ -248,7 +289,7 @@ export default function OpsTimeline({ tl, closures, zone }: { tl: Timeline; clos
             </div>
             <div className="relative space-y-[2px] py-0.5">
               {top.map((l) => <Lane key={l.key} lane={l} pct={pct} trackPx={trackPx} />)}
-              <TempLane tl={tl} pct={pct} />
+              <TempLane tl={tl} pct={pct} trackPx={trackPx} />
               {rest.map((l) => <Lane key={l.key} lane={l} pct={pct} trackPx={trackPx} />)}
             </div>
             {/* The scrub layer: one hairline across every lane with the Zulu time on the axis. */}
@@ -298,12 +339,34 @@ export default function OpsTimeline({ tl, closures, zone }: { tl: Timeline; clos
               )}
             </div>
             <dl className="mt-1.5 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
-              {slice.rows.map((r) => (
-                <div key={r.key} className="grid grid-cols-[78px_1fr] gap-2 items-baseline min-w-0">
-                  <dt className="text-[9px] uppercase tracking-wider text-slate-500">{r.title}</dt>
-                  <dd className={`text-[10.5px] min-w-0 break-words ${RO_TONE[r.tone]}`}>{r.text}</dd>
-                </div>
-              ))}
+              {slice.rows.map((r) => {
+                // A long read (a NOTAM's text) is clamped to two lines; tap opens it.
+                const long = r.items ? r.items.some((x) => x.text.length > 90) : r.text.length > 150;
+                const open = openRows.has(r.key);
+                return (
+                  <div key={r.key} className="grid grid-cols-[78px_1fr] gap-2 items-baseline min-w-0">
+                    <dt className="text-[9px] uppercase tracking-wider text-slate-500">{r.title}</dt>
+                    <dd className={`text-[10.5px] min-w-0 break-words ${RO_TONE[r.tone]}`}>
+                      {r.items ? (
+                        <span className="block space-y-0.5">
+                          <span className="block text-[9px] font-normal text-slate-500">{r.items.length} in effect</span>
+                          {r.items.map((it, k) => (
+                            <span key={k} className={`${RO_TONE[it.tone]} ${long && !open ? "line-clamp-1" : "block"}`} title={long && !open ? it.text : undefined}>{it.text}</span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className={long && !open ? "line-clamp-2" : ""} title={long && !open ? r.text : undefined}>{r.text}</span>
+                      )}
+                      {long && (
+                        <button type="button" className="text-[9px] font-normal text-slate-500 hover:text-slate-300"
+                          onClick={() => setOpenRows((s) => { const n = new Set(s); if (n.has(r.key)) n.delete(r.key); else n.add(r.key); return n; })}>
+                          {open ? "less ▴" : "full text ▾"}
+                        </button>
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
             </dl>
           </>
         )}

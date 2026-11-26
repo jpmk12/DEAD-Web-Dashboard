@@ -297,3 +297,53 @@ describe("the two fixes from the mockup fixture", () => {
     expect(lane.segs[0]).toMatchObject({ label: "RWY 05/23 CLSD", short: "CLSD" });
   });
 });
+
+import { packRows, sliceAt as sliceAtFix } from "../lib/opsTimeline";
+import { windowLabel } from "../lib/sitrepSignals";
+import { notamSubject } from "../lib/notamSubject";
+
+// From the ETAD screenshot (2026-11-26): two shelter NOTAMs overlapping on one
+// row, a three-day "limiting window" made of closed shelters, the NOTAM text
+// read twice in the readout, and "icing possible 900–900 ft AGL".
+describe("timeline overlap and readout fixes (ETAD, 2026-11-26)", () => {
+  const HAS = "L0076/26 AERODROME HAS'S AND HARDSTANDS 3003, 3004, 3008, 3016 CLSD";
+  it("a hardened-shelter / hardstand NOTAM is about parking, never the aerodrome", () => {
+    expect(notamSubject(HAS)).toBe("apron");
+    expect(windowLabel(HAS, "other")).toBe("Parking / HAS");
+    expect(notamSubject("RWY 09/27 HAS BEEN RESURFACED")).toBe("runway");
+    // A last-resort label never starts with the NOTAM number.
+    expect(windowLabel("A1234/26 NOTAMN BALLOON RELEASE NE OF FIELD", "other")).toMatch(/^BALLOON/);
+  });
+
+  it("closed parking is a note, not a limiting window; the readout reads each NOTAM once", () => {
+    const t = opsTimeline({ ...base, taf: null, hours: hours(72) });
+    const closures = [
+      { fromMs: T0, toMs: T0 + 72 * H, kind: "closure" as const, label: "Parking / HAS", text: HAS },
+      { fromMs: T0 + 10 * H, toMs: T0 + 40 * H, kind: "closure" as const, label: "Parking / HAS", text: HAS.replace("L0076", "L0080") },
+    ];
+    const { lane: nl, windows } = windowsWithNotams(t, closures);
+    expect(nl.segs.every((s) => s.tone === "i")).toBe(true);
+    expect(windows).toHaveLength(0);
+    expect(nl.segs[0].detail).toMatch(/^Parking \/ HAS closed \(NOTAM L0076\/26\) — parking capacity/);
+    expect(nl.segs[0].detail.match(/L0076\/26/g)).toHaveLength(1);
+    const row = sliceAtFix(t, [nl], windows, T0 + 20 * H)!.rows.find((r) => r.key === "notam")!;
+    expect(row.label).toBe("2 in effect");
+    expect(row.text).toMatch(/L0076\/26.* · .*L0080\/26/);
+  });
+
+  it("overlapping bars take a row each up to three; the fourth shares the row that frees first", () => {
+    const s = (a: number, b: number) => ({ fromMs: a, toMs: b });
+    expect(packRows([s(0, 10), s(5, 15), s(12, 20)])).toEqual([{ row: 0, over: false }, { row: 1, over: false }, { row: 0, over: false }]);
+    const p = packRows([s(0, 10), s(1, 11), s(2, 12), s(3, 13)]);
+    expect(p.map((x) => x.row)).toEqual([0, 1, 2, 0]);
+    expect(p[3].over).toBe(true);
+  });
+
+  it("one model level reads 'near N ft', never 'N–N ft'", () => {
+    const lv = [{ hPa: 925, heightM: 300 + 900 / 3.28084, tempC: -4, rh: 90 }];
+    const t = opsTimeline({ ...base, taf: null, hours: hours(24, () => ({ levels: lv })) });
+    const d = lane(t, "icing").segs[0].detail;
+    expect(d).toMatch(/near 900 ft AGL/);
+    expect(d).not.toMatch(/900–900/);
+  });
+});

@@ -23,7 +23,11 @@ const SUBJECT_TOKENS: { subject: NotamSubject; re: RegExp }[] = [
   { subject: "runway",  re: /\b(?:RWY|RUNWAY)\b/i },
   { subject: "taxiway", re: /\b(?:TWY|TAXIWAY)\b/i },
   { subject: "navaid",  re: /\b(?:ILS|LOC|VOR|TACAN|NDB|RNAV|DME|GLIDE\s?SLOPE|GS|PAPI|VASI|ALS|APCH|APPROACH)\b/i },
-  { subject: "apron",   re: /\b(?:APRON|RAMP)\b/i },
+  // Parking: aprons, ramps, hardstands, hardened aircraft shelters (HAS),
+  // stands and dispersals. "AERODROME HAS'S AND HARDSTANDS 3003 … CLSD" is
+  // about shelters, never the aerodrome — and HAS only as a shelter token
+  // ("HAS'S", "HAS 3003", "HAS NR 12"), never the English verb.
+  { subject: "apron",   re: /\b(?:APRON|RAMP|HARDSTANDS?|DISPERSALS?|PARKING|PRKG|HARDENED\s+AIRCRAFT\s+SHELTERS?|HAS'?S\b|HAS\s+(?:NR\s*)?\d)/i },
 ];
 
 /**

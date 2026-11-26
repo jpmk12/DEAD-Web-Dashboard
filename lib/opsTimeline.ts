@@ -79,6 +79,8 @@ const CONTAM_X_KT = 15, CONTAM_GX_KT = 20;
 const M_TO_FT = 3.28084;
 
 export type Tone = "r" | "a" | "i" | "g" | "u";
+/** Worse first: red › amber › UNKNOWN › note › green. */
+const TONE_RANK: Record<Tone, number> = { r: 4, a: 3, u: 2, i: 1, g: 0 };
 export type LaneKey = "sky" | "precip" | "deice" | "runway" | "icing" | "xwind" | "ramp" | "notam";
 export type Cat = "VFR" | "MVFR" | "IFR" | "LIFR";
 
@@ -379,7 +381,9 @@ function icingCell(r: HourRead, elevM: number | null, nowMs: number, groups: Taf
   const base = band.length ? Math.min(...band) : 0, top = band.length ? Math.max(...band) : 0;
   if (!best) return null;
   const r100 = (x: number) => Math.round(x / 100) * 100;
-  const bandTxt = `${r100(base).toLocaleString("en-US")}–${r100(top).toLocaleString("en-US")} ft AGL`;
+  // One model level earns the label → "near 900 ft", never "900–900 ft".
+  const bandTxt = r100(base) === r100(top) ? `near ${r100(base).toLocaleString("en-US")} ft AGL`
+    : `${r100(base).toLocaleString("en-US")}–${r100(top).toLocaleString("en-US")} ft AGL`;
   const tone: Tone = best === "likely" && r.t < nowMs + ICING_AMBER_H * H ? "a" : "i";
   return { tone, label: best === "likely" ? "ICE likely" : "ICE poss.", src: "model", dashed: true,
     detail: `icing ${best} ${bandTxt} (model, planning-grade — conducive, not reported)` };
@@ -638,21 +642,68 @@ export function timelineLines(t: OpsTimeline | null | undefined, max = 6): strin
 
 export interface ClosureLike { fromMs: number; toMs: number; kind: "closure" | "unserviceable" | "limited"; label: string; text: string; indeterminate?: boolean }
 
+/** Parking (apron, hardstands, shelters, stands) closed is a capacity NOTE,
+ *  never a launch-or-recovery limit — three days of closed shelters made a
+ *  three-day "limiting window" (ETAD, 2026-11-26) and taught the band to be
+ *  ignored. MOG is the commander's LIMFAC to enter, not a guess from here. */
+export const PARKING_LABELS = new Set(["Ramp / apron", "Parking", "Parking / HAS"]);
+
+/** The NOTAM number, when the text carries one ("L0076/26"). */
+function notamNumber(text: string): string | null {
+  return text.match(/\b([A-Z]\d{4}\/\d{2})\b/)?.[1] ?? null;
+}
+
+/** The NOTAM text as read, without its number / series header and without
+ *  repeating the label it already starts with. */
+function notamBody(label: string, text: string): string {
+  let t = text.trim().replace(/\s+/g, " ").replace(/^(?:[A-Z]\d{4}\/\d{2}\s+)?(?:NOTAM[NRC]\s+)?(?:E\)\s*)?/, "");
+  const stem = label.replace(/…$/, "").trim();
+  if (stem.length >= 6 && t.toUpperCase().startsWith(stem.toUpperCase())) t = t.slice(stem.length).replace(/^[\s.:,–-]+/, "");
+  return t.length > 140 ? `${t.slice(0, 139)}…` : t;
+}
+
 export function notamLane(closures: ClosureLike[], startMs: number, hours = TIMELINE_HOURS): TlLane {
   const end = startMs + hours * H;
   const segs: TlSeg[] = closures
     .filter((w) => w.toMs > startMs && w.fromMs < end)
-    .map((w) => ({
-      fromMs: Math.max(w.fromMs, startMs), toMs: Math.min(w.toMs, end),
-      tone: w.indeterminate ? "u" as const : w.kind === "limited" ? "i" as const : "a" as const,
-      label: w.indeterminate ? "SCHED" : `${w.label} ${w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD"}`,
-      short: w.indeterminate ? "SCHED" : w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD",
-      detail: w.indeterminate ? `${w.label}: schedule published, times not readable — read the NOTAM` : `${w.label} ${w.kind === "closure" ? "closed" : w.kind === "unserviceable" ? "unserviceable" : "limited"} (NOTAM): ${w.text.slice(0, 140)}`,
-      dashed: Boolean(w.indeterminate),
-      src: "taf" as const,
-    }))
+    .map((w) => {
+      const parking = PARKING_LABELS.has(w.label);
+      const verb = w.kind === "closure" ? "closed" : w.kind === "unserviceable" ? "unserviceable" : "limited";
+      const num = notamNumber(w.text);
+      const body = notamBody(w.label, w.text);
+      return {
+        fromMs: Math.max(w.fromMs, startMs), toMs: Math.min(w.toMs, end),
+        tone: w.indeterminate ? "u" as const : w.kind === "limited" || parking ? "i" as const : "a" as const,
+        label: w.indeterminate ? "SCHED" : `${w.label} ${w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD"}`,
+        short: w.indeterminate ? "SCHED" : w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD",
+        detail: w.indeterminate
+          ? `${w.label}: schedule published, times not readable — read the NOTAM${num ? ` ${num}` : ""}`
+          : `${w.label} ${verb}${num ? ` (NOTAM ${num})` : " (NOTAM)"}${parking ? " — parking capacity, not a launch or recovery limit" : ""}${body ? `: ${body}` : ""}`,
+        dashed: Boolean(w.indeterminate),
+        src: "taf" as const,
+      };
+    })
     .sort((a, b) => a.fromMs - b.fromMs);
   return { key: "notam", title: LANE_TITLE.notam, segs, unknown: null };
+}
+
+export const MAX_LANE_ROWS = 3;
+
+/** Overlapping bars (several NOTAMs at once) get a row each, up to
+ *  MAX_LANE_ROWS; a bar past that shares the row that frees first and carries no
+ *  label — the readout lists every one. Bars arrive sorted by start. */
+export function packRows(segs: { fromMs: number; toMs: number }[]): { row: number; over: boolean }[] {
+  const ends: number[] = [];
+  return segs.map((s) => {
+    let r = ends.findIndex((e) => e <= s.fromMs);
+    let over = false;
+    if (r < 0) {
+      if (ends.length < MAX_LANE_ROWS) { r = ends.length; ends.push(0); }
+      else { r = ends.indexOf(Math.min(...ends)); over = true; }
+    }
+    ends[r] = Math.max(ends[r], s.toMs);
+    return { row: r, over };
+  });
 }
 
 /** The timeline's windows recomputed with the NOTAM lane folded in. */
@@ -680,7 +731,9 @@ export function spanText(ms: number): string {
 }
 
 export type SliceTone = Tone | "n";
-export interface SliceRow { key: LaneKey | "temp"; title: string; tone: SliceTone; label: string; text: string }
+export interface SliceRow { key: LaneKey | "temp"; title: string; tone: SliceTone; label: string; text: string;
+  /** Several bars in effect at once (NOTAMs): each one, worst first. */
+  items?: { tone: SliceTone; text: string }[] }
 export interface TimelineSlice {
   ms: number;
   stamp: string;
@@ -703,7 +756,14 @@ export function sliceAt(t: OpsTimeline, extra: TlLane[], windows: LimitWindow[],
   const inTaf = t.tafEndMs != null && at < t.tafEndMs;
   const rows: SliceRow[] = [];
   const laneRow = (l: TlLane): SliceRow => {
-    const s = l.segs.find((x) => at >= x.fromMs && at < x.toMs);
+    const here = l.segs.filter((x) => at >= x.fromMs && at < x.toMs);
+    // Several NOTAMs in effect at once: every one is read, worst first.
+    if (here.length > 1) {
+      const sorted = [...here].sort((a, b) => TONE_RANK[b.tone] - TONE_RANK[a.tone]);
+      return { key: l.key, title: l.title, tone: sorted[0].tone, label: `${here.length} in effect`, text: sorted.map((x) => x.detail).join(" · "),
+        items: sorted.map((x) => ({ tone: x.tone, text: x.detail })) };
+    }
+    const s = here[0];
     if (s) return { key: l.key, title: l.title, tone: s.tone, label: s.label, text: s.detail };
     // A lane UNKNOWN only past the TAF is readable inside it.
     const unknownHere = l.unknown != null && !(inTaf && /^beyond the TAF/.test(l.unknown));

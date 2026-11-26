@@ -13,7 +13,7 @@
 import { wmoWordShort } from "./fieldOutlook";
 import type { SitrepPayload } from "./sitrep";
 import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led } from "./sitrepSignals";
-import { windowsWithNotams, rangeLabel, type OpsTimeline, type ClosureLike } from "./opsTimeline";
+import { windowsWithNotams, packRows, rangeLabel, type OpsTimeline, type ClosureLike } from "./opsTimeline";
 import type { FlightCategory } from "./types";
 import { fieldGpsLine, prnLine } from "./gpsNotams";
 
@@ -64,12 +64,19 @@ export function opsTimelineHtml(tl: OpsTimeline | null | undefined, closures: Cl
   }
   const shade = tl.light.filter((l) => l.state !== "day")
     .map((l) => `<span class="otl-n ${l.state}" style="left:${pct(l.fromMs).toFixed(2)}%;width:${(pct(l.toMs) - pct(l.fromMs)).toFixed(2)}%"></span>`).join("");
-  const laneRow = (title: string, inner: string) => `<div class="tlrow"><div class="tllab">${esc(title)}</div><div class="tltrack otl-track">${shade}${inner}</div></div>`;
-  const bars = (l: OpsTimeline["lanes"][number]) => l.segs.map((sg) => {
-    const left = pct(sg.fromMs), width = Math.max(0.6, pct(sg.toMs) - left);
-    const cls = l.key === "sky" && sg.cat ? TL_CAT[sg.cat] : TL_TONE[sg.tone];
-    return `<span class="bar ${cls}${sg.dashed ? " dash" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(`${rangeLabel(sg.fromMs, sg.toMs)} — ${sg.detail}`)}">${width > sg.label.length * 1.2 ? esc(sg.label) : ""}</span>`;
-  }).join("") || (l.unknown ? `<span class="otl-unk">${esc(l.unknown)}</span>` : "");
+  const laneRow = (title: string, inner: string, rowsN = 1) => `<div class="tlrow"><div class="tllab">${esc(title)}</div><div class="tltrack otl-track"${rowsN > 1 ? ` style="height:${rowsN * 13 + 2}px"` : ""}>${shade}${inner}</div></div>`;
+  // Overlapping bars (several NOTAMs at once) take a row each — packRows, the panel's own rule.
+  const bars = (l: OpsTimeline["lanes"][number]) => {
+    const placed = packRows(l.segs);
+    const stacked = placed.some((p) => p.row > 0);
+    return l.segs.map((sg, i) => {
+      const left = pct(sg.fromMs), width = Math.max(0.6, pct(sg.toMs) - left);
+      const cls = l.key === "sky" && sg.cat ? TL_CAT[sg.cat] : TL_TONE[sg.tone];
+      const pos = stacked ? `;top:${placed[i].row * 13 + 1}px;bottom:auto;height:12px` : "";
+      return `<span class="bar ${cls}${sg.dashed ? " dash" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%${pos}" title="${esc(`${rangeLabel(sg.fromMs, sg.toMs)} — ${sg.detail}`)}">${!placed[i].over && width > sg.label.length * 1.2 ? esc(sg.label) : ""}</span>`;
+    }).join("") || (l.unknown ? `<span class="otl-unk">${esc(l.unknown)}</span>` : "");
+  };
+  const laneRows = (l: OpsTimeline["lanes"][number]) => Math.max(1, ...packRows(l.segs).map((p) => p.row + 1));
   const order = ["sky", "precip", "TEMP", "deice", "runway", "icing", "xwind", "ramp"];
   const temps = tl.temps.filter((x) => x.c != null);
   let tempRow = laneRow("Temp °C", `<span class="otl-unk">UNKNOWN — the model profile did not answer</span>`);
@@ -82,7 +89,7 @@ export function opsTimelineHtml(tl: OpsTimeline | null | undefined, closures: Cl
     const svg = `<svg viewBox="0 0 ${tl.hours} ${Hh}" preserveAspectRatio="none" class="otl-svg">${freeze}<line x1="0" x2="${tl.hours}" y1="${y(0)}" y2="${y(0)}" stroke="rgba(125,211,252,.7)" stroke-width=".6" stroke-dasharray="2 1.5" vector-effect="non-scaling-stroke"/><polyline points="${line((q) => q.dew)}" fill="none" stroke="rgba(148,163,184,.7)" stroke-width="1" stroke-dasharray="1.5 1.5" vector-effect="non-scaling-stroke"/><polyline points="${line((q) => q.c)}" fill="none" stroke="#f1f5f9" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>`;
     tempRow = `<div class="tlrow"><div class="tllab">Temp °C<br>${tl.temp.minC ?? "—"} / ${tl.temp.maxC ?? "—"}</div><div class="tltrack otl-track otl-temp">${shade}${svg}</div></div>`;
   }
-  const rows = order.map((k) => (k === "TEMP" ? tempRow : (() => { const l = tl.lanes.find((x) => x.key === k); return l ? laneRow(l.title, bars(l)) : ""; })())).join("") + laneRow(notam.title, bars(notam));
+  const rows = order.map((k) => (k === "TEMP" ? tempRow : (() => { const l = tl.lanes.find((x) => x.key === k); return l ? laneRow(l.title, bars(l), laneRows(l)) : ""; })())).join("") + laneRow(notam.title, bars(notam), laneRows(notam));
   const list = windows.length
     ? `<ul class="otl-win">${windows.slice(0, 10).map((w) => `<li class="${w.tone === "r" ? "r" : "a"}">${esc(w.text)}</li>`).join("")}</ul>`
     : `<div class="otl-sum">${esc(tl.summary)}</div>`;
