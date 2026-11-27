@@ -9,8 +9,8 @@ import { assembleSitrep } from "@/lib/sitrep";
 import { fallbackCommanderRead, upcomingClosureLine } from "@/lib/limfac";
 import { parseModelJson } from "@/lib/aiJson";
 import { fieldGpsLine, prnLine } from "@/lib/gpsNotams";
-import { windowsWithNotams } from "@/lib/opsTimeline";
-import { closureWindows } from "@/lib/sitrepSignals";
+import { planView } from "@/lib/opsTimeline";
+import { timelineClosures } from "@/lib/sitrepSignals";
 
 export const dynamic = "force-dynamic";
 
@@ -128,8 +128,14 @@ export async function POST(req: Request) {
   if (tl72) {
     if (!tl72.live) lines.push(`LIMITING WINDOWS 72H: ${tl72.summary}`);
     else {
-      const nw = windowsWithNotams(tl72, closureWindows(o.groups.flatMap((g) => g.items), Date.parse(s.generatedAt), 72)).windows;
-      if (!nw.length) lines.push(`LIMITING WINDOWS 72H: none — ${tl72.summary.replace(/^Next 72 h: no limiting window — /, "")}`);
+      const v = planView(tl72, timelineClosures(o.groups.flatMap((g) => g.items), Date.parse(s.generatedAt), 72));
+      const nw = v.windows;
+      for (const x of v.standing) lines.push(`STANDING LIMIT 72H (${x.hours >= tl72.hours ? "all period" : `${x.hours} of ${tl72.hours} h`}${x.proc ? `, ${x.proc === "gen" ? "generation" : "launch & recovery"}` : ""}): ${x.detail.slice(0, 240)}`);
+      for (const p of ["gen", "launch"] as const) {
+        const b = v.best[p][0];
+        lines.push(`BEST ${p === "gen" ? "GENERATION" : "LAUNCH & RECOVERY"} WINDOW 72H: ${b ? b.text : "none of 3 h or more clear"}`);
+      }
+      if (!nw.length) lines.push(`LIMITING WINDOWS 72H: none time-bound — ${tl72.summary.replace(/^Next 72 h: no limiting window — /, "")}`);
       for (const x of nw.slice(0, 6)) lines.push(`LIMITING WINDOW 72H: ${x.text.slice(0, 320)}`);
     }
     if (tl72.temp.crossings.length) lines.push(`0 °C CROSSINGS (model): ${tl72.temp.crossings.slice(0, 4).map((c) => `${c.dir === "down" ? "falls below" : "rises above"} ${new Date(c.t).toISOString().slice(8, 13).replace("T", " ")}Z`).join(", ")}`);
@@ -176,6 +182,7 @@ export async function POST(req: Request) {
     `Icing: ICING lines marked [model] are planning-grade conditions (temperature and humidity), not observed icing — say "conducive / likely", never "icing reported"; only METAR freezing precipitation, a SIGMET or a PIREP is observed or warned icing. An ICING [TAF] line quoting a military icing group is the base weather flight's own FORECAST — say "forecast", give its layer and window, and prefer it to the model where they disagree. Give the altitude band and window. ` +
     `Turbulence: a [TAF] turbulence or wind-shear line is a FORECAST — say "forecast" with its layer and window; only a SIGMET in effect or wind shear reported in the METAR is warned / observed; a civil TAF carries no turbulence groups, so do not call the air smooth from its silence. Outlook 72h: mention it only when a block is flagged, as planning-grade. ` +
     `Limiting windows 72h: these are the deterministic ops timeline (TAF in its window, model beyond, NOTAM closures folded in) — when any exist, name the first one or two with their Z window and the factor that drives them (de-ice / anti-ice, runway contamination or refreeze, IFR, crosswind, lightning holds) in the BLUF or watch; model-only factors are planning-grade, say so. ` +
+    `Standing limits and best windows 72h: a STANDING LIMIT is in effect most of the period — say it once, never as a window; the BEST GENERATION and BEST LAUNCH & RECOVERY windows are the longest clear stretches for each process (generation = de-ice, refuelling, loading, maintenance on the ramp; launch & recovery = sky, runway, crosswind, icing aloft, runway / airfield NOTAMs) — when leadership is choosing when to generate, name the best window for each with its Z times; never claim a window is clear beside a standing limit without naming the limit. ` +
     `Crosswind: judge the field by the BEST runway's crosswind (CROSSWIND NOW / 24H); the bands are advisory planning numbers, never flight-manual limits; a crosswind on a contaminated (icy / freezing-precipitation) runway is the combination to call out. ` +
     `Data marked UNKNOWN means the source was unreachable — say "unknown", never assume clear or FMC.\n\n${lines.join("\n")}`;
 

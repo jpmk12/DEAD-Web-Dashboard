@@ -12,8 +12,8 @@
 
 import { wmoWordShort } from "./fieldOutlook";
 import type { SitrepPayload } from "./sitrep";
-import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led } from "./sitrepSignals";
-import { windowsWithNotams, packRows, rangeLabel, type OpsTimeline, type ClosureLike } from "./opsTimeline";
+import { closureWindows, timelineClosures, windowConflicts, windowRangeLabel, spectrumShort, type Led } from "./sitrepSignals";
+import { planView, packRows, rangeLabel, standingLine, type OpsTimeline, type ClosureLike } from "./opsTimeline";
 import type { FlightCategory } from "./types";
 import { fieldGpsLine, prnLine } from "./gpsNotams";
 
@@ -55,7 +55,8 @@ export function opsTimelineHtml(tl: OpsTimeline | null | undefined, closures: Cl
   if (!tl.live) return `<div class="otl"><div class="tlhead">Next 72 h — ops timeline (Z)</div><div class="otl-sum">${esc(tl.summary)}</div></div>`;
   const span = tl.hours * 3_600_000;
   const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - tl.startMs) / span) * 100));
-  const { lane: notam, windows } = windowsWithNotams(tl, closures);
+  const v = planView(tl, closures);
+  const { lane: notam, windows } = v;
   const ticks: string[] = [];
   for (let ms = Math.ceil(tl.startMs / 21_600_000) * 21_600_000; ms < tl.startMs + span; ms += 21_600_000) {
     const d = new Date(ms);
@@ -92,10 +93,25 @@ export function opsTimelineHtml(tl: OpsTimeline | null | undefined, closures: Cl
   const rows = order.map((k) => (k === "TEMP" ? tempRow : (() => { const l = tl.lanes.find((x) => x.key === k); return l ? laneRow(l.title, bars(l), laneRows(l)) : ""; })())).join("") + laneRow(notam.title, bars(notam), laneRows(notam));
   const list = windows.length
     ? `<ul class="otl-win">${windows.slice(0, 10).map((w) => `<li class="${w.tone === "r" ? "r" : "a"}">${esc(w.text)}</li>`).join("")}</ul>`
-    : `<div class="otl-sum">${esc(tl.summary)}</div>`;
-  return `<div class="otl"><div class="tlhead">Next 72 h — ops timeline (Z) · model planning-grade · the TAF governs its window · dashed = model or TEMPO / PROB</div>` +
-    `<div class="otl-axis">${ticks.join("")}</div>${rows}` +
-    `<div class="tlhead" style="margin-top:10px">Limiting windows</div>${list}</div>`;
+    : `<div class="otl-sum">No time-bound limiting window in 72 h.</div>`;
+  // The two processes as hourly strips (clear / limited / UNKNOWN), above the lanes.
+  const STRIP_CLS: Record<string, string> = { g: "ok", a: "amb", r: "red", u: "sched" };
+  const strip = (p: "gen" | "launch") => v.strips[p].runs.map((r) => {
+    const left = pct(r.fromMs), width = Math.max(0.6, pct(r.toMs) - left);
+    const txt = r.tone === "g" ? "clear" : r.tone === "u" ? "UNKNOWN" : r.why.slice(0, 2).join(" · ");
+    return `<span class="bar ${STRIP_CLS[r.tone]}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(`${rangeLabel(r.fromMs, r.toMs)} — ${r.tone === "g" ? "clear" : r.why.join(", ")}`)}">${width > txt.length * 1.2 ? esc(txt) : ""}</span>`;
+  }).join("");
+  const strips = laneRow("Generation", strip("gen")) + laneRow("Launch & rec.", strip("launch"));
+  const standing = v.standing.length
+    ? `<ul class="otl-win">${v.standing.map((x) => `<li class="${x.tone === "r" ? "r" : "a"}">${esc(standingLine(x, tl.hours))}</li>`).join("")}</ul>` : "";
+  const bestList = (p: "gen" | "launch") => v.best[p].length
+    ? v.best[p].map((b) => `<li class="g">${esc(b.text)}</li>`).join("")
+    : `<li>None of 3 h or more clear in 72 h${v.strips[p].hours.some((h) => h.tone === "u") ? " (some hours UNKNOWN)" : ""}.</li>`;
+  const best = `<div class="otl-best"><div><div class="tlhead">Best for generation</div><ul class="otl-win">${bestList("gen")}</ul></div><div><div class="tlhead">Best for launch &amp; recovery</div><ul class="otl-win">${bestList("launch")}</ul></div></div>`;
+  return `<div class="otl"><div class="tlhead">Next 72 h — mission generation & launch timeline (Z) · model planning-grade · the TAF governs its window · dashed = model or TEMPO / PROB</div>` +
+    (standing ? `<div class="tlhead">Standing — most of the period (beside every window below)</div>${standing}` : "") +
+    `<div class="otl-axis">${ticks.join("")}</div>${strips}<div style="height:6px"></div>${rows}` +
+    `${best}<div class="tlhead" style="margin-top:10px">Limiting windows (time-bound)</div>${list}</div>`;
 }
 
 export function renderSitrepHtml(p: SitrepPayload, read: { bluf: string[]; watch: string[]; asks?: string[] } | null): string {
@@ -420,6 +436,7 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 .otl-tick.day{color:#cbd5e1;font-weight:800}
 .otl-track{overflow:hidden}
 .otl-temp{height:40px}
+.otl-best{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}@media(max-width:640px){.otl-best{grid-template-columns:1fr}}
 .otl-svg{position:absolute;inset:0;width:100%;height:100%}
 .otl-n{position:absolute;top:0;bottom:0}
 .otl-n.civil{background:rgba(30,27,75,.25)}.otl-n.nautical{background:rgba(30,27,75,.45)}.otl-n.night{background:rgba(30,27,75,.7)}
@@ -432,7 +449,7 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 .bar.c-lifr{background:rgba(217,70,239,.32);border:1px solid rgba(217,70,239,.65);color:#fae8ff}
 .otl-sum{font-size:11.5px;color:#94a3b8}
 .otl-win{margin:4px 0 0 16px;font-size:11.5px;color:#e2e8f0;line-height:1.55}
-.otl-win li.a::marker{color:#fbbf24}.otl-win li.r::marker{color:#ef4444}
+.otl-win li.a::marker{color:#fbbf24}.otl-win li.r::marker{color:#ef4444}.otl-win li.g::marker{color:#34d399}
 .conflict{margin-top:8px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.06);border-radius:8px;padding:7px 10px;font-size:11px;color:#fca5a5}
 .foot{font:10px ui-monospace,Menlo,monospace;color:#475569;line-height:1.7;border-top:1px solid #1e293b;padding-top:12px;margin-top:18px}
 .foot b{color:#94a3b8}
@@ -478,7 +495,7 @@ body{background:#020617;color:#cbd5e1;font-family:ui-sans-serif,system-ui,-apple
 </div>
 ${blufHtml}
 ${missionHtml}
-${opsTimelineHtml(p.weather.timeline72, closureWindows(p.ops.groups.flatMap((g) => g.items), nowMs, 72))}
+${opsTimelineHtml(p.weather.timeline72, timelineClosures(p.ops.groups.flatMap((g) => g.items), nowMs, 72))}
 <div class="supp">Supporting detail</div>
 ${card(p.status.wx, "Weather", "AWC METAR/TAF · NWS · Open-Meteo", `${p.weather.metarRaw ? `<div class="metar">${esc(p.weather.metarRaw)}</div>` : ""}${tafBar}${weatherRows.join("")}`)}
 ${card(p.status.ops, "Ops / Airfield", "DAIP NOTAMs · OurAirports", `${opsRows.join("")}${windChips}${timelineHtml}`)}

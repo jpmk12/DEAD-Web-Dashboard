@@ -2365,6 +2365,77 @@ ICAO curated-hubs → gateways → OurAirports (`airportByIdent`).
     reads "icing possible near 900 ft AGL", never "900–900". Verified in
     headless Chromium against the build with an ETAD-shaped fixture (desktop
     + phone, no overflow).
+  - **Generation vs launch & recovery (2026-11-27, review: "help me see when
+    we may have issues along the day with mission generation … the best and
+    worst times"; built all but the mission-lines join, by request).** The
+    timeline now answers WHEN, not only what is bad. All PURE in
+    `lib/opsTimeline.ts` (tested), one entry point **`planView(t, closures)`**
+    → `{ lane, standing, windows, strips, best }`, used by the panel, the
+    Commander's Read, the markdown, the HTML export and the airfield band —
+    `windowsWithNotams` remains (now also returns `standing`).
+    (1) **Standing limits** (`splitStanding`, `STANDING_SHARE` 0.85): one
+    limit (same lane, same label) amber / red for ≥ 85 % of the horizon is
+    said ONCE ("TACAN U/S — all 72 h", "IFR 70 of 72 h") and its bars are
+    removed from the windows and strips — a three-day outage had merged every
+    other limit into one 72-h "window". The lanes still draw it.
+    `OpsTimeline.standing` is optional (older cached payloads lack it).
+    (2) **Two processes** (`Proc`, `LANE_PROC`, `segProc`): GENERATION = de-
+    ice, refuelling, loading, maintenance — ground-ice and ramp/crew lanes,
+    fuel and parking NOTAMs; LAUNCH & RECOVERY = sky, runway, crosswind,
+    icing aloft, runway / airfield / navaid / taxiway NOTAMs, operating hours,
+    PPR. Precip is context (its impacts live in the impact lanes). A fuel
+    NOTAM (`Fuel LTD`) is now AMBER for generation (was a note); parking
+    stays a note. (3) **Hourly strips** (`processStrip`): g clear · a / r
+    limited (the labels as `why`) · **u when a lane the process needs is
+    UNKNOWN at the hour and nothing else limits it — never clear** (no runway
+    headings → the launch strip is UNKNOWN and has no best window, by
+    design). (4) **Best windows** (`bestWindows`, `BEST_MIN_H` 3): clear runs,
+    longest first (ties: more TAF hours, more daylight, earlier), each with
+    TAF/model hours, daylight hours, what ends it and what it follows;
+    standing limits are beside every window, never inside the ranking.
+    (5) **The planner's flying window** — it changes day to day, so it is set
+    PER LOCAL DATE in the panel ("flying window ▾"), resolved with
+    `resolveWall` in the field's zone (Zulu, said so, when the zone is
+    unknown), saved in this browser only (`localStorage
+    opsTl.flyWin.<ICAO>`), drawn violet across every lane and read against
+    both strips (`windowVerdict`: "Sat 28 · 0600–1800L — Generation: 0600–
+    0900L clear · 0900–1500L Fuel LTD · …"); best windows that overlap it
+    carry "your window", the readout says "inside your flying window".
+    (6) A **local-time axis row** (the field's midnights and 6-h marks, read
+    every half hour so half-hour zones get ticks) under the Zulu axis; local
+    ranges on every best / limiting window. (7) **Commander-entered
+    LIMFACs** (open, PMC / NMC, `payload.mission.limfacs` source manual) sit
+    in the Standing block. (8) **Beyond the TAF** every weather bar and strip
+    run is drawn fainter (NOTAMs keep full strength). (9) **Airfield band**
+    (`Band72`): newer summaries carry `gen` / `launch` runs + `standing`
+    (`windowBand(t, windows, v)`) and draw TWO tracks (G over L, green =
+    clear); every band is drawn on the SAME clock (this hour → +72 h, Zulu
+    midnight ticks) so register rows line up, hours a summary did not reach
+    are hatched, never clear; an amber edge marks a standing limit.
+    (10) **Operating hours and PPR NOTAMs** (`lib/sitrepSignals.ts`,
+    tested): `operatingHours(text)` reads "AD HR OF OPS / AD OPR HR / AD OPN
+    / AD AVBL … <schedule>" (airfield) and "FUEL AVBL / FUEL HR …" (fuel);
+    `hoursWindows` draws the COMPLEMENT of the open schedule inside the
+    notice's validity (airfield → closure "AD CLSD (hrs)", launch; fuel →
+    limited, generation), an unreadable schedule as SCHED, and "PPR" as a
+    note; `timelineClosures` = `closureWindows` + `hoursWindows` and is what
+    every timeline caller passes. **Hours windows are deliberately NOT in
+    `closureWindows`** (so not in mission impact or field-closed state — a
+    field that shuts every night is routine, a nightly NMC would be the
+    Christmas tree), and `closureWindows` now SKIPS an operating-hours NOTAM
+    ("OTHER TIMES CLSD" inside one used to paint the OPEN hours closed). The
+    hours forms are the ICAO abbreviations — **UNVERIFIED against live DAIP
+    text**. (11) **`DLY` and time-first schedules** in `parseNotamSchedule`
+    (global fix): "RWY 05/23 CLSD DLY 2200-0600" used to read as no schedule
+    — a closure for the WHOLE validity span — and "TWY B CLSD 2200-0600 DLY"
+    / "0800-1600 MON-FRI" now parse too (a GPS validity pair is never a
+    schedule). The Commander's Read gets STANDING LIMIT and BEST GENERATION /
+    BEST LAUNCH & RECOVERY lines with a rule; the markdown section is
+    "Mission generation & launch"; the export draws both strips, the standing
+    list and both best lists. Not built: the declared mission lines on the
+    strip (the operator deferred it). Verified in headless Chromium against
+    the build with a winter ETAD-shaped fixture (desktop + phone, flying
+    window entered and stored, no overflow, no errors).
 - **GPS and fuel NOTAMs on the field (2026-11-04, "add the gps and fuel
   notams")**. DAIP's `GPS_WAAS` list is one system-wide list, so read as a
   list it said nothing about a field — but most rows are FAA GPS-TEST NOTAMs

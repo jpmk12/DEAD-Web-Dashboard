@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import * as ot from "../lib/opsTimeline";
 import { opsTimeline, wxFromCodes, wxFromWmo, windChillC, rangeLabel, limitingWindows, timelineLines, visCategory, type TlLane } from "../lib/opsTimeline";
 import type { ProfileHour } from "../lib/icingSignals";
 import type { TafPeriod } from "../lib/types";
@@ -345,5 +346,96 @@ describe("timeline overlap and readout fixes (ETAD, 2026-11-26)", () => {
     const d = lane(t, "icing").segs[0].detail;
     expect(d).toMatch(/near 900 ft AGL/);
     expect(d).not.toMatch(/900–900/);
+  });
+});
+
+describe("mission generation vs launch & recovery (2026-11-27)", () => {
+  const navaidAllPeriod = { fromMs: T0, toMs: T0 + 80 * H, kind: "unserviceable" as const, label: "TACAN", text: "A0123/26 TACAN U/S" };
+
+  it("a three-day outage is STANDING, said once, and no longer swallows the other windows", () => {
+    // Freezing rain 06–12Z and gusts 40–44Z: two separate windows once the outage is split off.
+    const t = opsTimeline({ ...base, hours: hours(72, (k) => (k >= 40 && k < 44 ? { gustKt: 40 } : { tempC2m: -1 })), taf: [taf(0, 6), taf(6, 12, { wxRaw: "-FZRA" }), taf(12, 30)] });
+    const merged = limitingWindows([...t.lanes, ot.notamLane([navaidAllPeriod], t.startMs)]);
+    expect(merged).toHaveLength(1); // the old behaviour: one 72-h window
+    const v = ot.planView(t, [navaidAllPeriod]);
+    expect(v.standing).toHaveLength(1);
+    expect(v.standing[0]).toMatchObject({ lane: "notam", label: "TACAN U/S", proc: "launch", hours: 72 });
+    expect(v.windows.length).toBeGreaterThanOrEqual(2);
+    expect(v.windows.some((w) => w.factors.some((f) => f.label === "TACAN U/S"))).toBe(false);
+    expect(ot.standingLine(v.standing[0])).toMatch(/^Standing \(all\) — NOTAMs \[launch & recovery\]: TACAN unserviceable/);
+  });
+
+  it("generation and launch read their own lanes: de-ice limits generation, IFR limits launch", () => {
+    const t = opsTimeline({ ...base, hours: hours(72, (k) => (k >= 20 && k < 26 ? { tempC2m: -3 } : {})), taf: [taf(0, 10), taf(10, 16, { flightCategory: "IFR" }), taf(16, 20), taf(20, 26, { wxRaw: "-SN" }), taf(26, 30)] });
+    const v = ot.planView(t, []);
+    const g = v.strips.gen.hours, l = v.strips.launch.hours;
+    expect(l[12].tone).toBe("a");
+    expect(l[12].why).toContain("IFR");
+    expect(g[12].tone).toBe("g"); // IFR is not a generation limit
+    expect(g[22].tone).toBe("a");
+    expect(g[22].why).toContain("DE-ICE");
+  });
+
+  it("best windows are the longest clear stretches, with what ends them, TAF hours and daylight", () => {
+    const t = opsTimeline({ ...base, hours: hours(72), taf: [taf(0, 10), taf(10, 16, { flightCategory: "IFR" }), taf(16, 30)] });
+    const v = ot.planView(t, []);
+    const b = v.best.launch;
+    expect(b[0]).toMatchObject({ fromMs: T0 + 16 * H, toMs: T0 + 72 * H, hours: 56, tafH: 14, endsBy: null });
+    expect(b[1]).toMatchObject({ fromMs: T0, toMs: T0 + 10 * H, hours: 10, tafH: 10 });
+    expect(b[1].endsBy?.why).toContain("IFR");
+    expect(b[1].text).toMatch(/ends with IFR/);
+    expect(v.best.gen[0].hours).toBe(72);
+    // A stretch shorter than BEST_MIN_H is never a "best" window.
+    const t2 = opsTimeline({ ...base, hours: hours(72), taf: [taf(0, 10, { flightCategory: "IFR" }), taf(10, 12), taf(12, 40, { flightCategory: "LIFR" }), taf(40, 42), taf(42, 72, { flightCategory: "IFR" })] });
+    expect(ot.planView(t2, []).best.launch).toHaveLength(0);
+    // IFR for 70 of 72 h is STANDING: said once, the strip shows what changes beside it.
+    const t3 = opsTimeline({ ...base, hours: hours(72), taf: [taf(0, 10, { flightCategory: "IFR" }), taf(10, 12), taf(12, 72, { flightCategory: "IFR" })] });
+    const v3 = ot.planView(t3, []);
+    expect(v3.standing).toEqual([expect.objectContaining({ lane: "sky", label: "IFR", hours: 70, proc: "launch" })]);
+  });
+
+  it("an UNKNOWN lane makes the hour UNKNOWN, never clear — and never a best window", () => {
+    const t = opsTimeline({ ...base, runways: [], hours: hours(72), taf: [taf(0, 30)] });
+    const v = ot.planView(t, []);
+    expect(v.strips.launch.hours.every((h) => h.tone === "u")).toBe(true);
+    expect(v.strips.launch.hours[0].why.join(" ")).toMatch(/Crosswind UNKNOWN/);
+    expect(v.best.launch).toHaveLength(0);
+    expect(v.best.gen[0].hours).toBe(72);
+  });
+
+  it("fuel NOTAMs limit generation (amber), parking stays a note, runway closures limit launch", () => {
+    const fuel = { fromMs: T0 + 5 * H, toMs: T0 + 9 * H, kind: "limited" as const, label: "Fuel", text: "JET A1 NOT AVBL" };
+    const rwy = { fromMs: T0 + 30 * H, toMs: T0 + 34 * H, kind: "closure" as const, label: "RWY 05/23", text: "RWY 05/23 CLSD" };
+    const t = opsTimeline({ ...base, hours: hours(72), taf: [taf(0, 30)] });
+    const v = ot.planView(t, [fuel, rwy]);
+    expect(v.lane.segs.find((s) => s.label === "Fuel LTD")).toMatchObject({ tone: "a", proc: "gen" });
+    expect(v.strips.gen.hours[6].tone).toBe("a");
+    expect(v.strips.launch.hours[6].tone).toBe("g");
+    expect(v.strips.launch.hours[31].tone).toBe("a");
+    expect(v.strips.gen.hours[31].tone).toBe("g");
+  });
+
+  it("a flying window is read against each strip, clipped to it", () => {
+    const t = opsTimeline({ ...base, hours: hours(72), taf: [taf(0, 10), taf(10, 16, { flightCategory: "IFR" }), taf(16, 30)] });
+    const v = ot.planView(t, []);
+    const runs = ot.windowVerdict(v.strips.launch, T0 + 8 * H, T0 + 18 * H);
+    expect(runs.map((r) => [r.tone, (r.fromMs - T0) / H, (r.toMs - T0) / H])).toEqual([["g", 8, 10], ["a", 10, 16], ["g", 16, 18]]);
+  });
+
+  it("the Commander's lines lead with standing limits, then the best window per process", () => {
+    const t = opsTimeline({ ...base, hours: hours(72), taf: [taf(0, 30)] });
+    const lines = ot.planLines(t, ot.planView(t, [navaidAllPeriod]));
+    expect(lines[0]).toMatch(/^Standing \(all\)/);
+    expect(lines[1]).toMatch(/^Best generation window: Thu 26 00Z/);
+    expect(lines[2]).toMatch(/^Best launch & recovery window:/);
+  });
+
+  it("the airfield band carries both strips' limited runs and the standing labels", () => {
+    const t = opsTimeline({ ...base, hours: hours(72), taf: [taf(0, 10), taf(10, 16, { flightCategory: "IFR" }), taf(16, 30)] });
+    const v = ot.planView(t, [navaidAllPeriod]);
+    const band = ot.windowBand(t, v.windows, v)!;
+    expect(band.launch).toEqual([expect.objectContaining({ fromMs: T0 + 10 * H, toMs: T0 + 16 * H, tone: "a" })]);
+    expect(band.gen).toEqual([]);
+    expect(band.standing).toEqual(["TACAN U/S (all)"]);
   });
 });

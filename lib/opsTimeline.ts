@@ -98,7 +98,22 @@ export interface TlSeg {
   cat?: Cat;
   /** A shorter bar label for a narrow bar ("CLSD" for "RWY 05/23 CLSD"); the full label stays on window chips. */
   short?: string;
+  /** Which process the bar limits when the lane alone does not say (NOTAMs). */
+  proc?: Proc;
 }
+
+/** The two halves of putting a sortie in the air, which have different best
+ *  times: GENERATION (de-ice, refuelling, loading, maintenance — the ramp) and
+ *  LAUNCH & RECOVERY (sky, runway, crosswind, icing aloft, runway / airfield
+ *  NOTAMs). */
+export type Proc = "gen" | "launch";
+export const PROC_TITLE: Record<Proc, string> = { gen: "Generation", launch: "Launch & recovery" };
+/** The process each weather lane limits. Precip is context (its impacts live
+ *  in the ground-ice, runway and ramp lanes); NOTAMs say per bar. */
+export const LANE_PROC: Record<LaneKey, Proc | null> = {
+  sky: "launch", precip: null, deice: "gen", runway: "launch", icing: "launch", xwind: "launch", ramp: "gen", notam: "launch",
+};
+export const segProc = (lane: LaneKey, s: TlSeg): Proc | null => s.proc ?? LANE_PROC[lane];
 
 export interface TlLane {
   key: LaneKey;
@@ -115,8 +130,22 @@ export interface LimitWindow {
   toMs: number;
   tone: "a" | "r";
   /** One short factor per contributing lane, worst first. */
-  factors: { lane: LaneKey; label: string; detail: string }[];
+  factors: { lane: LaneKey; label: string; detail: string; proc?: Proc | null }[];
   text: string;
+}
+
+/** A limit in effect for most of the horizon ("TACAN U/S", IFR for 62 h). It
+ *  is said ONCE above the timeline instead of swallowing every other window:
+ *  one three-day bar merged the freezing-rain night and the crosswind
+ *  afternoon into a single "limiting window" and hid the best and worst times. */
+export interface StandingLimit {
+  lane: LaneKey;
+  label: string;
+  detail: string;
+  tone: "a" | "r";
+  proc: Proc | null;
+  /** Hours of the horizon it covers. */
+  hours: number;
 }
 
 export interface OpsTimeline {
@@ -131,6 +160,8 @@ export interface OpsTimeline {
   /** Coldest / warmest 2-m temperature in the window, and the 0 °C crossings. */
   temp: { minC: number | null; maxC: number | null; crossings: { t: number; dir: "down" | "up" }[] };
   windows: LimitWindow[];
+  /** Limits in effect most of the horizon — absent on payloads cached before 2026-11-27. */
+  standing?: StandingLimit[];
   summary: string;
   reason: string | null;
 }
@@ -532,14 +563,14 @@ export function limitingWindows(lanes: TlLane[]): LimitWindow[] {
       }
       const whole = spans.length === 1 && spans[0].f === g.fromMs && spans[0].t === g.toMs;
       const when = whole ? "" : ` [${spans.slice(0, 3).map((x) => spanLabel(x.f, x.t)).join(", ")}${spans.length > 3 ? ", …" : ""}]`;
-      return { lane, label: worst.label, detail: `${worst.detail}${when}`, red: segs.some((x) => x.tone === "r") };
+      return { lane, label: worst.label, detail: `${worst.detail}${when}`, red: segs.some((x) => x.tone === "r"), proc: segProc(lane, worst) };
     });
     factors.sort((a, b) => FACTOR_ORDER.indexOf(a.lane) - FACTOR_ORDER.indexOf(b.lane));
     // The precip lane repeats what the impact lanes already say — keep it only when it is the only factor.
     if (factors.length > 1) factors = factors.filter((f) => f.lane !== "precip");
     const out: LimitWindow = {
       fromMs: g.fromMs, toMs: g.toMs, tone: factors.some((f) => f.red) ? "r" : "a",
-      factors: factors.map(({ lane, label, detail }) => ({ lane, label, detail })), text: "",
+      factors: factors.map(({ lane, label, detail, proc }) => ({ lane, label, detail, proc })), text: "",
     };
     out.text = `${rangeLabel(out.fromMs, out.toMs)} — ${out.factors.map((f) => `${LANE_TITLE[f.lane]}: ${f.detail}`).join("; ")}`;
     return out;
@@ -612,16 +643,18 @@ export function opsTimeline(i: TimelineInputs): OpsTimeline {
     else if (a <= 0 && b > 0) crossings.push({ t: temps[k].t, dir: "up" });
   }
 
-  const windows = limitingWindows(lanes);
+  const { standing, rest } = splitStanding(lanes, start, n);
+  const windows = limitingWindows(rest);
   const first = windows[0];
-  const summary = windows.length
+  const standingTxt = standing.length ? ` · standing all period: ${standing.map((x) => x.label).join(", ")}` : "";
+  const summary = (windows.length
     ? `Next 72 h: ${windows.length} limiting window${windows.length === 1 ? "" : "s"} — first ${rangeLabel(first.fromMs, first.toMs)}: ${first.factors.slice(0, 3).map((f) => f.label).join(" · ")}`
-    : `Next 72 h: no limiting window — no freezing or frozen precipitation, ground or airframe icing, contaminated runway, TAF IFR, crosswind beyond the bands or ramp limits (${modelLive ? "model planning-grade; the TAF governs its window" : "TAF only — the model did not answer"})`;
+    : `Next 72 h: no limiting window — no freezing or frozen precipitation, ground or airframe icing, contaminated runway, TAF IFR, crosswind beyond the bands or ramp limits (${modelLive ? "model planning-grade; the TAF governs its window" : "TAF only — the model did not answer"})`) + standingTxt;
 
   return {
     live: true, startMs: start, hours: n, tafEndMs, light, lanes, temps,
     temp: { minC: tv.length ? Math.round(Math.min(...tv)) : null, maxC: tv.length ? Math.round(Math.max(...tv)) : null, crossings },
-    windows, summary, reason: null,
+    windows, standing, summary, reason: null,
   };
 }
 
@@ -629,8 +662,9 @@ export function opsTimeline(i: TimelineInputs): OpsTimeline {
 export function timelineLines(t: OpsTimeline | null | undefined, max = 6): string[] {
   if (!t) return [];
   if (!t.live) return [t.summary];
+  const st = (t.standing ?? []).map(standingLine);
   if (!t.windows.length) return [t.summary];
-  return t.windows.slice(0, max).map((w) => `${w.tone === "r" ? "[RED] " : ""}${w.text}`);
+  return [...st, ...t.windows.slice(0, max).map((w) => `${w.tone === "r" ? "[RED] " : ""}${w.text}`)];
 }
 
 // ── NOTAM closures on the same axis ──────────────────────────────────────
@@ -662,25 +696,39 @@ function notamBody(label: string, text: string): string {
   return t.length > 140 ? `${t.slice(0, 139)}…` : t;
 }
 
+/** Fuel and parking NOTAMs limit GENERATION; everything else (runway,
+ *  airfield, taxiway, navaid, operating hours, PPR) limits launch & recovery. */
+export function notamProc(label: string): Proc {
+  return PARKING_LABELS.has(label) || /^Fuel/.test(label) ? "gen" : "launch";
+}
+
 export function notamLane(closures: ClosureLike[], startMs: number, hours = TIMELINE_HOURS): TlLane {
   const end = startMs + hours * H;
   const segs: TlSeg[] = closures
     .filter((w) => w.toMs > startMs && w.fromMs < end)
     .map((w) => {
       const parking = PARKING_LABELS.has(w.label);
+      // Fuel limited or unavailable is a generation limit (refuelling), not a note.
+      const fuel = /^Fuel/.test(w.label);
+      const hoursLbl = w.label === "Airfield hours" || w.label === "Fuel hours";
       const verb = w.kind === "closure" ? "closed" : w.kind === "unserviceable" ? "unserviceable" : "limited";
       const num = notamNumber(w.text);
       const body = notamBody(w.label, w.text);
       return {
         fromMs: Math.max(w.fromMs, startMs), toMs: Math.min(w.toMs, end),
-        tone: w.indeterminate ? "u" as const : w.kind === "limited" || parking ? "i" as const : "a" as const,
-        label: w.indeterminate ? "SCHED" : `${w.label} ${w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD"}`,
-        short: w.indeterminate ? "SCHED" : w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD",
+        tone: w.indeterminate ? "u" as const : (w.kind === "limited" && !fuel) || parking ? "i" as const : "a" as const,
+        label: w.indeterminate ? "SCHED" : w.label === "PPR" ? "PPR" : hoursLbl ? (w.label === "Airfield hours" ? "AD CLSD (hrs)" : "FUEL CLSD (hrs)") : `${w.label} ${w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD"}`,
+        short: w.indeterminate ? "SCHED" : w.label === "PPR" ? "PPR" : hoursLbl ? "HRS" : w.kind === "closure" ? "CLSD" : w.kind === "unserviceable" ? "U/S" : "LTD",
         detail: w.indeterminate
           ? `${w.label}: schedule published, times not readable — read the NOTAM${num ? ` ${num}` : ""}`
-          : `${w.label} ${verb}${num ? ` (NOTAM ${num})` : " (NOTAM)"}${parking ? " — parking capacity, not a launch or recovery limit" : ""}${body ? `: ${body}` : ""}`,
+          : w.label === "PPR"
+            ? `prior permission required (NOTAM${num ? ` ${num}` : ""})${body ? `: ${body}` : ""}`
+            : hoursLbl
+              ? `${w.label === "Airfield hours" ? "airfield closed — outside its published operating hours" : "no fuel service — outside its published hours"} (NOTAM${num ? ` ${num}` : ""})${body ? `: ${body}` : ""}`
+              : `${w.label} ${verb}${num ? ` (NOTAM ${num})` : " (NOTAM)"}${parking ? " — parking capacity, not a launch or recovery limit" : fuel ? " — refuelling limit" : ""}${body ? `: ${body}` : ""}`,
         dashed: Boolean(w.indeterminate),
         src: "taf" as const,
+        proc: notamProc(w.label),
       };
     })
     .sort((a, b) => a.fromMs - b.fromMs);
@@ -706,10 +754,184 @@ export function packRows(segs: { fromMs: number; toMs: number }[]): { row: numbe
   });
 }
 
-/** The timeline's windows recomputed with the NOTAM lane folded in. */
-export function windowsWithNotams(t: OpsTimeline, closures: ClosureLike[]): { lane: TlLane; windows: LimitWindow[] } {
+/** The timeline's windows recomputed with the NOTAM lane folded in — the
+ *  standing limits split off first, so a three-day outage is said once and
+ *  the windows show what changes. */
+export function windowsWithNotams(t: OpsTimeline, closures: ClosureLike[]): { lane: TlLane; windows: LimitWindow[]; standing: StandingLimit[] } {
   const lane = notamLane(closures, t.startMs, t.hours);
-  return { lane, windows: t.live ? limitingWindows([...t.lanes, lane]) : [] };
+  if (!t.live) return { lane, windows: [], standing: [] };
+  const { standing, rest } = splitStanding([...t.lanes, lane], t.startMs, t.hours);
+  return { lane, windows: limitingWindows(rest), standing };
+}
+
+// ── Standing limits ──────────────────────────────────────────────────────
+
+/** A limit covering at least this share of the horizon is standing. */
+export const STANDING_SHARE = 0.85;
+
+/** One limit (same lane, same label) that is amber / red for most of the
+ *  horizon is STANDING: returned once, and its bars removed from what the
+ *  windows and strips are computed over. The lanes themselves keep drawing
+ *  it — it is a fact; it just must not merge every other limit into one. */
+export function splitStanding(lanes: TlLane[], startMs: number, hours: number): { standing: StandingLimit[]; rest: TlLane[] } {
+  const need = Math.ceil(hours * STANDING_SHARE);
+  const standing: StandingLimit[] = [];
+  const drop = new Set<TlSeg>();
+  for (const l of lanes) {
+    const byLabel = new Map<string, TlSeg[]>();
+    for (const sg of l.segs) if (sg.tone === "a" || sg.tone === "r") byLabel.set(sg.label, [...(byLabel.get(sg.label) ?? []), sg]);
+    for (const [label, segs] of byLabel) {
+      // Hours covered (overlapping bars counted once).
+      const spans: { f: number; t: number }[] = [];
+      for (const sg of segs.slice().sort((a, b) => a.fromMs - b.fromMs)) {
+        const last = spans[spans.length - 1];
+        if (last && sg.fromMs <= last.t) last.t = Math.max(last.t, sg.toMs); else spans.push({ f: sg.fromMs, t: sg.toMs });
+      }
+      const covered = Math.round(spans.reduce((a, x) => a + (Math.min(x.t, startMs + hours * H) - Math.max(x.f, startMs)), 0) / H);
+      if (covered < need) continue;
+      const worst = segs.slice().sort((a, b) => (a.tone === "r" ? 0 : 1) - (b.tone === "r" ? 0 : 1) || (b.toMs - b.fromMs) - (a.toMs - a.fromMs))[0];
+      standing.push({ lane: l.key, label, detail: worst.detail, tone: segs.some((x) => x.tone === "r") ? "r" : "a", proc: segProc(l.key, worst), hours: covered });
+      for (const sg of segs) drop.add(sg);
+    }
+  }
+  standing.sort((a, b) => (a.tone === "r" ? 0 : 1) - (b.tone === "r" ? 0 : 1) || FACTOR_ORDER.indexOf(a.lane) - FACTOR_ORDER.indexOf(b.lane));
+  return { standing, rest: drop.size ? lanes.map((l) => ({ ...l, segs: l.segs.filter((x) => !drop.has(x)) })) : lanes };
+}
+
+/** "Standing (70 of 72 h) — NOTAMs: TACAN U/S (NOTAM A0123/26)…" */
+export function standingLine(x: StandingLimit, hours = TIMELINE_HOURS): string {
+  return `Standing (${x.hours >= hours ? "all" : `${x.hours} of ${hours} h`}) — ${LANE_TITLE[x.lane]}${x.proc ? ` [${x.proc === "gen" ? "generation" : "launch & recovery"}]` : ""}: ${x.detail}`;
+}
+
+// ── Generation vs launch & recovery: hourly strips and best windows ──────
+
+/** g clear · a / r limited · u a lane this process needs could not be read. */
+export type StripTone = "g" | "a" | "r" | "u";
+export interface StripHour { t: number; tone: StripTone; why: string[]; standing: boolean; inTaf: boolean }
+export interface StripRun { fromMs: number; toMs: number; tone: StripTone; why: string[] }
+export interface ProcStrip { proc: Proc; hours: StripHour[]; runs: StripRun[] }
+
+/** The hour's worst limit for one process, over the lanes with standing bars
+ *  already removed (`rest`); `all` (with them) only marks where a standing
+ *  limit applies. A lane UNKNOWN at the hour makes the hour UNKNOWN — never
+ *  clear — unless something there already limits it. */
+export function processStrip(t: OpsTimeline, rest: TlLane[], standing: StandingLimit[], proc: Proc): ProcStrip {
+  const hours: StripHour[] = [];
+  const standingHere = standing.some((x) => x.proc === proc);
+  for (let k = 0; k < t.hours; k++) {
+    const a = t.startMs + k * H, b = a + H;
+    const inTaf = t.tafEndMs != null && a < t.tafEndMs;
+    let tone: StripTone = "g";
+    const why: string[] = [];
+    const unknown: string[] = [];
+    for (const l of rest) {
+      const segs = l.segs.filter((sg) => sg.fromMs < b && sg.toMs > a && segProc(l.key, sg) === proc);
+      for (const sg of segs) {
+        if (sg.tone === "r" || sg.tone === "a") {
+          if (sg.tone === "r") tone = "r"; else if (tone !== "r") tone = "a";
+          if (!why.includes(sg.label)) why.push(sg.label);
+        }
+      }
+      if (LANE_PROC[l.key] === proc && l.key !== "notam" && l.unknown && !segs.length && !(inTaf && /^beyond the TAF/.test(l.unknown))) unknown.push(l.title);
+    }
+    if (tone === "g" && unknown.length) { tone = "u"; why.push(...unknown.map((u) => `${u} UNKNOWN`)); }
+    hours.push({ t: a, tone, why, standing: standingHere, inTaf });
+  }
+  const runs: StripRun[] = [];
+  for (const h of hours) {
+    const last = runs[runs.length - 1];
+    if (last && last.tone === h.tone && last.toMs === h.t) { last.toMs = h.t + H; for (const w of h.why) if (!last.why.includes(w)) last.why.push(w); }
+    else runs.push({ fromMs: h.t, toMs: h.t + H, tone: h.tone, why: [...h.why] });
+  }
+  return { proc, hours, runs };
+}
+
+/** The shortest stretch worth calling a window. */
+export const BEST_MIN_H = 3;
+
+export interface BestWindow {
+  proc: Proc;
+  fromMs: number;
+  toMs: number;
+  hours: number;
+  /** Hours inside the TAF (the rest is model, planning-grade). */
+  tafH: number;
+  /** Daylight hours (sun up). */
+  dayH: number;
+  /** What ends it — the next run's limits — or null when it runs to the horizon. */
+  endsBy: { tone: StripTone; why: string[] } | null;
+  /** What it follows — null when it starts now. */
+  after: { tone: StripTone; why: string[] } | null;
+  text: string;
+}
+
+/** Clear stretches of a process ≥ BEST_MIN_H, longest first (ties: more of
+ *  it inside the TAF, then more daylight, then earlier). Standing limits are
+ *  beside every window, not inside the ranking — said above the list. */
+export function bestWindows(t: OpsTimeline, strip: ProcStrip, max = 3): BestWindow[] {
+  const end = t.startMs + t.hours * H;
+  const dayAt = (ms: number) => t.light.some((l) => l.state === "day" && ms >= l.fromMs && ms < l.toMs);
+  const out: BestWindow[] = [];
+  strip.runs.forEach((r, i) => {
+    if (r.tone !== "g") return;
+    const hrs = Math.round((r.toMs - r.fromMs) / H);
+    if (hrs < BEST_MIN_H) return;
+    let tafH = 0, dayH = 0;
+    for (let ms = r.fromMs; ms < r.toMs; ms += H) {
+      if (t.tafEndMs != null && ms < t.tafEndMs) tafH++;
+      if (dayAt(ms + H / 2)) dayH++;
+    }
+    const nx = strip.runs[i + 1], pv = strip.runs[i - 1];
+    const endsBy = r.toMs >= end || !nx ? null : { tone: nx.tone, why: nx.why };
+    const after = !pv ? null : { tone: pv.tone, why: pv.why };
+    const src = tafH === hrs ? "TAF" : tafH === 0 ? "model only, planning-grade" : `TAF ${tafH} h, then model`;
+    const ends = endsBy ? `ends with ${endsBy.tone === "u" ? "UNKNOWN" : endsBy.why.slice(0, 3).join(", ")}` : "runs to the end of the 72 h";
+    out.push({ proc: strip.proc, fromMs: r.fromMs, toMs: r.toMs, hours: hrs, tafH, dayH, endsBy, after,
+      text: `${rangeLabel(r.fromMs, r.toMs)} (${hrs} h · ${src} · ${dayH} h daylight) — ${ends}` });
+  });
+  return out.sort((a, b) => b.hours - a.hours || b.tafH - a.tafH || b.dayH - a.dayH || a.fromMs - b.fromMs).slice(0, max);
+}
+
+/** A planner's own window (the flying window) read against a strip: the runs
+ *  clipped to it. All clear → one g run. */
+export function windowVerdict(strip: ProcStrip, fromMs: number, toMs: number): StripRun[] {
+  return strip.runs
+    .filter((r) => r.toMs > fromMs && r.fromMs < toMs)
+    .map((r) => ({ ...r, fromMs: Math.max(r.fromMs, fromMs), toMs: Math.min(r.toMs, toMs) }));
+}
+
+export interface PlanView {
+  lane: TlLane;
+  standing: StandingLimit[];
+  windows: LimitWindow[];
+  strips: Record<Proc, ProcStrip>;
+  best: Record<Proc, BestWindow[]>;
+}
+
+/** Everything the planner reads, NOTAMs folded in: standing limits, the
+ *  time-bound windows, a strip per process and its best windows. */
+export function planView(t: OpsTimeline, closures: ClosureLike[]): PlanView {
+  const lane = notamLane(closures, t.startMs, t.hours);
+  const empty = (proc: Proc): ProcStrip => ({ proc, hours: [], runs: [] });
+  if (!t.live) return { lane, standing: [], windows: [], strips: { gen: empty("gen"), launch: empty("launch") }, best: { gen: [], launch: [] } };
+  const { standing, rest } = splitStanding([...t.lanes, lane], t.startMs, t.hours);
+  const gen = processStrip(t, rest, standing, "gen");
+  const launch = processStrip(t, rest, standing, "launch");
+  return { lane, standing, windows: limitingWindows(rest), strips: { gen, launch }, best: { gen: bestWindows(t, gen), launch: bestWindows(t, launch) } };
+}
+
+/** Lines for the Commander's Read, the markdown and the export. */
+export function planLines(t: OpsTimeline, v: PlanView, maxWindows = 6): string[] {
+  if (!t.live) return [t.summary];
+  const out = v.standing.map((x) => standingLine(x, t.hours));
+  for (const p of ["gen", "launch"] as const) {
+    const b = v.best[p];
+    out.push(b.length ? `Best ${p === "gen" ? "generation" : "launch & recovery"} window: ${b[0].text}${b.length > 1 ? ` · also ${b.slice(1).map((x) => rangeLabel(x.fromMs, x.toMs)).join(", ")}` : ""}`
+      : `Best ${p === "gen" ? "generation" : "launch & recovery"} window: none of ${BEST_MIN_H} h or more clear in 72 h${v.strips[p].hours.some((h) => h.tone === "u") ? " (some hours UNKNOWN)" : ""}`);
+  }
+  if (!v.windows.length) out.push(`No time-bound limiting window in 72 h`);
+  for (const w of v.windows.slice(0, maxWindows)) out.push(`${w.tone === "r" ? "[RED] " : ""}${w.text}`);
+  return out;
 }
 
 // ── Scrubbing: one hour, every lane (the readout under the cursor) ───────
@@ -801,12 +1023,24 @@ export function changePoints(t: OpsTimeline, extra: TlLane[] = []): number[] {
   return [...set].filter((x) => x > t.startMs && x < end).sort((a, b) => a - b);
 }
 
-/** The windows as a compact band for an airfield card: fractions of the 72 h. */
-export interface WindowBand { startMs: number; hours: number; live: boolean; windows: { fromMs: number; toMs: number; tone: "a" | "r"; label: string }[] }
-export function windowBand(t: OpsTimeline | null | undefined, windows: LimitWindow[]): WindowBand | null {
+/** The windows as a compact band for an airfield card: fractions of the 72 h.
+ *  `gen` / `launch` (newer summaries) are the two strips' non-clear runs, so
+ *  the card shows the two processes on one aligned track pair. */
+export interface BandRun { fromMs: number; toMs: number; tone: StripTone; label: string }
+export interface WindowBand {
+  startMs: number; hours: number; live: boolean;
+  windows: { fromMs: number; toMs: number; tone: "a" | "r"; label: string }[];
+  gen?: BandRun[];
+  launch?: BandRun[];
+  standing?: string[];
+}
+export function windowBand(t: OpsTimeline | null | undefined, windows: LimitWindow[], v?: PlanView | null): WindowBand | null {
   if (!t) return null;
+  const runs = (p: Proc): BandRun[] => (v?.strips[p].runs ?? []).filter((r) => r.tone !== "g")
+    .map((r) => ({ fromMs: r.fromMs, toMs: r.toMs, tone: r.tone, label: `${rangeLabel(r.fromMs, r.toMs)} — ${r.tone === "u" ? "UNKNOWN" : r.why.slice(0, 3).join(" · ")}` }));
   return {
     startMs: t.startMs, hours: t.hours, live: t.live,
     windows: windows.map((w) => ({ fromMs: w.fromMs, toMs: w.toMs, tone: w.tone, label: `${rangeLabel(w.fromMs, w.toMs)} — ${w.factors.slice(0, 3).map((f) => f.label).join(" · ")}` })),
+    ...(v ? { gen: runs("gen"), launch: runs("launch"), standing: v.standing.map((x) => `${x.label} (${x.hours >= t.hours ? "all" : `${x.hours} h`})`) } : {}),
   };
 }

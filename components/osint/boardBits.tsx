@@ -35,24 +35,44 @@ export function Leds({ status, size = "w-1.5 h-1.5" }: { status: CbSitrep["statu
   );
 }
 
-/** The 72-h limiting windows of a field as one thin band (lib/opsTimeline windowBand):
- *  amber / red stretches on a 72-h track starting now. Nothing drawn for an older
- *  summary without a band; a timeline that could not be read says UNKNOWN. */
+/** The 72-h read of a field as a thin band (lib/opsTimeline windowBand). Newer
+ *  summaries carry two tracks — GENERATION over LAUNCH & RECOVERY — older ones
+ *  the merged limiting windows. Every band is drawn on the SAME clock (this
+ *  hour → +72 h, ticks at Zulu midnights), so the rows of the airfield
+ *  register line up and can be compared down the column; hours a summary did
+ *  not cover read hatched, never clear. */
 export function Band72({ band, className = "" }: { band: WindowBand | null | undefined; className?: string }) {
   if (!band) return null;
-  const span = band.hours * 3_600_000;
-  const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - band.startMs) / span) * 100));
+  const H = 3_600_000;
+  const start = Math.floor(Date.now() / H) * H;
+  const span = 72 * H;
+  const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - start) / span) * 100));
+  const dataEnd = band.startMs + band.hours * H;
+  const midnights: number[] = [];
+  for (let ms = Math.ceil(start / (24 * H)) * 24 * H; ms < start + span; ms += 24 * H) midnights.push(ms);
+  const two = Boolean(band.gen && band.launch);
+  const standing = band.standing?.length ? `\nStanding: ${band.standing.join(", ")}` : "";
   const title = !band.live ? "72-h ops timeline UNKNOWN — no TAF and no model profile"
+    : two ? `Next 72 h (top: generation · bottom: launch & recovery)${standing}\n${[...(band.gen ?? []).map((r) => `GEN ${r.label}`), ...(band.launch ?? []).map((r) => `L&R ${r.label}`)].join("\n") || "both clear"}`
     : band.windows.length ? `Next 72 h:\n${band.windows.map((w) => w.label).join("\n")}`
     : "Next 72 h: no limiting window";
+  const RUN: Record<string, string> = { a: "bg-amber-400/80", r: "bg-red-500/85", u: "bg-slate-500/50" };
+  const track = (runs: { fromMs: number; toMs: number; tone: string }[], h: string) => (
+    <span className={`relative block w-full ${h} ${band.live ? "bg-emerald-500/20" : "border border-dashed border-slate-600"}`}>
+      {band.live && runs.filter((r) => r.toMs > start).map((r, i) => (
+        <span key={i} className={`absolute top-0 bottom-0 ${RUN[r.tone] ?? RUN.a}`} style={{ left: `${pct(r.fromMs)}%`, width: `${Math.max(1.2, pct(r.toMs) - pct(r.fromMs))}%` }} />
+      ))}
+      {/* hours the summary did not reach (assembled earlier) — not clear */}
+      {band.live && dataEnd < start + span && <span className="absolute top-0 bottom-0 bg-slate-900 [background-image:repeating-linear-gradient(45deg,rgba(100,116,139,.5)_0_2px,transparent_2px_4px)]" style={{ left: `${pct(dataEnd)}%`, right: 0 }} />}
+    </span>
+  );
   return (
     <span className={`flex items-center gap-1.5 ${className}`} title={title}>
-      <span className="text-[8px] font-mono text-slate-600 flex-shrink-0">72h</span>
-      <span className={`relative flex-1 h-[5px] rounded-full overflow-hidden ${band.live ? "bg-slate-800/80" : "border border-dashed border-slate-600"}`}>
-        {band.windows.map((w, i) => (
-          <span key={i} className={`absolute top-0 bottom-0 ${w.tone === "r" ? "bg-red-500/80" : "bg-amber-400/75"}`} style={{ left: `${pct(w.fromMs)}%`, width: `${Math.max(1.2, pct(w.toMs) - pct(w.fromMs))}%` }} />
-        ))}
-        {[24, 48].map((h) => <span key={h} className="absolute top-0 bottom-0 w-px bg-slate-950/70" style={{ left: `${(h / band.hours) * 100}%` }} />)}
+      <span className="text-[8px] font-mono text-slate-600 flex-shrink-0 leading-none">{two ? <>G<br />L</> : "72h"}</span>
+      <span className="relative flex-1 flex flex-col gap-px rounded-sm overflow-hidden">
+        {two ? <>{track(band.gen!, "h-[3px]")}{track(band.launch!, "h-[3px]")}</> : track(band.windows, "h-[5px]")}
+        {midnights.map((ms) => <span key={ms} className="absolute top-0 bottom-0 w-px bg-slate-950/80" style={{ left: `${pct(ms)}%` }} />)}
+        {standing && <span className="absolute right-0 top-0 bottom-0 w-[3px] bg-amber-300" title={standing.trim()} />}
       </span>
     </span>
   );

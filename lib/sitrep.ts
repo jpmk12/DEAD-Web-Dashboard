@@ -15,7 +15,7 @@ import { readIcing, type IcingRead } from "./icingSignals";
 import { crosswindOutlook, type XwindOutlook } from "./crosswind";
 import { readTurbulence, type TurbulenceRead } from "./turbulence";
 import { fieldOutlook, type FieldOutlook } from "./fieldOutlook";
-import { opsTimeline, windowsWithNotams, windowBand, type OpsTimeline, type WindowBand } from "./opsTimeline";
+import { opsTimeline, planView, windowBand, type OpsTimeline, type WindowBand } from "./opsTimeline";
 import { parseTafHazards } from "./tafGroups";
 import { withTimeout } from "./withTimeout";
 import { getNotams, notamTimeState, type Notam } from "./notams";
@@ -49,7 +49,7 @@ import { kevHits } from "./cyberSignals";
 import { edgeExposureLed } from "./spectrumRules";
 import { spectrumLed, spectrumShort } from "./sitrepSignals";
 import { recordSensorDay, getSensorSeries, getSensorSeriesMany } from "./sensorStore";
-import { closureWindows, type FieldClosure } from "./sitrepSignals";
+import { closureWindows, timelineClosures, type FieldClosure } from "./sitrepSignals";
 import { baseTempo, type BaseTempo } from "./baseTempo";
 import { functionChronicity, timeToResolve } from "./limfacTrend";
 import { kevCadence, type KevCadence } from "./spectrumTrend";
@@ -288,7 +288,10 @@ export function sitrepSummary(p: SitrepPayload): SitrepSummary {
     aor: classifyAor({ lat: p.base.lat, lon: p.base.lon, name: normalizeCountryName(p.base.country) }),
     status: p.status, driver, line, worse: [...worse],
     band72: p.weather.timeline72
-      ? windowBand(p.weather.timeline72, windowsWithNotams(p.weather.timeline72, closureWindows(p.ops.groups.flatMap((g) => g.items), Date.parse(p.generatedAt), 72)).windows)
+      ? (() => {
+          const v = planView(p.weather.timeline72, timelineClosures(p.ops.groups.flatMap((g) => g.items), Date.parse(p.generatedAt), 72));
+          return windowBand(p.weather.timeline72, v.windows, v);
+        })()
       : null,
   };
 }

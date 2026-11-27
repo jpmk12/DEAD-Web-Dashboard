@@ -406,3 +406,28 @@ keyboard stepping, and no horizontal page overflow.
 - Markers that sit closer than a label's width merge into one (±0°).
 - Labels on the axis hide under the scrub cursor's flag.
 - A band bounded by one level reads "near N ft", never "N–N ft".
+
+## Generation vs launch, standing limits, best windows (2026-11-27)
+
+The timeline exists to answer "when can we generate and launch, and what
+stops us". Three additions make it answer that directly:
+
+- **Standing limits.** A limit (same lane, same label) amber or red for
+  ≥ 85 % of the horizon is listed once above the timeline and removed from
+  the window merge and the strips. Without this a single long NOTAM merges
+  every other limit into one 72-h window and the best / worst times vanish.
+- **Two processes, two strips.** Generation (de-ice, refuelling, loading,
+  maintenance: ground ice, ramp / crew, fuel and parking NOTAMs) and launch &
+  recovery (sky, runway, crosswind, icing aloft, runway / airfield / navaid
+  NOTAMs, operating hours). One hourly strip each: clear, limited (with the
+  labels), or UNKNOWN when a lane the process needs is unknown — never clear.
+- **Best windows.** Clear runs of 3 h or more per process, longest first,
+  with TAF vs model hours, daylight hours, and what ends each one. Standing
+  limits are stated beside them, never part of the ranking.
+- **The planner's flying window** is set per local day (it changes day to
+  day), kept on the device, drawn across the lanes and read against both
+  strips ("0600–0900L clear · 0900–1500L fuel limited").
+- **Operating-hours NOTAMs** draw the complement of the open schedule (closed
+  outside the hours); keep them out of any NMC / field-closed logic — nightly
+  closures are routine. Read "DLY" as a schedule and accept the span before
+  the days ("2200-0600 DLY").

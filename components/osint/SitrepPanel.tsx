@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import type { SitrepPayload, SitrepSummary } from "@/lib/sitrep";
 import type { SitrepBase, FlightCategory } from "@/lib/types";
-import { closureWindows, windowConflicts, windowRangeLabel, spectrumShort, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
+import { closureWindows, timelineClosures, windowConflicts, windowRangeLabel, spectrumShort, type Led, type ClosureWindow } from "@/lib/sitrepSignals";
 import { renderSitrepHtml } from "@/lib/sitrepExport";
 import { SITREP_MAX } from "@/lib/missionProfile";
 import SitrepMissionImpact from "@/components/osint/SitrepMissionImpact";
@@ -16,7 +16,7 @@ import { fieldGpsLine, prnLine } from "@/lib/gpsNotams";
 import IcingCrosswind from "@/components/osint/IcingCrosswind";
 import FieldOutlookStrip from "@/components/osint/FieldOutlookStrip";
 import OpsTimeline from "@/components/osint/OpsTimeline";
-import { windowsWithNotams } from "@/lib/opsTimeline";
+import { planView, planLines } from "@/lib/opsTimeline";
 
 // The LED colours are the shared tokens (lib/levelTokens); the strip's large
 // LEDs carry the glow on top.
@@ -340,10 +340,9 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
     if (p.weather.outlook72) md.push(`- ${p.weather.outlook72.summary}`);
     if (p.weather.timeline72) {
       const tl72 = p.weather.timeline72;
-      const withN = windowsWithNotams(tl72, closureWindows(p.ops.groups.flatMap((g) => g.items), Date.parse(p.generatedAt), 72));
-      md.push("", "### Limiting windows — next 72 h (Z)");
-      if (!tl72.live || !withN.windows.length) md.push(`- ${tl72.summary}`);
-      else for (const w of withN.windows.slice(0, 8)) md.push(`- ${w.text}`);
+      const v = planView(tl72, timelineClosures(p.ops.groups.flatMap((g) => g.items), Date.parse(p.generatedAt), 72));
+      md.push("", "### Mission generation & launch — next 72 h (Z)");
+      for (const l of planLines(tl72, v, 8)) md.push(`- ${l}`);
     }
     if (!p.weather.outlook72) for (const d of p.weather.outlook) md.push(`- ${d.date}: ${d.hiF ?? "?"}/${d.loF ?? "?"}°F, precip ${d.precipPct ?? "?"}%, wind ${d.windMph ?? "?"} mph`);
     md.push(`\n## Ops`);
@@ -407,7 +406,7 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
   );
   // The same NOTAM read over 72 h, for the ops timeline's NOTAM lane.
   const tl72Closures = useMemo(
-    () => (payload ? closureWindows(payload.ops.groups.flatMap((g) => g.items), tlNowMs, 72) : []),
+    () => (payload ? timelineClosures(payload.ops.groups.flatMap((g) => g.items), tlNowMs, 72) : []),
     [payload, tlNowMs],
   );
   const tlConflicts = useMemo(
@@ -538,10 +537,10 @@ export default function SitrepPanel({ active, focusIcao, single = false, section
       {payload && currentBase && (
         <>
           {show("sitrep") && <SitrepMissionImpact payload={payload} read={read} readLoading={readLoading} readError={readError} onRetryRead={() => icao && loadRead(icao)} onChanged={() => icao && loadSitrep(icao)}
-            afterRead={payload.weather.timeline72 ? <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} zone={payload.weather.current?.timezone ?? null} /> : null} />}
+            afterRead={payload.weather.timeline72 ? <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} zone={payload.weather.current?.timezone ?? null} icao={payload.base.icao} limfacs={payload.mission.limfacs} /> : null} />}
           {/* The Weather tab (no mission panel) leads with it. */}
           {!show("sitrep") && show("weather") && payload.weather.timeline72 && (
-            <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} zone={payload.weather.current?.timezone ?? null} />
+            <OpsTimeline tl={payload.weather.timeline72} closures={tl72Closures} zone={payload.weather.current?.timezone ?? null} icao={payload.base.icao} limfacs={payload.mission.limfacs} />
           )}
 
           {/* Status strip */}

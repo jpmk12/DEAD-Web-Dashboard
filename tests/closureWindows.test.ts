@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import * as ss from "../lib/sitrepSignals";
 import { closureWindows, windowConflicts, windowLabel, parseNotamSchedule, windowRangeLabel as mkLabel, type ClosureWindow } from "../lib/sitrepSignals";
 import type { TafSegment } from "../lib/sitrepSignals";
 
@@ -246,5 +247,52 @@ describe("windowRangeLabel", () => {
     expect(mkLabel(mk(TUE, TUE + 48 * H, { openEnded: true }), TUE)).toBe("06:48Z–UFN");
     expect(mkLabel(mk(TUE, TUE + 48 * H, { beyondHorizon: true }), TUE)).toBe("06:48Z–→ beyond +48h");
     expect(mkLabel(mk(TUE, TUE + 48 * H, { indeterminate: true }), TUE)).toBe("SCHEDULE IN NOTAM — extent not parsed");
+  });
+});
+
+describe("DLY schedules, time-first schedules and operating hours (2026-11-27)", () => {
+  const NOW = Date.parse("2026-11-27T00:00:00Z"); // a Friday
+  const H = 3_600_000;
+  const notam = (text: string, start = "2026-11-20T00:00:00Z", end = "2026-12-20T00:00:00Z") => ({ category: "other", rank: 5, text, start, end });
+
+  it("DLY is a schedule (it used to read as a closure for the whole validity)", () => {
+    expect(parseNotamSchedule("RWY 05/23 CLSD DLY 2200-0600")).toEqual([{ days: [0, 1, 2, 3, 4, 5, 6], startMin: 1320, endMin: 360 }]);
+    const w = closureWindows([notam("RWY 05/23 CLSD DLY 2200-0600")], NOW, 72).filter((x) => x.label === "RWY 05/23");
+    expect(w.length).toBe(4); // 00–06, 22–06, 22–06, 22–24
+    expect(w[0]).toMatchObject({ fromMs: NOW, toMs: NOW + 6 * H });
+  });
+
+  it("the span may come first: '2200-0600 DLY', '0800-1600 MON-FRI'", () => {
+    expect(parseNotamSchedule("TWY B CLSD 2200-0600 DLY")![0]).toMatchObject({ startMin: 1320, endMin: 360 });
+    expect(parseNotamSchedule("TWY A CLSD 0800-1600 MON-FRI.")![0].days).toEqual([1, 2, 3, 4, 5]);
+    // A GPS validity pair is never a schedule.
+    expect(parseNotamSchedule("DLY 0700-1100 2606150700-2606181100")![0]).toMatchObject({ startMin: 420, endMin: 660 });
+  });
+
+  it("operating hours: the field is closed OUTSIDE the published hours, never inside them", () => {
+    const n = notam("AD HR OF OPS 0600-2200 DLY, OTHER TIMES CLSD");
+    expect(ss.operatingHours(n.text)).toMatchObject({ subject: "airfield" });
+    expect(closureWindows([n], NOW, 72)).toEqual([]); // "OTHER TIMES CLSD" must not paint the open hours
+    const w = ss.hoursWindows([n], NOW, 72);
+    expect(w.map((x) => [(x.fromMs - NOW) / H, (x.toMs - NOW) / H])).toEqual([[0, 6], [22, 30], [46, 54], [70, 72]]);
+    expect(w[0]).toMatchObject({ label: "Airfield hours", kind: "closure" });
+  });
+
+  it("fuel hours are a limit outside the hours; 'FUEL NOT AVBL 2200-0600' stays a limited window", () => {
+    const w = ss.hoursWindows([notam("JET A1 FUEL AVBL 0700-1900 MON-FRI")], NOW, 24);
+    expect(w.map((x) => [(x.fromMs - NOW) / H, (x.toMs - NOW) / H, x.kind, x.label])).toEqual([[0, 7, "limited", "Fuel hours"], [19, 24, "limited", "Fuel hours"]]);
+    expect(ss.operatingHours("FUEL NOT AVBL DLY 2200-0600")).toBeNull();
+  });
+
+  it("an hours NOTAM whose times do not read is an unreadable schedule, never open or closed", () => {
+    const w = ss.hoursWindows([notam("AD OPR HR MON-FRI AS PUBLISHED, SAT SUN BY PPR")], NOW, 24);
+    expect(w).toEqual([expect.objectContaining({ label: "Airfield hours", indeterminate: true })]);
+  });
+
+  it("PPR is a note over the notice's validity; timelineClosures adds hours to closures", () => {
+    const w = ss.hoursWindows([notam("AD PPR FOR ALL ACFT, CTC BASE OPS 24 HR PRIOR")], NOW, 24);
+    expect(w).toEqual([expect.objectContaining({ label: "PPR", kind: "limited", fromMs: NOW, toMs: NOW + 24 * H })]);
+    const all = ss.timelineClosures([notam("RWY 05/23 CLSD"), notam("AD HR OF OPS 0600-2200 DLY")], NOW, 24);
+    expect(all.map((x) => x.label).sort()).toEqual(["Airfield hours", "Airfield hours", "RWY 05/23"]);
   });
 });

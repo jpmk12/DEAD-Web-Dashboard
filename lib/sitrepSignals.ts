@@ -295,10 +295,16 @@ const DAY_TOKEN = "MON|TUE|WED|THU|FRI|SAT|SUN";
 // A day-of-week token is the marker that a schedule exists at all. Matched
 // case-sensitively against the upper-cased text so "Mon" inside a word can't
 // trip it.
-const HAS_SCHEDULE_RE = new RegExp(`\\b(?:${DAY_TOKEN}|DAILY)\\b`);
+// "DLY" is the ICAO abbreviation and the commoner spelling in item E).
+const HAS_SCHEDULE_RE = new RegExp(`\\b(?:${DAY_TOKEN}|DAILY|DLY)\\b`);
 // day list (possibly ranges) immediately followed by an HHMM-HHMM span
 const SCHEDULE_CLAUSE_RE = new RegExp(
-  `((?:(?:${DAY_TOKEN}|DAILY)(?:\\s*-\\s*(?:${DAY_TOKEN}))?[\\s,]*)+)(\\d{4})\\s*-\\s*(\\d{4})`,
+  `((?:(?:${DAY_TOKEN}|DAILY|DLY)(?:\\s*-\\s*(?:${DAY_TOKEN}))?[\\s,]*)+)\\b(\\d{4})\\s*-\\s*(\\d{4})\\b`,
+  "g",
+);
+// …or the span first and the days after it ("2200-0600 DLY", "0600-2200 MON-FRI").
+const SCHEDULE_CLAUSE_TIME_FIRST_RE = new RegExp(
+  `\\b(\\d{4})\\s*-\\s*(\\d{4})\\s+((?:(?:${DAY_TOKEN}|DAILY|DLY)(?:\\s*-\\s*(?:${DAY_TOKEN}))?(?:[\\s,]+|$|(?=[.;)])))+)`,
   "g",
 );
 
@@ -312,7 +318,7 @@ function expandDayTokens(raw: string): number[] {
   const days = new Set<number>();
   // Normalise "MON - FRI" → "MON-FRI" so a range survives the split.
   for (const tok of raw.replace(/\s*-\s*/g, "-").split(/[\s,]+/).filter(Boolean)) {
-    if (tok === "DAILY") { for (let d = 0; d < 7; d++) days.add(d); continue; }
+    if (tok === "DAILY" || tok === "DLY") { for (let d = 0; d < 7; d++) days.add(d); continue; }
     const range = tok.match(new RegExp(`^(${DAY_TOKEN})-(${DAY_TOKEN})$`));
     if (range) {
       const a = DOW_NUM[range[1]], b = DOW_NUM[range[2]];
@@ -342,6 +348,16 @@ export function parseNotamSchedule(text: string): ScheduleRule[] | null {
     const endMin = hhmmToMin(m[3]);
     if (!days.length || startMin === null || endMin === null) continue;
     rules.push({ days, startMin, endMin });
+  }
+  if (!rules.length) {
+    SCHEDULE_CLAUSE_TIME_FIRST_RE.lastIndex = 0;
+    for (const m of up.matchAll(SCHEDULE_CLAUSE_TIME_FIRST_RE)) {
+      const days = expandDayTokens(m[3]);
+      const startMin = hhmmToMin(m[1]);
+      const endMin = hhmmToMin(m[2]);
+      if (!days.length || startMin === null || endMin === null) continue;
+      rules.push({ days, startMin, endMin });
+    }
   }
   return rules.length ? rules : [];               // [] = schedule present but unreadable
 }
@@ -455,6 +471,9 @@ export function closureWindows(notams: SitrepNotam[], nowMs: number, horizonH = 
   const horizonEnd = nowMs + horizonH * 3600_000;
   const out: ClosureWindow[] = [];
   for (const n of notams) {
+    // An operating-hours NOTAM's schedule is when the field (or the fuel) is
+    // OPEN; "OTHER TIMES CLSD" in it must not paint the open hours as closed.
+    if (operatingHours(n.text)) continue;
     const kind = windowKind(n.text);
     if (!kind) continue;
     const startMs = n.start ? Date.parse(n.start) : NaN;
@@ -502,6 +521,81 @@ export function closureWindows(notams: SitrepNotam[], nowMs: number, horizonH = 
   return out
     .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.fromMs - b.fromMs)
     .slice(0, 24);   // a scheduled closure emits one bar PER occurrence, not one per NOTAM
+}
+
+// ── Operating hours / PPR (the ops timeline's NOTAM lane only) ────────────
+// "AD HR OF OPS 0600-2200 MON-FRI" says when the field is OPEN, so the hours
+// that limit are the COMPLEMENT of the schedule inside the notice's validity.
+// Kept out of closureWindows (and so out of the mission-impact derivation and
+// the field-closed state): a field that shuts every night is routine, and a
+// nightly NMC would be the Christmas tree. The ops timeline draws them; the
+// planner decides. Contract UNVERIFIED against live DAIP text — the forms read
+// are the ICAO abbreviations; an hours NOTAM whose times do not parse is drawn
+// as an unreadable schedule (SCHED), never as open or closed.
+
+export interface OperatingHours { subject: "airfield" | "fuel"; rules: ScheduleRule[] }
+
+const AD_HOURS_RE = /\b(?:AD|AERODROME|AIRPORT|AIRFIELD)\b[^.]{0,24}?\b(?:(?:HR|HRS|HOURS)\s+(?:OF\s+)?(?:OPS?|OPR|OPERATIONS?|SER|SERVICE)|(?:OPR|OPS)\s+(?:HR|HRS|HOURS)|OPN|OPEN|AVBL)\b/;
+const FUEL_HOURS_RE = /\bFUEL(?:LING)?\b[^.]{0,30}?\b(?:(?:HR|HRS|HOURS)\s+(?:OF\s+)?(?:OPS?|OPR|OPERATIONS?|SER|SERVICE)|AVBL|AVAILABLE)\b/;
+const NOT_AVBL_RE = /\b(?:NOT\s+AVBL|UNAVBL|NOT\s+AVAILABLE)\b/;
+
+/** The operating-hours reading of a NOTAM, or null when it is not one. A
+ *  schedule must be present (an hours NOTAM with no times says nothing about
+ *  WHEN); rules [] = present but unreadable. */
+export function operatingHours(text: string): OperatingHours | null {
+  const up = (text ?? "").toUpperCase().replace(/\s+/g, " ");
+  const sched = parseNotamSchedule(up);
+  if (!sched) return null;
+  if (NOT_AVBL_RE.test(up)) return null;          // "FUEL NOT AVBL 2200-0600" is a limited window, not hours
+  if (AD_HOURS_RE.test(up) && !/\b(?:TWY|TAXIWAY|RWY|APRON)\b[^.]{0,12}\b(?:OPN|AVBL)\b/.test(up)) return { subject: "airfield", rules: sched };
+  if (FUEL_HOURS_RE.test(up)) return { subject: "fuel", rules: sched };
+  return null;
+}
+
+const PPR_RE = /\bPPR\b|\bPRIOR\s+PERMISSION\s+REQUIRED\b/;
+
+/** Windows the ops timeline adds to closureWindows: the hours OUTSIDE a
+ *  published operating schedule (airfield → closure, fuel → limited) and a
+ *  PPR note over the notice's validity. Same clipping and validity rules. */
+export function hoursWindows(notams: SitrepNotam[], nowMs: number, horizonH = 72): ClosureWindow[] {
+  const horizonEnd = nowMs + horizonH * 3600_000;
+  const out: ClosureWindow[] = [];
+  for (const n of notams) {
+    const startMs = n.start ? Date.parse(n.start) : NaN;
+    const endMs = n.end ? Date.parse(n.end) : NaN;
+    const from = Math.max(Number.isFinite(startMs) ? startMs : nowMs, nowMs);
+    const to = Math.min(Number.isFinite(endMs) ? endMs : horizonEnd, horizonEnd);
+    if (to <= from) continue;
+    const text = n.text.slice(0, 160);
+    const oh = operatingHours(n.text);
+    if (oh) {
+      const label = oh.subject === "airfield" ? "Airfield hours" : "Fuel hours";
+      const kind: WindowKind = oh.subject === "airfield" ? "closure" : "limited";
+      if (!oh.rules.length) {
+        out.push({ label, kind, fromMs: from, toMs: to, openEnded: !Number.isFinite(endMs), beyondHorizon: Number.isFinite(endMs) && endMs > horizonEnd, text, indeterminate: true });
+        continue;
+      }
+      // The complement of the open occurrences inside [from, to].
+      let cursor = from;
+      for (const occ of scheduleOccurrences(oh.rules, from, to)) {
+        if (occ.fromMs > cursor) out.push({ label, kind, fromMs: cursor, toMs: occ.fromMs, openEnded: false, beyondHorizon: false, text, recurring: true });
+        cursor = Math.max(cursor, occ.toMs);
+      }
+      if (cursor < to) out.push({ label, kind, fromMs: cursor, toMs: to, openEnded: false, beyondHorizon: false, text, recurring: true });
+      continue;
+    }
+    const up = n.text.toUpperCase();
+    if (PPR_RE.test(up) && /\b(?:AD|AERODROME|AIRPORT|AIRFIELD|ARR|DEP|ACFT|FLT|OPS)\b/.test(up)) {
+      out.push({ label: "PPR", kind: "limited", fromMs: from, toMs: to, openEnded: !Number.isFinite(endMs), beyondHorizon: Number.isFinite(endMs) && endMs > horizonEnd, text });
+    }
+  }
+  return out.sort((a, b) => a.fromMs - b.fromMs).slice(0, 24);
+}
+
+/** Everything the ops timeline's NOTAM lane draws: closures, outages and
+ *  limits (closureWindows) plus operating hours and PPR (hoursWindows). */
+export function timelineClosures(notams: SitrepNotam[], nowMs: number, horizonH = 72): ClosureWindow[] {
+  return [...closureWindows(notams, nowMs, horizonH), ...hoursWindows(notams, nowMs, horizonH)];
 }
 
 const zHhmm = (ms: number) => {
